@@ -1,0 +1,53 @@
+HeatTemplateFormatVersion: '2012-12-12'
+Description: 'HEAT Template - Keystone'
+Parameters:
+  KeyName: 
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: String
+    Default: default
+  InstanceType:
+    Description: Use this flavor
+    Type: String
+    Default: bm.small
+  KeystoneDSN:
+    Description: DSN for connecting to keystone
+    Type: String
+  KeystoneImage:
+    Type: String
+Resources:
+  ApiAccessPolicy:
+    Type: OS::Heat::AccessPolicy
+    Properties:
+      AllowedResources: [ KeystoneLaunch, Keystone ]
+  ApiUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies: [ { Ref: ApiAccessPolicy } ]
+  ApiKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: ApiUser
+  KeystoneLaunch:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId:
+        {Ref: KeystoneImage}
+      InstanceType: {Ref: InstanceType}
+      KeyName: {Ref: KeyName}
+    Metadata:
+      OpenStack::Heat::CFNTools:
+        AWSAccessKeyId:
+          Ref: ApiKey
+        AWSSecretAccessKey:
+          Fn::GetAtt: [ ApiKey, SecretAccessKey ]
+      OpenStack::ImageBuilder::Elements: [ keystone ]
+      OpenStack:
+        keystone:
+          db: {Ref: KeystoneDSN}
+  Keystone:
+    Type: OS::Heat::InstanceGroup
+    Properties:
+      LaunchConfigurationName: { Ref: KeystoneLaunch }
+      AvailabilityZones: [ 1 ]
+      Size: '1'
