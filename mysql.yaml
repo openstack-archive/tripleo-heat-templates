@@ -9,14 +9,30 @@ Parameters:
     Description: Use this flavor
     Type: String
     Default: bm.small
+  KeystoneUser:
+    Description: Keystone database username.
+    Type: String
+    Default: keystone
   MySQLImage:
     Type: String
-  BootstrapUrl:
-    Description: Fetch a mysql dump file from this URL and load it
+  BootstrapHost:
+    Description: Load mysqldump from this Host
     Type: String
     Default: ''
-  BootstrapRootCnfUrl:
-    Description: Fetch a mysql config file from this URL to setup local root with bootstrapped database
+  BootstrapRootPassword:
+    Description: Root password for localhost access after bootstrap
+    Type: String
+    Default: ''
+  BootstrapDumpPassword:
+    Description: Password to use for mysqldump from Bootstrap Host
+    Type: String
+    Default: ''
+  BootstrapSlaveUser:
+    Description: User to use for replication from bootstrap host
+    Type: String
+    Default: ''
+  BootstrapSlavePassword:
+    Description: Password to use with BootstrapSlaveUser
     Type: String
     Default: ''
 Resources:
@@ -40,9 +56,17 @@ Resources:
       OpenStack::Config:
         mysql:
           users:
+            root:
+              password: {Ref: BootstrapRootPassword}
+            dump:
+              password: {Ref: BootstrapDumpPassword}
+          create-users:
             - database: keystone
-          bootstrap_url: {Ref: BootstrapUrl}
-          root_cnf_url: {Ref: BootstrapRootCnfUrl}
+              username: {Ref: KeystoneUser}
+              userhandle: {Ref: KeystonePasswordHandle}
+          bootstrap_host: {Ref: BootstrapHost}
+          slave_user: {Ref: BootstrapSlaveUser}
+          slave_password: {Ref: BootstrapSlavePassword}
         heat:
           access_key_id:
             Ref: ApiKey
@@ -59,6 +83,17 @@ Resources:
       InstanceType: {Ref: InstanceType}
       KeyName: {Ref: KeyName}
       UserData: "#!/bin/bash\ntouch /tmp/userdata-finished\necho Userdata finished $(date)\n"
+  KeystonePasswordHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+  KeystonePassword:
+    DependsOn: MySQL
+    Type: AWS::CloudFormation::WaitCondition
+    Properties:
+      Handle: {Ref: KeystonePasswordHandle}
+      Timeout: 60
 Outputs:
     MySQLHost: 
         Fn::GetAtt: [ MySQL , PrivateIp ]
+    KeystonePassword:
+        Fn::GetAtt: [ KeystonePassword, Data ]
+    KeystoneUser: {Ref: KeystoneUser}
