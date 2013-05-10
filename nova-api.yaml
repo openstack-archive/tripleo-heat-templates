@@ -1,5 +1,5 @@
 HeatTemplateFormatVersion: '2012-12-12'
-Description: 'HEAT Template - Nova Compute'
+Description: 'HEAT Template - Nova API'
 Parameters:
   KeyName: 
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
@@ -9,6 +9,9 @@ Parameters:
     Description: Use this flavor
     Type: String
     Default: bm.small
+  NovaDSN:
+    Description: DSN for connecting to nova database
+    Type: String
   NovaImage:
     Type: String
   KeystoneHost:
@@ -26,17 +29,14 @@ Parameters:
   NovaInterfaces:
     Type: String
     Default: eth0
-  NovaComputeSize:
+  NovaAPiSize:
     Type: Integer
     Default: 1
-  NovaComputeDriver:
-    Type: String
-    Default: libvirt.LibvirtDriver
 Resources:
   AccessPolicy:
     Type: OS::Heat::AccessPolicy
     Properties:
-      AllowedResources: [ NovaCompute ]
+      AllowedResources: [ NovaApi ]
   User:
     Type: AWS::IAM::User
     Properties:
@@ -46,15 +46,15 @@ Resources:
     Properties:
       UserName:
         Ref: User
-  NovaLaunch:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  NovaApi:
+    Type: AWS::EC2::Instance
     Properties:
       ImageId:
         {Ref: NovaImage}
       InstanceType: {Ref: InstanceType}
       KeyName: {Ref: KeyName}
     Metadata:
-      OpenStack::ImageBuilder::Elements: [ nova-compute ]
+      OpenStack::ImageBuilder::Elements: [ nova-api ]
       heat: 
         access_key_id:
           Ref: Key
@@ -64,11 +64,11 @@ Resources:
           name: {Ref: 'AWS::StackName'}
           region: {Ref: 'AWS::Region'}
         refresh:
-          - resource: NovaCompute
-      nova:
-        compute_driver: {Ref: NovaComputeDriver}
+          - resource: NovaApi
       keystone:
         host: {Ref: KeystoneHost}
+      nova:
+        db: {Ref: NovaDSN}
       quantum:
         host: {Ref: QuantumHost}
       service-password: {Ref: ServicePassword}
@@ -81,8 +81,3 @@ Resources:
         store_key: ''
       interfaces:
         control: {Ref: NovaInterfaces}
-    NovaCompute:
-      Type: OS::Heat::InstanceGroup
-      Properties:
-        LaunchConfiguration: {Ref: NovaLaunch}
-        Size: {Ref: NovaComputeSize}
