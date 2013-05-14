@@ -1,0 +1,59 @@
+HeatTemplateFormatVersion: '2012-12-12'
+Description: 'HEAT Template - Heat Engine and API'
+Parameters:
+  KeyName: 
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: String
+    Default: default
+  InstanceType:
+    Description: Use this flavor
+    Type: String
+    Default: bm.small
+  HeatUser:
+    Description: Heat database username.
+    Type: String
+    Default: heat
+  HeatImage:
+    Type: String
+  RabbitMQHost:
+    Description: Host for RabbitMQ
+    Type: String
+  RabbitMQPassword:
+    Description: Password for RabbitMQ
+    Type: String
+Resources:
+  HeatAccessPolicy:
+    Type: OS::Heat::AccessPolicy
+    Properties:
+      AllowedResources: [ Heat ]
+  HeatUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies: [ { Ref: HeatAccessPolicy } ]
+  HeatKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: HeatUser
+  Heat:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:
+        {Ref: HeatImage}
+    Metadata:
+      OpenStack::Role: stateful
+      OpenStack::ImageBuilder::Elements: [ heat-api, heat-engine ]
+      heat:
+        rpc_backend: heat.openstack.common.rpc.impl_kombu
+        rabbit:
+          host: {Ref: RabbitMQHost}
+          password: {Ref: RabbitMQPassword}
+        access_key_id:
+          Ref: HeatKey
+        secret_key:
+          Fn::GetAtt: [ HeatKey, SecretAccessKey ]
+        stack:
+          name: {Ref: 'AWS::StackName'}
+          region: {Ref: 'AWS::Region'}
+        refresh:
+          - resource: Heat
