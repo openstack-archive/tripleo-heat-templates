@@ -77,6 +77,9 @@ def fix_ref(item, old, new):
             if k == 'Ref' and v == old:
                 item[k] = new
                 continue
+            if k == 'DependsOn' and v == old:
+                item[k] = new
+                continue
             if k == 'Fn::GetAtt' and isinstance(v, list) and v[0] == old:
                 new_list = list(v)
                 new_list[0] = new
