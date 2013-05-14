@@ -1,7 +1,33 @@
 import sys
 import yaml
+import argparse
 
-templates = list(sys.argv[1:])
+parser = argparse.ArgumentParser()
+parser.add_argument('templates', nargs='+')
+parser.add_argument('--master-role', nargs='?',
+                    help='Translate slave_roles to this')
+parser.add_argument('--slave-roles', nargs='*',
+                    help='Translate all of these to master_role')
+
+args = parser.parse_args()
+
+templates = args.templates
+
+def _translate_role(role):
+    global args
+    if not args.master_role:
+        return role
+    if role == args.master_role:
+        return role
+    if role not in args.slave_roles:
+        return role
+    return args.master_role
+
+def translate_role(role):
+    r = _translate_role(role)
+    if not isinstance(r, basestring):
+        raise Exception('%s -> %r' % (role, r))
+    return r
 
 errors = []
 end_template={'HeatTemplateFormatVersion': '2012-12-12',
@@ -39,6 +65,7 @@ for template_path in templates:
             # XXX Assuming ImageId is always a Ref
             del end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
             role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
+            role = translate_role(role)
             if role != r:
                 resource_changes.append((r, role))
             if role in end_template.get('Resources', {}):
