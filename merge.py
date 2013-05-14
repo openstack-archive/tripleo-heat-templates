@@ -82,6 +82,11 @@ def fix_ref(item, old, new):
                 new_list[0] = new
                 item[k] = new_list
                 continue
+            if k == 'AllowedResources' and isinstance(v, list) and old in v:
+                while old in v:
+                    pos = v.index(old)
+                    v[pos] = new
+                continue
             fix_ref(v, old, new)
     elif isinstance(item, list):
         copy_item = list(item)
