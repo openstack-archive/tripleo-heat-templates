@@ -1,0 +1,100 @@
+Description: Nova API,Keystone,Heat Engine and API,Glance,Quantum,Dedicated MySQL
+  server,Dedicated RabbitMQ Server
+HeatTemplateFormatVersion: '2012-12-12'
+Parameters:
+  InstanceType:
+    Default: baremetal
+    Description: Use this flavor
+    Type: String
+  KeyName:
+    Default: default
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: String
+  notcomputeImage:
+    Type: String
+Resources:
+  AccessPolicy:
+    Properties:
+      AllowedResources:
+      - notcompute
+    Type: OS::Heat::AccessPolicy
+  Key:
+    Properties:
+      UserName:
+        Ref: User
+    Type: AWS::IAM::AccessKey
+  User:
+    Properties:
+      Policies:
+      - Ref: AccessPolicy
+    Type: AWS::IAM::User
+  notcompute:
+    Metadata:
+      OpenStack::Heat::Stack: {}
+      Openstack::ImageBuilder::Elements: [ boot-stack, heat-cfntools, quantum-network-node ]
+      admin-password: unset
+      admin-token: unset
+      controller-address:
+        Fn::GetAtt: [ notcompute, PublicIp ] 
+      cinder:
+        db: mysql://cinder:unset@localhost/cinder
+        volume_size_mb: '5000'
+      db-password: unset
+      glance:
+        db: mysql://glance:unset@localhost/glance
+        host: 127.0.0.1
+      heat:
+        admin_password: unset
+        admin_tenant_name: service
+        admin_user: heat
+        auth_encryption_key: unset___________
+        db: mysql://heat:unset@localhost/heat
+        heat_watch_server_url: http://127.0.0.1:8003
+        metadata_server_url: http://127.0.0.1:8000
+        waitcondition_server_url: http://127.0.0.1:8000/v1/waitcondition
+        access_key_id:
+          Ref: Key
+        refresh:
+        - resource: notcompute
+        secret_key:
+          Fn::GetAtt:
+          - Key
+          - SecretAccessKey
+        stack:
+          name:
+            Ref: AWS::StackName
+          region:
+            Ref: AWS::Region
+      interfaces:
+        control: eth2
+      keystone:
+        db: mysql://keystone:unset@localhost/keystone
+        host: 127.0.0.1
+      nova:
+        compute_driver: libvirt.LibvirtDriver
+        db: mysql://nova:unset@localhost/nova
+        host: 127.0.0.1
+      quantum:
+        floatingip_range: 172.17.41.0/24
+        host: 127.0.0.1
+        metadata_proxy_shared_secret: unset
+        ovs_db: mysql://quantum:unset@localhost/ovs_quantum?charset=utf8
+        ovs:
+          public_interface: eth2
+          fixed_range: 10.0.0.0/8
+          tenant_network_type: gre
+          enable_tunneling: 'True'
+          local_ip:
+            Fn::GetAtt: [ notcompute, PrivateIp ]
+      rabbit:
+        host: 127.0.0.1
+        password: guest
+      service-password: unset
+    Properties:
+      ImageId:
+        Ref: notcomputeImage
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyName
+    Type: AWS::EC2::Instance
