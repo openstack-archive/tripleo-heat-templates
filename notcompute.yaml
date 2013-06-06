@@ -1,5 +1,5 @@
-Description: Dedicated RabbitMQ Server,Dedicated MySQL server,Nova API,Keystone,Heat
-  Engine and API,Glance
+Description: Nova API,Keystone,Heat Engine and API,Glance,Quantum,Dedicated MySQL
+  server,Dedicated RabbitMQ Server
 HeatTemplateFormatVersion: '2012-12-12'
 Outputs:
   GlancePassword:
@@ -83,13 +83,16 @@ Parameters:
     Default: keystone
     Description: Keystone database username.
     Type: String
-  NovaAPiSize:
-    Default: 1
-    Type: Integer
   NovaDSN:
     Description: DSN for connecting to nova database
     Type: String
   NovaInterfaces:
+    Default: eth0
+    Type: String
+  QuantumDSN:
+    Description: DSN for connecting to quantum database
+    Type: String
+  QuantumInterfaces:
     Default: eth0
     Type: String
   RabbitHost:
@@ -105,6 +108,8 @@ Parameters:
   ServicePassword:
     Description: admin_password for setting up auth in nova.
     Type: String
+  networkingImage:
+    Type: String
   notcomputeImage:
     Type: String
 Resources:
@@ -116,6 +121,7 @@ Resources:
   ApiAccessPolicy:
     Properties:
       AllowedResources:
+      - KeystoneLaunch
       - notcompute
     Type: OS::Heat::AccessPolicy
   ApiKey:
@@ -189,17 +195,65 @@ Resources:
       Policies:
       - Ref: AccessPolicy
     Type: AWS::IAM::User
+  networking:
+    Metadata:
+      OpenStack::ImageBuilder::Elements:
+      - quantum
+      OpenStack::Role: networking
+      admin-password:
+        Ref: ServicePassword
+      heat:
+        access_key_id:
+          Ref: Key
+        refresh:
+        - resource: Quantum
+        secret_key:
+          Fn::GetAtt:
+          - Key
+          - SecretAccessKey
+        stack:
+          name:
+            Ref: AWS::StackName
+          region:
+            Ref: AWS::Region
+      interfaces:
+        control:
+          Ref: QuantumInterfaces
+      keystone:
+        host:
+          Ref: KeystoneHost
+      quantum:
+        ovs_db:
+          Ref: QuantumDSN
+      rabbit:
+        host:
+          Ref: RabbitHost
+        password:
+          Ref: RabbitPassword
+      service-password:
+        Ref: ServicePassword
+      swift:
+        store_key: ''
+        store_user: ''
+    Properties:
+      ImageId:
+        Ref: networkingImage
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyName
+    Type: AWS::EC2::Instance
   notcompute:
     Metadata:
       OpenStack::ImageBuilder::Elements:
-      - rabbitmq-server
-      - mysql-migration
       - nova-api
       - keystone
       - heat-api
       - heat-engine
       - glance
-      OpenStack::Role: stateful
+      - mysql-migration
+      - rabbitmq-server
+      OpenStack::Role: stateless
       admin-password:
         Ref: ServicePassword
       admin-token:
@@ -209,12 +263,12 @@ Resources:
           Ref: GlanceDSN
       heat:
         access_key_id:
-          Ref: ApiKey
+          Ref: Key
         refresh:
-        - resource: MySQL
+        - resource: NovaApi
         secret_key:
           Fn::GetAtt:
-          - ApiKey
+          - Key
           - SecretAccessKey
         stack:
           name:
