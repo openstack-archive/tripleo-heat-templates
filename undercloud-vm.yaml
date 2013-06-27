@@ -1,0 +1,129 @@
+Description: All-in-one baremetal OpenStack and all dependencies.
+HeatTemplateFormatVersion: '2012-12-12'
+Parameters:
+  InstanceType:
+    Default: baremetal
+    Description: Flavor to request when deploying.
+    Type: String
+  KeyName:
+    Default: default
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: String
+  Image:
+    Default: undercloud
+    Type: String
+  PowerUserName:
+    Default: stack
+    Description: What username to ssh to the virtual power host with.
+    Type: String
+Resources:
+  AccessPolicy:
+    Properties:
+      AllowedResources:
+      - notcompute
+    Type: OS::Heat::AccessPolicy
+  Key:
+    Properties:
+      UserName:
+        Ref: User
+    Type: AWS::IAM::AccessKey
+  User:
+    Properties:
+      Policies:
+      - Ref: AccessPolicy
+    Type: AWS::IAM::User
+  notcompute:
+    Metadata:
+      OpenStack::Heat::Stack: {}
+      Openstack::ImageBuilder::Elements: [ boot-stack, heat-cfntools, quantum-network-node ]
+      admin-password: unset
+      admin-token: unset
+      controller-address: 0.0.0.0
+      cinder:
+        db: mysql://cinder:unset@localhost/cinder
+        volume_size_mb: '5000'
+      db-password: unset
+      dib:
+        ramdisk_elements: deploy
+      glance:
+        db: mysql://glance:unset@localhost/glance
+        host: 127.0.0.1
+      heat:
+        admin_password: unset
+        admin_tenant_name: service
+        admin_user: heat
+        auth_encryption_key: unset___________
+        db: mysql://heat:unset@localhost/heat
+        heat_watch_server_url: http://0.0.0.0:8003
+        metadata_server_url: http://0.0.0.0:8000
+        waitcondition_server_url: http://0.0.0.0:8000/v1/waitcondition
+        access_key_id:
+          Ref: Key
+        refresh:
+        - resource: notcompute
+        secret_key:
+          Fn::GetAtt:
+          - Key
+          - SecretAccessKey
+        stack:
+          name:
+            Ref: AWS::StackName
+          region:
+            Ref: AWS::Region
+      interfaces:
+        control: eth2
+      keystone:
+        db: mysql://keystone:unset@localhost/keystone
+        host: 127.0.0.1
+      nova:
+        compute_hostname: ubuntu
+        compute_driver: baremetal.driver.BareMetalDriver
+        db: mysql://nova:unset@localhost/nova
+        host: 127.0.0.1
+        metadata-proxy: false
+        tuning:
+          ram_allocation_ratio: 1.0
+          reserved_host_memory_mb: 0
+        baremetal:
+          arch: i386
+          db: mysql://nova:unset@localhost/nova_bm
+          power_manager: nova.virt.baremetal.virtual_power_driver.VirtualPowerManager
+          pxe_deploy_timeout: 1200
+          virtual_power:
+            user:
+              Ref: PowerUserName
+            key: /opt/stack/boot-stack/virtual-power-key
+            ssh_host: 192.168.122.1
+            type: virsh
+      quantum:
+        floatingip_range: 172.17.41.0/24
+        floatingip_start: 172.17.41.2
+        floatingip_end: 172.17.41.254
+        host: 127.0.0.1
+        metadata_proxy_shared_secret: unset
+        ovs_db: mysql://quantum:unset@localhost/ovs_quantum?charset=utf8
+        ovs:
+          public_interface: eth0
+          physical_bridge: br-ctlplane
+          physical_network: ctlplane
+          network_vlan_ranges: ctlplane
+          bridge_mappings: ctlplane:br-ctlplane
+          fixed_range: 198.51.100.0/24
+          ovs_range: 198.51.100.0/24
+          tenant_network_type: vlan
+          enable_tunneling: 'False'
+      rabbit:
+        host: 127.0.0.1
+        password: guest
+      swift:
+        store_user: unset
+        store_key: unset
+      service-password: unset
+    Properties:
+      ImageId:
+        Ref: Image
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyName
+    Type: AWS::EC2::Instance
