@@ -87,6 +87,13 @@ for template_path in templates:
             ikey = '%sImage' % (role)
             end_template['Resources'][role]['Properties']['ImageId'] = {'Ref': ikey}
             end_template['Parameters'][ikey] = {'Type': 'String'}
+        elif rbody['Type'] == 'FileInclude':
+            with open(rbody['Path']) as rfile:
+                include_content = yaml.safe_load(rfile.read())
+                subkeys = rbody.get('SubKey','').split('.')
+                while len(subkeys) and subkeys[0]:
+                    include_content = include_content[subkeys.pop(0)]
+                end_template['Resources'][r] = include_content
         else:
             if r in end_template.get('Resources', {}):
                 if rbody != end_template['Resources'][r]:
