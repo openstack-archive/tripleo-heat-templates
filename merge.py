@@ -38,7 +38,7 @@ for template_path in templates:
     end_template['Description'].append(template.get('Description',
                                                     template_path))
     new_parameters = template.get('Parameters', {})
-    for p, pbody in iter(new_parameters.items()):
+    for p, pbody in sorted(new_parameters.items()):
         if p in end_template.get('Parameters', {}):
             if pbody != end_template['Parameters'][p]:
                 errors.append('Parameter %s from %s conflicts.' % (p,
@@ -49,7 +49,7 @@ for template_path in templates:
         end_template['Parameters'][p] = pbody
 
     new_outputs = template.get('Outputs', {})
-    for o, obody in iter(new_outputs.items()):
+    for o, obody in sorted(new_outputs.items()):
         if o in end_template.get('Outputs', {}):
             if pbody != end_template['Outputs'][p]:
                 errors.append('Output %s from %s conflicts.' % (o,
@@ -60,7 +60,7 @@ for template_path in templates:
         end_template['Outputs'][o] = obody
 
     new_resources = template.get('Resources', {})
-    for r, rbody in iter(new_resources.items()):
+    for r, rbody in sorted(new_resources.items()):
         if rbody['Type'] == 'AWS::EC2::Instance':
             # XXX Assuming ImageId is always a Ref
             del end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
@@ -100,7 +100,7 @@ for template_path in templates:
 def fix_ref(item, old, new):
     if isinstance(item, dict):
         copy_item = dict(item)
-        for k, v in iter(copy_item.items()):
+        for k, v in sorted(copy_item.items()):
             if k == 'Ref' and v == old:
                 item[k] = new
                 continue
