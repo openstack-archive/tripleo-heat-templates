@@ -29,6 +29,22 @@ def translate_role(role):
         raise Exception('%s -> %r' % (role, r))
     return r
 
+def resolve_params(item, param, value):
+    if item == {'Ref': param}:
+        return value
+    if isinstance(item, dict):
+        copy_item = dict(item)
+        for k, v in iter(copy_item.items()):
+            item[k] = resolve_params(v, param, value) 
+    elif isinstance(item, list):
+        copy_item = list(item)
+        new_item = []
+        for v in copy_item:
+            new_item.append(resolve_params(v, param, value))
+        item = new_item
+    return item
+
+
 errors = []
 end_template={'HeatTemplateFormatVersion': '2012-12-12',
               'Description': []}
@@ -93,6 +109,11 @@ for template_path in templates:
                 subkeys = rbody.get('SubKey','').split('.')
                 while len(subkeys) and subkeys[0]:
                     include_content = include_content[subkeys.pop(0)]
+                for replace_param, replace_value in iter(rbody.get('Parameters',
+                                                                   {}).items()):
+                    include_content = resolve_params(include_content,
+                                                     replace_param,
+                                                     replace_value)
                 end_template['Resources'][r] = include_content
         else:
             if r in end_template.get('Resources', {}):
