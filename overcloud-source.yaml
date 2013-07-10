@@ -1,0 +1,140 @@
+Description: Nova API,Keystone,Heat Engine and API,Glance,Quantum,Dedicated MySQL
+  server,Dedicated RabbitMQ Server,Group of Nova Computes
+HeatTemplateFormatVersion: '2012-12-12'
+Parameters:
+  InstanceType:
+    Default: baremetal
+    Description: Flavor to request when deploying.
+    Type: String
+  KeyName:
+    Default: default
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: String
+  NovaComputeDriver:
+    Default: libvirt.LibvirtDriver
+    Type: String
+  NovaComputeTemplate:
+    Default: https://raw.github.com/stackforge/tripleo-heat-templates/master/nova-compute-instance.yaml
+    Type: String
+  NovaDSN:
+    Type: String
+  NovaImage:
+    Type: String
+  NovaInterfaces:
+    Default: eth0
+    Type: String
+  PowerUserName:
+    Default: stack
+    Description: What username to ssh to the virtual power host with.
+    Type: String
+  QuantumDSN:
+    Type: String
+  RabbitPassword:
+    Type: String
+  ServicePassword:
+    Description: admin_password for setting up auth in nova.
+    Type: String
+  notcomputeImage:
+    Type: String
+Resources:
+  AccessPolicy:
+    Properties:
+      AllowedResources:
+      - notcompute
+    Type: OS::Heat::AccessPolicy
+  Key:
+    Properties:
+      UserName:
+        Ref: User
+    Type: AWS::IAM::AccessKey
+  NovaCompute0:
+    Type: FileInclude
+    Path: nova-compute-instance.yaml
+    SubKey: Resources.NovaCompute
+    Parameters:
+        NovaApiHost: {"Fn::GetAtt": [notcompute, PrivateIp]}
+        KeystoneHost: {"Fn::GetAtt": [notcompute, PrivateIp]}
+        RabbitHost: {"Fn::GetAtt": [notcompute, PrivateIp]}
+        QuantumHost: {"Fn::GetAtt": [notcompute, PrivateIp]}
+        GlanceHost: {"Fn::GetAtt": [notcompute, PrivateIp]}
+  User:
+    Properties:
+      Policies:
+      - Ref: AccessPolicy
+    Type: AWS::IAM::User
+  notcompute:
+    Metadata:
+      OpenStack::Heat::Stack: {}
+      Openstack::ImageBuilder::Elements:
+      - boot-stack
+      - heat-cfntools
+      - heat-localip
+      - quantum-network-node
+      admin-password: unset
+      admin-token: unset
+      cinder:
+        db: mysql://cinder:unset@localhost/cinder
+        volume_size_mb: '5000'
+      controller-address: 0.0.0.0
+      db-password: unset
+      glance:
+        db: mysql://glance:unset@localhost/glance
+        host: 0.0.0.0
+      heat:
+        access_key_id:
+          Ref: Key
+        admin_password: unset
+        admin_tenant_name: service
+        admin_user: heat
+        auth_encryption_key: unset___________
+        db: mysql://heat:unset@localhost/heat
+        heat_watch_server_url: http://0.0.0.0:8003
+        metadata_server_url: http://0.0.0.0:8000
+        refresh:
+        - resource: notcompute
+        secret_key:
+          Fn::GetAtt:
+          - Key
+          - SecretAccessKey
+        stack:
+          name:
+            Ref: AWS::StackName
+          region:
+            Ref: AWS::Region
+        waitcondition_server_url: http://0.0.0.0:8000/v1/waitcondition
+      interfaces:
+        control: eth2
+      keystone:
+        db: mysql://keystone:unset@localhost/keystone
+        host: 0.0.0.0
+      nova:
+        compute_driver: libvirt.LibvirtDriver
+        db: mysql://nova:unset@localhost/nova
+        host: 0.0.0.0
+      quantum:
+        floatingip_end: 192.0.2.64
+        floatingip_range: 192.0.2.0/24
+        floatingip_start: 192.0.2.45
+        host: 0.0.0.0
+        metadata_proxy_shared_secret: unset
+        ovs:
+          enable_tunneling: 'True'
+          fixed_range:
+            end: 10.255.255.254
+            start: 10.0.0.2
+          local_ip: 0.0.0.0
+          public_interface: eth2
+          tenant_network_type: gre
+        ovs_db: mysql://quantum:unset@localhost/ovs_quantum?charset=utf8
+      rabbit:
+        host: 0.0.0.0
+        password: guest
+      service-password: unset
+    Properties:
+      ImageId:
+        Ref: notcomputeImage
+      InstanceType:
+        Ref: InstanceType
+      KeyName:
+        Ref: KeyName
+    Type: AWS::EC2::Instance
