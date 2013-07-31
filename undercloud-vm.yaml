@@ -20,7 +20,7 @@ Resources:
   AccessPolicy:
     Properties:
       AllowedResources:
-      - notcompute
+      - notcomputeConfig
     Type: OS::Heat::AccessPolicy
   Key:
     Properties:
@@ -32,13 +32,20 @@ Resources:
       Policies:
       - Ref: AccessPolicy
     Type: AWS::IAM::User
-  notcompute:
+  notcomputeConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: '0'
+      InstanceType: foo
     Metadata:
       OpenStack::Heat::Stack: {}
       Openstack::ImageBuilder::Elements: [ boot-stack, heat-cfntools, neutron-network-node ]
       admin-password: unset
       admin-token: unset
-      controller-address: 0.0.0.0
+      controller-address:
+        Fn::GetAtt:
+          - notcompute
+          - PrivateIp
       cinder:
         db: mysql://cinder:unset@localhost/cinder
         volume_size_mb: '5000'
@@ -52,14 +59,29 @@ Resources:
         admin_user: heat
         auth_encryption_key: unset___________
         db: mysql://heat:unset@localhost/heat
-        heat_watch_server_url: http://0.0.0.0:8003
-        metadata_server_url: http://0.0.0.0:8000
-        waitcondition_server_url: http://0.0.0.0:8000/v1/waitcondition
+        heat_watch_server_url:
+          Fn::Join:
+            - ''
+            - - http://
+              - {"Fn::GetAtt": [ notcompute, PrivateIp ]}
+              - ":8003"
+        metadata_server_url:
+          Fn::Join:
+            - ''
+            - - http://
+              - {"Fn::GetAtt": [ notcompute, PrivateIp ]}
+              - ":8000"
+        waitcondition_server_url:
+          Fn::Join:
+            - ''
+            - - http://
+              - {"Fn::GetAtt": [ notcompute, PrivateIp ]}
+              - ":8000/v1/waitcondition"
       os-collect-config:
         cfn:
           access_key_id:
             Ref: Key
-          path: Resources.notcompute
+          path: notcomputeConfig.Metadata
           secret_access_key:
             Fn::GetAtt:
             - Key
@@ -110,6 +132,8 @@ Resources:
         store_user: unset
         store_key: unset
       service-password: unset
+  notcompute:
+    Type: AWS::EC2::Instance
     Properties:
       ImageId:
         Ref: Image
@@ -118,3 +142,15 @@ Resources:
       KeyName:
         Ref: KeyName
     Type: AWS::EC2::Instance
+    Metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: Key
+          path: notcomputeConfig.Metadata
+          secret_access_key:
+            Fn::GetAtt:
+            - Key
+            - SecretAccessKey
+          stack_name:
+            Ref: AWS::StackName

@@ -34,6 +34,7 @@ Resources:
     Properties:
       AllowedResources:
       - notcompute
+      - notcomputeConfig
     Type: OS::Heat::AccessPolicy
   ComputeAccessPolicy:
     Properties:
@@ -78,7 +79,11 @@ Resources:
       Policies:
       - Ref: AccessPolicy
     Type: AWS::IAM::User
-  notcompute:
+  notcomputeConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: '0'
+      InstanceType: '0'
     Metadata:
       OpenStack::Heat::Stack: {}
       Openstack::ImageBuilder::Elements:
@@ -91,16 +96,22 @@ Resources:
       cinder:
         db: mysql://cinder:unset@localhost/cinder
         volume_size_mb: '5000'
-      controller-address: 0.0.0.0
+      controller-address:
+        Fn::GetAtt:
+          - notcompute
+          - PrivateIp
       db-password: unset
       glance:
         db: mysql://glance:unset@localhost/glance
-        host: 0.0.0.0
+        host:
+          Fn::GetAtt:
+            - notcompute
+            - PrivateIp
       os-collect-config:
         cfn:
           access_key_id:
             Ref: Key
-          path: notcompute.Metadata
+          path: notcomputeConfig.Metadata
           secret_access_key:
             Fn::GetAtt:
             - Key
@@ -113,33 +124,71 @@ Resources:
         admin_user: heat
         auth_encryption_key: unset___________
         db: mysql://heat:unset@localhost/heat
-        heat_watch_server_url: http://0.0.0.0:8003
-        metadata_server_url: http://0.0.0.0:8000
-        waitcondition_server_url: http://0.0.0.0:8000/v1/waitcondition
+        heat_watch_server_url:
+          Fn::Join:
+            - ''
+            - - 'http://'
+              - Fn::GetAtt:
+                  - notcompute
+                  - PrivateIp
+              - ':8003'
+        metadata_server_url:
+          Fn::Join:
+            - ''
+            - - 'http://'
+              - Fn::GetAtt:
+                  - notcompute
+                  - PrivateIp
+              - ':8000'
+        waitcondition_server_url:
+          Fn::Join:
+            - ''
+            - - 'http://'
+              - Fn::GetAtt:
+                  - notcompute
+                  - PrivateIp
+              - ':8000/v1/waitcondition'
       interfaces:
         control: eth0
       keystone:
         db: mysql://keystone:unset@localhost/keystone
-        host: 0.0.0.0
+        host:
+          Fn::GetAtt:
+            - notcompute
+            - PrivateIp
       nova:
         compute_driver: libvirt.LibvirtDriver
         db: mysql://nova:unset@localhost/nova
-        host: 0.0.0.0
+        host:
+          Fn::GetAtt:
+            - notcompute
+            - PrivateIp
         metadata-proxy: true
       neutron:
-        host: 0.0.0.0
+        host:
+          Fn::GetAtt:
+            - notcompute
+            - PrivateIp
         metadata_proxy_shared_secret: unset
         ovs:
           enable_tunneling: 'True'
-          local_ip: 0.0.0.0
+          local_ip:
+            Fn::GetAtt:
+              - notcompute
+              - PrivateIp
           public_interface: eth0
           physical_bridge: br-ex
           tenant_network_type: gre
         ovs_db: mysql://neutron:unset@localhost/ovs_neutron?charset=utf8
       rabbit:
-        host: 0.0.0.0
+        host:
+          Fn::GetAtt:
+            - notcompute
+            - PrivateIp
         password: guest
       service-password: unset
+  notcompute:
+    Type: AWS::EC2::Instance
     Properties:
       ImageId:
         Ref: notcomputeImage
@@ -147,4 +196,15 @@ Resources:
         Ref: InstanceType
       KeyName:
         Ref: KeyName
-    Type: AWS::EC2::Instance
+    Metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: Key
+          path: notcomputeConfig.Metadata
+          secret_access_key:
+            Fn::GetAtt:
+            - Key
+            - SecretAccessKey
+          stack_name:
+            Ref: AWS::StackName
