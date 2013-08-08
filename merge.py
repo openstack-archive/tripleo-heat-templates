@@ -79,6 +79,7 @@ for template_path in templates:
     for r, rbody in sorted(new_resources.items()):
         if rbody['Type'] == 'AWS::EC2::Instance':
             # XXX Assuming ImageId is always a Ref
+            ikey_val = end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
             del end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
             role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
             role = translate_role(role)
@@ -102,7 +103,7 @@ for template_path in templates:
             end_template['Resources'][role] = rbody
             ikey = '%sImage' % (role)
             end_template['Resources'][role]['Properties']['ImageId'] = {'Ref': ikey}
-            end_template['Parameters'][ikey] = {'Type': 'String'}
+            end_template['Parameters'][ikey] = ikey_val
         elif rbody['Type'] == 'FileInclude':
             with open(rbody['Path']) as rfile:
                 include_content = yaml.safe_load(rfile.read())
