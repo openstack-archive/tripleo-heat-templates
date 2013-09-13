@@ -44,6 +44,11 @@ def resolve_params(item, param, value):
         item = new_item
     return item
 
+MERGABLE_TYPES = {'OS::Nova::Server':
+                  {'image': 'image'},
+                  'AWS::EC2::Instance':
+                  {'image': 'ImageId'},
+                 }
 
 errors = []
 end_template={'HeatTemplateFormatVersion': '2012-12-12',
@@ -77,10 +82,11 @@ for template_path in templates:
 
     new_resources = template.get('Resources', {})
     for r, rbody in sorted(new_resources.items()):
-        if rbody['Type'] == 'AWS::EC2::Instance':
+        if rbody['Type'] in MERGABLE_TYPES:
+            image_key = MERGABLE_TYPES[rbody['Type']]['image']
             # XXX Assuming ImageId is always a Ref
-            ikey_val = end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
-            del end_template['Parameters'][rbody['Properties']['ImageId']['Ref']]
+            ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
+            del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
             role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
             role = translate_role(role)
             if role != r:
@@ -102,7 +108,7 @@ for template_path in templates:
                 end_template['Resources'] = {}
             end_template['Resources'][role] = rbody
             ikey = '%sImage' % (role)
-            end_template['Resources'][role]['Properties']['ImageId'] = {'Ref': ikey}
+            end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
             end_template['Parameters'][ikey] = ikey_val
         elif rbody['Type'] == 'FileInclude':
             with open(rbody['Path']) as rfile:
