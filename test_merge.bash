@@ -24,6 +24,8 @@ run_test() {
 }
 echo
 run_test "python merge.py examples/source.yaml" examples/source_lib_result.yaml
+run_test "python merge.py examples/source2.yaml" examples/source2_lib_result.yaml
+run_test "python merge.py examples/source_include_subkey.yaml" examples/source_include_subkey_result.yaml
 echo
 trap - EXIT
 exit $fail

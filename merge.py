@@ -35,7 +35,7 @@ def resolve_params(item, param, value):
     if isinstance(item, dict):
         copy_item = dict(item)
         for k, v in iter(copy_item.items()):
-            item[k] = resolve_params(v, param, value) 
+            item[k] = resolve_params(v, param, value)
     elif isinstance(item, list):
         copy_item = list(item)
         new_item = []
@@ -50,12 +50,48 @@ MERGABLE_TYPES = {'OS::Nova::Server':
                   {'image': 'ImageId'},
                  }
 
+
+def resolve_includes(template, params=None):
+    new_template = {}
+    if params is None:
+        params = {}
+    for key, value in iter(template.items()):
+        if key == '__include__':
+            new_params = dict(params) # do not propagate up the stack
+            if not isinstance(value, dict):
+                raise ValueError('__include__ must be a mapping')
+            if 'path' not in value:
+                raise ValueError('__include__ must have path')
+            if 'params' in value:
+                if not isinstance(value['params'], dict):
+                    raise ValueError('__include__ params must be a mapping')
+                new_params.update(value['params'])
+            with open(value['path']) as include_file:
+                sub_template = yaml.safe_load(include_file.read())
+                if 'subkey' in value:
+                    if ((not isinstance(value['subkey'], int)
+                         and not isinstance(sub_template, dict))):
+                        raise RuntimeError('subkey requires mapping root or'
+                                           ' integer for list root')
+                    sub_template = sub_template[value['subkey']]
+                for k, v in iter(new_params.items()):
+                    sub_template = resolve_params(sub_template, k, v)
+                new_template.update(resolve_includes(sub_template))
+        else:
+            if isinstance(value, dict):
+                new_template[key] = resolve_includes(value)
+            else:
+                new_template[key] = value
+    return new_template
+
 errors = []
 end_template={'HeatTemplateFormatVersion': '2012-12-12',
               'Description': []}
 resource_changes=[]
 for template_path in templates:
     template = yaml.safe_load(open(template_path))
+    # Resolve __include__ tags
+    template = resolve_includes(template)
     end_template['Description'].append(template.get('Description',
                                                     template_path))
     new_parameters = template.get('Parameters', {})
@@ -160,7 +196,7 @@ def fix_ref(item, old, new):
 
 for change in resource_changes:
     fix_ref(end_template, change[0], change[1])
-            
+ 
 if errors:
     for e in errors:
         sys.stderr.write("ERROR: %s\n" % e)
