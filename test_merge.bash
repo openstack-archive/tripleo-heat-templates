@@ -7,18 +7,23 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
-result=$(mktemp /tmp/test_merge.XXXXXX)
-fail=0
-python merge.py examples/source.yaml > $result
-if ! cmp $result examples/source_lib_result.yaml ; then
-    diff -u $result examples/source_lib_result.yaml
-    echo
-    echo FAIL - merge of source.yaml result does not match expected output
-    echo
-    fail=1
-else
-    echo
-    echo PASS - merge of source.yaml result matches expected output
-    echo
-fi
+run_test() {
+    local cmd=$1
+    local expected=$2
+    result=$(mktemp /tmp/test_merge.XXXXXX)
+    fail=0
+    $cmd > $result
+    if ! cmp $result $expected ; then
+        diff -u $expected $result || :
+        echo FAIL - $cmd result does not match expected
+        fail=1
+    else
+        echo PASS - $cmd
+    fi
+    cleanup
+}
+echo
+run_test "python merge.py examples/source.yaml" examples/source_lib_result.yaml
+echo
+trap - EXIT
 exit $fail
