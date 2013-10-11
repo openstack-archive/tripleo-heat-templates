@@ -48,6 +48,8 @@ MERGABLE_TYPES = {'OS::Nova::Server':
                   {'image': 'image'},
                   'AWS::EC2::Instance':
                   {'image': 'ImageId'},
+                  'AWS::AutoScaling::LaunchConfiguration':
+                  {},
                  }
 
 
@@ -119,10 +121,11 @@ for template_path in templates:
     new_resources = template.get('Resources', {})
     for r, rbody in sorted(new_resources.items()):
         if rbody['Type'] in MERGABLE_TYPES:
-            image_key = MERGABLE_TYPES[rbody['Type']]['image']
-            # XXX Assuming ImageId is always a Ref
-            ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
-            del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
+            if 'image' in MERGABLE_TYPES[rbody['Type']]:
+                image_key = MERGABLE_TYPES[rbody['Type']]['image']
+                # XXX Assuming ImageId is always a Ref
+                ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
+                del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
             role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
             role = translate_role(role)
             if role != r:
@@ -143,9 +146,10 @@ for template_path in templates:
             if 'Resources' not in end_template:
                 end_template['Resources'] = {}
             end_template['Resources'][role] = rbody
-            ikey = '%sImage' % (role)
-            end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
-            end_template['Parameters'][ikey] = ikey_val
+            if 'image' in MERGABLE_TYPES[rbody['Type']]:
+                ikey = '%sImage' % (role)
+                end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
+                end_template['Parameters'][ikey] = ikey_val
         elif rbody['Type'] == 'FileInclude':
             with open(rbody['Path']) as rfile:
                 include_content = yaml.safe_load(rfile.read())
@@ -196,7 +200,7 @@ def fix_ref(item, old, new):
 
 for change in resource_changes:
     fix_ref(end_template, change[0], change[1])
- 
+
 if errors:
     for e in errors:
         sys.stderr.write("ERROR: %s\n" % e)
