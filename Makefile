@@ -6,5 +6,9 @@ undercloud-vm-tuskar.yaml: undercloud-vm.yaml tuskar-source.yaml
 	python merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
+undercloud-vm-ironic.yaml: undercloud-vm.yaml ironic-source.yaml
+	python merge.py $^ > $@.tmp
+	mv $@.tmp $@
+
 test:
 	@bash test_merge.bash
