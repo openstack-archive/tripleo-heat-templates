@@ -4,11 +4,19 @@ overcloud.yaml: overcloud-source.yaml nova-compute-instance.yaml swift-source.ya
 	python merge.py overcloud-source.yaml swift-source.yaml > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm-tuskar.yaml: undercloud-vm.yaml tuskar-source.yaml
+undercloud-vm.yaml: undercloud-source.yaml undercloud-vm-source.yaml
 	python merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm-ironic.yaml: undercloud-vm.yaml ironic-source.yaml
+undercloud-bm.yaml: undercloud-source.yaml undercloud-bm-source.yaml
+	python merge.py $^ > $@.tmp
+	mv $@.tmp $@
+
+undercloud-vm-tuskar.yaml: undercloud-source.yaml undercloud-vm-source.yaml tuskar-source.yaml
+	python merge.py $^ > $@.tmp
+	mv $@.tmp $@
+
+undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-source.yaml ironic-source.yaml
 	python merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
