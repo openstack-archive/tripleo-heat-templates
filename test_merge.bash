@@ -23,10 +23,11 @@ run_test() {
     cleanup
 }
 echo
-run_test "python merge.py examples/source.yaml" examples/source_lib_result.yaml
-run_test "python merge.py examples/source2.yaml" examples/source2_lib_result.yaml
-run_test "python merge.py examples/source_include_subkey.yaml" examples/source_include_subkey_result.yaml
-run_test "python merge.py examples/launchconfig1.yaml examples/launchconfig2.yaml" examples/launchconfig_result.yaml
+merge_py="./tripleo_heat_merge/merge.py"
+run_test "python $merge_py examples/source.yaml" examples/source_lib_result.yaml
+run_test "python $merge_py examples/source2.yaml" examples/source2_lib_result.yaml
+run_test "python $merge_py examples/source_include_subkey.yaml" examples/source_include_subkey_result.yaml
+run_test "python $merge_py examples/launchconfig1.yaml examples/launchconfig2.yaml" examples/launchconfig_result.yaml
 echo
 trap - EXIT
 exit $fail
