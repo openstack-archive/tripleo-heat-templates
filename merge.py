@@ -41,6 +41,7 @@ MERGABLE_TYPES = {'OS::Nova::Server':
                   'AWS::AutoScaling::LaunchConfiguration':
                   {},
                  }
+INCLUDED_TEMPLATE_DIR = os.getcwd()
 
 
 def resolve_includes(template, params=None):
@@ -85,12 +86,17 @@ def main(argv=None):
                         help='Translate slave_roles to this')
     parser.add_argument('--slave-roles', nargs='*',
                         help='Translate all of these to master_role')
+    parser.add_argument('--included-template-dir', nargs='?',
+                        default=INCLUDED_TEMPLATE_DIR,
+                        help='Path for resolving included templates')
     args = parser.parse_args(argv)
     templates = args.templates
-    merged_template = merge(templates, args.master_role, args.slave_roles)
+    merged_template = merge(templates, args.master_role, args.slave_roles,
+                            args.included_template_dir)
     sys.stdout.write(merged_template)
 
-def merge(templates, master_role=None, slave_roles=None):
+def merge(templates, master_role=None, slave_roles=None,
+          included_template_dir=INCLUDED_TEMPLATE_DIR):
     errors = []
     end_template={'HeatTemplateFormatVersion': '2012-12-12',
                   'Description': []}
@@ -156,13 +162,9 @@ def merge(templates, master_role=None, slave_roles=None):
                     end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
                     end_template['Parameters'][ikey] = ikey_val
             elif rbody['Type'] == 'FileInclude':
-                #make sure rbody['Path'] is absolute - required when this
-                #script invoked by import rather than command line
-                if os.path.dirname(rbody['Path']) == '':
-                    template_dir = os.path.dirname(__file__)
-                    filename = rbody['Path']
-                    rbody['Path'] = os.path.join(template_dir, filename)
-                with open(rbody['Path']) as rfile:
+                # we trust os.path.join to DTRT: if FileInclude path isn't
+                # absolute, join to included_template_dir (./)
+                with open(os.path.join(included_template_dir, rbody['Path'])) as rfile:
                     include_content = yaml.safe_load(rfile.read())
                     subkeys = rbody.get('SubKey','').split('.')
                     while len(subkeys) and subkeys[0]:
