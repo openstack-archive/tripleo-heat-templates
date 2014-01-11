@@ -16,7 +16,7 @@ undercloud-vm-tuskar.yaml: undercloud-source.yaml undercloud-vm-source.yaml tusk
 	python ./tripleo_heat_merge/merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-source.yaml ironic-source.yaml
+undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-ironic-source.yaml ironic-source.yaml
 	python ./tripleo_heat_merge/merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
