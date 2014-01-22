@@ -10,8 +10,8 @@ overcloud_source_deps = nova-compute-instance.yaml
 
 all: $(generated_templates)
 
-overcloud.yaml: overcloud-source.yaml swift-source.yaml $(overcloud_source_deps)
-	python ./tripleo_heat_merge/merge.py overcloud-source.yaml swift-source.yaml > $@.tmp
+overcloud.yaml: overcloud-source.yaml swift-source.yaml ssl-source.yaml $(overcloud_source_deps)
+	python ./tripleo_heat_merge/merge.py overcloud-source.yaml swift-source.yaml ssl-source.yaml > $@.tmp
 	mv $@.tmp $@
 
 overcloud-with-block-storage.yaml: overcloud-source.yaml nova-compute-instance.yaml swift-source.yaml block-storage.yaml
