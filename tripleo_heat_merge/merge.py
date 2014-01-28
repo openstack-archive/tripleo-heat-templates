@@ -89,11 +89,18 @@ def main(argv=None):
     parser.add_argument('--included-template-dir', nargs='?',
                         default=INCLUDED_TEMPLATE_DIR,
                         help='Path for resolving included templates')
+    parser.add_argument('--output',
+                        help='File to write output to. - for stdout',
+                        default='-')
     args = parser.parse_args(argv)
     templates = args.templates
     merged_template = merge(templates, args.master_role, args.slave_roles,
                             args.included_template_dir)
-    sys.stdout.write(merged_template)
+    if args.output == '-':
+        out_file = sys.stdout
+    else:
+        out_file = file(args.output, 'wt')
+    out_file.write(merged_template)
 
 def merge(templates, master_role=None, slave_roles=None,
           included_template_dir=INCLUDED_TEMPLATE_DIR):
