@@ -12,7 +12,7 @@ run_test() {
     local expected=$2
     result=$(mktemp /tmp/test_merge.XXXXXX)
     fail=0
-    $cmd > $result
+    $cmd --output $result
     if ! cmp $result $expected ; then
         diff -u $expected $result || :
         echo FAIL - $cmd result does not match expected
