@@ -4,6 +4,97 @@ import yaml
 import argparse
 
 
+def apply_scaling(template, scaling, in_copies=None):
+    """Apply a set of scaling operations to template.
+
+    This is a single pass recursive function: for each call we process one
+    dict or list and recurse to handle children containers.
+
+    Values are handled via scale_value.
+
+    Keys in dicts are always copied per the scaling rule.
+    Values are either replaced or copied depending on whether the given
+    scaling rule is in in_copies.
+    """
+    in_copies = dict(in_copies or {})
+    # Shouldn't be needed but to avoid unexpected side effects/bugs we short
+    # circuit no-ops.
+    if not scaling:
+        return template
+    if isinstance(template, dict):
+        new_template = {}
+        for key, value in template.items():
+            for prefix, copy_num, new_key in scale_value(
+                key, scaling, in_copies):
+                if prefix:
+                    # e.g. Compute0, 1, Compute1Foo
+                    in_copies[prefix] = prefix[:-1] + str(copy_num)
+                if isinstance(value, (dict, list)):
+                    new_value = apply_scaling(value, scaling, in_copies)
+                    new_template[new_key] = new_value
+                else:
+                    new_values = list(scale_value(value, scaling, in_copies))
+                    # We have nowhere to multiply a non-container value of a
+                    # dict, so it may be copied or unchanged but not scaled.
+                    assert len(new_values) == 1
+                    new_template[new_key] = new_values[0][2]
+                if prefix:
+                    del in_copies[prefix]
+        return new_template
+    elif isinstance(template, list):
+        new_template = []
+        for value in template:
+            if isinstance(value, (dict, list)):
+                new_template.append(apply_scaling(value, scaling, in_copies))
+            else:
+                for _, _, new_value in scale_value(value, scaling, in_copies):
+                    new_template.append(new_value)
+        return new_template
+    else:
+        raise Exception("apply_scaling called with non-container %r" % template)
+
+
+def scale_value(value, scaling, in_copies):
+    """Scale out a value.
+
+    :param value: The value to scale (not a container).
+    :param scaling: The scaling map to use.
+    :param in_copies: What containers we're currently copying.
+    :return: An iterator of the new values for the value as tuples:
+        (prefix, copy_num, value). E.g. Compute0, 1, Compute1Foo
+        prefix and copy_num are only set when:
+         - a prefix in scaling matches value
+         - and that prefix is not in in_copies
+    """
+    if isinstance(value, (str, unicode)):
+        for prefix, copies in scaling.items():
+            if not value.startswith(prefix):
+                continue
+            suffix = value[len(prefix):]
+            if prefix in in_copies:
+                # Adjust to the copy number we're on
+                yield None, None, in_copies[prefix] + suffix
+                return
+            else:
+                for n in range(copies):
+                    yield prefix, n, prefix[:-1] + str(n) + suffix
+                return
+        yield None, None, value
+    else:
+        yield None, None, value
+
+
+def parse_scaling(scaling_args):
+    """Translate a list of scaling requests to a dict prefix:count."""
+    scaling_args = scaling_args or []
+    result = {}
+    for item in scaling_args:
+        key, value = item.split('=')
+        value = int(value)
+        result[key + '0'] = value
+    return result
+
+
 def _translate_role(role, master_role, slave_roles):
     if not master_role:
         return role
@@ -92,18 +183,27 @@ def main(argv=None):
     parser.add_argument('--output',
                         help='File to write output to. - for stdout',
                         default='-')
+    parser.add_argument('--scale', action="append",
+        help="Names to scale out. Pass Prefix=1 to cause a key Prefix0Foo to "
+        "be copied to Prefix1Foo in the output, and value Prefix0Bar to be"
+        "renamed to Prefix1Bar inside that copy, or copied to Prefix1Bar "
+        "outside of any copy.")
     args = parser.parse_args(argv)
     templates = args.templates
+    scaling = parse_scaling(args.scale)
     merged_template = merge(templates, args.master_role, args.slave_roles,
-                            args.included_template_dir)
+                            args.included_template_dir, scaling=scaling)
     if args.output == '-':
         out_file = sys.stdout
     else:
         out_file = file(args.output, 'wt')
     out_file.write(merged_template)
 
+
 def merge(templates, master_role=None, slave_roles=None,
-          included_template_dir=INCLUDED_TEMPLATE_DIR):
+          included_template_dir=INCLUDED_TEMPLATE_DIR,
+          scaling=None):
+    scaling = scaling or {}
     errors = []
     end_template={'HeatTemplateFormatVersion': '2012-12-12',
                   'Description': []}
@@ -191,6 +291,8 @@ def merge(templates, master_role=None, slave_roles=None,
                 if 'Resources' not in end_template:
                     end_template['Resources'] = {}
                 end_template['Resources'][r] = rbody
+
+    end_template = apply_scaling(end_template, scaling)
 
     def fix_ref(item, old, new):
         if isinstance(item, dict):
