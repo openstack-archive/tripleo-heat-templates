@@ -188,11 +188,17 @@ def main(argv=None):
         "be copied to Prefix1Foo in the output, and value Prefix0Bar to be"
         "renamed to Prefix1Bar inside that copy, or copied to Prefix1Bar "
         "outside of any copy.")
+    parser.add_argument(
+        '--change-image-params', action='store_true', default=False,
+        help="Change parameters in templates to match resource names. This was "
+             " the default at one time but it causes issues when parameter "
+             " names need to remain stable.")
     args = parser.parse_args(argv)
     templates = args.templates
     scaling = parse_scaling(args.scale)
     merged_template = merge(templates, args.master_role, args.slave_roles,
-                            args.included_template_dir, scaling=scaling)
+                            args.included_template_dir, scaling=scaling,
+                            change_image_params=args.change_image_params)
     if args.output == '-':
         out_file = sys.stdout
     else:
@@ -202,7 +208,7 @@ def main(argv=None):
 
 def merge(templates, master_role=None, slave_roles=None,
           included_template_dir=INCLUDED_TEMPLATE_DIR,
-          scaling=None):
+          scaling=None, change_image_params=None):
     scaling = scaling or {}
     errors = []
     end_template={'HeatTemplateFormatVersion': '2012-12-12',
@@ -239,11 +245,12 @@ def merge(templates, master_role=None, slave_roles=None,
         new_resources = template.get('Resources', {})
         for r, rbody in sorted(new_resources.items()):
             if rbody['Type'] in MERGABLE_TYPES:
-                if 'image' in MERGABLE_TYPES[rbody['Type']]:
-                    image_key = MERGABLE_TYPES[rbody['Type']]['image']
-                    # XXX Assuming ImageId is always a Ref
-                    ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
-                    del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
+                if change_image_params:
+                    if 'image' in MERGABLE_TYPES[rbody['Type']]:
+                        image_key = MERGABLE_TYPES[rbody['Type']]['image']
+                        # XXX Assuming ImageId is always a Ref
+                        ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
+                        del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
                 role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
                 role = translate_role(role, master_role, slave_roles)
                 if role != r:
@@ -264,10 +271,11 @@ def merge(templates, master_role=None, slave_roles=None,
                 if 'Resources' not in end_template:
                     end_template['Resources'] = {}
                 end_template['Resources'][role] = rbody
-                if 'image' in MERGABLE_TYPES[rbody['Type']]:
-                    ikey = '%sImage' % (role)
-                    end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
-                    end_template['Parameters'][ikey] = ikey_val
+                if change_image_params:
+                    if 'image' in MERGABLE_TYPES[rbody['Type']]:
+                        ikey = '%sImage' % (role)
+                        end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
+                        end_template['Parameters'][ikey] = ikey_val
             elif rbody['Type'] == 'FileInclude':
                 # we trust os.path.join to DTRT: if FileInclude path isn't
                 # absolute, join to included_template_dir (./)
