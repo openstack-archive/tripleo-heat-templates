@@ -10,8 +10,6 @@ overcloud_source_deps = nova-compute-instance.yaml
 
 all: $(generated_templates)
 
-# Note that COMPUTESCALE is not a physical dep - 'make overcloud.yaml' won't do
-# the right thing if you change COMPUTESCALE from one run to another.
 overcloud.yaml: overcloud-source.yaml swift-source.yaml ssl-source.yaml $(overcloud_source_deps)
 	python ./tripleo_heat_merge/merge.py --scale NovaCompute=$${COMPUTESCALE:-'1'} overcloud-source.yaml swift-source.yaml ssl-source.yaml > $@.tmp
 	mv $@.tmp $@
@@ -43,3 +41,5 @@ test:
 
 clean:
 	rm -f $(generated_templates)
+
+.PHONY: clean overcloud.yaml
