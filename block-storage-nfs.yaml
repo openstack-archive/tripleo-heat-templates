@@ -1,0 +1,59 @@
+HeatTemplateFormatVersion: '2012-12-12'
+Description: 'Common Block Storage Configuration'
+Parameters:
+  BlockStorageImage:
+    Type: String
+    Default: overcloud-cinder-volume
+  OvercloudBlockStorageFlavor:
+    Default: baremetal
+    Description: Flavor for block storage nodes to request when deploying.
+    Type: String
+Resources:
+  BlockStorageAccessPolicy:
+    Type: OS::Heat::AccessPolicy
+    Properties:
+      AllowedResources:
+      - BlockStorage0
+  BlockStorageUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies: [ { Ref: BlockStorageAccessPolicy } ]
+  BlockStorageKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: BlockStorageUser
+  BlockStorage0:
+    Type: OS::Nova::Server
+    Properties:
+      image:
+        {Ref: BlockStorageImage}
+      flavor: {Ref: OvercloudBlockStorageFlavor}
+      key_name: {Ref: KeyName}
+    Metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: BlockStorageKey
+          secret_access_key:
+            Fn::GetAtt: [ BlockStorageKey, SecretAccessKey ]
+          stack_name: {Ref: 'AWS::StackName'}
+      OpenStack::ImageBuilder::Elements: [ cinder ]
+      keystone:
+        host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [notCompute0, networks]} ]} ] }
+      cinder:
+        db: {"Fn::Join": ['', ['mysql://cinder:unset@', {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [notCompute0, networks]} ]} ] } , '/cinder']]}
+        volume_size_mb: '5000'
+        service-password:
+          Ref: CinderPassword
+        volume: 'true'
+        include_nfs_backend: 'true'
+        nfs_shares:
+          - {"Fn::Join": ['', [{"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [notCompute0, networks]} ]} ] } , ':/mnt/state/var/lib/nfs_share']]}
+      admin-password: {Ref: AdminPassword}
+      rabbit:
+        host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [notCompute0, networks]} ]} ] }
+        username: {Ref: RabbitUserName}
+        password: {Ref: RabbitPassword}
+      interfaces:
+        control: {Ref: NeutronPublicInterface}
