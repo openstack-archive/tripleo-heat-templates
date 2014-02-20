@@ -4,6 +4,27 @@ import yaml
 import argparse
 
 
+def apply_maps(template):
+    """Apply Merge::Map within template.
+
+    Any dict {'Merge::Map': {'Foo': 'Bar', 'Baz': 'Quux'}}
+    will resolve to ['Bar', 'Quux'] - that is a dict with key
+    'Merge::Map' is replaced entirely by that dict['Merge::Map'].values().
+    """
+    if isinstance(template, dict):
+        if 'Merge::Map' in template:
+            return sorted(
+                apply_maps(value) for value in template['Merge::Map'].values()
+                )
+        else:
+            return dict((key, apply_maps(value))
+                for key, value in template.items())
+    elif isinstance(template, list):
+        return [apply_maps(item) for item in template]
+    else:
+        return template
+
+
 def apply_scaling(template, scaling, in_copies=None):
     """Apply a set of scaling operations to template.
 
@@ -301,6 +322,7 @@ def merge(templates, master_role=None, slave_roles=None,
                 end_template['Resources'][r] = rbody
 
     end_template = apply_scaling(end_template, scaling)
+    end_template = apply_maps(end_template)
 
     def fix_ref(item, old, new):
         if isinstance(item, dict):
