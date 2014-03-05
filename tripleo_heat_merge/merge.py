@@ -33,9 +33,12 @@ def apply_scaling(template, scaling, in_copies=None):
 
     Values are handled via scale_value.
 
-    Keys in dicts are always copied per the scaling rule.
+    Keys in dicts are copied per the scaling rule.
     Values are either replaced or copied depending on whether the given
     scaling rule is in in_copies.
+
+    in_copies is reset to None when a dict {'Merge::Map': someobject} is
+    encountered.
     """
     in_copies = dict(in_copies or {})
     # Shouldn't be needed but to avoid unexpected side effects/bugs we short
@@ -43,6 +46,8 @@ def apply_scaling(template, scaling, in_copies=None):
     if not scaling:
         return template
     if isinstance(template, dict):
+        if 'Merge::Map' in template:
+            in_copies = None
         new_template = {}
         for key, value in template.items():
             for prefix, copy_num, new_key in scale_value(
