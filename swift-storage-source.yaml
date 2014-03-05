@@ -1,0 +1,121 @@
+HeatTemplateFormatVersion: '2012-12-12'
+Description: 'Common Swift Storage Configuration'
+Parameters:
+  SwiftStorageImage:
+    Type: String
+    Default: overcloud-swift-storage
+  OvercloudSwiftStorageFlavor:
+    Default: baremetal
+    Description: Flavor for Swift storage nodes to request when deploying.
+    Type: String
+  NeutronNetworkType:
+    Type: String
+    Default: 'gre'
+Resources:
+  SwiftStorageAccessPolicy:
+    Type: OS::Heat::AccessPolicy
+    Properties:
+      AllowedResources:
+      - SwiftStorage0
+      - SwiftStorage0Config
+  SwiftStorageUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies: [ { Ref: SwiftStorageAccessPolicy } ]
+  SwiftStorage0Key:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName:
+        Ref: SwiftStorageUser
+  SwiftStorage0CompletionCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn: notCompute0Config
+    Properties:
+      Handle: {Ref: SwiftStorage0CompletionHandle}
+      Count: '1'
+      Timeout: '1800'
+  SwiftStorage0CompletionHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+  SwiftStorage0:
+    Type: OS::Nova::Server
+    Properties:
+      image:
+        {Ref: SwiftStorageImage}
+      flavor: {Ref: OvercloudSwiftStorageFlavor}
+      key_name: {Ref: KeyName}
+    Metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: SwiftStorage0Key
+          secret_access_key:
+            Fn::GetAtt: [ SwiftStorage0Key, SecretAccessKey ]
+          stack_name: {Ref: 'AWS::StackName'}
+          path: SwiftStorage0Config.Metadata
+      OpenStack::ImageBuilder::Elements: [ swift ]
+  SwiftStorage0Config:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: '0'
+      ImageId: '0'
+    Metadata:
+      completion-handle:
+        Ref: SwiftStorage0CompletionHandle
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: SwiftStorage0Key
+          secret_access_key:
+            Fn::GetAtt: [ SwiftStorage0Key, SecretAccessKey ]
+          stack_name: {Ref: 'AWS::StackName'}
+          path: SwiftStorage0Config.Metadata
+      admin-password: {Ref: AdminPassword}
+      neutron:
+        ovs:
+          local_ip:
+            Fn::Select:
+              - 0
+              - Fn::Select:
+                - ctlplane
+                - Fn::GetAtt:
+                  - SwiftStorage0
+                  - networks
+          tenant_network_type: {Ref: NeutronNetworkType}
+        service-password:
+          Ref: NeutronPassword
+      swift:
+        devices:
+          Fn::Join:
+          - ', '
+          - - Fn::Join:
+              - ''
+              - - 'r1z1-'
+                - Fn::Select:
+                  - 0
+                  - Fn::Select:
+                    - 'ctlplane'
+                    - Fn::GetAtt:
+                      - notCompute0
+                      - networks
+                - ':%PORT%/d1'
+            - Fn::Join:
+              - ', '
+              - Merge::Map:
+                  SwiftStorage0:
+                    Fn::Join:
+                    - ''
+                    - - 'r1z1-'
+                      - Fn::Select:
+                        - 0
+                        - Fn::Select:
+                          - 'ctlplane'
+                          - Fn::GetAtt:
+                            - SwiftStorage0
+                            - networks
+                      - ':%PORT%/d1'
+        hash:
+          Ref: SwiftHashSuffix
+        part-power: 10
+        replicas: 1
+        service-password:
+          Ref: SwiftPassword
