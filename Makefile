@@ -36,10 +36,12 @@ undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-ironic-source.ya
 	python ./tripleo_heat_merge/merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
+check: test
+
 test:
 	@bash test_merge.bash
 
 clean:
 	rm -f $(generated_templates)
 
-.PHONY: clean overcloud.yaml
+.PHONY: clean overcloud.yaml check
