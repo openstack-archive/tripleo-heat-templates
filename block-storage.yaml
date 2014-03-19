@@ -15,30 +15,6 @@ Parameters:
     Type: String
     Default: True
 Resources:
-  BlockStorageAccessPolicy:
-    Type: OS::Heat::AccessPolicy
-    Properties:
-      AllowedResources:
-      - BlockStorage0
-      - BlockStorage0Config
-  BlockStorageUser:
-    Type: AWS::IAM::User
-    Properties:
-      Policies: [ { Ref: BlockStorageAccessPolicy } ]
-  BlockStorage0Key:
-    Type: AWS::IAM::AccessKey
-    Properties:
-      UserName:
-        Ref: BlockStorageUser
-  BlockStorage0CompletionCondition:
-    Type: AWS::CloudFormation::WaitCondition
-    DependsOn: controller0Config
-    Properties:
-      Handle: {Ref: BlockStorage0CompletionHandle}
-      Count: '1'
-      Timeout: '1800'
-  BlockStorage0CompletionHandle:
-    Type: AWS::CloudFormation::WaitConditionHandle
   BlockStorage0:
     Type: OS::Nova::Server
     Properties:
@@ -46,60 +22,64 @@ Resources:
         {Ref: BlockStorageImage}
       flavor: {Ref: OvercloudBlockStorageFlavor}
       key_name: {Ref: KeyName}
-    Metadata:
-      os-collect-config:
-        cfn:
-          access_key_id:
-            Ref: BlockStorage0Key
-          secret_access_key:
-            Fn::GetAtt: [ BlockStorage0Key, SecretAccessKey ]
-          stack_name: {Ref: 'AWS::StackName'}
-          path: BlockStorage0Config.Metadata
-      OpenStack::ImageBuilder::Elements: [ cinder ]
-  BlockStorage0Config:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  BlockStorage0Deployment:
+    Type: OS::Heat::StructuredDeployment
     Properties:
-      InstanceType: '0'
-      ImageId: '0'
-    Metadata:
-      completion-handle:
-        Ref: BlockStorage0CompletionHandle
-      os-collect-config:
-        cfn:
-          access_key_id:
-            Ref: BlockStorage0Key
-          secret_access_key:
-            Fn::GetAtt: [ BlockStorage0Key, SecretAccessKey ]
-          stack_name: {Ref: 'AWS::StackName'}
-          path: BlockStorage0Config.Metadata
-      admin-password: {Ref: AdminPassword}
-      keystone:
-        host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
-      cinder:
-        db: {"Fn::Join": ['', ['mysql://cinder:unset@', {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] } , '/cinder']]}
-        volume_size_mb: '5000'
-        service-password:
-          Ref: CinderPassword
-        iscsi-helper:
-          Ref: CinderISCSIHelper
-      admin-password: {Ref: AdminPassword}
-      rabbit:
-        host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
-        username: {Ref: RabbitUserName}
-        password: {Ref: RabbitPassword}
-      interfaces:
-        control: {Ref: NeutronPublicInterface}
-      neutron:
-        ovs:
-          local_ip:
-            Fn::Select:
-              - 0
-              - Fn::Select:
-                - ctlplane
-                - Fn::GetAtt:
-                  - BlockStorage0
-                  - networks
-          tenant_network_type: {Ref: NeutronNetworkType}
-          enable_tunneling: {Ref: NeutronEnableTunnelling}
-        service-password:
-          Ref: NeutronPassword
+      server: {Ref: BlockStorage0}
+      config: {Ref: BlockStorageConfig}
+      input_values:
+        controller_host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
+        cinder_dsn: {"Fn::Join": ['', ['mysql://cinder:unset@', {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] } , '/cinder']]}
+        neutron_local_ip: {"Fn::Select": [0, "Fn::Select": [ctlplane, [{"Fn::GetAtt": [BlockStorage0 , networks]}]]]}
+  BlockStorageConfig:
+    Type: OS::Heat::StructuredConfig
+    Properties:
+      config:
+        admin-password: {Ref: AdminPassword}
+        keystone:
+          host: {get_input: controller_host}
+        cinder:
+          db: {get_input: cinder_dsn}
+          volume_size_mb: '5000'
+          service-password:
+            Ref: CinderPassword
+          iscsi-helper:
+            Ref: CinderISCSIHelper
+        admin-password: {Ref: AdminPassword}
+        rabbit:
+          host: {get_input: controller_host}
+          username: {Ref: RabbitUserName}
+          password: {Ref: RabbitPassword}
+        interfaces:
+          control: {Ref: NeutronPublicInterface}
+        neutron:
+          ovs:
+            local_ip: {get_input: neutron_local_ip}
+            tenant_network_type: {Ref: NeutronNetworkType}
+            enable_tunneling: {Ref: NeutronEnableTunnelling}
+          service-password:
+            Ref: NeutronPassword
+        config:
+          keystone:
+            host: {get_input: controller_host}
+          cinder:
+            db: {get_input: cinder_dsn}
+            volume_size_mb: '5000'
+            service-password:
+              Ref: CinderPassword
+            iscsi-helper:
+              Ref: CinderISCSIHelper
+          admin-password: {Ref: AdminPassword}
+          rabbit:
+            host: {get_input: controller_host}
+            username: {Ref: RabbitUserName}
+            password: {Ref: RabbitPassword}
+          interfaces:
+            control: {Ref: NeutronPublicInterface}
+          neutron:
+            ovs:
+              local_ip: { get_input: neutron_local_ip }
+              tenant_network_type: {Ref: NeutronNetworkType}
+              enable_tunneling: {Ref: NeutronEnableTunnelling}
+            service-password:
+              Ref: NeutronPassword

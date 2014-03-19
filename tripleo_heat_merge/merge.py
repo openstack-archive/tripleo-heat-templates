@@ -292,7 +292,11 @@ def merge(templates, master_role=None, slave_roles=None,
                                 errors.append('Role %s metadata key %s conflicts.' %
                                               (role, m))
                             continue
-                        end_template['Resources'][role]['Metadata'][m] = mbody
+                        role_res = end_template['Resources'][role]
+                        if role_res['Type'] == 'OS::Heat::StructuredConfig':
+                            end_template['Resources'][role]['Properties']['config'][m] = mbody
+                        else:
+                            end_template['Resources'][role]['Metadata'][m] = mbody
                     continue
                 if 'Resources' not in end_template:
                     end_template['Resources'] = {}
@@ -315,6 +319,8 @@ def merge(templates, master_role=None, slave_roles=None,
                         include_content = resolve_params(include_content,
                                                          replace_param,
                                                          replace_value)
+                    if 'Resources' not in end_template:
+                        end_template['Resources'] = {}
                     end_template['Resources'][r] = include_content
             else:
                 if r in end_template.get('Resources', {}):
