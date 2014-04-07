@@ -8,17 +8,24 @@ Parameters:
     Default: baremetal
     Description: Flavor for block storage nodes to request when deploying.
     Type: String
+  NeutronNetworkType:
+    Type: String
+    Default: 'gre'
+  NeutronEnableTunnelling:
+    Type: String
+    Default: True
 Resources:
   BlockStorageAccessPolicy:
     Type: OS::Heat::AccessPolicy
     Properties:
       AllowedResources:
       - BlockStorage0
+      - BlockStorage0Config
   BlockStorageUser:
     Type: AWS::IAM::User
     Properties:
       Policies: [ { Ref: BlockStorageAccessPolicy } ]
-  BlockStorageKey:
+  BlockStorage0Key:
     Type: AWS::IAM::AccessKey
     Properties:
       UserName:
@@ -40,16 +47,32 @@ Resources:
       flavor: {Ref: OvercloudBlockStorageFlavor}
       key_name: {Ref: KeyName}
     Metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            Ref: BlockStorage0Key
+          secret_access_key:
+            Fn::GetAtt: [ BlockStorage0Key, SecretAccessKey ]
+          stack_name: {Ref: 'AWS::StackName'}
+          path: BlockStorage0Config.Metadata
+      OpenStack::ImageBuilder::Elements: [ cinder ]
+  BlockStorage0Config:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: '0'
+      ImageId: '0'
+    Metadata:
       completion-handle:
         Ref: BlockStorage0CompletionHandle
       os-collect-config:
         cfn:
           access_key_id:
-            Ref: BlockStorageKey
+            Ref: BlockStorage0Key
           secret_access_key:
-            Fn::GetAtt: [ BlockStorageKey, SecretAccessKey ]
+            Fn::GetAtt: [ BlockStorage0Key, SecretAccessKey ]
           stack_name: {Ref: 'AWS::StackName'}
-      OpenStack::ImageBuilder::Elements: [ cinder ]
+          path: BlockStorage0Config.Metadata
+      admin-password: {Ref: AdminPassword}
       keystone:
         host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [notCompute0, networks]} ]} ] }
       cinder:
@@ -64,3 +87,17 @@ Resources:
         password: {Ref: RabbitPassword}
       interfaces:
         control: {Ref: NeutronPublicInterface}
+      neutron:
+        ovs:
+          local_ip:
+            Fn::Select:
+              - 0
+              - Fn::Select:
+                - ctlplane
+                - Fn::GetAtt:
+                  - BlockStorage0
+                  - networks
+          tenant_network_type: {Ref: NeutronNetworkType}
+          enable_tunneling: {Ref: NeutronEnableTunnelling}
+        service-password:
+          Ref: NeutronPassword
