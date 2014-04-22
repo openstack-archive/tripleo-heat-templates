@@ -21,6 +21,44 @@ Parameters:
     Default: tgtadm
     Description: The iSCSI helper to use with cinder.
     Type: String
+  ExtraConfig:
+    Default: {}
+    Description: |
+      Additional configuration to inject into the cluster. The JSON should have
+      the following structure:
+        {"FILEKEY":
+          {"config":
+            [{"section": "SECTIONNAME",
+              "values":
+                [{"option": "OPTIONNAME",
+                  "value": "VALUENAME"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+      For instance:
+        {"nova":
+          {"config":
+            [{"section": "default",
+              "values":
+                [{"option": "compute_manager",
+                  "value": "ironic.nova.compute.manager.ClusterComputeManager"
+                 }
+                ]
+             },
+             {"section": "cells",
+              "values":
+                [{"option": "driver",
+                  "value": "nova.cells.rpc_driver.CellsRPCDriver"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+    Type: Json
   OvercloudControlFlavor:
     Default: baremetal
     Description: Flavor for control nodes to request when deploying.
@@ -246,6 +284,14 @@ Resources:
                 - {Ref: CloudName}
                 # If CloudName is unset, make the hosts line still valid
                 - unused
+  NovaCompute0Passthrough:
+    Type: OS::Heat::StructuredDeployment
+    Properties:
+      config: {Ref: NovaComputePassthrough}
+      server: {Ref: NovaCompute0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config: {Ref: ExtraConfig}
   NovaCompute0:
     Type: FileInclude
     Path: nova-compute-instance.yaml
@@ -354,6 +400,10 @@ Resources:
         ntp:
           servers:
               - {server: {Ref: NtpServer}, fudge: "stratum 0"}
+  controllerPassthrough:
+    Type: OS::Heat::StructuredConfig
+    Properties:
+      config: {get_input: passthrough_config}
   controller0:
     Type: OS::Nova::Server
     Properties:
@@ -412,6 +462,14 @@ Resources:
       input_values:
         ssl_certificate: {Ref: SSLCertificate}
         ssl_key: {Ref: SSLKey}
+  controller0Passthrough:
+    Type: OS::Heat::StructuredDeployment
+    Properties:
+      config: {Ref: controllerPassthrough}
+      server: {Ref: controller0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config: {Ref: ExtraConfig}
 Outputs:
   KeystoneURL:
     Description: URL for the Overcloud Keystone service
