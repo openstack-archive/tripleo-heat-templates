@@ -1,103 +1,132 @@
-HeatTemplateFormatVersion: '2012-12-12'
-Description: 'Nagios3'
-Parameters:
-  KeyName:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
-    Type: String
-    Default: default
-  AdmWebPasswd:
-    Description: Password for nagiosadmin web admin user.
-    Type: String
-    Default: nagiosadmin
-    NoEcho: true
-  NovaHostIp:
-    Description: nova ip.
-    Type: String
-    Default: 192.0.2.1
-  NovaOsPassword:
-    Description: nova OS_PASSWORD.
-    Type: String
-    Default: unset
-    NoEcho: true
-  NovaOsUsername:
-    Description: nova OS_USERNAME.
-    Type: String
-    Default: admin
-  NovaOsTenantName:
-    Description: nova OS_TENANT_NAME.
-    Type: String
-    Default: admin
-  Nagios3ImageId:
-    Description: Nagios image.
-    Type: String
-    Default: nagios3
-  InstanceType:
-    Description: Use this flavor.
-    Type: String
-    Default: baremetal
-  InitialIpSplitKey:
-    Description: Network name from nova list to get initial ip list from.
-    Type: String
-    Default: ctlplane
-  Apache2SnakeoilPem:
-    Description: Snakeoil PEM file.
-    Type: String
-    NoEcho: true
-    Default: |
-      -----  BEGIN PlaceHolder...
-  Apache2SnakeoilKey:
-    Description: Snakeoil Key file.
-    Type: String
-    NoEcho: true
-    Default: |
-      -----  BEGIN PlaceHolder...
-  PostfixMailHostname:
-    Description: Hostname for postfix..
-    Type: String
-    Default: nagios3-nagios3
-  PostfixMailDomain:
-    Description: Top level domain for postfix.
-    Type: String
-    Default: novalocal
-  PostfixDelayWarningTime:
-    Description: Amount of time to Delay warnnings.
-    Type: String
-    Default: 4h
-Resources:
-  nagios3:
-    Metadata:
-      OpenStack::ImageBuilder::Elements: [ nagios3 ]
-      apache2:
-        snakeoil_pem:
-          Ref: Apache2SnakeoilPem
-        snakeoil_key:
-          Ref: Apache2SnakeoilKey
-      nagios3:
-        adm_web_passwd:
-          Ref: AdmWebPasswd
-        nova_host_ip:
-          Ref: NovaHostIp
-        nova_os_password:
-          Ref: NovaOsPassword
-        nova_os_username:
-          Ref: NovaOsUsername
-        nova_os_tenant_name:
-          Ref: NovaOsTenantName
-        initial_network_split_key:
-          Ref: InitialIpSplitKey
-      postfix:
-        mailhostname:
-          Ref: PostfixMailHostname
-        maildomain:
-          Ref: PostfixMailDomain
-        delay_warning_time:
-          Ref: PostfixDelayWarningTime
-    Type: AWS::EC2::Instance
-    Properties:
-      KeyName:
-        Ref: KeyName
-      ImageId:
-        Ref: Nagios3ImageId
-      InstanceType: {Ref: InstanceType}
-Outputs:
-    Nagios3Host: {'Fn::Select': [ 0, {'Fn::Select': [ 'ctlplane', 'Fn::GetAtt': [ 'nagios3' , 'networks' ] ]} ]}
+# Copyright 2014 Hewlett-Packard Development Company, L.P.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+#
+heat_template_version: 2013-05-23
+description: Deploy Nagios
+parameters:
+  adm_web_passwd:
+    type: string
+    description: Password for initial admin user
+    hidden: true
+  nova_os_auth_url:
+    type: string
+    default: ''
+    description: URL for Keystone to access Nova.
+  nova_os_password:
+    type: string
+    hidden: true
+    description: password to present to nova_host_ip.
+    default: ''
+  nova_os_username:
+    type: string
+    description: username to present to nova_host_ip.
+    default: ''
+  nova_os_tenant_name:
+    type: string
+    description: tenant name to present to nova_host_ip.
+    default: ''
+  monitor_networks:
+    type: json
+    description: Neutron networks to monitor.
+    default: []
+  image:
+    type: string
+    description: Image for Nagios.
+    default: nagios
+  server_network:
+    type: string
+    description: Network id for server.
+    default: default-net
+  external_network:
+    type: string
+    description: Network to attach floating ips to.
+    default: ext-net
+  flavor:
+    type: string
+    description: What flavor to use for the nagios server.
+    default: m1.small
+  key_name:
+    type: string
+    description: What Nova SSH key to use for the nagios server.
+    default: default
+resources:
+  nagios_config:
+    type: OS::Heat::StructuredConfig
+    properties:
+      config:
+        nagios3:
+          adm_web_passwd: { get_input: adm_web_passwd }
+          os_auth_url: { get_input: nova_os_auth_url }
+          os_password: { get_input: nova_os_password }
+          os_username: { get_input: nova_os_username }
+          os_tenant_name: { get_input: nova_os_tenant_name }
+          monitor_networks: { get_input: monitor_networks }
+        completion-signal: { get_input: deploy_signal_id }
+  nagios_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: monitoring
+      rules:
+        - direction: ingress
+          port_range_max: 22
+          port_range_min: 22
+          protocol: tcp
+        - direction: ingress
+          port_range_max: 80
+          port_range_min: 80
+          protocol: tcp
+        - direction: ingress
+          protocol: icmp
+        - direction: egress
+          protocol: tcp
+        - direction: egress
+          protocol: udp
+        - direction: egress
+          protocol: icmp
+  nagios_net_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: server_network }
+      security_groups: [ { get_resource: nagios_security_group } ]
+  nagios_server:
+    type: OS::Nova::Server
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: { get_param: server_network }
+          port: { get_resource: nagios_net_port }
+  nagios_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network }
+      port_id: { get_resource: nagios_net_port }
+  nagios_deploy:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: { get_resource: nagios_server }
+      config: { get_resource: nagios_config }
+      input_values:
+        adm_web_passwd: { get_param: adm_web_passwd }
+        nova_os_auth_url: { get_param: nova_os_auth_url }
+        nova_os_password: { get_param: nova_os_password }
+        nova_os_username: { get_param: nova_os_username }
+        nova_os_tenant_name: { get_param: nova_os_tenant_name }
+        monitor_networks: { get_param: monitor_networks }
+outputs:
+  nagios_address:
+    description: Address of Nagios admin interface.
+    value: { get_attr: [ nagios_floating_ip, floating_ip_address ] }
