@@ -38,6 +38,44 @@ Parameters:
     Description: The user password for SNMPd with readonly rights running on all Overcloud nodes
     Type: String
     NoEcho: true
+  ExtraConfig:
+    Default: {}
+    Description: |
+      Additional configuration to inject into the cluster. The JSON should have
+      the following structure:
+        {"FILEKEY":
+          {"config:
+            [{"section": "SECTIONNAME",
+              "values":
+               [{"option": "OPTIONNAME",
+                  "value": "VALUENAME"
+                }
+               ]
+             }
+            ]
+          }
+        }
+      For instance:
+        {"nova":
+          {"config":
+            [{"section": "default",
+              "values":
+                [{"option": "compute_manager",
+                  "value": "ironic.nova.compute.manager.ClusterComputeManager"
+                 }
+                ]
+             },
+             {"section": "cells",
+              "values":
+                [{"option": "driver",
+                  "value": "nova.cells.rpc_driver.CellsRPCDriver"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+    Type: Json
   Flavor:
     Default: baremetal
     Description: Flavor to request when deploying.
@@ -205,6 +243,10 @@ Resources:
         ntp:
           servers:
             - {server: {Ref: NtpServer}, fudge: "stratum 0"}
+  undercloudPassthroughConfig:
+    Type: OS::Heat::StructuredConfig
+    Properties:
+      config: {get_input: passthrough_config}
   undercloud:
     Type: OS::Nova::Server
     Properties:
@@ -255,3 +297,11 @@ Resources:
             - - 'http://'
               - {"Fn::Select": [ 0, "Fn::Select": [ ctlplane, { "Fn::GetAtt": [ undercloud, networks ]}]]}
               - ':8000/v1/waitcondition'
+  00_undercloudPassthroughDeployment:
+    Type: OS::Heat::StructuredDeployment
+    Properties:
+      config: {Ref: undercloudPassthroughConfig}
+      server: {Ref: undercloud}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config: {Ref: ExtraConfig}
