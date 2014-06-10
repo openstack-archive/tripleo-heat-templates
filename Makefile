@@ -3,7 +3,6 @@ generated_templates =                         \
         overcloud-with-block-storage-nfs.yaml \
         undercloud-vm.yaml                    \
         undercloud-bm.yaml                    \
-        undercloud-vm-tuskar.yaml             \
         undercloud-vm-ironic.yaml
 
 # Files included in overcloud-source.yaml via FileInclude
@@ -26,10 +25,6 @@ undercloud-vm.yaml: undercloud-source.yaml undercloud-vm-nova-config.yaml underc
 	mv $@.tmp $@
 
 undercloud-bm.yaml: undercloud-source.yaml undercloud-bm-nova-config.yaml undercloud-bm-nova-deploy.yaml
-	python ./tripleo_heat_merge/merge.py $^ > $@.tmp
-	mv $@.tmp $@
-
-undercloud-vm-tuskar.yaml: undercloud-source.yaml undercloud-vm-source.yaml tuskar-source.yaml
 	python ./tripleo_heat_merge/merge.py $^ > $@.tmp
 	mv $@.tmp $@
 
