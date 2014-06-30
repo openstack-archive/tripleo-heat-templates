@@ -3,7 +3,8 @@ generated_templates =                         \
         overcloud-with-block-storage-nfs.yaml \
         undercloud-vm.yaml                    \
         undercloud-bm.yaml                    \
-        undercloud-vm-ironic.yaml
+        undercloud-vm-ironic.yaml             \
+        undercloud-vm-ironic-vlan.yaml
 
 # Files included in overcloud-source.yaml via FileInclude
 overcloud_source_deps = nova-compute-instance.yaml
@@ -14,8 +15,10 @@ validate-all: $(VALIDATE)
 $(VALIDATE):
 	heat template-validate -f $(subst validate-,,$@)
 
+# set CONTROLEXTRA to overcloud-vlan-port.yaml to activate the VLAN
+# auto-assignment from Neutron.
 overcloud.yaml: overcloud-source.yaml block-storage.yaml swift-deploy.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml nova-compute-config.yaml $(overcloud_source_deps)
-	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml > $@.tmp
+	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml ${CONTROLEXTRA} > $@.tmp
 	mv $@.tmp $@
 
 overcloud-with-block-storage-nfs.yaml: overcloud-source.yaml block-storage-nfs.yaml nfs-server-source.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml $(overcloud_source_deps)
@@ -33,6 +36,10 @@ undercloud-bm.yaml: undercloud-source.yaml undercloud-bm-nova-config.yaml underc
 	mv $@.tmp $@
 
 undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-ironic-config.yaml undercloud-vm-ironic-deploy.yaml
+	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
+	mv $@.tmp $@
+
+undercloud-vm-ironic-vlan.yaml: undercloud-source.yaml undercloud-vm-ironic-config.yaml undercloud-vm-ironic-deploy.yaml undercloud-vlan-port.yaml
 	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
 	mv $@.tmp $@
 
