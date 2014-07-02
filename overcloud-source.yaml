@@ -290,7 +290,6 @@ Resources:
     Parameters:
         NovaApiHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
         KeystoneHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
-        RabbitHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
         NeutronHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
         GlanceHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
         NovaDSN: {"Fn::Join": ['', ['mysql://nova:unset@', {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}, '/nova']]}
@@ -307,12 +306,12 @@ Resources:
             Ref: HypervisorNeutronPublicInterface
         NeutronBridgeMappings:
             Ref: NeutronBridgeMappings
-  NovaCompute0Hosts:
+  NovaCompute0AllNodes:
     Type: FileInclude
     Path: nova-compute-instance.yaml
-    SubKey: Resources.NovaCompute0HostsDeploy
+    SubKey: Resources.NovaCompute0AllNodesDeploy
     Parameters:
-        HostsConfig: {Ref: allHostsConfig}
+        AllNodesConfig: {Ref: allNodesConfig}
   NovaCompute0Passthrough:
     Type: OS::Heat::StructuredDeployment
     Properties:
@@ -455,8 +454,6 @@ Resources:
           service-password:
             Ref: NovaPassword
         rabbit:
-          host:
-            get_input: controller_host
           username:
             Ref: RabbitUserName
           password:
@@ -533,10 +530,10 @@ Resources:
       key_name:
         Ref: KeyName
       user_data_format: SOFTWARE_CONFIG
-  controller0Hosts:
+  controller0AllNodesConfig:
     Type: OS::Heat::StructuredDeployment
     Properties:
-      config: {Ref: allHostsConfig}
+      config: {Ref: allNodesConfig}
       server: {Ref: controller0}
       signal_transport: NO_SIGNAL
   controller0Deployment:
@@ -579,7 +576,7 @@ Resources:
             - - 'http://'
               - {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
               - ':8000/v1/waitcondition'
-  allHostsConfig:
+  allNodesConfig:
     Type: OS::Heat::StructuredConfig
     Properties:
       config:
@@ -639,6 +636,13 @@ Resources:
                               - show
                           - 'novalocal'
                       - {Ref: CloudName}
+        rabbit:
+          nodes:
+            Fn::Join:
+              - ','
+              - Merge::Map:
+                  controller0:
+                    {"Fn::Select": [ name, {"Fn::GetAtt": [controller0, show]} ] }
   controller0SSLDeployment:
     Type: OS::Heat::StructuredDeployment
     Properties:
