@@ -23,6 +23,25 @@ class Cfn(object):
     get_attr = 'Fn::GetAtt'
 
 
+class Hot(object):
+
+    base_template = {
+        'heat_template_version': '2013-05-23',
+        'description': []
+    }
+    get_resource = 'get_resource'
+    get_param = 'get_param'
+    description = 'description'
+    parameters = 'parameters'
+    outputs = 'outputs'
+    resources = 'resources'
+    type = 'type'
+    properties = 'properties'
+    metadata = 'metadata'
+    depends_on = 'depends_on'
+    get_attr = 'get_attr'
+
+
 lang = Cfn()
 
 
@@ -241,7 +260,15 @@ def main(argv=None):
         help="Change parameters in templates to match resource names. This was "
              " the default at one time but it causes issues when parameter "
              " names need to remain stable.")
+    parser.add_argument(
+        '--hot', action='store_true', default=False,
+        help="Assume source templates are in the HOT format, and generate a "
+             "HOT template artifact.")
     args = parser.parse_args(argv)
+    if args.hot:
+        global lang
+        lang = Hot()
+
     templates = args.templates
     scaling = parse_scaling(args.scale)
     merged_template = merge(templates, args.master_role, args.slave_roles,

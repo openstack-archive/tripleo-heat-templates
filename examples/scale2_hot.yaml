@@ -1,0 +1,69 @@
+heat_template_version: 2013-05-23
+parameters:
+  ComputeImage:
+    type: string
+  RabbitUserName:
+    type: string
+  RabbitPassword:
+    type: string
+    hidden: true
+resources:
+  ComputeAccessPolicy:
+    type: OS::Heat::AccessPolicy
+    properties:
+      AllowedResources: [ NovaCompute0 ]
+  NovaCompute0Key:
+    type: AWS::IAM::AccessKey
+    properties:
+      UserName:
+        get_param: ComputeUser
+  NovaCompute0CompletionCondition:
+    type: AWS::CloudFormation::WaitCondition
+    depends_on: notcompute
+    properties:
+      Handle: {get_resource: NovaCompute0CompletionHandle}
+      Count: '1'
+      Timeout: '1800'
+  NovaCompute0CompletionHandle:
+    type: AWS::CloudFormation::WaitConditionHandle
+  NovaCompute0:
+    type: OS::Nova::Server
+    properties:
+      image:
+        get_param: ComputeImage
+    metadata:
+      os-collect-config:
+        cfn:
+          access_key_id:
+            get_resource: NovaCompute0Key
+          secret_access_key:
+            get_attr: [ NovaCompute0Key, SecretAccessKey ]
+          stack_name: {get_param: 'AWS::StackName'}
+          path: NovaCompute0Config.Metadata
+  NovaCompute0Config:
+    type: AWS::AutoScaling::LaunchConfiguration
+    metadata:
+      completion-handle:
+        get_resource: NovaCompute0CompletionHandle
+      os-collect-config:
+        cfn:
+          access_key_id:
+            get_resource: NovaCompute0Key
+          secret_access_key:
+            get_attr: [ NovaCompute0Key, SecretAccessKey ]
+          stack_name: {get_param: 'AWS::StackName'}
+          path: NovaCompute0Config.Metadata
+      neutron:
+        ovs:
+          local_ip:
+            Fn::Select:
+              - 0
+              - Fn::Select:
+                - ctlplane
+                - get_attr:
+                  - NovaCompute0
+                  - networks
+      rabbit:
+        username: {get_param: RabbitUserName}
+        password: {get_param: RabbitPassword}
+
