@@ -9,6 +9,10 @@ generated_templates =                         \
 overcloud_source_deps = nova-compute-instance.yaml
 
 all: $(generated_templates)
+VALIDATE := $(patsubst %,validate-%,$(generated_templates))
+validate-all: $(VALIDATE)
+$(VALIDATE):
+	heat template-validate -f $(subst validate-,,$@)
 
 overcloud.yaml: overcloud-source.yaml block-storage.yaml swift-deploy.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml nova-compute-config.yaml $(overcloud_source_deps)
 	python ./tripleo_heat_merge/merge.py --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE='0'} --scale BlockStorage=$${BLOCKSTORAGESCALE='0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml > $@.tmp
