@@ -318,9 +318,24 @@ resources:
         NeutronHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         GlanceHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         RabbitHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-        NovaDSN: {list_join: ['', ['mysql://nova:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/nova']]}
-        CeilometerDSN: {list_join: ['', ['mysql://ceilometer:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/ceilometer']]}
-        NeutronDSN: {list_join: ['', ['mysql://neutron:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/ovs_neutron']]}
+        NovaDSN:
+          list_join:
+            - ''
+            - - mysql://nova:unset@
+              - &compute_database_host {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+              - /nova
+        CeilometerDSN:
+          list_join:
+            - ''
+            - - mysql://ceilometer:unset@
+              - *compute_database_host
+              - /ceilometer
+        NeutronDSN:
+          list_join:
+            - ''
+            - - mysql://neutron:unset@
+              - *compute_database_host
+              - /ovs_neutron
         NeutronNetworkType: "gre"
         NeutronEnableTunnelling: "True"
         NeutronFlatNetworks:
@@ -374,8 +389,16 @@ resources:
                       - controller0
                       - show
           nodeid: {get_input: bootstack_nodeid}
+        database:
+          host: &database_host
+            {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         cinder:
-          db: mysql://cinder:unset@localhost/cinder
+          db:
+            list_join:
+              - ''
+              - - mysql://cinder:unset@
+                - *database_host
+                - /cinder
           volume_size_mb:
             get_param: CinderLVMLoopDeviceSize
           service-password:
@@ -400,7 +423,12 @@ resources:
           registry:
             host: {get_input: controller_virtual_ip}
           backend: swift
-          db: mysql://glance:unset@localhost/glance
+          db:
+            list_join:
+              - ''
+              - - mysql://glance:unset@
+                - *database_host
+                - /glance
           host:
             get_input: controller_virtual_ip
           port:
@@ -422,7 +450,12 @@ resources:
           admin_tenant_name: service
           admin_user: heat
           auth_encryption_key: unset___________
-          db: mysql://heat:unset@localhost/heat
+          db:
+            list_join:
+              - ''
+              - - mysql://heat:unset@
+                - *database_host
+                - /heat
           stack_domain_admin_password: {get_param: HeatStackDomainAdminPassword}
           watch_server_url: {get_input: heat.watch_server_url}
           metadata_server_url: {get_input: heat.metadata_server_url}
@@ -435,7 +468,12 @@ resources:
                   controller0:
                     {get_attr: [controller0, show, name]}
         keystone:
-          db: mysql://keystone:unset@localhost/keystone
+          db:
+            list_join:
+              - ''
+              - - mysql://keystone:unset@
+                - *database_host
+                - /keystone
           host:
             get_input: controller_virtual_ip
           ca_certificate: {get_param: KeystoneCACertificate}
@@ -443,6 +481,7 @@ resources:
           signing_certificate: {get_param: KeystoneSigningCertificate}
         mysql:
           innodb_buffer_pool_size: {get_param: MysqlInnodbBufferPoolSize}
+          local_bind: true
           nodes:
             Merge::Map:
               controller0:
@@ -469,13 +508,23 @@ resources:
               get_param: NeutronPublicInterfaceDefaultRoute
             physical_bridge: br-ex
             tenant_network_type: gre
-          ovs_db: mysql://neutron:unset@localhost/ovs_neutron?charset=utf8
+          ovs_db:
+            list_join:
+              - ''
+              - - mysql://neutron:unset@
+                - *database_host
+                - /ovs_neutron?charset=utf8
           service-password:
             get_param: NeutronPassword
           dnsmasq-options:
             get_param: NeutronDnsmasqOptions
         ceilometer:
-          db: mysql://ceilometer:unset@localhost/ceilometer
+          db:
+            list_join:
+              - ''
+              - - mysql://ceilometer:unset@
+                - *database_host
+                - /ceilometer
           metering_secret: {get_param: CeilometerMeteringSecret}
           service-password:
             get_param: CeilometerPassword
@@ -487,7 +536,12 @@ resources:
             get_param: SnmpdReadonlyUserPassword
         nova:
           compute_driver: libvirt.LibvirtDriver
-          db: mysql://nova:unset@localhost/nova
+          db:
+            list_join:
+              - ''
+              - - mysql://nova:unset@
+                - *database_host
+                - /nova
           default_floating_pool:
             ext-net
           host: {get_input: controller_virtual_ip}
@@ -586,6 +640,10 @@ resources:
             - name: heat_cfn
               port: 8000
               net_binds: *public_binds
+            - name: mysql
+              port: 3306
+              extra_server_params:
+                - backup
             - name: nova_ec2
               port: 8773
             - name: nova_osapi
