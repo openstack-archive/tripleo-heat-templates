@@ -283,6 +283,10 @@ parameters:
     description: Keystone key for signing tokens.
     type: string
     hidden: true
+  BootstrapNodeResource:
+    default: controller0
+    description: Name of the bootstrap controller resource
+    type: string
 resources:
   ControlVirtualIP:
     type: OS::Neutron::Port
@@ -313,13 +317,13 @@ resources:
     Path: nova-compute-instance.yaml
     SubKey: resources.NovaCompute0Deploy
     parameters:
-        NovaApiHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
-        KeystoneHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
-        NeutronHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
-        GlanceHost: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
-        NovaDSN: {list_join: ['', ['mysql://nova:unset@', {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}, '/nova']]}
-        CeilometerDSN: {list_join: ['', ['mysql://ceilometer:unset@', {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}, '/ceilometer']]}
-        NeutronDSN: {list_join: ['', ['mysql://neutron:unset@', {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}, '/ovs_neutron']]}
+        NovaApiHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+        KeystoneHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+        NeutronHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+        GlanceHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+        NovaDSN: {list_join: ['', ['mysql://nova:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/nova']]}
+        CeilometerDSN: {list_join: ['', ['mysql://ceilometer:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/ceilometer']]}
+        NeutronDSN: {list_join: ['', ['mysql://neutron:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}, '/ovs_neutron']]}
         NeutronNetworkType: "gre"
         NeutronEnableTunnelling: "True"
         NeutronFlatNetworks:
@@ -360,18 +364,7 @@ resources:
           public_interface_ip:
             get_param: NeutronPublicInterfaceIP
         bootstrap_host:
-          bootstrap_nodeid:
-            Fn::Select:
-            - 0
-            - Fn::Select:
-              - 0
-              - Merge::Map:
-                  controller0:
-                  - Fn::Select:
-                    - name
-                    - get_attr:
-                      - controller0
-                      - show
+          bootstrap_nodeid: {get_attr: [{get_param: BootstrapNodeResource}, show, name]}
           nodeid: {get_input: bootstack_nodeid}
         cinder:
           db: mysql://cinder:unset@localhost/cinder
@@ -389,7 +382,7 @@ resources:
           nodes:
             Merge::Map:
               controller0:
-                ip: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
+                ip: {get_attr: [controller0, networks, ctlplane, 0]}
         pacemaker:
           stonith_enabled : false
           recheck_interval : 5
@@ -432,7 +425,7 @@ resources:
               nodes:
                 Merge::Map:
                   controller0:
-                    {"Fn::Select": [ name, {get_attr: [controller0, show]} ] }
+                    {get_attr: [controller0, show, name]}
         keystone:
           db: mysql://keystone:unset@localhost/keystone
           host:
@@ -445,7 +438,7 @@ resources:
           nodes:
             Merge::Map:
               controller0:
-                ip: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
+                ip: {get_attr: [controller0, networks, ctlplane, 0]}
           cluster_name:
             list_join:
               - '-'
@@ -513,7 +506,7 @@ resources:
                 get_param: ControlVirtualInterface
               priority: 101
               virtual_ips:
-              - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+              - ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
                 interface:
                   get_param: ControlVirtualInterface
             - vrrp_instance_name: VI_PUBLIC
@@ -522,7 +515,7 @@ resources:
                 get_param: PublicVirtualInterface
               priority: 101
               virtual_ips:
-              - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [PublicVirtualIP, fixed_ips]]]}
+              - ip: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
                 interface:
                   get_param: PublicVirtualInterface
           vrrp_sync_groups:
@@ -536,27 +529,27 @@ resources:
           priority: 101
         virtual_ips:
             -
-              ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+              ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
               interface:
                 get_param: ControlVirtualInterface
             -
-              ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [PublicVirtualIP, fixed_ips]]]}
+              ip: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
               interface:
                 get_param: PublicVirtualInterface
         haproxy:
           nodes:
             Merge::Map:
               controller0:
-                ip: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
-                name: {"Fn::Select": [ name, {get_attr: [controller0, show]} ] }
+                ip: {get_attr: [controller0, networks, ctlplane, 0]}
+                name: {get_attr: [controller0, show, name]}
           net_binds:
-            - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+            - ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
           services:
             - name: keystone_admin
               port: 35357
               net_binds: &public_binds
-                - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
-                - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [PublicVirtualIP, fixed_ips]]]}
+                - ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+                - ip: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
             - name: keystone_public
               port: 5000
               net_binds: *public_binds
@@ -630,39 +623,27 @@ resources:
       config: {get_resource: controllerConfig}
       server: {get_resource: controller0}
       input_values:
-        bootstack_nodeid:
-          Fn::Select:
-          - name
-          - get_attr:
-            - controller0
-            - show
-        controller_host:
-          Fn::Select:
-            - 0
-            - Fn::Select:
-              - ctlplane
-              - get_attr:
-                - controller0
-                - networks
+        bootstack_nodeid: {get_attr: [controller0, show, name]}
+        controller_host: {get_attr: [controller0, networks, ctlplane, 0]}
         controller_virtual_ip:
-          {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+          {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         heat.watch_server_url:
           list_join:
             - ''
             - - 'http://'
-              - {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+              - {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
               - ':8003'
         heat.metadata_server_url:
           list_join:
             - ''
             - - 'http://'
-              - {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+              - {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
               - ':8000'
         heat.waitcondition_server_url:
           list_join:
             - ''
             - - 'http://'
-              - {'Fn::Select': [ip_address, 'Fn::Select': [0, get_attr: [ControlVirtualIP, fixed_ips]]]}
+              - {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
               - ':8000/v1/waitcondition'
   allNodesConfig:
     type: OS::Heat::StructuredConfig
@@ -678,25 +659,11 @@ resources:
                   NovaCompute0:
                     list_join:
                     - ' '
-                    - - Fn::Select:
-                        - 0
-                        - Fn::Select:
-                          - ctlplane
-                          - get_attr:
-                            - NovaCompute0
-                            - networks
-                      - Fn::Select:
-                        - name
-                        - get_attr:
-                          - NovaCompute0
-                          - show
+                    - - {get_attr: [NovaCompute0, networks, ctlplane, 0]}
+                      - {get_attr: [NovaCompute0, show, name]}
                       - list_join:
                         - '.'
-                        - - Fn::Select:
-                            - name
-                            - get_attr:
-                              - NovaCompute0
-                              - show
+                        - - {get_attr: [NovaCompute0, show, name]}
                           - 'novalocal'
             - list_join:
               - "\n"
@@ -704,25 +671,11 @@ resources:
                   controller0:
                     list_join:
                     - ' '
-                    - - Fn::Select:
-                        - 0
-                        - Fn::Select:
-                          - ctlplane
-                          - get_attr:
-                            - controller0
-                            - networks
-                      - Fn::Select:
-                        - name
-                        - get_attr:
-                          - controller0
-                          - show
+                    - - {get_attr: [controller0, networks, ctlplane, 0]}
+                      - {get_attr: [controller0, show, name]}
                       - list_join:
                         - '.'
-                        - - Fn::Select:
-                            - name
-                            - get_attr:
-                              - controller0
-                              - show
+                        - - {get_attr: [controller0, show, name]}
                           - 'novalocal'
                       - {get_param: CloudName}
         rabbit:
@@ -731,7 +684,7 @@ resources:
               - ','
               - Merge::Map:
                   controller0:
-                    {"Fn::Select": [ name, {get_attr: [controller0, show]} ] }
+                    {get_attr: [controller0, show, name]}
   controller0SSLDeployment:
     type: OS::Heat::StructuredDeployment
     properties:
@@ -739,14 +692,7 @@ resources:
       server: {get_resource: controller0}
       signal_transport: NO_SIGNAL
       input_values:
-        controller_host:
-          Fn::Select:
-            - 0
-            - Fn::Select:
-              - ctlplane
-              - get_attr:
-                - controller0
-                - networks
+        controller_host: {get_attr: [controller0, networks, ctlplane, 0]}
         ssl_certificate: {get_param: SSLCertificate}
         ssl_key: {get_param: SSLKey}
         ssl_ca_certificate: {get_param: SSLCACertificate}
@@ -765,11 +711,5 @@ outputs:
       list_join:
       - ''
       - - http://
-        - Fn::Select:
-          - ip_address
-          - Fn::Select:
-            - 0
-            - get_attr:
-              - ControlVirtualIP
-              - fixed_ips
+        - {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         - :5000/v2.0/
