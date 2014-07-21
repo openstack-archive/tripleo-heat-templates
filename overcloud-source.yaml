@@ -63,6 +63,18 @@ parameters:
           }
         }
     type: json
+  controllerExtraConfig:
+    default: {}
+    description: |
+      Controller specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+  NovaComputeExtraConfig:
+    default: {}
+    description: |
+      NovaCompute specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
   OvercloudControlFlavor:
     default: baremetal
     description: Flavor for control nodes to request when deploying.
@@ -353,16 +365,22 @@ resources:
     SubKey: resources.NovaCompute0AllNodesDeployment
     parameters:
         AllNodesConfig: {get_resource: allNodesConfig}
+  NovaCompute0:
+    type: FileInclude
+    Path: nova-compute-instance.yaml
+    SubKey: resources.NovaCompute0
   NovaCompute0Passthrough:
     type: FileInclude
     Path: nova-compute-instance.yaml
     SubKey: resources.NovaCompute0Passthrough
     parameters:
         passthrough_config: {get_param: ExtraConfig}
-  NovaCompute0:
+  NovaCompute0PassthroughSpecific:
     type: FileInclude
     Path: nova-compute-instance.yaml
-    SubKey: resources.NovaCompute0
+    SubKey: resources.NovaCompute0PassthroughSpecific
+    parameters:
+        passthrough_config_specific: {get_param: NovaComputeExtraConfig}
   controllerConfig:
     type: OS::Heat::StructuredConfig
     properties:
@@ -668,6 +686,11 @@ resources:
     properties:
       group: os-apply-config
       config: {get_input: passthrough_config}
+  controllerPassthroughSpecific:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config: {get_input: passthrough_config_specific}
   controller0:
     type: OS::Nova::Server
     properties:
@@ -683,7 +706,7 @@ resources:
         - network: ctlplane
       user_data_format: SOFTWARE_CONFIG
   controller0AllNodesDeployment:
-    depends_on: [controller0Deployment,controller0SSLDeployment,controller0Swift,controller0Passthrough]
+    depends_on: [controller0Deployment,controller0SSLDeployment,controller0Swift,controller0PassthroughSpecific]
     type: OS::Heat::StructuredDeployment
     properties:
       config: {get_resource: allNodesConfig}
@@ -800,6 +823,15 @@ resources:
       signal_transport: NO_SIGNAL
       input_values:
         passthrough_config: {get_param: ExtraConfig}
+  controller0PassthroughSpecific:
+    depends_on: [controller0Passthrough]
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: controllerPassthroughSpecific}
+      server: {get_resource: controller0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config_specific: {get_param: controllerExtraConfig}
 outputs:
   KeystoneURL:
     description: URL for the Overcloud Keystone service
