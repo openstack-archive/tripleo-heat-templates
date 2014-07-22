@@ -4,6 +4,28 @@ import yaml
 import argparse
 
 
+class Cfn(object):
+
+    base_template = {
+        'HeatTemplateFormatVersion': '2012-12-12',
+        'Description': []
+    }
+    get_resource = 'Ref'
+    get_param = 'Ref'
+    description = 'Description'
+    parameters = 'Parameters'
+    outputs = 'Outputs'
+    resources = 'Resources'
+    type = 'Type'
+    properties = 'Properties'
+    metadata = 'Metadata'
+    depends_on = 'DependsOn'
+    get_attr = 'Fn::GetAtt'
+
+
+lang = Cfn()
+
+
 def apply_maps(template):
     """Apply Merge::Map within template.
 
@@ -137,7 +159,7 @@ def translate_role(role, master_role, slave_roles):
     return r
 
 def resolve_params(item, param, value):
-    if item == {'Ref': param}:
+    if item in ({lang.get_param: param}, {lang.get_resource: param}):
         return value
     if isinstance(item, dict):
         copy_item = dict(item)
@@ -237,76 +259,75 @@ def merge(templates, master_role=None, slave_roles=None,
           scaling=None, change_image_params=None):
     scaling = scaling or {}
     errors = []
-    end_template={'HeatTemplateFormatVersion': '2012-12-12',
-                  'Description': []}
+    end_template = dict(lang.base_template)
     resource_changes=[]
     for template_path in templates:
         template = yaml.safe_load(open(template_path))
         # Resolve __include__ tags
         template = resolve_includes(template)
-        end_template['Description'].append(template.get('Description',
+        end_template[lang.description].append(template.get(lang.description,
                                                         template_path))
-        new_parameters = template.get('Parameters', {})
+        new_parameters = template.get(lang.parameters, {})
         for p, pbody in sorted(new_parameters.items()):
-            if p in end_template.get('Parameters', {}):
-                if pbody != end_template['Parameters'][p]:
+            if p in end_template.get(lang.parameters, {}):
+                if pbody != end_template[lang.parameters][p]:
                     errors.append('Parameter %s from %s conflicts.' % (p,
                                                                        template_path))
                 continue
-            if 'Parameters' not in end_template:
-                end_template['Parameters'] = {}
-            end_template['Parameters'][p] = pbody
+            if lang.parameters not in end_template:
+                end_template[lang.parameters] = {}
+            end_template[lang.parameters][p] = pbody
 
-        new_outputs = template.get('Outputs', {})
+        new_outputs = template.get(lang.outputs, {})
         for o, obody in sorted(new_outputs.items()):
-            if o in end_template.get('Outputs', {}):
-                if pbody != end_template['Outputs'][p]:
+            if o in end_template.get(lang.outputs, {}):
+                if pbody != end_template[lang.outputs][p]:
                     errors.append('Output %s from %s conflicts.' % (o,
                                                                        template_path))
                 continue
-            if 'Outputs' not in end_template:
-                end_template['Outputs'] = {}
-            end_template['Outputs'][o] = obody
+            if lang.outputs not in end_template:
+                end_template[lang.outputs] = {}
+            end_template[lang.outputs][o] = obody
 
-        new_resources = template.get('Resources', {})
+        new_resources = template.get(lang.resources, {})
         for r, rbody in sorted(new_resources.items()):
-            if rbody['Type'] in MERGABLE_TYPES:
+            if rbody[lang.type] in MERGABLE_TYPES:
                 if change_image_params:
-                    if 'image' in MERGABLE_TYPES[rbody['Type']]:
-                        image_key = MERGABLE_TYPES[rbody['Type']]['image']
+                    if 'image' in MERGABLE_TYPES[rbody[lang.type]]:
+                        image_key = MERGABLE_TYPES[rbody[lang.type]]['image']
                         # XXX Assuming ImageId is always a Ref
-                        ikey_val = end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
-                        del end_template['Parameters'][rbody['Properties'][image_key]['Ref']]
-                role = rbody.get('Metadata', {}).get('OpenStack::Role', r)
+                        ikey_val = end_template[lang.parameters][rbody[lang.properties][image_key][lang.get_param]]
+                        del end_template[lang.parameters][rbody[lang.properties][image_key][lang.get_param]]
+                role = rbody.get(lang.metadata, {}).get('OpenStack::Role', r)
                 role = translate_role(role, master_role, slave_roles)
                 if role != r:
                     resource_changes.append((r, role))
-                if role in end_template.get('Resources', {}):
-                    new_metadata = rbody.get('Metadata', {})
+                if role in end_template.get(lang.resources, {}):
+                    new_metadata = rbody.get(lang.metadata, {})
                     for m, mbody in iter(new_metadata.items()):
-                        if m in end_template['Resources'][role].get('Metadata', {}):
+                        if m in end_template[lang.resources][role].get(lang.metadata, {}):
                             if m == 'OpenStack::ImageBuilder::Elements':
-                                end_template['Resources'][role]['Metadata'][m].extend(mbody)
+                                end_template[lang.resources][role][lang.metadata][m].extend(mbody)
                                 continue
-                            if mbody != end_template['Resources'][role]['Metadata'][m]:
+                            if mbody != end_template[lang.resources][role][lang.metadata][m]:
                                 errors.append('Role %s metadata key %s conflicts.' %
                                               (role, m))
                             continue
-                        role_res = end_template['Resources'][role]
-                        if role_res['Type'] == 'OS::Heat::StructuredConfig':
-                            end_template['Resources'][role]['Properties']['config'][m] = mbody
+                        role_res = end_template[lang.resources][role]
+                        if role_res[lang.type] == 'OS::Heat::StructuredConfig':
+                            end_template[lang.resources][role][lang.properties]['config'][m] = mbody
                         else:
-                            end_template['Resources'][role]['Metadata'][m] = mbody
+                            end_template[lang.resources][role][lang.metadata][m] = mbody
                     continue
-                if 'Resources' not in end_template:
-                    end_template['Resources'] = {}
-                end_template['Resources'][role] = rbody
+                if lang.resources not in end_template:
+                    end_template[lang.resources] = {}
+                end_template[lang.resources][role] = rbody
                 if change_image_params:
-                    if 'image' in MERGABLE_TYPES[rbody['Type']]:
+                    if 'image' in MERGABLE_TYPES[rbody[lang.type]]:
                         ikey = '%sImage' % (role)
-                        end_template['Resources'][role]['Properties'][image_key] = {'Ref': ikey}
-                        end_template['Parameters'][ikey] = ikey_val
-            elif rbody['Type'] == 'FileInclude':
+                        end_template[lang.resources][role][lang.properties][image_key] = {lang.get_param: ikey}
+                        end_template[lang.parameters][ikey] = ikey_val
+            elif rbody[lang.type] == 'FileInclude':
                 # we trust os.path.join to DTRT: if FileInclude path isn't
                 # absolute, join to included_template_dir (./)
                 with open(os.path.join(included_template_dir, rbody['Path'])) as rfile:
@@ -314,23 +335,23 @@ def merge(templates, master_role=None, slave_roles=None,
                     subkeys = rbody.get('SubKey','').split('.')
                     while len(subkeys) and subkeys[0]:
                         include_content = include_content[subkeys.pop(0)]
-                    for replace_param, replace_value in iter(rbody.get('Parameters',
+                    for replace_param, replace_value in iter(rbody.get(lang.parameters,
                                                                        {}).items()):
                         include_content = resolve_params(include_content,
                                                          replace_param,
                                                          replace_value)
-                    if 'Resources' not in end_template:
-                        end_template['Resources'] = {}
-                    end_template['Resources'][r] = include_content
+                    if lang.resources not in end_template:
+                        end_template[lang.resources] = {}
+                    end_template[lang.resources][r] = include_content
             else:
-                if r in end_template.get('Resources', {}):
-                    if rbody != end_template['Resources'][r]:
+                if r in end_template.get(lang.resources, {}):
+                    if rbody != end_template[lang.resources][r]:
                         errors.append('Resource %s from %s conflicts' % (r,
                                                                          template_path))
                     continue
-                if 'Resources' not in end_template:
-                    end_template['Resources'] = {}
-                end_template['Resources'][r] = rbody
+                if lang.resources not in end_template:
+                    end_template[lang.resources] = {}
+                end_template[lang.resources][r] = rbody
 
     end_template = apply_scaling(end_template, scaling)
     end_template = apply_maps(end_template)
@@ -339,13 +360,13 @@ def merge(templates, master_role=None, slave_roles=None,
         if isinstance(item, dict):
             copy_item = dict(item)
             for k, v in sorted(copy_item.items()):
-                if k == 'Ref' and v == old:
+                if k == lang.get_resource and v == old:
                     item[k] = new
                     continue
-                if k == 'DependsOn' and v == old:
+                if k == lang.depends_on and v == old:
                     item[k] = new
                     continue
-                if k == 'Fn::GetAtt' and isinstance(v, list) and v[0] == old:
+                if k == lang.get_attr and isinstance(v, list) and v[0] == old:
                     new_list = list(v)
                     new_list[0] = new
                     item[k] = new_list
@@ -367,7 +388,7 @@ def merge(templates, master_role=None, slave_roles=None,
     if errors:
         for e in errors:
             sys.stderr.write("ERROR: %s\n" % e)
-    end_template['Description'] = ','.join(end_template['Description'])
+    end_template[lang.description] = ','.join(end_template[lang.description])
     return yaml.safe_dump(end_template, default_flow_style=False)
 
 if __name__ == "__main__":
