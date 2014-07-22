@@ -252,6 +252,23 @@ Parameters:
     Default: []
     Description: Should be used for arbitrary ips.
     Type: Json
+  PublicVirtualFixedIPs:
+    Default: []
+    Description: |
+        Control the IP allocation for the PublicVirtualInterface port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    Type: Json
+  PublicVirtualInterface:
+    Default: 'br-ex'
+    Description: >
+        Specifies the interface where the public-facing virtual ip will be assigned.
+        This should be int_public when a VLAN is being used.
+    Type: String
+  PublicVirtualNetwork:
+    Default: 'ctlplane'
+    Type: String
+    Description: >
+        Neutron network to allocate public virtual IP port on.
   KeystoneCACertificate:
     Default: ''
     Description: Keystone self-signed certificate authority certificate.
@@ -277,6 +294,13 @@ Resources:
     Type: OS::Heat::RandomString
     Properties:
       length: 10
+  PublicVirtualIP:
+    Type: OS::Neutron::Port
+    Properties:
+      name: public_virtual_ip
+      network: {Ref: PublicVirtualNetwork}
+      fixed_ips:
+        Ref: PublicVirtualFixedIPs
   RabbitCookie:
     Type: OS::Heat::RandomString
     Properties:
@@ -482,15 +506,44 @@ Resources:
         ntp:
           servers:
               - {server: {Ref: NtpServer}, fudge: "stratum 0"}
+        virtual_interfaces:
+          instances:
+            - vrrp_instance_name: VI_CONTROL
+              virtual_router_id: 51
+              keepalive_interface:
+                Ref: ControlVirtualInterface
+              priority: 101
+              virtual_ips:
+              - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
+                interface:
+                  Ref: ControlVirtualInterface
+            - vrrp_instance_name: VI_PUBLIC
+              virtual_router_id: 52
+              keepalive_interface:
+                Ref: PublicVirtualInterface
+              priority: 101
+              virtual_ips:
+              - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [PublicVirtualIP, fixed_ips]]]}
+                interface:
+                  Ref: PublicVirtualInterface
+          vrrp_sync_groups:
+            - name: VG1
+              members:
+                - VI_CONTROL
+                - VI_PUBLIC
         keepalived:
           keepalive_interface:
-            Ref: ControlVirtualInterface
+            Ref: PublicVirtualInterface
           priority: 101
         virtual_ips:
             -
               ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
               interface:
                 Ref: ControlVirtualInterface
+            -
+              ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [PublicVirtualIP, fixed_ips]]]}
+              interface:
+                Ref: PublicVirtualInterface
         haproxy:
           nodes:
             Merge::Map:
@@ -502,34 +555,50 @@ Resources:
           services:
             - name: keystone_admin
               port: 35357
+              net_binds: &public_binds
+                - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [ControlVirtualIP, fixed_ips]]]}
+                - ip: {'Fn::Select': [ip_address, 'Fn::Select': [0, 'Fn::GetAtt': [PublicVirtualIP, fixed_ips]]]}
             - name: keystone_public
               port: 5000
+              net_binds: *public_binds
             - name: horizon
               port: 80
+              net_binds: *public_binds
             - name: neutron
               port: 9696
+              net_binds: *public_binds
             - name: cinder
               port: 8776
+              net_binds: *public_binds
             - name: glance_api
               port: 9292
+              net_binds: *public_binds
             - name: glance_registry
               port: 9191
+              net_binds: *public_binds
             - name: heat_api
               port: 8004
+              net_binds: *public_binds
             - name: heat_cloudwatch
               port: 8003
+              net_binds: *public_binds
             - name: heat_cfn
               port: 8000
+              net_binds: *public_binds
             - name: nova_ec2
               port: 8773
             - name: nova_osapi
               port: 8774
+              net_binds: *public_binds
             - name: nova_metadata
               port: 8775
+              net_binds: *public_binds
             - name: ceilometer
               port: 8777
+              net_binds: *public_binds
             - name: swift_proxy_server
               port: 8080
+              net_binds: *public_binds
   controllerPassthrough:
     Type: OS::Heat::StructuredConfig
     Properties:
