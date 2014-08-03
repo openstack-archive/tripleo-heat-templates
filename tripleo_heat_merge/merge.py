@@ -26,7 +26,7 @@ class Cfn(object):
 class Hot(object):
 
     base_template = {
-        'heat_template_version': '2013-05-23',
+        'heat_template_version': '2014-10-16',
         'description': []
     }
     get_resource = 'get_resource'

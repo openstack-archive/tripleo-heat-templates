@@ -1,81 +1,81 @@
-HeatTemplateFormatVersion: '2012-12-12'
-Description: 'Common Swift Storage Configuration'
-Parameters:
+heat_template_version: 2014-10-16
+description: 'Common Swift Storage Configuration'
+parameters:
   SwiftStorageImage:
-    Type: String
-    Default: overcloud-swift-storage
+    type: string
+    default: overcloud-swift-storage
   OvercloudSwiftStorageFlavor:
-    Default: baremetal
-    Description: Flavor for Swift storage nodes to request when deploying.
-    Type: String
+    default: baremetal
+    description: Flavor for Swift storage nodes to request when deploying.
+    type: string
   NeutronNetworkType:
-    Type: String
-    Default: 'gre'
+    type: string
+    default: 'gre'
   NeutronEnableTunnelling:
-    Type: String
-    Default: True
-Resources:
+    type: string
+    default: True
+resources:
   SwiftStorage0:
-    Type: OS::Nova::Server
-    Properties:
-      image: {Ref: SwiftStorageImage}
-      flavor: {Ref: OvercloudSwiftStorageFlavor}
-      key_name: {Ref: KeyName}
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: SwiftStorageImage}
+      flavor: {get_param: OvercloudSwiftStorageFlavor}
+      key_name: {get_param: KeyName}
       user_data_format: SOFTWARE_CONFIG
   SwiftKeystoneConfig:
-    Type: OS::Heat::StructuredConfig
-    Properties:
+    type: OS::Heat::StructuredConfig
+    properties:
       config:
         keystone:
           host: {get_input: keystone_host}
   SwiftStorage0Keystone:
-    Type: OS::Heat::StructuredDeployment
-    Properties:
-      server: {Ref: SwiftStorage0}
-      config: {Ref: SwiftKeystoneConfig}
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: SwiftStorage0}
+      config: {get_resource: SwiftKeystoneConfig}
       signal_transport: NO_SIGNAL
       input_values:
-        keystone_host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
+        keystone_host: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
   SwiftStorage0Deploy:
-    Type: OS::Heat::StructuredDeployment
-    Properties:
-      server: {Ref: SwiftStorage0}
-      config: {Ref: SwiftConfig}
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: SwiftStorage0}
+      config: {get_resource: SwiftConfig}
       signal_transport: NO_SIGNAL
       input_values:
-        neutron_local_ip: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [SwiftStorage0, networks]} ]} ] }
-        swift_hash_suffix: {Ref: SwiftHashSuffix}
-        swift_password: {Ref: SwiftPassword}
+        neutron_local_ip: {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [SwiftStorage0, networks]} ]} ] }
+        swift_hash_suffix: {get_param: SwiftHashSuffix}
+        swift_password: {get_param: SwiftPassword}
         swift_devices:
-          Fn::Join:
+          list_join:
           - ', '
           - Merge::Map:
               controller0:
-                Fn::Join:
+                list_join:
                 - ''
                 - - 'r1z1-'
-                  - {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
+                  - {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
                   - ':%PORT%/d1'
               SwiftStorage0:
-                Fn::Join:
+                list_join:
                 - ''
                 - - 'r1z1-'
                   - Fn::Select:
                     - 0
                     - Fn::Select:
                       - 'ctlplane'
-                      - Fn::GetAtt:
+                      - get_attr:
                         - SwiftStorage0
                         - networks
                   - ':%PORT%/d1'
         swift_proxy_memcache:
-          Fn::Join:
+          list_join:
             - ','
             - Merge::Map:
                 controller0:
-                  Fn::Join:
+                  list_join:
                     - ', '
-                    - - Fn::Join:
+                    - - list_join:
                         - ''
-                        - - {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {"Fn::GetAtt": [controller0, networks]} ]} ] }
+                        - - {"Fn::Select": [ 0, {"Fn::Select": [ "ctlplane", {get_attr: [controller0, networks]} ]} ] }
                           - ':11211'
