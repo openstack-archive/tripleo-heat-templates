@@ -80,6 +80,8 @@ def apply_scaling(template, scaling, in_copies=None):
 
     in_copies is reset to None when a dict {'Merge::Map': someobject} is
     encountered.
+
+    :param scaling: A dict of prefix -> (count, blacklists).
     """
     in_copies = dict(in_copies or {})
     # Shouldn't be needed but to avoid unexpected side effects/bugs we short
@@ -125,7 +127,7 @@ def scale_value(value, scaling, in_copies):
     """Scale out a value.
 
     :param value: The value to scale (not a container).
-    :param scaling: The scaling map to use.
+    :param scaling: The scaling map (prefix-> (copies, blacklist) to use.
     :param in_copies: What containers we're currently copying.
     :return: An iterator of the new values for the value as tuples:
         (prefix, copy_num, value). E.g. Compute0, 1, Compute1Foo
@@ -134,7 +136,7 @@ def scale_value(value, scaling, in_copies):
          - and that prefix is not in in_copies
     """
     if isinstance(value, (str, unicode)):
-        for prefix, copies in scaling.items():
+        for prefix, (copies, blacklist) in scaling.items():
             if not value.startswith(prefix):
                 continue
             suffix = value[len(prefix):]
@@ -144,7 +146,8 @@ def scale_value(value, scaling, in_copies):
                 return
             else:
                 for n in range(copies):
-                    yield prefix, n, prefix[:-1] + str(n) + suffix
+                    if n not in blacklist:
+                        yield prefix, n, prefix[:-1] + str(n) + suffix
                 return
         yield None, None, value
     else:
@@ -156,9 +159,11 @@ def parse_scaling(scaling_args):
     scaling_args = scaling_args or []
     result = {}
     for item in scaling_args:
-        key, value = item.split('=')
-        value = int(value)
-        result[key + '0'] = value
+        key, values = item.split('=')
+        values = values.split(',')
+        value = int(values[0])
+        blacklist = frozenset(int(v) for v in values[1:] if v)
+        result[key + '0'] = value, blacklist
     return result
 
 
@@ -251,10 +256,12 @@ def main(argv=None):
                         help='File to write output to. - for stdout',
                         default='-')
     parser.add_argument('--scale', action="append",
-        help="Names to scale out. Pass Prefix=1 to cause a key Prefix0Foo to "
+        help="Names to scale out. Pass Prefix=2 to cause a key Prefix0Foo to "
         "be copied to Prefix1Foo in the output, and value Prefix0Bar to be"
         "renamed to Prefix1Bar inside that copy, or copied to Prefix1Bar "
-        "outside of any copy.")
+        "outside of any copy. Pass Prefix=3,1 to cause Prefix1* to be elided"
+        "when scaling Prefix out. Prefix=4,1,2 will likewise elide Prefix1 and"
+        "Prefix2.")
     parser.add_argument(
         '--change-image-params', action='store_true', default=False,
         help="Change parameters in templates to match resource names. This was "
