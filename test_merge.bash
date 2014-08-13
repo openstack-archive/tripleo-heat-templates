@@ -36,6 +36,8 @@ run_test "python $merge_py --hot examples/source_include_subkey_hot.yaml" exampl
 run_test "python $merge_py --hot examples/launchconfig1_hot.yaml examples/launchconfig2_hot.yaml" examples/launchconfig_result_hot.yaml
 run_test "python $merge_py --hot --scale NovaCompute=3 examples/scale1_hot.yaml" examples/scale_result_hot.yaml
 run_test "python $merge_py --hot --scale NovaCompute=3 examples/scale_map_hot.yaml" examples/scale_map_result_hot.yaml
+run_test "python $merge_py --hot --scale NovaCompute=5,1,2 examples/scale_map_hot.yaml" examples/scale_map_result_hot_blacklist.yaml
+run_test "python $merge_py --hot --scale NovaCompute=3, examples/scale_map_hot.yaml" examples/scale_map_result_hot.yaml
 echo
 trap - EXIT
 exit $fail
