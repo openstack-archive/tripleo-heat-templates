@@ -1,0 +1,38 @@
+outputs:
+  controller0PublicIP:
+    description: Address for registering endpoints in the cloud.
+    value: {get_attr: [controller0VLANPort, fixed_ips, 0, ip_address]}
+resources:
+  # Override the main template which can also supply a static route.
+  controller0_99_VLANPort:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: ControllerVLANPortConfig}
+      server: {get_resource: controller0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        vlan_port:
+          list_join:
+          - '/'
+          - - {get_attr: [controller0_VLANPort, fixed_ips, 0, ip_address]}
+            # This should also be pulled out of the subnet. May need a
+            # neutron fix too - XXX make into a parameter and feed it
+            # in via _overcloud.sh for now.
+            - '24'
+        # Tell the instance to apply the default route.
+        # Reinstate when https://bugs.launchpad.net/heat/+bug/1336656 is
+        # sorted
+        # public_interface_route:
+        #   get_attr: [controller0_VLANPort, fixed_ips, 0, subnet, gateway_ip]
+  ControllerVLANPortConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      config:
+        neutron:
+          ovs:
+            public_interface_tag_ip: {get_input: vlan_port}
+  controller0_VLANPort:
+    type: OS::Neutron::Port
+    properties:
+      name: controller0_vlan
+      network: public
