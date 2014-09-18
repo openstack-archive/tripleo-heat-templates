@@ -332,6 +332,9 @@ def merge(templates, master_role=None, slave_roles=None,
                         # XXX Assuming ImageId is always a Ref
                         ikey_val = end_template[lang.parameters][rbody[lang.properties][image_key][lang.get_param]]
                         del end_template[lang.parameters][rbody[lang.properties][image_key][lang.get_param]]
+                if 'OpenStack::Role' in rbody.get(lang.metadata, {}):
+                    sys.stderr.write("WARNING: OpenStack::Role is deprecated"
+                                     " and will be removed in a later release\n");
                 role = rbody.get(lang.metadata, {}).get('OpenStack::Role', r)
                 role = translate_role(role, master_role, slave_roles)
                 if role != r:
@@ -342,6 +345,10 @@ def merge(templates, master_role=None, slave_roles=None,
                         if m in end_template[lang.resources][role].get(lang.metadata, {}):
                             if m == 'OpenStack::ImageBuilder::Elements':
                                 end_template[lang.resources][role][lang.metadata][m].extend(mbody)
+                                sys.stderr.write(
+                                    "WARNING: OpenStack::ImageBuilder::Elements"
+                                    " is deprecated and will be removed in a"
+                                    " later release\n");
                                 continue
                             if mbody != end_template[lang.resources][role][lang.metadata][m]:
                                 errors.append('Role %s metadata key %s conflicts.' %
