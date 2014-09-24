@@ -398,6 +398,29 @@ parameters:
     type: string
     default: baremetal
 
+# Block storage specific parameters
+  BlockStorageCount:
+    type: number
+    default: 1
+  BlockStorageImage:
+    default: overcloud-cinder-volume
+    type: string
+  OvercloudBlockStorageFlavor:
+    default: baremetal
+    description: Flavor for block storage nodes to request when deploying.
+    type: string
+
+# Object storage specific parameters
+  ObjectStorageCount:
+    type: number
+    default: 0
+  OvercloudSwiftStorageFlavor:
+    default: baremetal
+    description: Flavor for Swift storage nodes to request when deploying.
+    type: string
+  SwiftStorageImage:
+    default: overcloud-swift-storage
+    type: string
 
 resources:
 
@@ -456,6 +479,10 @@ resources:
           SSLCertificate: {get_param: SSLCertificate}
           SSLKey: {get_param: SSLKey}
           SSLCACertificate: {get_param: SSLCACertificate}
+          SwiftHashSuffix: {get_param: SwiftHashSuffix}
+          SwiftPartPower: {get_param: SwiftPartPower}
+          SwiftPassword: {get_param: SwiftPassword}
+          SwiftReplicas: { get_param: SwiftReplicas}
           VirtualIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
           PublicVirtualIP: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
 
@@ -525,6 +552,47 @@ resources:
                 - *compute_database_host
                 - /ovs_neutron
 
+  BlockStorage:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: {get_param: BlockStorageCount}
+      resource_def:
+        type: OS::TripleO::BlockStorage
+        properties:
+          AdminPassword: {get_param: AdminPassword}
+          Image: {get_param: BlockStorageImage}
+          CinderISCSIHelper: {get_param: CinderISCSIHelper}
+          CinderLVMLoopDeviceSize: {get_param: CinderLVMLoopDeviceSize}
+          CinderPassword: {get_param: CinderPassword}
+          ControllerIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          KeyName: {get_param: KeyName}
+          NeutronEnableTunnelling: {get_param: NeutronEnableTunnelling}
+          NeutronNetworkType: {get_param: NeutronNetworkType}
+          NeutronPassword: {get_param: NeutronPassword}
+          NeutronPublicInterface: {get_param: NeutronPublicInterface}
+          Flavor: {get_param: OvercloudBlockStorageFlavor}
+          RabbitPassword: {get_param: RabbitPassword}
+          RabbitUserName: {get_param: RabbitUserName}
+
+  ObjectStorage:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count: {get_param: ObjectStorageCount}
+      resource_def:
+        type: OS::TripleO::ObjectStorage
+        properties:
+          ControllerIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          KeyName: {get_param: KeyName}
+          NeutronEnableTunnelling: {get_param: NeutronEnableTunnelling}
+          NeutronNetworkType: {get_param: NeutronNetworkType}
+          Flavor: {get_param: OvercloudSwiftStorageFlavor}
+          HashSuffix: {get_param: SwiftHashSuffix}
+          PartPower: {get_param: SwiftPartPower}
+          Password: {get_param: SwiftPassword}
+          Image: {get_param: SwiftStorageImage}
+          Replicas: { get_param: SwiftReplicas}
+
+
   allNodesConfig:
     type: OS::Heat::StructuredConfig
     properties:
@@ -539,8 +607,12 @@ resources:
             - list_join:
               - "\n"
               - {get_attr: [Controller, hosts_entry]}
-              # TODO: ADD BLOCK STORAGE ENTRY HERE
-              # TODO: ADD SWIFT STORAGE ENTRY HERE
+            - list_join:
+              - "\n"
+              - {get_attr: [BlockStorage, hosts_entry]}
+            - list_join:
+              - "\n"
+              - {get_attr: [ObjectStorage, hosts_entry]}
         rabbit:
           nodes:
             list_join:
@@ -595,16 +667,18 @@ resources:
   ControllerSwiftDeployment:
     type: OS::Heat::StructuredDeployments
     properties:
-      config: {get_resource: ControllerSwiftConfig}
+      config: {get_resource: SwiftDevicesAndProxyConfig}
       servers: {get_attr: [Controller, attributes, nova_server_resource]}
       signal_transport: NO_SIGNAL
-      input_values:
-        swift_hash_suffix: {get_param: SwiftHashSuffix}
-        swift_password: {get_param: SwiftPassword}
-        swift_part_power: {get_param: SwiftPartPower}
-        swift_replicas: { get_param: SwiftReplicas}
 
-  ControllerSwiftConfig:
+  ObjectStorageSwiftDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: SwiftDevicesAndProxyConfig}
+      servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+      signal_transport: NO_SIGNAL
+
+  SwiftDevicesAndProxyConfig:
     type: OS::Heat::StructuredConfig
     properties:
       group: os-apply-config
@@ -618,18 +692,11 @@ resources:
                 - {get_attr: [Controller, swift_device]}
               - list_join:
                 - ", "
-                # TODO: replace the empty list with this:
-                # - {get_attr: [ObjectStorage, swift_device]}
-                # Once we have the swift/object-storage role
-                - []
-          hash: { get_input: swift_hash_suffix }
-          part-power: { get_input: swift_part_power }
+                - {get_attr: [ObjectStorage, swift_device]}
           proxy-memcache:
             list_join:
             - ","
             - {get_attr: [Controller, swift_proxy_memcache]}
-          replicas: {get_input: swift_replicas }
-          service-password: { get_input: swift_password }
 
   ControllerClusterConfig:
     type: OS::Heat::StructuredConfig

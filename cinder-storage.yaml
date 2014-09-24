@@ -1,0 +1,195 @@
+heat_template_version: 2014-10-16
+description: 'Common Block Storage Configuration'
+parameters:
+  AdminPassword:
+    default: ''
+    type: string
+  Image:
+    default: overcloud-cinder-volume
+    type: string
+  CinderISCSIHelper:
+    default: tgtadm
+    description: The iSCSI helper to use with cinder.
+    type: string
+  CinderLVMLoopDeviceSize:
+    default: 5000
+    description: The size of the loopback file used by the cinder LVM driver.
+    type: number
+  CinderPassword:
+    default: unset
+    description: The password for the cinder service account, used by cinder-api.
+    hidden: true
+    type: string
+  ControllerIP:
+    default: ''
+    type: string
+  ExtraConfig:
+    default: {}
+    description: |
+      Additional configuration to inject into the cluster. The JSON should have
+      the following structure:
+        {"FILEKEY":
+          {"config":
+            [{"section": "SECTIONNAME",
+              "values":
+                [{"option": "OPTIONNAME",
+                  "value": "VALUENAME"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+      For instance:
+        {"nova":
+          {"config":
+            [{"section": "default",
+              "values":
+                [{"option": "force_config_drive",
+                  "value": "always"
+                 }
+                ]
+             },
+             {"section": "cells",
+              "values":
+                [{"option": "driver",
+                  "value": "nova.cells.rpc_driver.CellsRPCDriver"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+    type: json
+  Flavor:
+    default: baremetal
+    description: Flavor for block storage nodes to request when deploying.
+    type: string
+  GlancePort:
+    default: "9292"
+    description: Glance port.
+    type: string
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+  NeutronEnableTunnelling:
+    default: "True"
+    type: string
+  NeutronNetworkType:
+    default: gre
+    type: string
+  NeutronPassword:
+    default: ''
+    type: string
+  NeutronPublicInterface:
+    default: eth0
+    type: string
+  RabbitPassword:
+    default: ''
+    type: string
+  RabbitUserName:
+    default: ''
+    type: string
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+
+resources:
+  BlockStorage:
+    type: OS::Nova::Server
+    properties:
+      image:
+        {get_param: Image}
+      flavor: {get_param: Flavor}
+      key_name: {get_param: KeyName}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: ctlplane
+  BlockStorageDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: BlockStorage}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        controller_host: {get_param: ControllerIP}
+        cinder_dsn: {list_join: ['', ['mysql://cinder:unset@', {get_param: ControllerIP} , '/cinder']]}
+        neutron_local_ip: {get_attr: [BlockStorage , networks, ctlplane, 0]}
+        snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
+        snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+      signal_transport: NO_SIGNAL
+  BlockStorageConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        admin-password: {get_param: AdminPassword}
+        keystone:
+          host: {get_input: controller_host}
+        cinder:
+          db: {get_input: cinder_dsn}
+          volume_size_mb:
+            get_param: CinderLVMLoopDeviceSize
+          service-password:
+            get_param: CinderPassword
+          iscsi-helper:
+            get_param: CinderISCSIHelper
+        snmpd:
+          export_MIB: UCD-SNMP-MIB
+          readonly_user_name: {get_input: snmpd_readonly_user_name}
+          readonly_user_password: {get_input: snmpd_readonly_user_password}
+        rabbit:
+          host: {get_input: controller_host}
+          username: {get_param: RabbitUserName}
+          password: {get_param: RabbitPassword}
+        glance:
+          host: {get_input: controller_host}
+          port: {get_param: GlancePort}
+        interfaces:
+          control: {get_param: NeutronPublicInterface}
+        neutron:
+          ovs:
+            local_ip: {get_input: neutron_local_ip}
+            tenant_network_type: {get_param: NeutronNetworkType}
+            enable_tunneling: {get_param: NeutronEnableTunnelling}
+          service-password:
+            get_param: NeutronPassword
+        config:
+          keystone:
+            host: {get_input: controller_host}
+          cinder:
+            db: {get_input: cinder_dsn}
+            volume_size_mb:
+              get_param: CinderLVMLoopDeviceSize
+            service-password:
+              get_param: CinderPassword
+            iscsi-helper:
+              get_param: CinderISCSIHelper
+          admin-password: {get_param: AdminPassword}
+          rabbit:
+            host: {get_input: controller_host}
+            username: {get_param: RabbitUserName}
+            password: {get_param: RabbitPassword}
+          interfaces:
+            control: {get_param: NeutronPublicInterface}
+          neutron:
+            ovs:
+              local_ip: { get_input: neutron_local_ip }
+              tenant_network_type: {get_param: NeutronNetworkType}
+              enable_tunneling: {get_param: NeutronEnableTunnelling}
+            service-password:
+              get_param: NeutronPassword
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [BlockStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [BlockStorage, name]}
