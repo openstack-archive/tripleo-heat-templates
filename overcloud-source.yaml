@@ -12,9 +12,20 @@ parameters:
     description: The keystone auth secret.
     type: string
     hidden: true
-  CinderPassword:
+  CeilometerComputeAgent:
+    description: Indicates whether the Compute agent is present and expects nova-compute to be configured accordingly
+    type: string
+    default: ''
+    constraints:
+    - allowed_values: ['', Present]
+  CeilometerMeteringSecret:
     default: unset
-    description: The password for the cinder service account, used by cinder-api.
+    description: Secret shared by the ceilometer services.
+    type: string
+    hidden: true
+  CeilometerPassword:
+    default: unset
+    description: The password for the ceilometer service account.
     type: string
     hidden: true
   CinderISCSIHelper:
@@ -25,10 +36,42 @@ parameters:
     default: 5000
     description: The size of the loopback file used by the cinder LVM driver.
     type: number
+  CinderPassword:
+    default: unset
+    description: The password for the cinder service account, used by cinder-api.
+    type: string
+    hidden: true
+  CloudName:
+    default: ''
+    description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
+    type: string
+  ControlFixedIPs:
+    default: []
+    description: Should be used for arbitrary ips.
+    type: json
+  controllerExtraConfig:
+    default: {}
+    description: |
+      Controller specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+  controllerImage:
+    type: string
+    default: overcloud-control
+  ControlVirtualInterface:
+    default: 'br-ex'
+    description: Interface where virtual ip will be assigned.
+    type: string
   Debug:
     default: ''
     description: Set to True to enable debugging on all services.
     type: string
+  DefaultSignalTransport:
+    default: CFN_SIGNAL
+    description: Transport to use for software-config signals.
+    type: string
+    constraints:
+      - allowed_values: [ CFN_SIGNAL, HEAT_SIGNAL, NO_SIGNAL ]
   ExtraConfig:
     default: {}
     description: |
@@ -67,26 +110,15 @@ parameters:
           }
         }
     type: json
-  controllerExtraConfig:
-    default: {}
-    description: |
-      Controller specific configuration to inject into the cluster. Same
-      structure as ExtraConfig.
-    type: json
-  NovaComputeExtraConfig:
-    default: {}
-    description: |
-      NovaCompute specific configuration to inject into the cluster. Same
-      structure as ExtraConfig.
-    type: json
-  OvercloudControlFlavor:
-    default: baremetal
-    description: Flavor for control nodes to request when deploying.
+  GlanceLogFile:
+    description: The filepath of the file to use for logging messages from Glance.
     type: string
-  OvercloudComputeFlavor:
-    default: baremetal
-    description: Flavor for compute nodes to request when deploying.
+    default: ''
+  GlancePassword:
+    default: unset
+    description: The password for the glance service account, used by the glance services.
     type: string
+    hidden: true
   GlancePort:
     default: 9292
     description: Glance port.
@@ -95,24 +127,31 @@ parameters:
     default: http
     description: Protocol to use when connecting to glance, set to https for SSL.
     type: string
-  GlancePassword:
-    default: unset
-    description: The password for the glance service account, used by the glance services.
-    type: string
-    hidden: true
   GlanceNotifierStrategy:
     description: Strategy to use for Glance notification queue
     type: string
     default: noop
-  GlanceLogFile:
-    description: The filepath of the file to use for logging messages from Glance.
-    type: string
-    default: ''
   HeatPassword:
     default: unset
     description: The password for the Heat service account, used by the Heat services.
     type: string
     hidden: true
+  HeatStackDomainAdminPassword:
+    description: Password for heat_domain_admin user.
+    type: string
+    default: ''
+    hidden: true
+  HypervisorNeutronPhysicalBridge:
+    default: 'br-ex'
+    description: >
+      An OVS bridge to create on each hypervisor. This defaults to br-ex the
+      same as the control plane nodes, as we have a uniform configuration of
+      the openvswitch agent. Typically should not need to be changed.
+    type: string
+  HypervisorNeutronPublicInterface:
+    default: 'eth0'
+    description: What interface to add to the HypervisorNeutronPhysicalBridge.
+    type: string
   ImageUpdatePolicy:
     default: 'REBUILD_PRESERVE_EPHEMERAL'
     description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
@@ -121,6 +160,47 @@ parameters:
     default: default
     description: Name of an existing EC2 KeyPair to enable SSH access to the instances
     type: string
+  KeystoneCACertificate:
+    default: ''
+    description: Keystone self-signed certificate authority certificate.
+    type: string
+  KeystoneSigningCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSigningKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  LiveUpdateComputeImage:
+    type: string
+    description: The image ID for live-updates to the overcloud compute nodes.
+    default: ''
+  LiveUpdateHost:
+    type: string
+    description: The IP address for the undercloud Glance API.
+    default: ''
+  LiveUpdatePassword:
+    type: string
+    default: ''
+    description: The live-update password for the undercloud Glance API.
+    hidden: true
+  LiveUpdateTenantName:
+    type: string
+    description: The live-update tenant name for the undercloud Glance API.
+    default: ''
+  LiveUpdateUserName:
+    type: string
+    description: The live-update username for the undercloud Glance API.
+    default: ''
+  MysqlInnodbBufferPoolSize:
+    description: >
+        Specifies the size of the buffer pool in megabytes. Setting to
+        zero should be interpreted as "no value" and will defer to the
+        lower level default.
+    type: number
+    default: 0
   NeutronBridgeMappings:
     description: >
       The OVS logical->physical bridge mappings to use. See the Neutron
@@ -131,6 +211,24 @@ parameters:
       scripts or be sure to keep 'datacentre' as a mapping network name.
     type: string
     default: "datacentre:br-ex"
+  NeutronControlPlaneID:
+    default: ''
+    type: string
+    description: Neutron ID for ctlplane network.
+  NeutronDnsmasqOptions:
+    default: 'dhcp-option-force=26,1400'
+    description: Dnsmasq options for neutron-dhcp-agent. The default value here forces MTU to be set to 1400 to account for the tunnel overhead.
+    type: string
+  NeutronFlatNetworks:
+    type: string
+    default: 'datacentre'
+    description: >
+      If set, flat networks to configure in neutron plugins. Defaults to
+      'datacentre' to permit external network creation.
+  NeutronNetworkType:
+    default: 'gre'
+    description: The tenant network type for Neutron, either gre or vxlan.
+    type: string
   NeutronNetworkVLANRanges:
     default: 'datacentre'
     description: >
@@ -143,66 +241,6 @@ parameters:
     description: The password for the neutron service account, used by neutron agents.
     type: string
     hidden: true
-  CeilometerComputeAgent:
-    description: Indicates whether the Compute agent is present and expects nova-compute to be configured accordingly
-    type: string
-    default: ''
-    constraints:
-    - allowed_values: ['', Present]
-  CeilometerMeteringSecret:
-    default: unset
-    description: Secret shared by the ceilometer services.
-    type: string
-    hidden: true
-  CeilometerPassword:
-    default: unset
-    description: The password for the ceilometer service account.
-    type: string
-    hidden: true
-  SnmpdReadonlyUserName:
-    default: ro_snmp_user
-    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
-    type: string
-  SnmpdReadonlyUserPassword:
-    default: unset
-    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
-    type: string
-    hidden: true
-  CloudName:
-    default: ''
-    description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
-    type: string
-  NovaComputeDriver:
-    default: libvirt.LibvirtDriver
-    type: string
-  NovaComputeLibvirtType:
-    default: ''
-    type: string
-  NovaImage:
-    type: string
-    default: overcloud-compute
-  NovaPassword:
-    default: unset
-    description: The password for the nova service account, used by nova-api.
-    type: string
-    hidden: true
-  NeutronFlatNetworks:
-    type: string
-    default: 'datacentre'
-    description: >
-      If set, flat networks to configure in neutron plugins. Defaults to
-      'datacentre' to permit external network creation.
-  HypervisorNeutronPhysicalBridge:
-    default: 'br-ex'
-    description: >
-      An OVS bridge to create on each hypervisor. This defaults to br-ex the
-      same as the control plane nodes, as we have a uniform configuration of
-      the openvswitch agent. Typically should not need to be changed.
-    type: string
-  HypervisorNeutronPublicInterface:
-    default: 'eth0'
-    description: What interface to add to the HypervisorNeutronPhysicalBridge.
-    type: string
   NeutronPublicInterface:
     default: eth0
     description: What interface to bridge onto br-ex for network nodes.
@@ -215,6 +253,10 @@ parameters:
     default: ''
     description: A custom IP address to put onto the NeutronPublicInterface.
     type: string
+  NeutronPublicInterfaceRawDevice:
+    default: ''
+    description: If set, the public interface is a vlan with this device as the raw device.
+    type: string
   NeutronPublicInterfaceTag:
     default: ''
     description: >
@@ -225,88 +267,43 @@ parameters:
       overcloud.yaml to include the deployment of VLAN ports to the control
       plane.
     type: string
-  NeutronPublicInterfaceRawDevice:
-    default: ''
-    description: If set, the public interface is a vlan with this device as the raw device.
-    type: string
-  NeutronControlPlaneID:
-    default: ''
-    type: string
-    description: Neutron ID for ctlplane network.
-  NeutronDnsmasqOptions:
-    default: 'dhcp-option-force=26,1400'
-    description: Dnsmasq options for neutron-dhcp-agent. The default value here forces MTU to be set to 1400 to account for the tunnel overhead.
-    type: string
-  NeutronNetworkType:
-    default: 'gre'
-    description: The tenant network type for Neutron, either gre or vxlan.
-    type: string
   NeutronTunnelTypes:
     default: 'gre'
     description: |
         The tunnel types for the Neutron tenant network. To specify multiple
         values, use a comma separated string, like so: 'gre,vxlan'
     type: string
-  controllerImage:
+  NovaComputeDriver:
+    default: libvirt.LibvirtDriver
     type: string
-    default: overcloud-control
+  NovaComputeExtraConfig:
+    default: {}
+    description: |
+      NovaCompute specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+  NovaComputeLibvirtType:
+    default: ''
+    type: string
+  NovaImage:
+    type: string
+    default: overcloud-compute
+  NovaPassword:
+    default: unset
+    description: The password for the nova service account, used by nova-api.
+    type: string
+    hidden: true
   NtpServer:
     type: string
     default: ''
-  RabbitUserName:
-    default: guest
-    description: The username for RabbitMQ
+  OvercloudComputeFlavor:
+    default: baremetal
+    description: Flavor for compute nodes to request when deploying.
     type: string
-  RabbitPassword:
-    default: guest
-    description: The password for RabbitMQ
+  OvercloudControlFlavor:
+    default: baremetal
+    description: Flavor for control nodes to request when deploying.
     type: string
-    hidden: true
-  RabbitCookieSalt:
-    type: string
-    default: unset
-    description: Salt for the rabbit cookie, change this to force the randomly generated rabbit cookie to change.
-  HeatStackDomainAdminPassword:
-    description: Password for heat_domain_admin user.
-    type: string
-    default: ''
-    hidden: true
-  LiveUpdateUserName:
-    type: string
-    description: The live-update username for the undercloud Glance API.
-    default: ''
-  LiveUpdateTenantName:
-    type: string
-    description: The live-update tenant name for the undercloud Glance API.
-    default: ''
-  LiveUpdateHost:
-    type: string
-    description: The IP address for the undercloud Glance API.
-    default: ''
-  LiveUpdatePassword:
-    type: string
-    default: ''
-    description: The live-update password for the undercloud Glance API.
-    hidden: true
-  LiveUpdateComputeImage:
-    type: string
-    description: The image ID for live-updates to the overcloud compute nodes.
-    default: ''
-  MysqlInnodbBufferPoolSize:
-    description: >
-        Specifies the size of the buffer pool in megabytes. Setting to
-        zero should be interpreted as "no value" and will defer to the
-        lower level default.
-    type: number
-    default: 0
-  ControlVirtualInterface:
-    default: 'br-ex'
-    description: Interface where virtual ip will be assigned.
-    type: string
-  ControlFixedIPs:
-    default: []
-    description: Should be used for arbitrary ips.
-    type: json
   PublicVirtualFixedIPs:
     default: []
     description: >
@@ -324,25 +321,28 @@ parameters:
     type: string
     description: >
         Neutron network to allocate public virtual IP port on.
-  KeystoneCACertificate:
-    default: ''
-    description: Keystone self-signed certificate authority certificate.
+  RabbitCookieSalt:
     type: string
-  KeystoneSigningCertificate:
-    default: ''
-    description: Keystone certificate for verifying token validity.
-    type: string
-  KeystoneSigningKey:
-    default: ''
-    description: Keystone key for signing tokens.
+    default: unset
+    description: Salt for the rabbit cookie, change this to force the randomly generated rabbit cookie to change.
+  RabbitPassword:
+    default: guest
+    description: The password for RabbitMQ
     type: string
     hidden: true
-  DefaultSignalTransport:
-    default: CFN_SIGNAL
-    description: Transport to use for software-config signals.
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
     type: string
-    constraints:
-      - allowed_values: [ CFN_SIGNAL, HEAT_SIGNAL, NO_SIGNAL ]
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
 resources:
   ControlVirtualIP:
     type: OS::Neutron::Port
