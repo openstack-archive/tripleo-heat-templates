@@ -8,6 +8,12 @@ parameters:
     default: baremetal
     description: Flavor for block storage nodes to request when deploying.
     type: string
+  BlockStorageExtraConfig:
+    default: {}
+    description: |
+      Controller specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
 resources:
   BlockStorage0:
     type: OS::Nova::Server
@@ -17,8 +23,13 @@ resources:
       flavor: {get_param: OvercloudBlockStorageFlavor}
       key_name: {get_param: KeyName}
       user_data_format: SOFTWARE_CONFIG
+  BlockStorage0AllNodesDeployment:
+    depends_on: [BlockStorage0Deployment,BlockStorage0PassthroughSpecific]
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: allNodesConfig}
+      server: {get_resource: BlockStorage0}
   BlockStorage0Deployment:
-    depends_on: [controller0AllNodesDeployment]
     type: OS::Heat::StructuredDeployment
     properties:
       server: {get_resource: BlockStorage0}
@@ -27,6 +38,23 @@ resources:
         controller_virtual_ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
         cinder_dsn: {"Fn::Join": ['', ['mysql://cinder:unset@', {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]} , '/cinder']]}
       signal_transport: NO_SIGNAL
+  BlockStorage0Passthrough:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: BlockStoragePassthrough}
+      server: {get_resource: BlockStorage0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config: {get_param: ExtraConfig}
+  BlockStorage0PassthroughSpecific:
+    depends_on: [BlockStorage0Passthrough]
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: BlockStoragePassthroughSpecific}
+      server: {get_resource: BlockStorage0}
+      signal_transport: NO_SIGNAL
+      input_values:
+        passthrough_config_specific: {get_param: BlockStorageExtraConfig}
   BlockStorageConfig:
     type: OS::Heat::StructuredConfig
     properties:
@@ -50,3 +78,13 @@ resources:
         glance:
           host: {get_input: controller_virtual_ip}
           port: {get_param: GlancePort}
+  BlockStoragePassthrough:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config: {get_input: passthrough_config}
+  BlockStoragePassthroughSpecific:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config: {get_input: passthrough_config_specific}
