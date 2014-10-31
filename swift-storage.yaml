@@ -1,0 +1,168 @@
+heat_template_version: 2014-10-16
+description: 'Common Swift Storage Configuration'
+parameters:
+  ControllerIP:
+    default: ''
+    type: string
+  ExtraConfig:
+    default: {}
+    description: |
+      Additional configuration to inject into the cluster. The JSON should have
+      the following structure:
+        {"FILEKEY":
+          {"config":
+            [{"section": "SECTIONNAME",
+              "values":
+                [{"option": "OPTIONNAME",
+                  "value": "VALUENAME"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+      For instance:
+        {"nova":
+          {"config":
+            [{"section": "default",
+              "values":
+                [{"option": "force_config_drive",
+                  "value": "always"
+                 }
+                ]
+             },
+             {"section": "cells",
+              "values":
+                [{"option": "driver",
+                  "value": "nova.cells.rpc_driver.CellsRPCDriver"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+    type: json
+  Flavor:
+    default: baremetal
+    description: Flavor for Swift storage nodes to request when deploying.
+    type: string
+  HashSuffix:
+    default: unset
+    description: A random string to be used as a salt when hashing to determine mappings
+      in the ring.
+    hidden: true
+    type: string
+  Image:
+    default: overcloud-swift-storage
+    type: string
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+  NeutronEnableTunnelling:
+    default: "True"
+    type: string
+  NeutronNetworkType:
+    default: gre
+    type: string
+  PartPower:
+    default: 10
+    description: Partition Power to use when building Swift rings
+    type: number
+  Password:
+    default: unset
+    description: The password for the swift service account, used by the swift proxy
+      services.
+    hidden: true
+    type: string
+  Replicas:
+    type: number
+    default: 1
+    description: How many replicas to use in the swift rings.
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+
+resources:
+  SwiftConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        snmpd:
+          export_MIB: UCD-SNMP-MIB
+          readonly_user_name: {get_input: snmpd_readonly_user_name}
+          readonly_user_password: {get_input: snmpd_readonly_user_password}
+        swift:
+          hash: { get_input: swift_hash_suffix }
+          part-power: { get_input: swift_part_power }
+          replicas: {get_input: swift_replicas }
+          service-password: { get_input: swift_password }
+        neutron:
+          enable_tunnelling: {get_param: NeutronEnableTunnelling}
+          tenant_network_type: {get_param: NeutronNetworkType}
+          ovs:
+            local_ip: { get_input: neutron_local_ip }
+  SwiftStorage:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: Image}
+      flavor: {get_param: Flavor}
+      key_name: {get_param: KeyName}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: ctlplane
+  SwiftKeystoneConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      config:
+        keystone:
+          host: {get_input: keystone_host}
+  SwiftStorageKeystone:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: SwiftStorage}
+      config: {get_resource: SwiftKeystoneConfig}
+      signal_transport: NO_SIGNAL
+      input_values:
+        keystone_host: {get_param: ControllerIP}
+  SwiftStorageDeploy:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: SwiftStorage}
+      config: {get_resource: SwiftConfig}
+      signal_transport: NO_SIGNAL
+      input_values:
+        neutron_local_ip: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
+        snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
+        snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+        swift_hash_suffix: {get_param: HashSuffix}
+        swift_password: {get_param: Password}
+        swift_part_power: {get_param: PartPower}
+        swift_replicas: { get_param: Replicas}
+
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [SwiftStorage, name]}
+  nova_server_resource:
+    description: Heat resource handle for the swift storage server
+    value:
+      {get_resource: SwiftStorage}
+  swift_device:
+    description: Swift device formatted for swift-ring-builder
+    value:
+      str_replace:
+        template: 'r1z1-IP:%PORT%/d1'
+        params:
+          IP: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
