@@ -1,0 +1,105 @@
+heat_template_version: 2014-10-16
+description: 'Common Ceph Storage Configuration'
+parameters:
+  Image:
+    type: string
+    default: overcloud-ceph-storage
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+  Flavor:
+    default: baremetal
+    description: Flavor for block storage nodes to request when deploying.
+    type: string
+  CephClusterFSID:
+    default: ''
+    type: string
+    description: The Ceph cluster FSID.
+  CephMonKey:
+    default: ''
+    description: The Ceph monitors key.
+    type: string
+  CephAdminKey:
+    default: ''
+    description: The Ceph admin client key.
+    type: string
+  CephMonitors:
+    default: ''
+    description: The list of ip/names to use as Ceph monitors
+    type: string
+resources:
+  CephStorage:
+    type: OS::Nova::Server
+    properties:
+      image:
+        {get_param: Image}
+      flavor: {get_param: OvercloudCephStorageFlavor}
+      key_name: {get_param: KeyName}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: ctlplane
+  CephStorageDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: CephStorage}
+      config: {get_resource: CephStorageConfig}
+      signal_transport: NO_SIGNAL
+  CephStorageConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        ceph:
+          fsid: {get_param: CephClusterFSID}
+          keyrings:
+            admin:
+              key: {get_param: CephAdminKey}
+          mon_nodes: {get_param: CephMonitors}
+  ControllerCephDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: Controller}
+      config: {get_resource: ControllerCephConfig}
+      signal_transport: NO_SIGNAL
+  ControllerCephConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        cinder:
+          include_ceph_backend: true
+        ceph:
+          fsid: {get_param: CephClusterFSID}
+          keyrings:
+            mon:
+              key: {get_param: CephMonKey}
+            admin:
+              key: {get_param: CephAdminKey}
+          mon_nodes: {get_param: CephMonitors}
+  NovaComputeCephDeployment:
+    depends_on: [ControllerCephDeployment]
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: NovaCompute}
+      config: {get_resource: NovaComputeCephConfig}
+      signal_transport: NO_SIGNAL
+  NovaComputeCephConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        ceph:
+          fsid: {get_param: CephClusterFSID}
+          keyrings:
+            admin:
+              key: {get_param: CephAdminKey}
+          mon_nodes: {get_param: CephMonitors}
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [CephStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [CephStorage, name]}

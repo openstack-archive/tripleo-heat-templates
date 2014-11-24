@@ -19,7 +19,7 @@ $(VALIDATE):
 # - overcloud-vlan-port.yaml to activate the VLAN auto-assignment from Neutron
 # - nfs-source.yaml to configure Cinder with NFS
 overcloud.yaml: overcloud-source.yaml block-storage.yaml swift-deploy.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml nova-compute-config.yaml $(overcloud_source_deps)
-	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml ${CONTROLEXTRA} > $@.tmp
+	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} --scale CephStorage=$${CEPHSTORAGESCALE:-'0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml ${CONTROLEXTRA} > $@.tmp
 	mv $@.tmp $@
 
 undercloud-vm.yaml: undercloud-source.yaml undercloud-vm-nova-config.yaml undercloud-vm-nova-deploy.yaml
