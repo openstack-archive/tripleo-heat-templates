@@ -20,7 +20,7 @@ parameters:
     description: The password for the cinder service account, used by cinder-api.
     hidden: true
     type: string
-  ControllerIP:
+  VirtualIP:
     default: ''
     type: string
   ExtraConfig:
@@ -73,18 +73,6 @@ parameters:
     default: default
     description: Name of an existing EC2 KeyPair to enable SSH access to the instances
     type: string
-  NeutronEnableTunnelling:
-    default: "True"
-    type: string
-  NeutronNetworkType:
-    default: gre
-    type: string
-  NeutronPassword:
-    default: ''
-    type: string
-  NeutronPublicInterface:
-    default: eth0
-    type: string
   RabbitPassword:
     default: ''
     type: string
@@ -100,7 +88,6 @@ parameters:
     description: The user password for SNMPd with readonly rights running on all Overcloud nodes
     type: string
     hidden: true
-
 resources:
   BlockStorage:
     type: OS::Nova::Server
@@ -118,9 +105,8 @@ resources:
       server: {get_resource: BlockStorage}
       config: {get_resource: BlockStorageConfig}
       input_values:
-        controller_host: {get_param: ControllerIP}
-        cinder_dsn: {list_join: ['', ['mysql://cinder:unset@', {get_param: ControllerIP} , '/cinder']]}
-        neutron_local_ip: {get_attr: [BlockStorage , networks, ctlplane, 0]}
+        controller_virtual_ip: {get_param: VirtualIP}
+        cinder_dsn: {list_join: ['', ['mysql://cinder:unset@', {get_param: VirtualIP} , '/cinder']]}
         snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
         snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
       signal_transport: NO_SIGNAL
@@ -131,7 +117,7 @@ resources:
       config:
         admin-password: {get_param: AdminPassword}
         keystone:
-          host: {get_input: controller_host}
+          host: {get_input: controller_virtual_ip}
         cinder:
           db: {get_input: cinder_dsn}
           volume_size_mb:
@@ -145,46 +131,12 @@ resources:
           readonly_user_name: {get_input: snmpd_readonly_user_name}
           readonly_user_password: {get_input: snmpd_readonly_user_password}
         rabbit:
-          host: {get_input: controller_host}
+          host: {get_input: controller_virtual_ip}
           username: {get_param: RabbitUserName}
           password: {get_param: RabbitPassword}
         glance:
-          host: {get_input: controller_host}
+          host: {get_input: controller_virtual_ip}
           port: {get_param: GlancePort}
-        interfaces:
-          control: {get_param: NeutronPublicInterface}
-        neutron:
-          ovs:
-            local_ip: {get_input: neutron_local_ip}
-            tenant_network_type: {get_param: NeutronNetworkType}
-            enable_tunneling: {get_param: NeutronEnableTunnelling}
-          service-password:
-            get_param: NeutronPassword
-        config:
-          keystone:
-            host: {get_input: controller_host}
-          cinder:
-            db: {get_input: cinder_dsn}
-            volume_size_mb:
-              get_param: CinderLVMLoopDeviceSize
-            service-password:
-              get_param: CinderPassword
-            iscsi-helper:
-              get_param: CinderISCSIHelper
-          admin-password: {get_param: AdminPassword}
-          rabbit:
-            host: {get_input: controller_host}
-            username: {get_param: RabbitUserName}
-            password: {get_param: RabbitPassword}
-          interfaces:
-            control: {get_param: NeutronPublicInterface}
-          neutron:
-            ovs:
-              local_ip: { get_input: neutron_local_ip }
-              tenant_network_type: {get_param: NeutronNetworkType}
-              enable_tunneling: {get_param: NeutronEnableTunnelling}
-            service-password:
-              get_param: NeutronPassword
 outputs:
   hosts_entry:
     value:
