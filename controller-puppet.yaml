@@ -528,6 +528,12 @@ resources:
         control_virtual_interface: {get_param: ControlVirtualInterface}
         public_virtual_interface: {get_param: PublicVirtualInterface}
         public_virtual_ip: {get_param: PublicVirtualIP}
+        swift_hash_suffix: {get_param: SwiftHashSuffix}
+        swift_password: {get_param: SwiftPassword}
+        swift_part_power: {get_param: SwiftPartPower}
+        swift_replicas: {get_param: SwiftReplicas}
+        swift_min_part_hours: {get_param: SwiftMinPartHours}
+        swift_mount_check: {get_param: SwiftMountCheck}
 
 
   # Map heat metadata into hiera datafiles
@@ -540,18 +546,37 @@ resources:
           hierarchy:
             - heat_config_%{::deploy_config_name}
             - controller
+            - object
             - common
           datafiles:
             common:
               raw_data: {get_file: puppet/hieradata/common.yaml}
+            object:
+              raw_data: {get_file: puppet/hieradata/object.yaml}
             controller:
               raw_data: {get_file: puppet/hieradata/controller.yaml}
               oac_data: # data we map in from other OAC configurations
                 bootstrap_nodeid: bootstrap_host.bootstrap_nodeid
+                # Swift
+                tripleo::ringbuilder::devices: swift.devices
               mapped_data: # data supplied directly to this deployment configuration, etc
                 debug: {get_input: debug}
                 bootstack_nodeid: {get_input: bootstack_nodeid}
                 controller_host: {get_input: controller_host} #local-ipv4
+                # Swift
+                swift::proxy::proxy_local_net_ip: {get_input: controller_host}
+                swift::proxy::authtoken::auth_host: {get_input: controller_virtual_ip}
+                swift::storage::all::storage_local_net_ip: {get_input: controller_host}
+                swift::swift_hash_suffix: {get_input: swift_hash_suffix}
+                swift::proxy::authtoken::admin_password: {get_input: swift_password}
+                tripleo::ringbuilder::part_power: {get_input: swift_part_power}
+                tripleo::ringbuilder::replicas: {get_input: swift_replicas}
+                tripleo::ringbuilder::min_part_hours: {get_input: swift_min_part_hours}
+                swift_mount_check: {get_input: swift_mount_check}
+
+                # NOTE(dprince): build_ring support is currently not wired in.
+                # See: https://review.openstack.org/#/c/109225/
+                tripleo::ringbuilder::build_ring: True
                 # Cinder
                 cinder_lvm_loop_device_size: {get_input: cinder_lvm_loop_device_size}
                 cinder::volume::iscsi::iscsi_helper: {get_input: cinder_iscsi_helper}
@@ -671,6 +696,7 @@ resources:
                 tripleo::loadbalancer::nova_novncproxy: true
                 tripleo::loadbalancer::mysql: true
                 tripleo::loadbalancer::rabbitmq: true
+                tripleo::loadbalancer::swift_proxy_server: true
 
   # NOTE(dprince): this example uses a composition class
   # on the puppet side (loadbalancer.pp). This seemed like the
@@ -710,10 +736,10 @@ resources:
       config:
         get_file: puppet/overcloud_controller.pp
 
-  # Step through a series of two more Puppet runs using the same manifest.
+  # Step through a series of Puppet runs using the same manifest.
   # NOTE(dprince): Heat breakpoints would make for a really cool way to step
   # through breakpoints in a controlled manner across the entire cluster
-  ControllerPuppetDeploymentTwo:
+  ControllerPuppetDeploymentServicesBase:
     type: OS::Heat::StructuredDeployment
     properties:
       name: puppet_2
@@ -723,10 +749,30 @@ resources:
         step: 1
       actions: ['CREATE'] # no need for two passes on an UPDATE
 
-  ControllerPuppetDeploymentThree:
+  ControllerRingbuilderPuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      options:
+        enable_hiera: True
+        enable_facter: False
+      inputs:
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/ringbuilder.pp
+
+  ControllerRingbuilderPuppetDeployment:
     type: OS::Heat::StructuredDeployment
     properties:
       name: puppet_3
+      server: {get_resource: Controller}
+      config: {get_resource: ControllerRingbuilderPuppetConfig}
+
+  ControllerPuppetDeploymentOvercloudServices:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_4
       server: {get_resource: Controller}
       config: {get_resource: ControllerPuppetConfig}
       input_values:

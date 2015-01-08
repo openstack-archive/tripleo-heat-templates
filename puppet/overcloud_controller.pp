@@ -117,6 +117,9 @@ if hiera('step') >= 1 {
     provider             => 'rabbitmqctl',
   }
 
+  # pre-install swift here so we can build rings
+  include ::swift
+
 } #END STEP 1
 
 if hiera('step') >= 2 {
@@ -205,5 +208,35 @@ if hiera('step') >= 2 {
   class {'cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
+
+  # swift proxy
+  include ::memcached
+  include ::swift::proxy
+  include ::swift::proxy::proxy_logging
+  include ::swift::proxy::healthcheck
+  include ::swift::proxy::cache
+  include ::swift::proxy::keystone
+  include ::swift::proxy::authtoken
+  include ::swift::proxy::staticweb
+  include ::swift::proxy::ratelimit
+  include ::swift::proxy::catch_errors
+  include ::swift::proxy::tempurl
+  include ::swift::proxy::formpost
+
+  # swift storage
+  class {'swift::storage::all':
+    mount_check => str2bool(hiera('swift_mount_check'))
+  }
+  if(!defined(File['/srv/node'])) {
+    file { '/srv/node':
+      ensure  => directory,
+      owner   => 'swift',
+      group   => 'swift',
+      require => Package['openstack-swift'],
+    }
+  }
+  $swift_components = ['account', 'container', 'object']
+  swift::storage::filter::recon { $swift_components : }
+  swift::storage::filter::healthcheck { $swift_components : }
 
 } #END STEP 2
