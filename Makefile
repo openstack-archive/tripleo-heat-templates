@@ -15,16 +15,11 @@ validate-all: $(VALIDATE)
 $(VALIDATE):
 	heat template-validate -f $(subst validate-,,$@)
 
-# set CONTROLEXTRA to overcloud-vlan-port.yaml to activate the VLAN
-# auto-assignment from Neutron.
+# You can define in CONTROLEXTRA one or more additional YAML files to further extend the template, some additions could be:
+# - overcloud-vlan-port.yaml to activate the VLAN auto-assignment from Neutron
+# - nfs-source.yaml to configure Cinder with NFS
 overcloud.yaml: overcloud-source.yaml block-storage.yaml swift-deploy.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml nova-compute-config.yaml $(overcloud_source_deps)
 	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} overcloud-source.yaml block-storage.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml swift-deploy.yaml nova-compute-config.yaml ${CONTROLEXTRA} > $@.tmp
-	mv $@.tmp $@
-
-overcloud-with-block-storage-nfs.yaml: overcloud-source.yaml block-storage-nfs.yaml nfs-server-source.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml $(overcloud_source_deps)
-	# $^ won't work here because we want to list nova-compute-instance.yaml as
-	# a prerequisite but don't want to pass it into merge.py
-	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'1'} overcloud-source.yaml block-storage-nfs.yaml nfs-server-source.yaml swift-source.yaml swift-storage-source.yaml ssl-source.yaml > $@.tmp
 	mv $@.tmp $@
 
 undercloud-vm.yaml: undercloud-source.yaml undercloud-vm-nova-config.yaml undercloud-vm-nova-deploy.yaml
