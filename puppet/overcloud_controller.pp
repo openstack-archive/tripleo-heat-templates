@@ -158,9 +158,12 @@ if hiera('step') >= 2 {
     require => File['/etc/keystone/ssl/certs'],
   }
 
-  # TODO: swift backend, also notifications, scrubber, etc.
+  # TODO: notifications, scrubber, etc.
   include ::glance::api
   include ::glance::registry
+  class { 'glance::backend::swift':
+    swift_store_auth_address => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
+  }
 
   class { 'nova':
     rabbit_hosts           => [hiera('controller_virtual_ip')],
