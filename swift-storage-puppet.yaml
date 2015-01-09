@@ -1,0 +1,175 @@
+heat_template_version: 2014-10-16
+description: 'Common Swift Storage Configuration'
+parameters:
+  #FIXME: this should not be required.
+  ControllerIP:
+    default: ''
+    type: string
+  Flavor:
+    description: Flavor for Swift storage nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  HashSuffix:
+    default: unset
+    description: A random string to be used as a salt when hashing to determine mappings
+      in the ring.
+    hidden: true
+    type: string
+  Image:
+    default: overcloud-swift-storage
+    type: string
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+  MountCheck:
+    default: 'false'
+    description: Value of mount_check in Swift account/container/object -server.conf
+    type: boolean
+  #FIXME: this is is not required. Leaving here for compatability with the overcloud template.
+  NeutronEnableTunnelling:
+    default: "True"
+    type: string
+  #FIXME: this is is not required. Leaving here for compatability with the overcloud template.
+  NeutronNetworkType:
+    default: gre
+    type: string
+  MinPartHours:
+    type: number
+    default: 1
+    description: The minimum time (in hours) before a partition in a ring can be moved following a rebalance.
+  PartPower:
+    default: 10
+    description: Partition Power to use when building Swift rings
+    type: number
+  #FIXME: this is is not required. Leaving here for compatability with the overcloud template.
+  Password:
+    default: unset
+    description: The password for the swift service account, used by the swift proxy
+      services.
+    hidden: true
+    type: string
+  Replicas:
+    type: number
+    default: 1
+    description: How many replicas to use in the swift rings.
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+
+resources:
+
+  SwiftStorage:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: Image}
+      flavor: {get_param: Flavor}
+      key_name: {get_param: KeyName}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: ctlplane
+
+  StoragePuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/overcloud_object.pp
+
+  StoragePuppetDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_1
+      server: {get_resource: SwiftStorage}
+      config: {get_resource: StoragePuppetConfig}
+
+  StorageRingbuilderPuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/ringbuilder.pp
+
+  StorageRingbuilderPuppetDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_2
+      server: {get_resource: SwiftStorage}
+      config: {get_resource: StorageRingbuilderPuppetConfig}
+
+  SwiftStorageHieraConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        hiera:
+          hierarchy:
+            - heat_config_%{::deploy_config_name}
+            - object
+            - common
+          datafiles:
+            common:
+              raw_data: {get_file: puppet/hieradata/common.yaml}
+            object:
+              raw_data: {get_file: puppet/hieradata/object.yaml}
+              oac_data: # data we map in from other OAC configurations
+                tripleo::ringbuilder::devices: swift.devices
+              mapped_data: # data supplied directly to this deployment configuration, etc
+                swift::swift_hash_suffix: { get_input: swift_hash_suffix }
+                tripleo::ringbuilder::part_power: { get_input: swift_part_power }
+                tripleo::ringbuilder::replicas: {get_input: swift_replicas }
+                # Swift
+                swift::storage::all::storage_local_net_ip: {get_input: local_ip}
+                swift_mount_check: {get_input: swift_mount_check }
+                tripleo::ringbuilder::min_part_hours: { get_input: swift_min_part_hours }
+                # NOTE(dprince): build_ring support is currently not wired in.
+                # See: https://review.openstack.org/#/c/109225/
+                tripleo::ringbuilder::build_ring: True
+
+
+  SwiftStorageHieraDeploy:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: SwiftStorage}
+      config: {get_resource: SwiftStorageHieraConfig}
+      signal_transport: NO_SIGNAL
+      input_values:
+        local_ip: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
+        snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
+        snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+        swift_hash_suffix: {get_param: HashSuffix}
+        swift_mount_check: {get_param: MountCheck}
+        swift_min_part_hours: {get_param: MinPartHours}
+        swift_part_power: {get_param: PartPower}
+        swift_replicas: { get_param: Replicas}
+
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [SwiftStorage, name]}
+  nova_server_resource:
+    description: Heat resource handle for the swift storage server
+    value:
+      {get_resource: SwiftStorage}
+  swift_device:
+    description: Swift device formatted for swift-ring-builder
+    value:
+      str_replace:
+        template: 'r1z1-IP:%PORT%/d1'
+        params:
+          IP: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
