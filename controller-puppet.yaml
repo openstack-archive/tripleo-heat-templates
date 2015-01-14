@@ -1,7 +1,7 @@
 heat_template_version: 2014-10-16
 
 description: >
-  OpenStack control plane node. Can be wrapped in a ResourceGroup for scaling.
+  OpenStack controller node configured by Puppet.
 
 parameters:
   AdminPassword:
@@ -202,6 +202,10 @@ parameters:
     default: 'dvr_snat'
     description: Agent mode for the neutron-l3-agent on the controller hosts
     type: string
+  NeutronL3HA: #FIXME this isn't wired in
+    default: 'False'
+    description: Whether to enable l3-agent HA
+    type: string
   NeutronDVR:
     default: 'False'
     description: Whether to configure Neutron Distributed Virtual Routers
@@ -219,10 +223,6 @@ parameters:
   NeutronAllowL3AgentFailover:
     default: 'True'
     description: Allow automatic l3-agent failover
-    type: string
-  NeutronL3HA:
-    default: 'False'
-    description: Whether to enable l3-agent HA
     type: string
   NeutronEnableTunnelling:
     type: string
@@ -401,240 +401,6 @@ resources:
         bridge_name: br-ex
         interface_name: {get_param: NeutronPublicInterface}
 
-  ControllerPassthroughConfig:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
-      config: {get_input: passthrough_config}
-
-  ControllerPassthroughConfigSpecific:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
-      config: {get_input: passthrough_config_specific}
-
-  ControllerConfig:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
-      config:
-        admin-password: {get_input: admin_password}
-        admin-token: {get_input: admin_token}
-        bootstack:
-          public_interface_ip: {get_input: neutron_public_interface_ip}
-        bootstrap_host:
-          nodeid: {get_input: bootstack_nodeid}
-        cinder:
-          db: {get_input: cinder_dsn}
-          debug: {get_input: debug}
-          volume_size_mb: {get_input: cinder_lvm_loop_device_size}
-          service-password: {get_input: cinder_password}
-          iscsi-helper: {get_input: CinderISCSIHelper}
-        controller-address: {get_input: controller_host}
-        corosync:
-          bindnetaddr: {get_input: controller_host}
-          mcastport: 5577
-        pacemaker:
-          stonith_enabled : false
-          recheck_interval : 5
-          quorum_policy : ignore
-        db-password: unset
-        glance:
-          registry:
-            host: {get_input: controller_virtual_ip}
-          backend: swift
-          db: {get_input: glance_dsn}
-          debug: {get_input: debug}
-          host: {get_input: controller_virtual_ip}
-          port: {get_input: glance_port}
-          protocol: {get_input: glance_protocol}
-          service-password: {get_input: glance_password}
-          swift-store-user: service:glance
-          swift-store-key: {get_input: glance_password}
-          notifier-strategy: {get_input: glance_notifier_strategy}
-          log-file: {get_input: glance_log_file}
-        heat:
-          admin_password: {get_input: heat_password}
-          admin_tenant_name: service
-          admin_user: heat
-          auth_encryption_key: unset___________
-          db: {get_input: heat_dsn}
-          debug: {get_input: debug}
-          stack_domain_admin_password: {get_input: heat_stack_domain_admin_password}
-          watch_server_url: {get_input: heat.watch_server_url}
-          metadata_server_url: {get_input: heat.metadata_server_url}
-          waitcondition_server_url: {get_input: heat.waitcondition_server_url}
-        keystone:
-          db: {get_input: keystone_dsn}
-          debug: {get_input: debug}
-          host: {get_input: controller_virtual_ip}
-          ca_certificate: {get_input: keystone_ca_certificate}
-          signing_key: {get_input: keystone_signing_key}
-          signing_certificate: {get_input: keystone_signing_certificate}
-          ssl:
-              certificate: {get_input: keystone_ssl_certificate}
-              certificate_key: {get_input: keystone_ssl_certificate_key}
-        mysql:
-          innodb_buffer_pool_size: {get_input: mysql_innodb_buffer_pool_size}
-          local_bind: true
-          root-password: {get_input: mysql_root_password}
-          cluster_name: {get_input: mysql_cluster_name}
-        neutron:
-          debug: {get_input: debug}
-          flat-networks: {get_input: neutron_flat_networks}
-          host: {get_input: controller_virtual_ip}
-          metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
-          agent_mode: {get_input: neutron_agent_mode}
-          router_distributed: {get_input: neutron_router_distributed}
-          mechanism_drivers: {get_input: neutron_mechanism_drivers}
-          allow_automatic_l3agent_failover: {get_input: neutron_allow_l3agent_failover}
-          l3_ha: {get_input: neutron_l3_ha}
-          ovs:
-            enable_tunneling: {get_input: neutron_enable_tunneling}
-            local_ip: {get_input: controller_host}
-            network_vlan_ranges: {get_input: neutron_network_vlan_ranges}
-            bridge_mappings: {get_input: neutron_bridge_mappings}
-            public_interface: {get_input: neutron_public_interface}
-            public_interface_raw_device: {get_input: neutron_public_interface_raw_device}
-            public_interface_route: {get_input: neutron_public_interface_default_route}
-            public_interface_tag: {get_input: neutron_public_interface_tag}
-            physical_bridge: br-ex
-            tenant_network_type: {get_input: neutron_tenant_network_type}
-            tunnel_types: {get_input: neutron_tunnel_types}
-          ovs_db: {get_input: neutron_dsn}
-          service-password: {get_input: neutron_password}
-          dnsmasq-options: {get_input: neutron_dnsmasq_options}
-        ceilometer:
-          db: {get_input: ceilometer_dsn}
-          debug: {get_input: debug}
-          metering_secret: {get_input: ceilometer_metering_secret}
-          service-password: {get_input: ceilometer_password}
-        snmpd:
-          export_MIB: UCD-SNMP-MIB
-          readonly_user_name: {get_input: snmpd_readonly_user_name}
-          readonly_user_password: {get_input: snmpd_readonly_user_password}
-        nova:
-          compute_driver: libvirt.LibvirtDriver
-          db: {get_input: nova_dsn}
-          default_floating_pool:
-            ext-net
-          host: {get_input: controller_virtual_ip}
-          metadata-proxy: true
-          service-password: {get_input: nova_password}
-        rabbit:
-          host: {get_input: controller_virtual_ip}
-          username: {get_input: rabbit_username}
-          password: {get_input: rabbit_password}
-          cookie: {get_input: rabbit_cookie}
-          rabbit_client_use_ssl: {get_input: rabbit_client_use_ssl}
-          rabbit_port: {get_input: rabbit_client_port}
-        ntp:
-          servers:
-              - {server: {get_input: ntp_server}}
-        virtual_interfaces:
-          instances:
-            - vrrp_instance_name: VI_CONTROL
-              virtual_router_id: 51
-              keepalive_interface: {get_input: control_virtual_interface}
-              priority: 101
-              virtual_ips:
-              - ip: {get_input: controller_virtual_ip}
-                interface: {get_input: control_virtual_interface}
-            - vrrp_instance_name: VI_PUBLIC
-              virtual_router_id: 52
-              keepalive_interface: {get_input: public_virtual_interface}
-              priority: 101
-              virtual_ips:
-              - ip: {get_input: public_virtual_ip}
-                interface: {get_input: public_virtual_interface}
-          vrrp_sync_groups:
-            - name: VG1
-              members:
-                - VI_CONTROL
-                - VI_PUBLIC
-        keepalived:
-          keepalive_interface: {get_input: public_virtual_interface}
-          priority: 101
-        virtual_ips:
-            -
-              ip: {get_input: controller_virtual_ip}
-              interface: {get_input: control_virtual_interface}
-            -
-              ip: {get_input: public_virtual_ip}
-              interface: {get_input: public_virtual_interface}
-        haproxy:
-          net_binds:
-            - ip: {get_input: controller_virtual_ip}
-          options:
-            - option httpchk GET /
-          services:
-            - name: keystone_admin
-              port: 35357
-              net_binds: &public_binds
-                - ip: {get_input: controller_virtual_ip}
-                - ip: {get_input: public_virtual_ip}
-            - name: keystone_public
-              port: 5000
-              net_binds: *public_binds
-            - name: horizon
-              port: 80
-              net_binds: *public_binds
-            - name: neutron
-              port: 9696
-              net_binds: *public_binds
-            - name: cinder
-              port: 8776
-              net_binds: *public_binds
-            - name: glance_api
-              port: 9292
-              net_binds: *public_binds
-            - name: glance_registry
-              port: 9191
-              net_binds: *public_binds
-              options: # overwrite options as glace_reg needs auth for http req
-            - name: heat_api
-              port: 8004
-              net_binds: *public_binds
-            - name: heat_cloudwatch
-              port: 8003
-              net_binds: *public_binds
-            - name: heat_cfn
-              port: 8000
-              net_binds: *public_binds
-            - name: mysql
-              port: 3306
-              extra_server_params:
-                - backup
-              options:
-                - timeout client 0
-                - timeout server 0
-            - name: nova_ec2
-              port: 8773
-            - name: nova_osapi
-              port: 8774
-              net_binds: *public_binds
-            - name: nova_metadata
-              port: 8775
-              net_binds: *public_binds
-            - name: nova_novncproxy
-              port: 6080
-              net_binds: *public_binds
-            - name: ceilometer
-              port: 8777
-              net_binds: *public_binds
-              options: # overwrite options as ceil needs auth for http req
-            - name: swift_proxy_server
-              port: 8080
-              net_binds: *public_binds
-              options:
-                - option httpchk GET /info
-            - name: rabbitmq
-              port: 5672
-              options:
-                - timeout client 0
-                - timeout server 0
-                - maxconn 1500
-
   ControllerDeployment:
     type: OS::TripleO::SoftwareDeployment
     properties:
@@ -720,7 +486,6 @@ resources:
         neutron_router_distributed: {get_param: NeutronDVR}
         neutron_mechanism_drivers: {get_param: NeutronMechanismDrivers}
         neutron_allow_l3agent_failover: {get_param: NeutronAllowL3AgentFailover}
-        neutron_l3_ha: {get_param: NeutronL3HA}
         neutron_network_vlan_ranges: {get_param: NeutronNetworkVLANRanges}
         neutron_bridge_mappings: {get_param: NeutronBridgeMappings}
         neutron_public_interface: {get_param: NeutronPublicInterface}
@@ -764,108 +529,208 @@ resources:
         public_virtual_interface: {get_param: PublicVirtualInterface}
         public_virtual_ip: {get_param: PublicVirtualIP}
 
-  SSLConfig:
+
+  # Map heat metadata into hiera datafiles
+  ControllerConfig:
     type: OS::Heat::StructuredConfig
     properties:
       group: os-apply-config
       config:
-        ssl:
-          ca_certificate: {get_input: ssl_ca_certificate}
-        stunnel:
-          cert: {get_input: ssl_certificate}
-          key: {get_input: ssl_key}
-          cacert: {get_input: ssl_ca_certificate}
-          ports:
-           - name: 'ec2'
-             accept: 13773
-             connect: 8773
-             connect_host: {get_input: controller_host}
-           - name: 'image'
-             accept: 13292
-             connect: 9292
-             connect_host: {get_input: controller_host}
-           - name: 'identity'
-             accept: 13000
-             connect: 5000
-             connect_host: {get_input: controller_host}
-           - name: 'network'
-             accept: 13696
-             connect: 9696
-             connect_host: {get_input: controller_host}
-           - name: 'compute'
-             accept: 13774
-             connect: 8774
-             connect_host: {get_input: controller_host}
-           - name: 'swift-proxy'
-             accept: 13080
-             connect: 8080
-             connect_host: {get_input: controller_host}
-           - name: 'cinder'
-             accept: 13776
-             connect: 8776
-             connect_host: {get_input: controller_host}
-           - name: 'ceilometer'
-             accept: 13777
-             connect: 8777
-             connect_host: {get_input: controller_host}
+        hiera:
+          hierarchy:
+            - heat_config_%{::deploy_config_name}
+            - controller
+            - common
+          datafiles:
+            common:
+              raw_data: {get_file: puppet/hieradata/common.yaml}
+            controller:
+              raw_data: {get_file: puppet/hieradata/controller.yaml}
+              oac_data: # data we map in from other OAC configurations
+                bootstrap_nodeid: bootstrap_host.bootstrap_nodeid
+              mapped_data: # data supplied directly to this deployment configuration, etc
+                debug: {get_input: debug}
+                bootstack_nodeid: {get_input: bootstack_nodeid}
+                controller_host: {get_input: controller_host} #local-ipv4
+                # Cinder
+                cinder_lvm_loop_device_size: {get_input: cinder_lvm_loop_device_size}
+                cinder::volume::iscsi::iscsi_helper: {get_input: cinder_iscsi_helper}
+                cinder::volume::iscsi::iscsi_ip_address: {get_input: controller_host}
+                cinder::database_connection: {get_input: cinder_dsn}
+                cinder::api::keystone_password: {get_input: cinder_password}
+                cinder::api::keystone_auth_host: {get_input: controller_virtual_ip}
+                cinder::api::bind_host: {get_input: controller_host}
+                cinder::rabbit_userid: {get_input: rabbit_username}
+                cinder::rabbit_password: {get_input: rabbit_password}
+                #cinder::debug: {get_input: debug}
+                # Glance
+                glance::api::bind_port: {get_input: glance_port}
+                glance::api::bind_host: {get_input: controller_host}
+                glance::api::auth_host: {get_input: controller_virtual_ip}
+                glance::api::registry_host: {get_input: controller_host}
+                glance::api::keystone_password: {get_input: glance_password}
+                # used to construct glance_api_servers
+                glance_port: {get_input: glance_port}
+                glance_protocol: {get_input: glance_protocol}
+                glance_notifier_strategy: {get_input: glance_notifier_strategy}
+                glance_log_file: {get_input: glance_log_file}
+                glance_log_file: {get_input: glance_log_file}
+                glance::api::database_connection: {get_input: glance_dsn}
+                glance::registry::keystone_password: {get_input: glance_password}
+                glance::registry::database_connection: {get_input: glance_dsn}
+                glance::registry::bind_host: {get_input: controller_host}
+                glance::registry::auth_host: {get_input: controller_virtual_ip}
+                # Heat
+                heat_password: {get_input: heat_password}
+                heat_stack_domain_admin_password: {get_input: heat_stack_domain_admin_password}
+                heat_dsn: {get_input: heat_dsn}
+                heat.watch_server_url: {get_input: heat.watch_server_url}
+                heat.metadata_server_url: {get_input: heat.metadata_server_url}
+                heat.waitcondition_server_url: {get_input: heat.waitcondition_server_url}
+                # Keystone
+                keystone::admin_token: {get_input: admin_token}
+                keystone_ca_certificate: {get_input: keystone_ca_certificate}
+                keystone_signing_key: {get_input: keystone_signing_key}
+                keystone_signing_certificate: {get_input: keystone_signing_certificate}
+                keystone_ssl_certificate: {get_input: keystone_ssl_certificate}
+                keystone_ssl_certificate_key: {get_input: keystone_ssl_certificate_key}
+                keystone::database_connection: {get_input: keystone_dsn}
+                keystone::public_bind_host: {get_input: controller_host}
+                keystone::admin_bind_host: {get_input: controller_host}
+                #keystone::debug: {get_input: debug}
+                # MySQL
+                admin_password: {get_input: admin_password}
+                mysql_innodb_buffer_pool_size: {get_input: mysql_innodb_buffer_pool_size}
+                mysql_root_password: {get_input: mysql_root_password}
+                mysql_cluster_name: {get_input: mysql_cluster_name}
+                # Neutron
+                neutron::bind_host: {get_input: controller_host}
+                neutron::rabbit_password: {get_input: rabbit_password}
+                neutron::rabbit_user: {get_input: rabbit_user}
+                #neutron::debug: {get_input: debug}
+                neutron::server::auth_host: {get_input: controller_virtual_ip}
+                neutron::server::database_connection: {get_input: neutron_dsn}
+                neutron::agents::ml2::ovs::enable_tunneling: {get_input: neutron_enable_tunneling}
+                neutron::agents::ml2::ovs::local_ip: {get_input: controller_host}
+                neutron_flat_networks: {get_input: neutron_flat_networks}
+                neutron::agents::metadata::shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
+                neutron_agent_mode: {get_input: neutron_agent_mode}
+                neutron_router_distributed: {get_input: neutron_router_distributed}
+                neutron_mechanism_drivers: {get_input: neutron_mechanism_drivers}
+                neutron_allow_l3agent_failover: {get_input: neutron_allow_l3agent_failover}
+                neutron::plugins::ml2::network_vlan_ranges: {get_input: neutron_network_vlan_ranges}
+                neutron_bridge_mappings: {get_input: neutron_bridge_mappings}
+                neutron_public_interface: {get_input: neutron_public_interface}
+                neutron_public_interface_raw_device: {get_input: neutron_public_interface_raw_device}
+                neutron_public_interface_default_route: {get_input: neutron_public_interface_default_route}
+                neutron_public_interface_tag: {get_input: neutron_public_interface_tag}
+                neutron_tenant_network_type: {get_input: neutron_tenant_network_type}
+                neutron_tunnel_types: {get_input: neutron_tunnel_types}
+                neutron::server::auth_password: {get_input: neutron_password}
+                neutron::agents::metadata::auth_password: {get_input: neutron_password}
+                neutron_dnsmasq_options: {get_input: neutron_dnsmasq_options}
+                neutron_dsn: {get_input: neutron_dsn}
+                # Ceilometer
+                ceilometer_metering_secret: {get_input: ceilometer_metering_secret}
+                ceilometer_password: {get_input: ceilometer_password}
+                ceilometer_dsn: {get_input: ceilometer_dsn}
+                snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
+                snmpd_readonly_user_password: {get_input: snmpd_readonly_user_password}
+                # Nova
+                nova::rabbit_userid: {get_input: rabbit_username}
+                nova::rabbit_password: {get_input: rabbit_password}
+                nova::api::auth_host: {get_input: controller_virtual_ip}
+                nova::api::api_bind_address: {get_input: controller_host}
+                nova::api::metadata_listen: {get_input: controller_host}
+                nova::api::admin_password: {get_input: nova_password}
+                nova::database_connection: {get_input: nova_dsn}
+                nova::api::neutron_metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
+                # Rabbit
+                rabbit_username: {get_input: rabbit_username}
+                rabbit_password: {get_input: rabbit_password}
+                rabbit_cookie: {get_input: rabbit_cookie}
+                rabbit_client_use_ssl: {get_input: rabbit_client_use_ssl}
+                rabbit_client_port: {get_input: rabbit_client_port}
+                # Misc
+                neutron_public_interface_ip: {get_input: neutron_public_interface_ip}
+                ntp_server: {get_input: ntp_server}
+                control_virtual_interface: {get_input: control_virtual_interface}
+                controller_virtual_ip: {get_input: controller_virtual_ip}
+                public_virtual_interface: {get_input: public_virtual_interface}
+                public_virtual_ip: {get_input: public_virtual_ip}
+                # Load Balancer (composition class parameters)
+                tripleo::loadbalancer::keystone_admin: true
+                tripleo::loadbalancer::keystone_public: true
+                tripleo::loadbalancer::neutron: true
+                tripleo::loadbalancer::cinder: true
+                tripleo::loadbalancer::glance_api: true
+                tripleo::loadbalancer::glance_registry: true
+                tripleo::loadbalancer::nova_ec2: true
+                tripleo::loadbalancer::nova_osapi: true
+                tripleo::loadbalancer::nova_metadata: true
+                tripleo::loadbalancer::nova_novncproxy: true
+                tripleo::loadbalancer::mysql: true
+                tripleo::loadbalancer::rabbitmq: true
 
-  ControllerSSLDeployment:
-    type: OS::Heat::StructuredDeployment
+  # NOTE(dprince): this example uses a composition class
+  # on the puppet side (loadbalancer.pp). This seemed like the
+  # cleanest way to encapulate the puppet resources definitions
+  # for HAProxy and Keepalived.
+  ControllerLoadbalancerPuppetConfig:
+    type: OS::Heat::SoftwareConfig
     properties:
-      config: {get_resource: SSLConfig}
-      server: {get_resource: Controller}
-      signal_transport: NO_SIGNAL
-      input_values:
-        controller_host: {get_attr: [Controller, networks, ctlplane, 0]}
-        ssl_certificate: {get_param: SSLCertificate}
-        ssl_key: {get_param: SSLKey}
-        ssl_ca_certificate: {get_param: SSLCACertificate}
-
-  ControllerPassthroughDeployment:
-    type: OS::Heat::StructuredDeployment
-    properties:
-      config: {get_resource: ControllerPassthroughConfig}
-      server: {get_resource: Controller}
-      signal_transport: NO_SIGNAL
-      input_values:
-        passthrough_config: {get_param: ExtraConfig}
-
-  ControllerPassthroughSpecificDeployment:
-    depends_on: [ControllerPassthroughDeployment]
-    type: OS::Heat::StructuredDeployment
-    properties:
-      config: {get_resource: ControllerPassthroughConfigSpecific}
-      server: {get_resource: Controller}
-      signal_transport: NO_SIGNAL
-      input_values:
-        passthrough_config_specific: {get_param: ControllerExtraConfig}
-
-  SwiftConfig:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
+      group: puppet
+      options:
+        enable_hiera: True
+        enable_facter: False
+      inputs:
+      outputs:
+      - name: result
       config:
-        swift:
-          hash: { get_input: swift_hash_suffix }
-          part-power: { get_input: swift_part_power }
-          mount-check: { get_input: swift_mount_check }
-          min-part-hours: { get_input: swift_min_part_hours }
-          replicas: {get_input: swift_replicas }
-          service-password: { get_input: swift_password }
+        get_file: puppet/loadbalancer.pp
 
-  SwiftStorageDeploy:
+  ControllerLoadbalancerPuppetDeployment:
     type: OS::Heat::StructuredDeployment
     properties:
+      name: puppet_1
       server: {get_resource: Controller}
-      config: {get_resource: SwiftConfig}
-      signal_transport: NO_SIGNAL
+      config: {get_resource: ControllerLoadbalancerPuppetConfig}
+
+  ControllerPuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      options:
+        enable_hiera: True
+        enable_facter: False
+      inputs:
+      - name: step
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/overcloud_controller.pp
+
+  # Step through a series of two more Puppet runs using the same manifest.
+  # NOTE(dprince): Heat breakpoints would make for a really cool way to step
+  # through breakpoints in a controlled manner across the entire cluster
+  ControllerPuppetDeploymentTwo:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_2
+      server: {get_resource: Controller}
+      config: {get_resource: ControllerPuppetConfig}
       input_values:
-        swift_hash_suffix: {get_param: SwiftHashSuffix}
-        swift_mount_check: {get_param: SwiftMountCheck}
-        swift_password: {get_param: SwiftPassword}
-        swift_min_part_hours: {get_param: SwiftMinPartHours}
-        swift_part_power: {get_param: SwiftPartPower}
-        swift_replicas: { get_param: SwiftReplicas}
+        step: 1
+      actions: ['CREATE'] # no need for two passes on an UPDATE
+
+  ControllerPuppetDeploymentThree:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_3
+      server: {get_resource: Controller}
+      config: {get_resource: ControllerPuppetConfig}
+      input_values:
+        step: 2
 
 outputs:
   ip_address:
