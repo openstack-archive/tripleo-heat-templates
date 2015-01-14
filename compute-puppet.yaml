@@ -1,7 +1,7 @@
 heat_template_version: 2014-10-16
 
 description: >
-  OpenStack hypervisor node. Can be wrapped in a ResourceGroup for scaling.
+  OpenStack hypervisor node configured via Puppet.
 
 parameters:
   AdminPassword:
@@ -172,7 +172,7 @@ parameters:
     default: 'True'
     description: Allow automatic l3-agent failover
     type: string
-  NeutronL3HA:
+  NeutronL3HA: #FIXME this isn't wired in
     default: 'False'
     description: Whether to enable l3-agent HA
     type: string
@@ -257,65 +257,85 @@ resources:
         bridge_name: {get_param: NeutronPhysicalBridge}
         interface_name: {get_param: NeutronPublicInterface}
 
+  ComputePuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/overcloud_compute.pp
+
+  ComputePuppetDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: NovaCompute}
+      config: {get_resource: ComputePuppetConfig}
+
   NovaComputeConfig:
     type: OS::Heat::StructuredConfig
     properties:
       group: os-apply-config
       config:
-        nova:
-          compute_driver: { get_input: nova_compute_driver }
-          compute_libvirt_type: { get_input: nova_compute_libvirt_type }
-          debug: {get_input: debug}
-          host: {get_input: nova_api_host}
-          public_ip: {get_input: nova_public_ip}
-          service-password: {get_input: nova_password}
-        ceilometer:
-          debug: {get_input: debug}
-          metering_secret: {get_input: ceilometer_metering_secret}
-          service-password: {get_input: ceilometer_password}
-          compute_agent: {get_input: ceilometer_compute_agent}
-        snmpd:
-          export_MIB: UCD-SNMP-MIB
-          readonly_user_name: {get_input: snmpd_readonly_user_name}
-          readonly_user_password: {get_input: snmpd_readonly_user_password}
-        glance:
-          debug: {get_input: debug}
-          host: {get_input: glance_host}
-          port: {get_input: glance_port}
-          protocol: {get_input: glance_protocol}
-        keystone:
-          debug: {get_input: debug}
-          host: {get_input: keystone_host}
-        neutron:
-          debug: {get_input: debug}
-          flat-networks: {get_input: neutron_flat_networks}
-          host: {get_input: neutron_host}
-          router_distributed: {get_input: neutron_router_distributed}
-          agent_mode: {get_input: neutron_agent_mode}
-          ovs_db: {get_input: neutron_dsn}
-          metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
-          mechanism_drivers: {get_input: neutron_mechanism_drivers}
-          allow_automatic_l3agent_failover: {get_input: neutron_allow_l3agent_failover}
-          l3_ha: {get_input: neutron_l3_ha}
-          ovs:
-            local_ip: {get_input: neutron_local_ip}
-            tenant_network_type: {get_input: neutron_tenant_network_type}
-            tunnel_types: {get_input: neutron_tunnel_types}
-            network_vlan_ranges: {get_input: neutron_network_vlan_ranges}
-            bridge_mappings: {get_input: neutron_bridge_mappings}
-            enable_tunneling: {get_input: neutron_enable_tunneling}
-            physical_bridge: {get_input: neutron_physical_bridge}
-            public_interface: {get_input: neutron_public_interface}
-            public_interface_raw_device: {get_input: neutron_public_interface_raw_device}
-          service-password: {get_input: neutron_password}
-        admin-password: {get_input: admin_password}
-        rabbit:
-          host: {get_input: rabbit_host}
-          username: {get_input: rabbit_username}
-          password: {get_input: rabbit_password}
-        ntp:
-          servers:
-              - {server: {get_input: ntp_server}}
+        hiera:
+          hierarchy:
+            - heat_config_%{::deploy_config_name}
+            - compute
+            - common
+          datafiles:
+            common:
+              raw_data: {get_file: puppet/hieradata/common.yaml}
+            compute:
+              raw_data: {get_file: puppet/hieradata/compute.yaml}
+              oac_data:
+                nova::compute::vncserver_proxyclient_address: local-ipv4
+              mapped_data:
+                #nova::debug: {get_input: debug}
+                nova_compute_driver: {get_input: nova_compute_driver}
+                nova::compute::libvirt::libvirt_virt_type: {get_input: nova_compute_libvirt_type}
+                nova_api_host: {get_input: nova_api_host}
+                nova::compute::vncproxy_host: {get_input: nova_public_ip}
+                nova_password: {get_input: nova_password}
+                #ceilometer::debug: {get_input: debug}
+                ceilometer::metering_secret: {get_input: ceilometer_metering_secret}
+                ceilometer::agent::auth::auth_password: {get_input: ceilometer_password}
+                ceilometer_compute_agent: {get_input: ceilometer_compute_agent}
+                snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
+                snmpd_readonly_user_password: {get_input: snmpd_readonly_user_password}
+                glance_host: {get_input: glance_host}
+                glance_port: {get_input: glance_port}
+                glance_protocol: {get_input: glance_protocol}
+                keystone_host: {get_input: keystone_host}
+                #neutron::debug: {get_input: debug}
+                neutron_flat_networks: {get_input: neutron_flat_networks}
+                neutron_host: {get_input: neutron_host}
+                neutron::agents::ml2::ovs::local_ip: {get_input: neutron_local_ip}
+                neutron_tenant_network_type: {get_input: neutron_tenant_network_type}
+                neutron_tunnel_types: {get_input: neutron_tunnel_types}
+                neutron::network_vlan_ranges: {get_input: neutron_network_vlan_ranges}
+                neutron_bridge_mappings: {get_input: neutron_bridge_mappings}
+                neutron::agents::ml2::ovs::enable_tunneling: {get_input: neutron_enable_tunneling}
+                neutron_physical_bridge: {get_input: neutron_physical_bridge}
+                neutron_public_interface: {get_input: neutron_public_interface}
+                nova::network::neutron::neutron_admin_password: {get_input: neutron_password}
+                neutron_router_distributed: {get_input: neutron_router_distributed}
+                neutron_agent_mode: {get_input: neutron_agent_mode}
+                neutron_metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
+                neutron_mechanism_drivers: {get_input: neutron_mechanism_drivers}
+                neutron_allow_l3agent_failover: {get_input: neutron_allow_l3agent_failover}
+                neutron_allow_l3agent_failover: {get_input: neutron_allow_l3agent_failover}
+                neutron_public_interface_raw_device: {get_input: neutron_public_interface_raw_device}
+                admin_password: {get_input: admin_password}
+                nova::rabbit_host: {get_input: rabbit_host}
+                neutron::rabbit_host: {get_input: rabbit_host}
+                ceilometer::rabbit_host: {get_input: rabbit_host}
+                nova::rabbit_userid: {get_input: rabbit_username}
+                neutron::rabbit_user: {get_input: rabbit_username}
+                ceilometer::rabbit_userid: {get_input: rabbit_username}
+                nova::rabbit_password: {get_input: rabbit_password}
+                neutron::rabbit_password: {get_input: rabbit_password}
+                ceilometer::rabbit_password: {get_input: rabbit_password}
+                ntp_server: {get_input: ntp_server}
 
   NovaComputeDeployment:
     type: OS::TripleO::SoftwareDeployment
@@ -355,45 +375,12 @@ resources:
         neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
         neutron_mechanism_drivers: {get_param: NeutronMechanismDrivers}
         neutron_allow_l3agent_failover: {get_param: NeutronAllowL3AgentFailover}
-        neutron_l3_ha: {get_param: NeutronL3HA}
         neutron_public_interface_raw_device: {get_param: NeutronPublicInterfaceRawDevice}
         admin_password: {get_param: AdminPassword}
         rabbit_host: {get_param: RabbitHost}
         rabbit_username: {get_param: RabbitUserName}
         rabbit_password: {get_param: RabbitPassword}
         ntp_server: {get_param: NtpServer}
-
-  NovaComputePassthrough:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
-      config: {get_input: passthrough_config}
-
-  NovaComputePassthroughSpecific:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: os-apply-config
-      config: {get_input: passthrough_config_specific}
-
-  NovaComputePassthroughDeployment:
-    depends_on: [NovaComputeDeployment]
-    type: OS::Heat::StructuredDeployment
-    properties:
-      config: {get_resource: NovaComputePassthrough}
-      server: {get_resource: NovaCompute}
-      signal_transport: NO_SIGNAL
-      input_values:
-        passthrough_config: {get_param: ExtraConfig}
-
-  NovaComputePassthroughDeploymentSpecific:
-    depends_on: [NovaComputePassthroughDeployment]
-    type: OS::Heat::StructuredDeployment
-    properties:
-      config: {get_resource: NovaComputePassthroughSpecific}
-      server: {get_resource: NovaCompute}
-      signal_transport: NO_SIGNAL
-      input_values:
-        passthrough_config_specific: {get_param: NovaComputeExtraConfig}
 
 outputs:
   ip_address:
