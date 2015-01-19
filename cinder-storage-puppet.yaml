@@ -1,0 +1,180 @@
+heat_template_version: 2014-10-16
+description: 'Block Storage Configuration w/ Puppet'
+parameters:
+  #FIXME: this should not be required
+  AdminPassword:
+    default: ''
+    type: string
+  Image:
+    default: overcloud-cinder-volume
+    type: string
+  CinderISCSIHelper:
+    default: tgtadm
+    description: The iSCSI helper to use with cinder.
+    type: string
+  CinderLVMLoopDeviceSize:
+    default: 5000
+    description: The size of the loopback file used by the cinder LVM driver.
+    type: number
+  # FIXME: this should not be required
+  CinderPassword:
+    default: unset
+    description: The password for the cinder service account, used by cinder-api.
+    hidden: true
+    type: string
+  VirtualIP:
+    default: ''
+    type: string
+  ExtraConfig:
+    default: {}
+    description: |
+      Additional configuration to inject into the cluster. The JSON should have
+      the following structure:
+        {"FILEKEY":
+          {"config":
+            [{"section": "SECTIONNAME",
+              "values":
+                [{"option": "OPTIONNAME",
+                  "value": "VALUENAME"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+      For instance:
+        {"nova":
+          {"config":
+            [{"section": "default",
+              "values":
+                [{"option": "force_config_drive",
+                  "value": "always"
+                 }
+                ]
+             },
+             {"section": "cells",
+              "values":
+                [{"option": "driver",
+                  "value": "nova.cells.rpc_driver.CellsRPCDriver"
+                 }
+                ]
+             }
+            ]
+          }
+        }
+    type: json
+  Flavor:
+    description: Flavor for block storage nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  GlancePort:
+    default: "9292"
+    description: Glance port.
+    type: string
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+  RabbitPassword:
+    default: ''
+    type: string
+  RabbitUserName:
+    default: ''
+    type: string
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+resources:
+  BlockStorage:
+    type: OS::Nova::Server
+    properties:
+      image:
+        {get_param: Image}
+      flavor: {get_param: Flavor}
+      key_name: {get_param: KeyName}
+      user_data_format: SOFTWARE_CONFIG
+      networks:
+        - network: ctlplane
+
+  BlockStorageDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      server: {get_resource: BlockStorage}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        cinder_dsn: {list_join: ['', ['mysql://cinder:unset@', {get_param: VirtualIP} , '/cinder']]}
+        snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
+        snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+        cinder_lvm_loop_device_size:
+          str_replace:
+            template: sizeM
+            params:
+              size: {get_param: CinderLVMLoopDeviceSize}
+        cinder_iscsi_helper: {get_param: CinderISCSIHelper}
+        rabbit_hosts:
+          str_replace:
+            template: '["host"]'
+            params:
+              host: {get_param: VirtualIP}
+        rabbit_username: {get_param: RabbitUserName}
+        rabbit_password: {get_param: RabbitPassword}
+      signal_transport: NO_SIGNAL
+
+  # Map heat metadata into hiera datafiles
+  BlockStorageConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        hiera:
+          hierarchy:
+            - heat_config_%{::deploy_config_name}
+            - volume
+            - common
+          datafiles:
+            common:
+              raw_data: {get_file: puppet/hieradata/common.yaml}
+            volume:
+              raw_data: {get_file: puppet/hieradata/volume.yaml}
+              oac_data:
+                cinder::volume::iscsi::iscsi_ip_address: local-ipv4
+              mapped_data:
+                # Cinder
+                cinder::setup_test_volume::size: {get_input: cinder_lvm_loop_device_size}
+                cinder::volume::iscsi::iscsi_helper: {get_input: cinder_iscsi_helper}
+                cinder::database_connection: {get_input: cinder_dsn}
+                cinder::rabbit_hosts: {get_input: rabbit_hosts}
+                cinder::rabbit_userid: {get_input: rabbit_username}
+                cinder::rabbit_password: {get_input: rabbit_password}
+
+  VolumePuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      outputs:
+      - name: result
+      config:
+        get_file: puppet/overcloud_volume.pp
+
+  VolumePuppetDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      name: puppet_1
+      server: {get_resource: BlockStorage}
+      config: {get_resource: VolumePuppetConfig}
+
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [BlockStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [BlockStorage, name]}
