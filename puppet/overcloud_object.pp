@@ -13,6 +13,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+include ::ntp
+
 include ::swift
 class {'swift::storage::all':
   mount_check => str2bool(hiera('swift_mount_check'))

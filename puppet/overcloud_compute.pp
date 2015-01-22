@@ -13,6 +13,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+include ::ntp
+
 class { 'nova':
   glance_api_servers => join([hiera('glance_protocol'), '://', hiera('glance_host'), ':', hiera('glance_port')]),
 }

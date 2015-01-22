@@ -15,6 +15,8 @@
 
 if hiera('step') >= 1 {
 
+  include ::ntp
+
   # TODO Galara
   class { 'mysql::server':
     override_options => {

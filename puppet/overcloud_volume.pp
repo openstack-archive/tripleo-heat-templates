@@ -13,6 +13,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+include ::ntp
+
 include ::cinder
 include ::cinder::volume
 include ::cinder::volume::iscsi
