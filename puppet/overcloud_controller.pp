@@ -76,6 +76,14 @@ if hiera('step') >= 1 {
     dbname        => $heat_dsn[6],
     allowed_hosts => $allowed_hosts,
   }
+  $ceilometer_dsn = split(hiera('ceilometer::db::database_connection'), '[@:/?]')
+  class { 'ceilometer::db::mysql':
+    user          => $ceilometer_dsn[3],
+    password      => $ceilometer_dsn[4],
+    host          => $ceilometer_dsn[5],
+    dbname        => $ceilometer_dsn[6],
+    allowed_hosts => $allowed_hosts,
+  }
 
   if $::osfamily == 'RedHat' {
     $rabbit_provider = 'yum'
@@ -221,6 +229,7 @@ if hiera('step') >= 2 {
   include ::swift::proxy::keystone
   include ::swift::proxy::authtoken
   include ::swift::proxy::staticweb
+  include ::swift::proxy::ceilometer
   include ::swift::proxy::ratelimit
   include ::swift::proxy::catch_errors
   include ::swift::proxy::tempurl
@@ -241,5 +250,21 @@ if hiera('step') >= 2 {
   $swift_components = ['account', 'container', 'object']
   swift::storage::filter::recon { $swift_components : }
   swift::storage::filter::healthcheck { $swift_components : }
+
+  # Ceilometer
+  include ::ceilometer
+  include ::ceilometer::api
+  include ::ceilometer::db
+  include ::ceilometer::agent::notification
+  include ::ceilometer::agent::central
+  include ::ceilometer::alarm::notifier
+  include ::ceilometer::alarm::evaluator
+  include ::ceilometer::expirer
+  include ::ceilometer::collector
+  class { 'ceilometer::agent::auth':
+    auth_url => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
+  }
+
+  Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
 } #END STEP 2

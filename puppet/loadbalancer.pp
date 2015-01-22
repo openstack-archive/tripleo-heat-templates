@@ -261,7 +261,7 @@ class tripleo::loadbalancer (
       listening_service => 'ceilometer',
       ports             => '8777',
       ipaddresses       => hiera('controller_host'),
-      options           => ['check', 'inter 2000', 'rise 2', 'fall 5'],
+      options           => [],
     }
   }
 
