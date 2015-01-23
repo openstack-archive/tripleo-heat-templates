@@ -70,7 +70,7 @@ if hiera('step') >= 1 {
     dbname        => $cinder_dsn[6],
     allowed_hosts => $allowed_hosts,
   }
-  $heat_dsn = split(hiera('heat_dsn'), '[@:/?]')
+  $heat_dsn = split(hiera('heat::database_connection'), '[@:/?]')
   class { 'heat::db::mysql':
     user          => $heat_dsn[3],
     password      => $heat_dsn[4],
@@ -268,5 +268,16 @@ if hiera('step') >= 2 {
   }
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
+
+  # Heat
+  include ::heat
+  include ::heat::api
+  include ::heat::api_cfn
+  include ::heat::api_cloudwatch
+  include ::heat::engine
+
+  heat_config {
+    'DEFAULT/instance_user': value => 'heat-admin';
+  }
 
 } #END STEP 2
