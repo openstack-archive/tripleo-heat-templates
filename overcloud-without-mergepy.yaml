@@ -25,6 +25,19 @@ parameters:
     description: The password for the ceilometer service account.
     type: string
     hidden: true
+  # This has to be an UUID so for now we generate it outside the template
+  CephClusterFSID:
+    default: ''
+    type: string
+    description: The Ceph cluster FSID.
+  CephMonKey:
+    default: ''
+    description: The Ceph monitors key.
+    type: string
+  CephAdminKey:
+    default: ''
+    description: The Ceph admin client key.
+    type: string
   CloudName:
     default: ''
     description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
@@ -194,18 +207,6 @@ parameters:
     description: The user password for SNMPd with readonly rights running on all Overcloud nodes
     type: string
     hidden: true
-  CephClusterFSID:
-    default: ''
-    type: string
-    description: The Ceph cluster FSID.
-  CephMonKey:
-    default: ''
-    description: The Ceph monitors key.
-    type: string
-  CephAdminKey:
-    default: ''
-    description: The Ceph admin client key.
-    type: string
 
   # Controller-specific params
   AdminToken:
@@ -490,6 +491,8 @@ parameters:
     default: baremetal
     description: Flavor for Ceph storage nodes to request when deploying.
     type: string
+    constraints:
+      - custom_constraint: nova.flavor
 
 resources:
 
@@ -663,10 +666,7 @@ resources:
           Image: {get_param: CephStorageImage}
           KeyName: {get_param: KeyName}
           Flavor: {get_param: OvercloudCephStorageFlavor}
-          CephClusterFSID: {get_param: CephClusterFSID}
-          CephMonKey: {get_param: CephMonKey}
-          CephAdminKey: {get_param: CephAdminKey}
-          CephMonitors: {get_attr: [Controller, corosync_node]}
+          NtpServer: {get_param: NtpServer}
 
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
@@ -743,6 +743,27 @@ resources:
       object_store_swift_devices: {get_attr: [ObjectStorage, swift_device]}
       controller_swift_proxy_memcaches: {get_attr: [Controller, swift_proxy_memcache]}
 
+  ControllerCephDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [CephClusterConfig, config_id]}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  CephStorageCephDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [CephClusterConfig, config_id]}
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
+  CephClusterConfig:
+    type: OS::TripleO::CephClusterConfig::SoftwareConfig
+    properties:
+      ceph_fsid: {get_param: CephClusterFSID}
+      ceph_mon_key: {get_param: CephMonKey}
+      ceph_admin_key: {get_param: CephAdminKey}
+      ceph_mon_names: {get_attr: [Controller, hostname]}
+      ceph_mon_ips: {get_attr: [Controller, ip_address]}
+
   ControllerClusterConfig:
     type: OS::Heat::StructuredConfig
     properties:
@@ -789,10 +810,16 @@ resources:
       config: {get_attr: [allNodesConfig, config_id]}
       servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
 
+  CephStorageAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
   # Nested stack deployment runs after all other controller deployments
   ControllerNodesPostDeployment:
     type: OS::TripleO::ControllerPostDeployment
-    depends_on: [ControllerBootstrapNodeDeployment, ControllerAllNodesDeployment, ControllerSwiftDeployment]
+    depends_on: [ControllerBootstrapNodeDeployment, ControllerAllNodesDeployment, ControllerSwiftDeployment, ControllerCephDeployment]
     properties:
       servers: {get_attr: [Controller, attributes, nova_server_resource]}
 
@@ -813,6 +840,12 @@ resources:
     depends_on: BlockStorageAllNodesDeployment
     properties:
       servers: {get_attr: [BlockStorage, attributes, nova_server_resource]}
+
+  CephStorageNodesPostDeployment:
+    type: OS::TripleO::CephStoragePostDeployment
+    depends_on: [ControllerNodesPostDeployment, CephStorageCephDeployment, CephStorageAllNodesDeployment]
+    properties:
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
 
 outputs:
   KeystoneURL:

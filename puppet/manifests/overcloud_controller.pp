@@ -150,6 +150,14 @@ if hiera('step') >= 1 {
   # pre-install swift here so we can build rings
   include ::swift
 
+  # don't install Ceph if FSID is not provided
+  if hiera('ceph::profile::params::fsid', false) {
+    class { 'ceph::profile::params':
+      mon_initial_members => downcase(hiera('ceph_mon_initial_members'))
+    }
+    include ::ceph::profile::mon
+  }
+
 } #END STEP 1
 
 if hiera('step') >= 2 {

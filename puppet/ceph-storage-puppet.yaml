@@ -1,2 +1,88 @@
 heat_template_version: 2014-10-16
-description: 'Common Ceph Storage Configuration by Puppet'
+description: 'Common Ceph Storage Configuration for Puppet'
+parameters:
+  Flavor:
+    description: Flavor for the Ceph Storage node.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  Image:
+    type: string
+    default: overcloud-ceph-storage
+    constraints:
+      - custom_constraint: glance.image
+  ImageUpdatePolicy:
+    default: 'REBUILD_PRESERVE_EPHEMERAL'
+    description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
+    type: string
+  KeyName:
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+    default: default
+    constraints:
+      - custom_constraint: nova.keypair
+  NtpServer:
+    type: string
+    default: ''
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation via Puppet
+    type: boolean
+
+resources:
+  CephStorage:
+    type: OS::Nova::Server
+    properties:
+      image: {get_param: Image}
+      image_update_policy: {get_param: ImageUpdatePolicy}
+      flavor: {get_param: Flavor}
+      key_name: {get_param: KeyName}
+      networks:
+        - network: ctlplane
+      user_data_format: SOFTWARE_CONFIG
+  CephStorageDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: CephStorageConfig}
+      server: {get_resource: CephStorage}
+      input_values:
+        ntp_servers:
+          str_replace:
+            template: '["server"]'
+            params:
+              server: {get_param: NtpServer}
+        enable_package_install: {get_param: EnablePackageInstall}
+  CephStorageConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        hiera:
+          hierarchy:
+            - heat_config_%{::deploy_config_name}
+            - cephstorage
+            - ceph_cluster # provided by CephClusterConfig
+            - ceph
+            - common
+          datafiles:
+            common:
+              raw_data: {get_file: hieradata/common.yaml}
+            ceph:
+              raw_data: {get_file: hieradata/ceph.yaml}
+            cephstorage:
+              mapped_data:
+                ntp::servers: {get_input: ntp_servers}
+                enable_package_install: {get_input: enable_package_install}
+
+outputs:
+  hosts_entry:
+    value:
+      str_replace:
+        template: "IP HOST HOST.novalocal"
+        params:
+          IP: {get_attr: [CephStorage, networks, ctlplane, 0]}
+          HOST: {get_attr: [CephStorage, name]}
+  nova_server_resource:
+    description: Heat resource handle for the ceph storage server
+    value:
+      {get_resource: CephStorage}
