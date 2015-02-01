@@ -58,3 +58,13 @@ include ::ceilometer::agent::compute
 class { 'ceilometer::agent::auth':
   auth_url => join(['http://', hiera('keystone_host'), ':5000/v2.0']),
 }
+
+$snmpd_user = hiera('snmpd_readonly_user_name')
+snmp::snmpv3_user { $snmpd_user:
+  authtype => 'MD5',
+  authpass => hiera('snmpd_readonly_user_password'),
+}
+class { 'snmp':
+  agentaddress => ['udp:161','udp6:[::1]:161'],
+  snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
+}
