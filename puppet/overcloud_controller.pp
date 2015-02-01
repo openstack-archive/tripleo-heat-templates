@@ -195,6 +195,14 @@ if hiera('step') >= 2 {
   include ::neutron::agents::dhcp
   include ::neutron::agents::l3
 
+  file { '/etc/neutron/dnsmasq-neutron.conf':
+    content => hiera('neutron_dnsmasq_options'),
+    owner   => 'neutron',
+    group   => 'neutron',
+    notify  => Service['neutron-dhcp-service'],
+    require => Package['neutron'],
+  }
+
   class { 'neutron::plugins::ml2':
     flat_networks        => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
