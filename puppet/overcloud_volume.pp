@@ -13,6 +13,17 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+if str2bool(hiera('disable_package_install', 'false')) {
+  case $::osfamily {
+    'RedHat': {
+      Package { provider => 'norpm' } # provided by tripleo-puppet
+    }
+    default: {
+      warning('disable_package_install option not supported.')
+    }
+  }
+}
+
 include ::ntp
 
 include ::cinder
