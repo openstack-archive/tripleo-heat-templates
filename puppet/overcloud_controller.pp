@@ -26,7 +26,9 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if hiera('step') >= 1 {
 
-  include ::ntp
+  if count(hiera('ntp::servers')) > 0 {
+    include ::ntp
+  }
 
   # TODO Galara
   class { 'mysql::server':

@@ -24,7 +24,9 @@ if !str2bool(hiera('enable_package_install', 'false')) {
   }
 }
 
-include ::ntp
+if count(hiera('ntp::servers')) > 0 {
+  include ::ntp
+}
 
 class { 'nova':
   glance_api_servers => join([hiera('glance_protocol'), '://', hiera('glance_host'), ':', hiera('glance_port')]),

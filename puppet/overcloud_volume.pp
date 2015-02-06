@@ -24,7 +24,9 @@ if str2bool(hiera('disable_package_install', 'false')) {
   }
 }
 
-include ::ntp
+if count(hiera('ntp::servers')) > 0 {
+  include ::ntp
+}
 
 include ::cinder
 include ::cinder::volume
