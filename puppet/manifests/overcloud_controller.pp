@@ -184,9 +184,9 @@ if hiera('step') >= 2 {
   # TODO: notifications, scrubber, etc.
   include ::glance::api
   include ::glance::registry
-  #class { 'glance::backend::swift':
-    #swift_store_auth_address => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
-  #}
+  class { 'glance::backend::swift':
+    swift_store_auth_address => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
+  }
 
   class { 'nova':
     rabbit_hosts           => [hiera('controller_virtual_ip')],
@@ -245,18 +245,18 @@ if hiera('step') >= 2 {
 
   # swift proxy
   include ::memcached
-  #include ::swift::proxy
-  #include ::swift::proxy::proxy_logging
-  #include ::swift::proxy::healthcheck
-  #include ::swift::proxy::cache
-  #include ::swift::proxy::keystone
-  #include ::swift::proxy::authtoken
-  #include ::swift::proxy::staticweb
-  #include ::swift::proxy::ceilometer
-  #include ::swift::proxy::ratelimit
-  #include ::swift::proxy::catch_errors
-  #include ::swift::proxy::tempurl
-  #include ::swift::proxy::formpost
+  include ::swift::proxy
+  include ::swift::proxy::proxy_logging
+  include ::swift::proxy::healthcheck
+  include ::swift::proxy::cache
+  include ::swift::proxy::keystone
+  include ::swift::proxy::authtoken
+  include ::swift::proxy::staticweb
+  include ::swift::proxy::ceilometer
+  include ::swift::proxy::ratelimit
+  include ::swift::proxy::catch_errors
+  include ::swift::proxy::tempurl
+  include ::swift::proxy::formpost
 
   # swift storage
   class {'swift::storage::all':
