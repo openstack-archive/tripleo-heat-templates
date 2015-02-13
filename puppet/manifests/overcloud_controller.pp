@@ -110,11 +110,18 @@ if hiera('step') >= 1 {
   Class['rabbitmq'] -> Rabbitmq_user <| |>
   Class['rabbitmq'] -> Rabbitmq_user_permissions <| |>
 
-  # TODO Rabbit HA
+  $rabbit_nodes = split(downcase(hiera('rabbit_nodes', $::hostname)), ',')
+  if count($rabbit_nodes) > 1 {
+    $rabbit_cluster = true
+  }
+  else {
+    $rabbit_cluster = false
+  }
   class { 'rabbitmq':
-    package_provider  => $rabbit_provider,
-    config_cluster    => false,
-    node_ip_address   => hiera('controller_host'),
+    package_provider => $rabbit_provider,
+    config_cluster   => $rabbit_cluster,
+    cluster_nodes    => $rabbit_nodes,
+    node_ip_address  => hiera('controller_host'),
   }
 
   rabbitmq_vhost { '/':
