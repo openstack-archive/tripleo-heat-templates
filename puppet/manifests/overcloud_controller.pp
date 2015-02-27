@@ -26,6 +26,12 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if hiera('step') >= 1 {
 
+  include ::tripleo::loadbalancer
+
+}
+
+if hiera('step') >= 2 {
+
   if count(hiera('ntp::servers')) > 0 {
     include ::ntp
   }
@@ -158,9 +164,9 @@ if hiera('step') >= 1 {
     include ::ceph::profile::mon
   }
 
-} #END STEP 1
+} #END STEP 2
 
-if hiera('step') >= 2 {
+if hiera('step') >= 3 {
 
   include ::keystone
 
@@ -327,4 +333,4 @@ if hiera('step') >= 2 {
     snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
   }
 
-} #END STEP 2
+} #END STEP 3
