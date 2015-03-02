@@ -1825,6 +1825,16 @@ if hiera('step') >= 5 {
     class {'::keystone::endpoint' :
       require => Pacemaker::Resource::Service[$::apache::params::service_name],
     }
+    include ::heat::keystone::domain
+    Class['::keystone::roles::admin'] -> Class['::heat::keystone::domain']
+
+  } else {
+    # On non-master controller we don't need to create Keystone resources again
+    class { '::heat::keystone::domain':
+      manage_domain => false,
+      manage_user   => false,
+      manage_role   => false,
+    }
   }
 
 } #END STEP 5
