@@ -109,12 +109,6 @@ if hiera('step') >= 2 {
     allowed_hosts => $allowed_hosts,
   }
 
-  if $::osfamily == 'RedHat' {
-    $rabbit_provider = 'yum'
-  } else {
-    $rabbit_provider = undef
-  }
-
   Class['rabbitmq'] -> Rabbitmq_vhost <| |>
   Class['rabbitmq'] -> Rabbitmq_user <| |>
   Class['rabbitmq'] -> Rabbitmq_user_permissions <| |>
@@ -127,7 +121,6 @@ if hiera('step') >= 2 {
     $rabbit_cluster = false
   }
   class { 'rabbitmq':
-    package_provider => $rabbit_provider,
     config_cluster   => $rabbit_cluster,
     cluster_nodes    => $rabbit_nodes,
     node_ip_address  => hiera('controller_host'),
