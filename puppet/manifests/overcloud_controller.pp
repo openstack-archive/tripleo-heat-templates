@@ -199,9 +199,7 @@ if hiera('step') >= 2 {
   # TODO: notifications, scrubber, etc.
   include ::glance::api
   include ::glance::registry
-  class { 'glance::backend::swift':
-    swift_store_auth_address => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
-  }
+  include ::glance::backend::swift
 
   class { 'nova':
     rabbit_hosts           => [hiera('controller_virtual_ip')],
