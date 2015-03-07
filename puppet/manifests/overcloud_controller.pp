@@ -312,10 +312,6 @@ if hiera('step') >= 2 {
   include ::heat::api_cloudwatch
   include ::heat::engine
 
-  heat_config {
-    'DEFAULT/instance_user': value => 'heat-admin';
-  }
-
   $snmpd_user = hiera('snmpd_readonly_user_name')
   snmp::snmpv3_user { $snmpd_user:
     authtype => 'MD5',
