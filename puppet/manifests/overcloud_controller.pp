@@ -249,6 +249,7 @@ if hiera('step') >= 2 {
   }
 
   include ::cinder::api
+  include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
   include ::cinder::volume::iscsi
