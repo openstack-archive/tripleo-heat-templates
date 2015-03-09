@@ -258,9 +258,23 @@ if hiera('step') >= 2 {
   include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
-  include ::cinder::volume::iscsi
   class {'cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
+  }
+
+  $cinder_enable_iscsi = hiera('cinder_enable_iscsi_backend', true)
+  if $cinder_enable_iscsi {
+    $cinder_iscsi_backend = 'tripleo_iscsi'
+
+    cinder::backend::iscsi { $cinder_iscsi_backend :
+      iscsi_ip_address => hiera('cinder_iscsi_ip_address'),
+      iscsi_helper     => hiera('cinder_iscsi_helper'),
+    }
+  }
+
+  $cinder_enabled_backends = any2array($cinder_iscsi_backend)
+  class { '::cinder::backends' :
+    enabled_backends => $cinder_enabled_backends,
   }
 
   # swift proxy
