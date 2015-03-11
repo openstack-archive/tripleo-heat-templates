@@ -210,6 +210,7 @@ if hiera('step') >= 2 {
   include ::nova::cert
   include ::nova::conductor
   include ::nova::consoleauth
+  include ::nova::network::neutron
   include ::nova::vncproxy
   include ::nova::scheduler
 
