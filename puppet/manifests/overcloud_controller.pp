@@ -244,6 +244,11 @@ if hiera('step') >= 2 {
     auth_url => join(['http://', hiera('controller_virtual_ip'), ':35357/v2.0']),
   }
 
+  Service['neutron-server'] -> Service['neutron-dhcp-service']
+  Service['neutron-server'] -> Service['neutron-l3']
+  Service['neutron-server'] -> Service['neutron-ovs-agent-service']
+  Service['neutron-server'] -> Service['neutron-metadata']
+
   class {'cinder':
     rabbit_hosts => [hiera('controller_virtual_ip')],
   }
