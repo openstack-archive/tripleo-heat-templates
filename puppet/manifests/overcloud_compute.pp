@@ -46,12 +46,7 @@ nova_config {
 }
 
 include ::nova::compute::libvirt
-
-class { 'nova::network::neutron':
-  neutron_admin_auth_url => join(['http://', hiera('neutron_host'), ':35357/v2.0']),
-  neutron_url            => join(['http://', hiera('neutron_host'), ':9696']),
-}
-
+include ::nova::network::neutron
 include ::neutron
 
 class { 'neutron::plugins::ml2':
