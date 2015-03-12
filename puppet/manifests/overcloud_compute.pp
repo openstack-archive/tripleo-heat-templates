@@ -59,10 +59,7 @@ class { 'neutron::agents::ml2::ovs':
 
 include ::ceilometer
 include ::ceilometer::agent::compute
-
-class { 'ceilometer::agent::auth':
-  auth_url => join(['http://', hiera('keystone_host'), ':5000/v2.0']),
-}
+include ::ceilometer::agent::auth
 
 $snmpd_user = hiera('snmpd_readonly_user_name')
 snmp::snmpv3_user { $snmpd_user:
