@@ -44,8 +44,10 @@ if hiera('step') >= 2 {
   include ::mongodb::server
   $mongo_node_ips = split(downcase(hiera('mongo_node_ips')), ',')
   $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
+  $mongo_node_string = join($mongo_node_ips_with_port, ',')
 
   $mongodb_replset = hiera('mongodb::server::replset')
+  $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
   if downcase(hiera('bootstrap_nodeid')) == $::hostname {
     mongodb_replset { $mongodb_replset :
       members => $mongo_node_ips_with_port,
@@ -118,14 +120,6 @@ if hiera('step') >= 2 {
     password      => $heat_dsn[4],
     host          => $heat_dsn[5],
     dbname        => $heat_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $ceilometer_dsn = split(hiera('ceilometer::db::database_connection'), '[@:/?]')
-  class { 'ceilometer::db::mysql':
-    user          => $ceilometer_dsn[3],
-    password      => $ceilometer_dsn[4],
-    host          => $ceilometer_dsn[5],
-    dbname        => $ceilometer_dsn[6],
     allowed_hosts => $allowed_hosts,
   }
 
@@ -340,13 +334,15 @@ if hiera('step') >= 3 {
   # Ceilometer
   include ::ceilometer
   include ::ceilometer::api
-  include ::ceilometer::db
   include ::ceilometer::agent::notification
   include ::ceilometer::agent::central
   include ::ceilometer::alarm::notifier
   include ::ceilometer::alarm::evaluator
   include ::ceilometer::expirer
   include ::ceilometer::collector
+  class { '::ceilometer::db' :
+    database_connection => $ceilometer_mongodb_conn_string,
+  }
   class { 'ceilometer::agent::auth':
     auth_url => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
   }
