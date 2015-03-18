@@ -129,28 +129,8 @@ if hiera('step') >= 2 {
     cluster_nodes    => $rabbit_nodes,
     node_ip_address  => hiera('controller_host'),
   }
-
   rabbitmq_vhost { '/':
     provider => 'rabbitmqctl',
-  }
-  rabbitmq_user { ['nova','glance','neutron','cinder','ceilometer','heat']:
-    admin    => true,
-    password => hiera('rabbit_password'),
-    provider => 'rabbitmqctl',
-  }
-
-  rabbitmq_user_permissions {[
-    'nova@/',
-    'glance@/',
-    'neutron@/',
-    'cinder@/',
-    'ceilometer@/',
-    'heat@/',
-  ]:
-    configure_permission => '.*',
-    write_permission     => '.*',
-    read_permission      => '.*',
-    provider             => 'rabbitmqctl',
   }
 
   # pre-install swift here so we can build rings
@@ -220,7 +200,6 @@ if hiera('step') >= 3 {
   include ::glance::backend::swift
 
   class { 'nova':
-    rabbit_hosts           => [hiera('controller_virtual_ip')],
     glance_api_servers     => join([hiera('glance_protocol'), '://', hiera('controller_virtual_ip'), ':', hiera('glance_port')]),
   }
 
@@ -232,10 +211,7 @@ if hiera('step') >= 3 {
   include ::nova::vncproxy
   include ::nova::scheduler
 
-  class {'neutron':
-    rabbit_hosts => [hiera('controller_virtual_ip')],
-  }
-
+  include ::neutron
   include ::neutron::server
   include ::neutron::agents::dhcp
   include ::neutron::agents::l3
@@ -268,10 +244,7 @@ if hiera('step') >= 3 {
   Service['neutron-server'] -> Service['neutron-ovs-agent-service']
   Service['neutron-server'] -> Service['neutron-metadata']
 
-  class {'cinder':
-    rabbit_hosts => [hiera('controller_virtual_ip')],
-  }
-
+  include ::cinder
   include ::cinder::api
   include ::cinder::glance
   include ::cinder::scheduler
