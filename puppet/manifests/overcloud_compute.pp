@@ -28,16 +28,13 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
-class { 'nova':
-  glance_api_servers => join([hiera('glance_protocol'), '://', hiera('glance_host'), ':', hiera('glance_port')]),
-}
-
 file { ['/etc/libvirt/qemu/networks/autostart/default.xml',
         '/etc/libvirt/qemu/networks/default.xml']:
   ensure => absent,
   before => Service['libvirt']
 }
 
+include ::nova
 include ::nova::compute
 
 nova_config {
