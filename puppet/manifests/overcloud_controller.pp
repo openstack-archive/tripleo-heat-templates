@@ -156,12 +156,24 @@ if hiera('step') >= 2 {
   # pre-install swift here so we can build rings
   include ::swift
 
-  # don't install Ceph if FSID is not provided
-  if hiera('ceph::profile::params::fsid', false) {
+  $cinder_enable_rbd_backend = hiera('cinder_enable_rbd_backend', false)
+  $enable_ceph = $cinder_enable_rbd_backend
+
+  if $enable_ceph {
     class { 'ceph::profile::params':
       mon_initial_members => downcase(hiera('ceph_mon_initial_members'))
     }
     include ::ceph::profile::mon
+  }
+
+  if $cinder_enable_rbd_backend {
+    ceph::key { 'client.openstack' :
+      secret  => hiera('ceph::profile::params::mon_key'),
+      cap_mon => hiera('ceph_openstack_default_cap_mon'),
+      cap_osd => hiera('ceph_openstack_default_cap_osd'),
+      user    => 'cinder',
+      inject  => 'true',
+    }
   }
 
 } #END STEP 2
@@ -278,7 +290,34 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = any2array($cinder_iscsi_backend)
+  if $enable_ceph {
+
+    Ceph_pool {
+      pg_num  => hiera('ceph::profile::params::osd_pool_default_pg_num'),
+      pgp_num => hiera('ceph::profile::params::osd_pool_default_pgp_num'),
+      size    => hiera('ceph::profile::params::osd_pool_default_size'),
+    }
+
+    $ceph_pools = hiera('ceph_pools')
+    ceph::pool { $ceph_pools : }
+  }
+
+  if $cinder_enable_rbd_backend {
+    $cinder_rbd_backend = 'tripleo_ceph'
+
+    cinder_config {
+      "${cinder_rbd_backend}/host": value => 'hostgroup';
+    }
+
+    cinder::backend::rbd { $cinder_rbd_backend :
+      rbd_pool        => 'volumes',
+      rbd_user        => 'openstack',
+      rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
+      require         => Ceph::Pool['volumes'],
+    }
+  }
+
+  $cinder_enabled_backends = concat(any2array($cinder_iscsi_backend), $cinder_rbd_backend)
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
