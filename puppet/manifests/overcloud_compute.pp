@@ -33,6 +33,13 @@ file { ['/etc/libvirt/qemu/networks/autostart/default.xml',
   ensure => absent,
   before => Service['libvirt']
 }
+# in case libvirt has been already running before the Puppet run, make
+# sure the default network is destroyed
+exec { 'libvirt-default-net-destroy':
+  command => '/usr/bin/virsh net-destroy default',
+  onlyif => '/usr/bin/virsh net-info default | /bin/grep -i "^active:\s*yes"',
+  before => Service['libvirt'],
+}
 
 include ::nova
 include ::nova::compute
