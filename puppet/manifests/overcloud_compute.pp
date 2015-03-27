@@ -46,12 +46,6 @@ $nova_enable_rbd_backend = hiera('nova_enable_rbd_backend', false)
 if $nova_enable_rbd_backend {
   include ::ceph::profile::client
   include ::nova::compute::rbd
-  ceph::key { 'client.openstack' :
-    secret  => hiera('ceph::profile::params::mon_key'),
-    cap_mon => hiera('ceph_openstack_default_cap_mon'),
-    cap_osd => hiera('ceph_openstack_default_cap_osd'),
-    user    => 'nova',
-  }
 }
 
 include ::nova::compute::libvirt
