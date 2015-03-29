@@ -317,7 +317,7 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = concat(any2array($cinder_iscsi_backend), $cinder_rbd_backend)
+  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend])
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
