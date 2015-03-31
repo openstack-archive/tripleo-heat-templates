@@ -116,7 +116,7 @@ if hiera('step') >= 2 {
   Class['rabbitmq'] -> Rabbitmq_user <| |>
   Class['rabbitmq'] -> Rabbitmq_user_permissions <| |>
 
-  $rabbit_nodes = split(downcase(hiera('rabbit_nodes', $::hostname)), ',')
+  $rabbit_nodes = split(downcase(hiera('rabbit_node_names', $::hostname)), ',')
   if count($rabbit_nodes) > 1 {
     $rabbit_cluster = true
   }
