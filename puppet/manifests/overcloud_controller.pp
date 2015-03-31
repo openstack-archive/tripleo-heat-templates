@@ -26,7 +26,10 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if hiera('step') >= 1 {
 
-  include ::tripleo::loadbalancer
+  $controller_node_ips = split(downcase(hiera('controller_node_ips')), ',')
+  class { '::tripleo::loadbalancer' :
+    controller_hosts => $controller_node_ips,
+  }
 
 }
 
