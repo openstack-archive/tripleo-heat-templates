@@ -132,6 +132,15 @@ if hiera('step') >= 2 {
     cluster_nodes    => $rabbit_nodes,
     node_ip_address  => hiera('controller_host'),
   }
+  if $rabbit_cluster {
+    rabbitmq_policy { 'ha-all@/':
+      pattern    => '^(?!amq\.).*',
+      definition => {
+        'ha-mode'      => 'all',
+        'ha-sync-mode' => 'automatic',
+      },
+    }
+  }
   rabbitmq_vhost { '/':
     provider => 'rabbitmqctl',
   }
