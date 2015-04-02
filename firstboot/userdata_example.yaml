@@ -1,0 +1,60 @@
+heat_template_version: 2014-10-16
+
+# NOTE: You don't need to pass the parameter explicitly from the
+# parent template, it can be specified via the parameter_defaults
+# in the resource_registry instead, if you want to override the default
+# and/or share values with other templates in the tree.
+parameters:
+  extra_username:
+    type: string
+    default: extrauser
+
+description: >
+  This is an example showing how you can do firstboot configuration
+  of the nodes via cloud-init.  To enable this, replace the default
+  mapping of OS::TripleO::NodeUserData in ../overcloud_resource_registry*
+
+resources:
+  userdata:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: user_config}
+      - config: {get_resource: ssh_config}
+
+  # Get cloud-init to create an extra user, in addition to the default for the
+  # distro.  Note there are various options, including configuring ssh keys,
+  # but atm I can only see how to specify the keys explicitly, not via metadata
+  user_config:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        users:
+        - default
+        - name: {get_param: extra_username}
+
+  # Setup ssh key for the extra user to match the key installed for the default
+  # user, e.g that provided via the nova keypair on instance boot
+  ssh_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            curl http://169.254.169.254/openstack/2012-08-10/meta_data.json -o /root/meta_data.json
+            mkdir -p /home/$user/.ssh
+            chmod 700 /home/$user/.ssh
+            cat /root/meta_data.json | jq -r ".keys[0].data" > /home/$user/.ssh/authorized_keys
+            chmod 600 /home/$user/.ssh/authorized_keys
+            chown -R $user:$user /home/$user/.ssh
+          params:
+            $user: {get_param: extra_username}
+
+outputs:
+  # This means get_resource from the parent template will get the userdata, see:
+  # http://docs.openstack.org/developer/heat/template_guide/composition.html#making-your-template-resource-more-transparent
+  # Note this is new-for-kilo, an alternative is returning a value then using
+  # get_attr in the parent template instead.
+  OS::stack_id:
+    value: {get_resource: userdata}
