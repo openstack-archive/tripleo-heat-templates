@@ -35,11 +35,33 @@ resources:
                   - ','
                   - {get_param: ceph_mon_ips}
                 ceph::profile::params::fsid: {get_param: ceph_fsid}
-                ceph::profile::params::admin_key: {get_param: ceph_admin_key}
                 ceph::profile::params::mon_key: {get_param: ceph_mon_key}
-                # We would need a dedicated key for OSD
-                ceph::profile::params::bootstrap_osd_key: {get_param: ceph_mon_key}
-                ceph::profile::params::osds: '{"/srv/data": {}}'
+                ceph::profile::params::osds: "{/srv/data: {}}"
+                # We should use a separated key for the non-admin clients
+                ceph::profile::params::client_keys:
+                  str_replace:
+                    template: "{
+                      client.admin: {
+                        secret: 'ADMIN_KEY',
+                        mode: '0600',
+                        cap_mon: 'allow *',
+                        cap_osd: 'allow *',
+                        cap_mds: 'allow *'
+                      },
+                      client.bootstrap-osd: {
+                        secret: 'ADMIN_KEY',
+                        keyring_path: '/var/lib/ceph/bootstrap-osd/ceph.keyring',
+                        cap_mon: 'allow profile bootstrap-osd'
+                      },
+                      client.openstack: {
+                        secret: 'ADMIN_KEY',
+                        mode: '0644',
+                        cap_mon: 'allow r',
+                        cap_osd: 'allow class-read object_prefix rbd_children, allow rwx pool=volumes, allow rwx pool=vms'
+                      }
+                    }"
+                    params:
+                      ADMIN_KEY: {get_param: ceph_admin_key}
 
 outputs:
   config_id:

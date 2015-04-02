@@ -151,16 +151,6 @@ if hiera('step') >= 2 {
     include ::ceph::profile::mon
   }
 
-  if $cinder_enable_rbd_backend {
-    ceph::key { 'client.openstack' :
-      secret  => hiera('ceph::profile::params::mon_key'),
-      cap_mon => hiera('ceph_openstack_default_cap_mon'),
-      cap_osd => hiera('ceph_openstack_default_cap_osd'),
-      user    => 'cinder',
-      inject  => 'true',
-    }
-  }
-
 } #END STEP 2
 
 if hiera('step') >= 3 {

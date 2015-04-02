@@ -28,8 +28,5 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
-class { 'ceph::profile::params':
-  mon_initial_members => downcase(hiera('ceph_mon_initial_members'))
-}
 include ::ceph::profile::client
 include ::ceph::profile::osd
