@@ -52,7 +52,11 @@ nova_config {
 $nova_enable_rbd_backend = hiera('nova_enable_rbd_backend', false)
 if $nova_enable_rbd_backend {
   include ::ceph::profile::client
-  include ::nova::compute::rbd
+
+  $client_keys = hiera('ceph::profile::params::client_keys')
+  class { '::nova::compute::rbd':
+    libvirt_rbd_secret_key => $client_keys['client.openstack']['secret'],
+  }
 }
 
 include ::nova::compute::libvirt
