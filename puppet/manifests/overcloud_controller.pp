@@ -39,8 +39,15 @@ if hiera('step') >= 2 {
     include ::ntp
   }
 
+  if str2bool(hiera('enable_galera', 'true')) {
+    $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
+  } else {
+    $mysql_config_file = '/etc/my.cnf.d/server.cnf'
+  }
+
   # TODO Galara
   class { 'mysql::server':
+    config_file => $mysql_config_file,
     override_options => {
       'mysqld' => {
         'bind-address' => hiera('controller_host')
