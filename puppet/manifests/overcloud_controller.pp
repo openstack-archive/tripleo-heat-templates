@@ -206,6 +206,11 @@ if hiera('step') >= 2 {
     include ::ceph::profile::mon
   }
 
+  if str2bool(hiera('enable_ceph_storage', 'false')) {
+    include ::ceph::profile::client
+    include ::ceph::profile::osd
+  }
+
 } #END STEP 2
 
 if hiera('step') >= 3 {
