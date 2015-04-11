@@ -367,20 +367,22 @@ if hiera('step') >= 3 {
   include ::swift::proxy::formpost
 
   # swift storage
-  class {'swift::storage::all':
-    mount_check => str2bool(hiera('swift_mount_check'))
-  }
-  if(!defined(File['/srv/node'])) {
-    file { '/srv/node':
-      ensure  => directory,
-      owner   => 'swift',
-      group   => 'swift',
-      require => Package['openstack-swift'],
+  if str2bool(hiera('enable_swift_storage', 'true')) {
+    class {'swift::storage::all':
+      mount_check => str2bool(hiera('swift_mount_check'))
     }
+    if(!defined(File['/srv/node'])) {
+      file { '/srv/node':
+        ensure  => directory,
+        owner   => 'swift',
+        group   => 'swift',
+        require => Package['openstack-swift'],
+      }
+    }
+    $swift_components = ['account', 'container', 'object']
+    swift::storage::filter::recon { $swift_components : }
+    swift::storage::filter::healthcheck { $swift_components : }
   }
-  $swift_components = ['account', 'container', 'object']
-  swift::storage::filter::recon { $swift_components : }
-  swift::storage::filter::healthcheck { $swift_components : }
 
   # Ceilometer
   include ::ceilometer
