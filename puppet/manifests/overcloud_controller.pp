@@ -45,12 +45,10 @@ if hiera('step') >= 2 {
   $mongo_node_ips = split(downcase(hiera('mongo_node_ips')), ',')
   $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
 
-  if count($mongo_node_ips) > 1 {
-    if downcase($::hostname) == hiera('bootstrap_nodeid') {
-      $mongodb_replset = hiera('mongodb::server::replset')
-      mongodb_replset { $mongodb_replset :
-        members => $mongo_node_ips_with_port,
-      }
+  $mongodb_replset = hiera('mongodb::server::replset')
+  if downcase(hiera('bootstrap_nodeid')) == $::hostname {
+    mongodb_replset { $mongodb_replset :
+      members => $mongo_node_ips_with_port,
     }
   }
 
