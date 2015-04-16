@@ -26,7 +26,7 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if hiera('step') >= 1 {
 
-  $controller_node_ips = split(downcase(hiera('controller_node_ips')), ',')
+  $controller_node_ips = split(hiera('controller_node_ips'), ',')
   class { '::tripleo::loadbalancer' :
     controller_hosts => $controller_node_ips,
   }
@@ -59,7 +59,7 @@ if hiera('step') >= 2 {
   # MongoDB
   include ::mongodb::globals
   include ::mongodb::server
-  $mongo_node_ips = split(downcase(hiera('mongo_node_ips')), ',')
+  $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
   $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
   $mongo_node_string = join($mongo_node_ips_with_port, ',')
 
