@@ -217,6 +217,7 @@ if hiera('step') >= 3 {
   }
 
   # TODO: notifications, scrubber, etc.
+  include ::glance
   include ::glance::api
   include ::glance::registry
   include ::glance::backend::swift
