@@ -31,6 +31,23 @@ if hiera('step') >= 1 {
     controller_hosts => $controller_node_ips,
   }
 
+  class { '::corosync':
+    quorum_members => $controller_node_ips,
+  }
+  corosync::service { 'pacemaker':
+    version => '0',
+  }
+  service { 'pacemaker':
+    ensure  => running,
+    require => Service['corosync'],
+  }
+  cs_property { 'stonith-enabled':
+    value => 'false',
+  }
+  cs_property { 'no-quorum-policy':
+    value => 'ignore',
+  }
+
 }
 
 if hiera('step') >= 2 {
