@@ -27,25 +27,33 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 if hiera('step') >= 1 {
 
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
+  $enable_pacemaker = str2bool(hiera('enable_pacemaker'))
+  $enable_keepalived = !$enable_pacemaker
+
   class { '::tripleo::loadbalancer' :
     controller_hosts => $controller_node_ips,
   }
 
-  class { '::corosync':
-    quorum_members => $controller_node_ips,
-  }
-  corosync::service { 'pacemaker':
-    version => '0',
-  }
-  service { 'pacemaker':
-    ensure  => running,
-    require => Service['corosync'],
-  }
-  cs_property { 'stonith-enabled':
-    value => 'false',
-  }
-  cs_property { 'no-quorum-policy':
-    value => 'ignore',
+  if $enable_pacemaker {
+    $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
+    if $::hostname == downcase(hiera('bootstrap_nodeid')) {
+      $pacemaker_master = true
+    } else {
+      $pacemaker_master = false
+    }
+    user { 'hacluster':
+     ensure => present,
+    } ->
+    class { '::pacemaker':
+      hacluster_pwd => hiera('hacluster_pwd'),
+    } ->
+    class { '::pacemaker::corosync':
+      cluster_members => $pacemaker_cluster_members,
+      setup_cluster   => $pacemaker_master,
+    }
+    class { '::pacemaker::stonith':
+      disable => true,
+    }
   }
 
 }
