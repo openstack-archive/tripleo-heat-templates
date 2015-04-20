@@ -32,6 +32,7 @@ if hiera('step') >= 1 {
 
   class { '::tripleo::loadbalancer' :
     controller_hosts => $controller_node_ips,
+    manage_vip       => $enable_keepalived,
   }
 
   if $enable_pacemaker {
@@ -53,6 +54,16 @@ if hiera('step') >= 1 {
     }
     class { '::pacemaker::stonith':
       disable => true,
+    }
+    if $pacemaker_master {
+      $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
+      pacemaker::resource::ip { 'control_vip':
+        ip_address => $control_vip,
+      }
+      $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
+      pacemaker::resource::ip { 'public_vip':
+        ip_address => $public_vip,
+      }
     }
   }
 
