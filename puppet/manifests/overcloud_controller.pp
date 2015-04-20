@@ -64,6 +64,9 @@ if hiera('step') >= 1 {
       pacemaker::resource::ip { 'public_vip':
         ip_address => $public_vip,
       }
+      pacemaker::resource::systemd { 'haproxy':
+        clone => true,
+      }
     }
   }
 
