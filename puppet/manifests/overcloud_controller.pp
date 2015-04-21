@@ -71,12 +71,32 @@ if hiera('step') >= 2 {
     }
   }
 
+  # Redis
+  $redis_node_ips = split(hiera('redis_node_ips'), ',')
+  $redis_master_hostname = downcase(hiera('bootstrap_nodeid'))
+
+  if $redis_master_hostname == $::hostname {
+    $slaveof = undef
+  } else {
+    $slaveof = "${redis_master_hostname} 6379"
+  }
+  class {'::redis' :
+    slaveof => $slaveof,
+  }
+
+  if count($redis_node_ips) > 1 {
+    Class['::tripleo::redis_notification'] -> Service['redis-sentinel']
+    include ::redis::sentinel
+    class {'::tripleo::redis_notification' :
+      haproxy_monitor_ip => hiera('tripleo::loadbalancer::controller_virtual_ip'),
+    }
+  }
+
   if str2bool(hiera('enable_galera', 'true')) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
   } else {
     $mysql_config_file = '/etc/my.cnf.d/server.cnf'
   }
-
   # TODO Galara
   class { 'mysql::server':
     config_file => $mysql_config_file,
