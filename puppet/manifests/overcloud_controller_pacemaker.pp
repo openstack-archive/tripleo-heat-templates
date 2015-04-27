@@ -41,7 +41,7 @@ if hiera('step') >= 1 {
     haproxy_service_manage => false,
   }
 
-  $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
+  $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   user { 'hacluster':
    ensure => present,
   } ->
