@@ -69,6 +69,8 @@ if hiera('step') >= 1 {
         clone => true,
       }
     }
+
+    Class['::pacemaker::corosync'] -> Pacemaker::Resource::Systemd <| |>
   }
 
 }
@@ -82,7 +84,16 @@ if hiera('step') >= 2 {
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
-    include ::mongodb::server
+
+    if $enable_pacemaker {
+      $mongodb_service_ensure = undef
+    } else {
+      $mongodb_service_ensure = 'running'
+    }
+
+    class {'::mongodb::server' :
+      service_ensure => $mongodb_service_ensure,
+    }
     $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
     $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
@@ -90,6 +101,26 @@ if hiera('step') >= 2 {
     $mongodb_replset = hiera('mongodb::server::replset')
     $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     if downcase(hiera('bootstrap_nodeid')) == $::hostname {
+
+      if $enable_pacemaker  {
+        pacemaker::resource::systemd { 'mongod' :
+          options => "op start timeout=120s",
+          clone   => true,
+          before  => Exec['mongodb-ready'],
+        }
+        # NOTE (spredzy) : The replset can only be run
+        # once all the nodes have joined the cluster.
+        $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
+        exec { 'mongodb-ready' :
+          command   => $mongodb_cluster_ready_command,
+          timeout   => 600,
+          tries     => 60,
+          try_sleep => 10,
+          before    => Mongodb_replset[$mongodb_replset],
+        }
+
+      }
+
       mongodb_replset { $mongodb_replset :
         members => $mongo_node_ips_with_port,
       }
