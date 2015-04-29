@@ -268,8 +268,11 @@ if hiera('step') >= 3 {
 
   include ::neutron
   include ::neutron::server
-  include ::neutron::agents::dhcp
   include ::neutron::agents::l3
+  include ::neutron::agents::dhcp
+  class { 'neutron::agents::metadata':
+    auth_url => join(['http://', hiera('controller_virtual_ip'), ':35357/v2.0']),
+  }
 
   file { '/etc/neutron/dnsmasq-neutron.conf':
     content => hiera('neutron_dnsmasq_options'),
@@ -280,18 +283,13 @@ if hiera('step') >= 3 {
   }
 
   class { 'neutron::plugins::ml2':
-    flat_networks        => split(hiera('neutron_flat_networks'), ','),
+    flat_networks => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
-    type_drivers         => [hiera('neutron_tenant_network_type')],
+    type_drivers => [hiera('neutron_tenant_network_type')],
   }
-
   class { 'neutron::agents::ml2::ovs':
-    bridge_mappings  => split(hiera('neutron_bridge_mappings'), ','),
-    tunnel_types     => split(hiera('neutron_tunnel_types'), ','),
-  }
-
-  class { 'neutron::agents::metadata':
-    auth_url => join(['http://', hiera('controller_virtual_ip'), ':35357/v2.0']),
+    bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
+    tunnel_types => split(hiera('neutron_tunnel_types'), ','),
   }
 
   Service['neutron-server'] -> Service['neutron-dhcp-service']
