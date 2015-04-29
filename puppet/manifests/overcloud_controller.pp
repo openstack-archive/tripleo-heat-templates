@@ -24,11 +24,17 @@ if !str2bool(hiera('enable_package_install', 'false')) {
   }
 }
 
+$enable_pacemaker = str2bool(hiera('enable_pacemaker'))
+$enable_keepalived = !$enable_pacemaker
+if $::hostname == downcase(hiera('bootstrap_nodeid')) {
+  $pacemaker_master = true
+} else {
+  $pacemaker_master = false
+}
+
 if hiera('step') >= 1 {
 
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
-  $enable_pacemaker = str2bool(hiera('enable_pacemaker'))
-  $enable_keepalived = !$enable_pacemaker
 
   class { '::tripleo::loadbalancer' :
     controller_hosts => $controller_node_ips,
@@ -37,11 +43,6 @@ if hiera('step') >= 1 {
 
   if $enable_pacemaker {
     $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
-    if $::hostname == downcase(hiera('bootstrap_nodeid')) {
-      $pacemaker_master = true
-    } else {
-      $pacemaker_master = false
-    }
     user { 'hacluster':
      ensure => present,
     } ->
@@ -182,29 +183,46 @@ if hiera('step') >= 2 {
     allowed_hosts => $allowed_hosts,
   }
 
-  $rabbit_nodes = split(downcase(hiera('rabbit_node_names', $::hostname)), ',')
-  if count($rabbit_nodes) > 1 {
-    $rabbit_cluster = true
-  }
-  else {
-    $rabbit_cluster = false
-  }
-  class { 'rabbitmq':
-    config_cluster   => $rabbit_cluster,
-    cluster_nodes    => $rabbit_nodes,
-    node_ip_address  => hiera('controller_host'),
-  }
-  if $rabbit_cluster {
-    rabbitmq_policy { 'ha-all@/':
-      pattern    => '^(?!amq\.).*',
-      definition => {
-        'ha-mode'      => 'all',
-        'ha-sync-mode' => 'automatic',
+  if $enable_pacemaker {
+    # the module ignores erlang_cookie if cluster_config is false
+    file { '/var/lib/rabbitmq/.erlang.cookie':
+      ensure  => 'present',
+      owner   => 'rabbitmq',
+      group   => 'rabbitmq',
+      mode    => '0400',
+      content => hiera('rabbitmq::erlang_cookie'),
+      replace => true,
+    } ->
+    class { '::rabbitmq':
+      service_manage        => false,
+      environment_variables => {
+        'RABBITMQ_NODENAME' => "rabbit@$::hostname",
       },
     }
-  }
-  rabbitmq_vhost { '/':
-    provider => 'rabbitmqctl',
+    if $pacemaker_master {
+      pacemaker::resource::ocf { 'rabbitmq':
+        resource_name => 'heartbeat:rabbitmq-cluster',
+        options       => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
+        clone         => true,
+        require       => Class['::rabbitmq'],
+      }
+    }
+  } else {
+    $rabbit_nodes = split(hiera('rabbit_node_ips'), ',')
+    if count($rabbit_nodes) > 1 {
+      class { '::rabbitmq':
+        config_cluster  => true,
+        cluster_nodes   => $rabbit_nodes,
+      }
+      rabbitmq_policy { 'ha-all@/':
+        pattern    => '^(?!amq\.).*',
+        definition => {
+          'ha-mode' => 'all',
+        },
+      }
+    } else {
+      include ::rabbitmq
+    }
   }
 
   # pre-install swift here so we can build rings
