@@ -80,17 +80,19 @@ if hiera('step') >= 2 {
   }
 
   # MongoDB
-  include ::mongodb::globals
-  include ::mongodb::server
-  $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
-  $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
-  $mongo_node_string = join($mongo_node_ips_with_port, ',')
+  if downcase(hiera('ceilometer_backend')) == 'mongodb' {
+    include ::mongodb::globals
+    include ::mongodb::server
+    $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
+    $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
+    $mongo_node_string = join($mongo_node_ips_with_port, ',')
 
-  $mongodb_replset = hiera('mongodb::server::replset')
-  $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
-  if downcase(hiera('bootstrap_nodeid')) == $::hostname {
-    mongodb_replset { $mongodb_replset :
-      members => $mongo_node_ips_with_port,
+    $mongodb_replset = hiera('mongodb::server::replset')
+    $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
+    if downcase(hiera('bootstrap_nodeid')) == $::hostname {
+      mongodb_replset { $mongodb_replset :
+        members => $mongo_node_ips_with_port,
+      }
     }
   }
 
@@ -181,6 +183,16 @@ if hiera('step') >= 2 {
     host          => $heat_dsn[5],
     dbname        => $heat_dsn[6],
     allowed_hosts => $allowed_hosts,
+  }
+  if downcase(hiera('ceilometer_backend')) == 'mysql' {
+    $ceilometer_dsn = split(hiera('ceilometer_mysql_conn_string'), '[@:/?]')
+    class { 'ceilometer::db::mysql':
+      user          => $ceilometer_dsn[3],
+      password      => $ceilometer_dsn[4],
+      host          => $ceilometer_dsn[5],
+      dbname        => $ceilometer_dsn[6],
+      allowed_hosts => $allowed_hosts,
+    }
   }
 
   if $enable_pacemaker {
@@ -417,6 +429,15 @@ if hiera('step') >= 3 {
   }
 
   # Ceilometer
+  $ceilometer_backend = downcase(hiera('ceilometer_backend'))
+  case $ceilometer_backend {
+    /mysql/ : {
+      $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
+    }
+    default : {
+      $ceilometer_database_connection = $ceilometer_mongodb_conn_string
+    }
+  }
   include ::ceilometer
   include ::ceilometer::api
   include ::ceilometer::agent::notification
@@ -426,7 +447,7 @@ if hiera('step') >= 3 {
   include ::ceilometer::expirer
   include ::ceilometer::collector
   class { '::ceilometer::db' :
-    database_connection => $ceilometer_mongodb_conn_string,
+    database_connection => $ceilometer_database_connection,
   }
   class { 'ceilometer::agent::auth':
     auth_url => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
