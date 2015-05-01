@@ -260,7 +260,6 @@ if hiera('step') >= 2 {
 if hiera('step') >= 3 {
 
   include ::keystone
-  include ::keystone::roles::admin
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
   keystone_config {
@@ -462,9 +461,6 @@ if hiera('step') >= 3 {
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
   include ::heat::engine
-  # TO-DO: Remove this class as soon as Keystone v3 will be fully functional
-  include ::heat::keystone::domain
-  Service['keystone'] -> Class['::keystone::roles::admin'] -> Exec['heat_domain_create']
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
   snmp::snmpv3_user { $snmpd_user:
