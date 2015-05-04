@@ -293,11 +293,21 @@ if hiera('step') >= 3 {
     require => File['/etc/keystone/ssl/certs'],
   }
 
+  $glance_backend = downcase(hiera('glance_backend', 'swift'))
+  case $glance_backend {
+      swift: { $glance_store = 'glance.store.swift.Store' }
+      file: { $glance_store = 'glance.store.filesystem.Store' }
+      rbd: { $glance_store = 'glance.store.rbd.Store' }
+      default: { fail('Unrecognized glance_backend parameter.') }
+  }
+
   # TODO: notifications, scrubber, etc.
   include ::glance
-  include ::glance::api
+  class { 'glance::api':
+    known_stores => [$glance_store]
+  }
   include ::glance::registry
-  include ::glance::backend::swift
+  include join(['::glance::backend::', $glance_backend])
 
   class { 'nova':
     glance_api_servers     => join([hiera('glance_protocol'), '://', hiera('controller_virtual_ip'), ':', hiera('glance_port')]),
