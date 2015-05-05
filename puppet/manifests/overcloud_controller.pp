@@ -472,6 +472,13 @@ if hiera('step') >= 3 {
   include ::heat::api_cloudwatch
   include ::heat::engine
 
+  # Horizon
+  $vhost_params = { add_listen => false }
+  class { 'horizon':
+    cache_server_ip    => split(hiera('memcache_node_ips', '127.0.0.1'), ','),
+    vhost_extra_params => $vhost_params,
+  }
+
   $snmpd_user = hiera('snmpd_readonly_user_name')
   snmp::snmpv3_user { $snmpd_user:
     authtype => 'MD5',
