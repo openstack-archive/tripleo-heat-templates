@@ -160,7 +160,7 @@ if hiera('step') >= 2 {
     }
   }
 
-  $rabbit_nodes = split(hiera('rabbit_node_ips'), ',')
+  $rabbit_nodes = hiera('rabbit_node_ips')
   if count($rabbit_nodes) > 1 {
     class { '::rabbitmq':
       config_cluster          => true,
