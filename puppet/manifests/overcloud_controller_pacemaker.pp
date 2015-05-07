@@ -1,4 +1,4 @@
-# Copyright 2014 Red Hat, Inc.
+# Copyright 2015 Red Hat, Inc.
 # All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -24,14 +24,50 @@ if !str2bool(hiera('enable_package_install', 'false')) {
   }
 }
 
+if $::hostname == downcase(hiera('bootstrap_nodeid')) {
+  $pacemaker_master = true
+} else {
+  $pacemaker_master = false
+}
+
 if hiera('step') >= 1 {
 
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
 
   class { '::tripleo::loadbalancer' :
     controller_hosts => $controller_node_ips,
-    manage_vip       => true,
+    manage_vip       => false,
   }
+
+  $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
+  user { 'hacluster':
+   ensure => present,
+  } ->
+  class { '::pacemaker':
+    hacluster_pwd => hiera('hacluster_pwd'),
+  } ->
+  class { '::pacemaker::corosync':
+    cluster_members => $pacemaker_cluster_members,
+    setup_cluster   => $pacemaker_master,
+  }
+  class { '::pacemaker::stonith':
+    disable => true,
+  }
+  if $pacemaker_master {
+    $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
+    pacemaker::resource::ip { 'control_vip':
+      ip_address => $control_vip,
+    }
+    $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
+    pacemaker::resource::ip { 'public_vip':
+      ip_address => $public_vip,
+    }
+    pacemaker::resource::systemd { 'haproxy':
+      clone => true,
+    }
+  }
+
+  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Systemd <| |>
 
 }
 
@@ -45,7 +81,9 @@ if hiera('step') >= 2 {
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
 
-    include ::mongodb::server
+    class {'::mongodb::server' :
+      service_ensure => undef
+    }
     $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
     $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
@@ -53,6 +91,23 @@ if hiera('step') >= 2 {
     $mongodb_replset = hiera('mongodb::server::replset')
     $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     if downcase(hiera('bootstrap_nodeid')) == $::hostname {
+
+      pacemaker::resource::systemd { 'mongod' :
+        options => "op start timeout=120s",
+        clone   => true,
+        before  => Exec['mongodb-ready'],
+      }
+      # NOTE (spredzy) : The replset can only be run
+      # once all the nodes have joined the cluster.
+      $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
+      exec { 'mongodb-ready' :
+        command   => $mongodb_cluster_ready_command,
+        timeout   => 600,
+        tries     => 60,
+        try_sleep => 10,
+        before    => Mongodb_replset[$mongodb_replset],
+      }
+
       mongodb_replset { $mongodb_replset :
         members => $mongo_node_ips_with_port,
       }
@@ -158,20 +213,28 @@ if hiera('step') >= 2 {
     }
   }
 
-  $rabbit_nodes = split(hiera('rabbit_node_ips'), ',')
-  if count($rabbit_nodes) > 1 {
-    class { '::rabbitmq':
-      config_cluster  => true,
-      cluster_nodes   => $rabbit_nodes,
+  # the module ignores erlang_cookie if cluster_config is false
+  file { '/var/lib/rabbitmq/.erlang.cookie':
+    ensure  => 'present',
+    owner   => 'rabbitmq',
+    group   => 'rabbitmq',
+    mode    => '0400',
+    content => hiera('rabbitmq::erlang_cookie'),
+    replace => true,
+  } ->
+  class { '::rabbitmq':
+    service_manage        => false,
+    environment_variables => {
+      'RABBITMQ_NODENAME' => "rabbit@$::hostname",
+    },
+  }
+  if $pacemaker_master {
+    pacemaker::resource::ocf { 'rabbitmq':
+      resource_name => 'heartbeat:rabbitmq-cluster',
+      options       => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
+      clone         => true,
+      require       => Class['::rabbitmq'],
     }
-    rabbitmq_policy { 'ha-all@/':
-      pattern    => '^(?!amq\.).*',
-      definition => {
-        'ha-mode' => 'all',
-      },
-    }
-  } else {
-    include ::rabbitmq
   }
 
   # pre-install swift here so we can build rings
