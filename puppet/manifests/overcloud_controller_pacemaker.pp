@@ -223,10 +223,11 @@ if hiera('step') >= 2 {
     replace => true,
   } ->
   class { '::rabbitmq':
-    service_manage        => false,
-    environment_variables => {
-      'RABBITMQ_NODENAME' => "rabbit@$::hostname",
-    },
+    service_manage          => false,
+    tcp_keepalive           => false,
+    config_kernel_variables => hiera('rabbitmq_kernel_variables'),
+    config_variables        => hiera('rabbitmq_config_variables'),
+    environment_variables   => hiera('rabbitmq_environment'),
   }
   if $pacemaker_master {
     pacemaker::resource::ocf { 'rabbitmq':

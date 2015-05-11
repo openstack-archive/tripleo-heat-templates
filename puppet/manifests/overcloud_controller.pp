@@ -161,8 +161,12 @@ if hiera('step') >= 2 {
   $rabbit_nodes = split(hiera('rabbit_node_ips'), ',')
   if count($rabbit_nodes) > 1 {
     class { '::rabbitmq':
-      config_cluster  => true,
-      cluster_nodes   => $rabbit_nodes,
+      config_cluster          => true,
+      cluster_nodes           => $rabbit_nodes,
+      tcp_keepalive           => false,
+      config_kernel_variables => hiera('rabbitmq_kernel_variables'),
+      config_variables        => hiera('rabbitmq_config_variables'),
+      environment_variables   => hiera('rabbitmq_environment'),
     }
     rabbitmq_policy { 'ha-all@/':
       pattern    => '^(?!amq\.).*',
