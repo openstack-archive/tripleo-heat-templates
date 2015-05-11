@@ -62,12 +62,12 @@ if hiera('step') >= 1 {
     pacemaker::resource::ip { 'public_vip':
       ip_address => $public_vip,
     }
-    pacemaker::resource::systemd { 'haproxy':
+    pacemaker::resource::service { 'haproxy':
       clone => true,
     }
   }
 
-  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Systemd <| |>
+  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Service <| |>
 
 }
 
@@ -92,7 +92,7 @@ if hiera('step') >= 2 {
     $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     if downcase(hiera('bootstrap_nodeid')) == $::hostname {
 
-      pacemaker::resource::systemd { 'mongod' :
+      pacemaker::resource::service { 'mongod' :
         options => "op start timeout=120s",
         clone   => true,
         before  => Exec['mongodb-ready'],
