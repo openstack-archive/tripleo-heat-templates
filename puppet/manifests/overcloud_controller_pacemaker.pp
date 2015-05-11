@@ -38,6 +38,7 @@ if hiera('step') >= 1 {
     controller_hosts       => $controller_node_ips,
     controller_hosts_names => $controller_node_names,
     manage_vip             => false,
+    haproxy_service_manage => false,
   }
 
   $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
