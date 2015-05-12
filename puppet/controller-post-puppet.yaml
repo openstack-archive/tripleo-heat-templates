@@ -13,9 +13,10 @@ resources:
     type: OS::TripleO::ControllerConfig
 
   # Step through a series of Puppet runs using the same manifest.
-  # NOTE(dprince): Heat breakpoints would make for a really cool way to step
-  # through breakpoints in a controlled manner across the entire cluster
-  ControllerDeploymentLoadBalancer_Step1:
+  # NOTE: To enable stepping through the deployments via heat hooks,
+  # you must observe the glob naming defined in overcloud-steps.yaml
+  # e.g all Deployment resources should have a *Deployment_StepN suffix
+  ControllerLoadBalancerDeployment_Step1:
     type: OS::Heat::StructuredDeployments
     properties:
       servers:  {get_param: servers}
@@ -24,9 +25,9 @@ resources:
         step: 1
       actions: ['CREATE'] # no need for two passes on an UPDATE
 
-  ControllerDeploymentServicesBase_Step2:
+  ControllerServicesBaseDeployment_Step2:
     type: OS::Heat::StructuredDeployments
-    depends_on: ControllerDeploymentLoadBalancer_Step1
+    depends_on: ControllerLoadBalancerDeployment_Step1
     properties:
       servers:  {get_param: servers}
       config: {get_resource: ControllerPuppetConfig}
@@ -49,12 +50,12 @@ resources:
 
   ControllerRingbuilderDeployment_Step3:
     type: OS::Heat::StructuredDeployments
-    depends_on: ControllerDeploymentServicesBase_Step2
+    depends_on: ControllerServicesBaseDeployment_Step2
     properties:
       servers:  {get_param: servers}
       config: {get_resource: ControllerRingbuilderPuppetConfig}
 
-  ControllerDeploymentOvercloudServices_Step4:
+  ControllerOvercloudServicesDeployment_Step4:
     type: OS::Heat::StructuredDeployments
     depends_on: ControllerRingbuilderDeployment_Step3
     properties:
@@ -63,9 +64,9 @@ resources:
       input_values:
         step: 3
 
-  ControllerDeploymentOvercloudServices_Step5:
+  ControllerOvercloudServicesDeployment_Step5:
     type: OS::Heat::StructuredDeployments
-    depends_on: ControllerDeploymentOvercloudServices_Step4
+    depends_on: ControllerOvercloudServicesDeployment_Step4
     properties:
       servers:  {get_param: servers}
       config: {get_resource: ControllerPuppetConfig}
@@ -75,8 +76,7 @@ resources:
   # Note, this should come last, so use depends_on to ensure
   # this is created after any other resources.
   ExtraConfig:
-    depends_on: ControllerDeploymentOvercloudServices_Step5
+    depends_on: ControllerOvercloudServicesDeployment_Step5
     type: OS::TripleO::NodeExtraConfigPost
     properties:
         servers: {get_param: servers}
-
