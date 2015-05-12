@@ -335,7 +335,23 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend])
+  if hiera('cinder_enable_netapp_backend', false) {
+    $cinder_netapp_backend = hiera('cinder::backend::netapp::title')
+
+    cinder_config {
+      "${cinder_netapp_backend}/host": value => 'hostgroup';
+    }
+
+    if hiera('cinder_netapp_nfs_shares', undef) {
+      $cinder_netapp_nfs_shares = split(hiera('cinder_netapp_nfs_shares', undef), ',')
+    }
+
+    cinder::backend::netapp { $cinder_netapp_backend :
+      nfs_shares => $cinder_netapp_nfs_shares,
+    }
+  }
+
+  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend])
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
