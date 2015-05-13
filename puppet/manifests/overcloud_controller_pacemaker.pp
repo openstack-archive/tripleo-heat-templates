@@ -33,10 +33,11 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
 if hiera('step') >= 1 {
 
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
-
+  $controller_node_names = split(downcase(hiera('controller_node_names')), ',')
   class { '::tripleo::loadbalancer' :
-    controller_hosts => $controller_node_ips,
-    manage_vip       => false,
+    controller_hosts       => $controller_node_ips,
+    controller_hosts_names => $controller_node_names,
+    manage_vip             => false,
   }
 
   $pacemaker_cluster_members = regsubst(hiera('controller_node_ips'), ',', ' ', 'G')
@@ -140,76 +141,163 @@ if hiera('step') >= 2 {
   } else {
     $mysql_config_file = '/etc/my.cnf.d/server.cnf'
   }
-  # TODO Galara
-  class { 'mysql::server':
-    config_file => $mysql_config_file,
-    override_options => {
-      'mysqld' => {
-        'bind-address' => hiera('controller_host')
-      }
+  $galera_nodes = downcase(hiera('galera_node_names', $::hostname))
+  $galera_nodes_count = count(split($galera_nodes, ','))
+  $clustercheck_password = hiera('mysql_clustercheck_password')
+  $mysql_root_password = hiera('mysql::server::root_password')
+
+  $mysqld_options = {
+    'mysqld' => {
+      'skip-name-resolve'             => '1',
+      'binlog_format'                 => 'ROW',
+      'default-storage-engine'        => 'innodb',
+      'innodb_autoinc_lock_mode'      => '2',
+      'innodb_locks_unsafe_for_binlog'=> '1',
+      'query_cache_size'              => '0',
+      'query_cache_type'              => '0',
+      'bind-address'                  => hiera('controller_host'),
+      'wsrep_provider'                => '/usr/lib64/galera/libgalera_smm.so',
+      'wsrep_cluster_name'            => 'galera_cluster',
+      'wsrep_slave_threads'           => '1',
+      'wsrep_certify_nonPK'           => '1',
+      'wsrep_max_ws_rows'             => '131072',
+      'wsrep_max_ws_size'             => '1073741824',
+      'wsrep_debug'                   => '0',
+      'wsrep_convert_LOCK_to_trx'     => '0',
+      'wsrep_retry_autocommit'        => '1',
+      'wsrep_auto_increment_control'  => '1',
+      'wsrep_drupal_282555_workaround'=> '0',
+      'wsrep_causal_reads'            => '0',
+      'wsrep_notify_cmd'              => '',
+      'wsrep_sst_method'              => 'rsync',
     }
+  }
+
+  class { '::mysql::server':
+    create_root_user   => false,
+    create_root_my_cnf => false,
+    config_file        => $mysql_config_file,
+    override_options   => $mysqld_options,
+    service_manage     => false,
+  }
+
+  if $pacemaker_master {
+    $sync_db = true
+
+    pacemaker::resource::ocf { 'galera' :
+      resource_name => 'heartbeat:galera',
+      options       => "enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}' meta master-max=${galera_nodes_count} ordered=true op promote timeout=300s on-fail=block --master",
+      require       => Class['::mysql::server'],
+      before        => Exec['galera-ready'],
+    }
+
+    mysql_user { 'clustercheckuser@localhost' :
+      password_hash => mysql_password($clustercheck_password),
+      require       => Exec['galera-ready'],
+    }
+  } else {
+    $sync_db = false
+  }
+
+  exec { 'galera-ready' :
+    command     => '/bin/mysql -e "SHOW GLOBAL VARIABLES LIKE \'read_only\'" | /bin/grep -i off',
+    timeout     => 3600,
+    tries       => 60,
+    try_sleep   => 60,
+    environment => 'HOME=/root',
+    require     => Class['::mysql::server'],
+  }
+
+  file { '/etc/sysconfig/clustercheck' :
+    ensure  => file,
+    content => "MYSQL_USERNAME=clustercheckuser\n
+MYSQL_PASSWORD=${clustercheck_password}\n
+MYSQL_HOST=localhost\n",
+    require       => Exec['galera-ready'],
+  }
+
+  xinetd::service { 'galera-monitor' :
+    port           => '9200',
+    server         => '/usr/bin/clustercheck',
+    per_source     => 'UNLIMITED',
+    log_on_success => '',
+    log_on_failure => 'HOST',
+    flags          => 'REUSE',
+    service_type   => 'UNLISTED',
+    user           => 'root',
+    group          => 'root',
+    require        => File['/etc/sysconfig/clustercheck'],
   }
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
   # Example DSN format: mysql://user:password@host/dbname
-  $allowed_hosts = ['%',hiera('controller_host')]
-  $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
-  class { 'keystone::db::mysql':
-    user          => $keystone_dsn[3],
-    password      => $keystone_dsn[4],
-    host          => $keystone_dsn[5],
-    dbname        => $keystone_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $glance_dsn = split(hiera('glance::api::database_connection'), '[@:/?]')
-  class { 'glance::db::mysql':
-    user          => $glance_dsn[3],
-    password      => $glance_dsn[4],
-    host          => $glance_dsn[5],
-    dbname        => $glance_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $nova_dsn = split(hiera('nova::database_connection'), '[@:/?]')
-  class { 'nova::db::mysql':
-    user          => $nova_dsn[3],
-    password      => $nova_dsn[4],
-    host          => $nova_dsn[5],
-    dbname        => $nova_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $neutron_dsn = split(hiera('neutron::server::database_connection'), '[@:/?]')
-  class { 'neutron::db::mysql':
-    user          => $neutron_dsn[3],
-    password      => $neutron_dsn[4],
-    host          => $neutron_dsn[5],
-    dbname        => $neutron_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $cinder_dsn = split(hiera('cinder::database_connection'), '[@:/?]')
-  class { 'cinder::db::mysql':
-    user          => $cinder_dsn[3],
-    password      => $cinder_dsn[4],
-    host          => $cinder_dsn[5],
-    dbname        => $cinder_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $heat_dsn = split(hiera('heat::database_connection'), '[@:/?]')
-  class { 'heat::db::mysql':
-    user          => $heat_dsn[3],
-    password      => $heat_dsn[4],
-    host          => $heat_dsn[5],
-    dbname        => $heat_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  if downcase(hiera('ceilometer_backend')) == 'mysql' {
-    $ceilometer_dsn = split(hiera('ceilometer_mysql_conn_string'), '[@:/?]')
-    class { 'ceilometer::db::mysql':
-      user          => $ceilometer_dsn[3],
-      password      => $ceilometer_dsn[4],
-      host          => $ceilometer_dsn[5],
-      dbname        => $ceilometer_dsn[6],
+  if $sync_db {
+    $allowed_hosts = ['%',hiera('controller_host')]
+    $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
+    class { 'keystone::db::mysql':
+      user          => $keystone_dsn[3],
+      password      => $keystone_dsn[4],
+      host          => $keystone_dsn[5],
+      dbname        => $keystone_dsn[6],
       allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    $glance_dsn = split(hiera('glance::api::database_connection'), '[@:/?]')
+    class { 'glance::db::mysql':
+      user          => $glance_dsn[3],
+      password      => $glance_dsn[4],
+      host          => $glance_dsn[5],
+      dbname        => $glance_dsn[6],
+      allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    $nova_dsn = split(hiera('nova::database_connection'), '[@:/?]')
+    class { 'nova::db::mysql':
+      user          => $nova_dsn[3],
+      password      => $nova_dsn[4],
+      host          => $nova_dsn[5],
+      dbname        => $nova_dsn[6],
+      allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    $neutron_dsn = split(hiera('neutron::server::database_connection'), '[@:/?]')
+    class { 'neutron::db::mysql':
+      user          => $neutron_dsn[3],
+      password      => $neutron_dsn[4],
+      host          => $neutron_dsn[5],
+      dbname        => $neutron_dsn[6],
+      allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    $cinder_dsn = split(hiera('cinder::database_connection'), '[@:/?]')
+    class { 'cinder::db::mysql':
+      user          => $cinder_dsn[3],
+      password      => $cinder_dsn[4],
+      host          => $cinder_dsn[5],
+      dbname        => $cinder_dsn[6],
+      allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    $heat_dsn = split(hiera('heat::database_connection'), '[@:/?]')
+    class { 'heat::db::mysql':
+      user          => $heat_dsn[3],
+      password      => $heat_dsn[4],
+      host          => $heat_dsn[5],
+      dbname        => $heat_dsn[6],
+      allowed_hosts => $allowed_hosts,
+      require       => Exec['galera-ready'],
+    }
+    if downcase(hiera('ceilometer_backend')) == 'mysql' {
+      $ceilometer_dsn = split(hiera('ceilometer_mysql_conn_string'), '[@:/?]')
+      class { 'ceilometer::db::mysql':
+        user          => $ceilometer_dsn[3],
+        password      => $ceilometer_dsn[4],
+        host          => $ceilometer_dsn[5],
+        dbname        => $ceilometer_dsn[6],
+        allowed_hosts => $allowed_hosts,
+        require       => Exec['galera-ready'],
+      }
     }
   }
 
@@ -258,7 +346,8 @@ if hiera('step') >= 2 {
 
 } #END STEP 2
 
-if hiera('step') >= 3 {
+if (hiera('step') >= 3 and $::hostname == downcase(hiera('bootstrap_nodeid')))
+   or hiera('step') >= 4 {
 
   include ::keystone
 
@@ -307,14 +396,18 @@ if hiera('step') >= 3 {
   class { 'glance::api':
     known_stores => [$glance_store]
   }
-  include ::glance::registry
+  class { '::glance::registry' :
+    sync_db => $sync_db,
+  }
   include join(['::glance::backend::', $glance_backend])
 
   class { 'nova':
     glance_api_servers     => join([hiera('glance_protocol'), '://', hiera('controller_virtual_ip'), ':', hiera('glance_port')]),
   }
 
-  include ::nova::api
+  class { '::nova::api' :
+    sync_db => $sync_db,
+  }
   include ::nova::cert
   include ::nova::conductor
   include ::nova::consoleauth
@@ -323,7 +416,9 @@ if hiera('step') >= 3 {
   include ::nova::scheduler
 
   include ::neutron
-  include ::neutron::server
+  class { '::neutron::server' :
+    sync_db => $sync_db,
+  }
   include ::neutron::agents::dhcp
   include ::neutron::agents::l3
 
@@ -459,6 +554,7 @@ if hiera('step') >= 3 {
   include ::ceilometer::collector
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
+    sync_db             => $sync_db,
   }
   class { 'ceilometer::agent::auth':
     auth_url => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
@@ -467,7 +563,9 @@ if hiera('step') >= 3 {
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
   # Heat
-  include ::heat
+  class { '::heat' :
+    sync_db => $sync_db,
+  }
   include ::heat::api
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
