@@ -13,6 +13,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+Pcmk_resource <| |> {
+  tries     => 10,
+  try_sleep => 3,
+}
+
 if !str2bool(hiera('enable_package_install', 'false')) {
   case $::osfamily {
     'RedHat': {
@@ -69,6 +74,8 @@ if hiera('step') >= 1 {
     }
   }
 
+  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Ip <| |>
+  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Ocf <| |>
   Class['::pacemaker::corosync'] -> Pacemaker::Resource::Service <| |>
 
   # Only configure RabbitMQ in this step, don't start it yet to
@@ -102,9 +109,13 @@ if hiera('step') >= 2 {
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
 
-    class {'::mongodb::server' :
-      service_ensure => undef
+    # FIXME: replace with service_manage => false on ::mongodb::server
+    # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
+    class { '::mongodb::server' :
+      service_ensure => undef,
+      service_enable => false,
     }
+
     $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
     $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
@@ -113,10 +124,11 @@ if hiera('step') >= 2 {
     $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     if downcase(hiera('bootstrap_nodeid')) == $::hostname {
 
-      pacemaker::resource::service { 'mongod' :
-        options => "op start timeout=120s",
-        clone   => true,
-        before  => Exec['mongodb-ready'],
+      pacemaker::resource::service { $::mongodb::params::service_name :
+        op_params    => 'start timeout=120s',
+        clone_params => true,
+        require      => Class['::mongodb::server'],
+        before       => Exec['mongodb-ready'],
       }
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
@@ -208,10 +220,12 @@ if hiera('step') >= 2 {
     $sync_db = true
 
     pacemaker::resource::ocf { 'galera' :
-      resource_name => 'heartbeat:galera',
-      options       => "enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}' meta master-max=${galera_nodes_count} ordered=true op promote timeout=300s on-fail=block --master",
-      require       => Class['::mysql::server'],
-      before        => Exec['galera-ready'],
+      ocf_agent_name  => 'heartbeat:galera',
+      op_params       => 'promote timeout=300s on-fail=block --master',
+      meta_params     => "master-max=${galera_nodes_count} ordered=true",
+      resource_params => "additional_parameters='--open-files-limit=16384' enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}'",
+      require         => Class['::mysql::server'],
+      before          => Exec['galera-ready'],
     }
 
     mysql_user { 'clustercheckuser@localhost' :
@@ -327,10 +341,10 @@ MYSQL_HOST=localhost\n",
   # RabbitMQ
   if $pacemaker_master {
     pacemaker::resource::ocf { 'rabbitmq':
-      resource_name => 'heartbeat:rabbitmq-cluster',
-      options       => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
-      clone         => true,
-      require       => Class['::rabbitmq'],
+      ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
+      resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
+      clone_params    => true,
+      require         => Class['::rabbitmq'],
     }
   }
 
