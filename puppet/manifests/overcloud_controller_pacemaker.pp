@@ -71,6 +71,25 @@ if hiera('step') >= 1 {
 
   Class['::pacemaker::corosync'] -> Pacemaker::Resource::Service <| |>
 
+  # Only configure RabbitMQ in this step, don't start it yet to
+  # avoid races where non-master nodes attempt to start without
+  # config (eg. binding on 0.0.0.0)
+  # The module ignores erlang_cookie if cluster_config is false
+  class { '::rabbitmq':
+    service_manage          => false,
+    tcp_keepalive           => false,
+    config_kernel_variables => hiera('rabbitmq_kernel_variables'),
+    config_variables        => hiera('rabbitmq_config_variables'),
+    environment_variables   => hiera('rabbitmq_environment'),
+  } ->
+  file { '/var/lib/rabbitmq/.erlang.cookie':
+    ensure  => 'present',
+    owner   => 'rabbitmq',
+    group   => 'rabbitmq',
+    mode    => '0400',
+    content => hiera('rabbitmq::erlang_cookie'),
+    replace => true,
+  }
 }
 
 if hiera('step') >= 2 {
@@ -137,6 +156,7 @@ if hiera('step') >= 2 {
     }
   }
 
+  # Galera
   if str2bool(hiera('enable_galera', 'true')) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
   } else {
@@ -304,22 +324,7 @@ MYSQL_HOST=localhost\n",
     }
   }
 
-  # the module ignores erlang_cookie if cluster_config is false
-  file { '/var/lib/rabbitmq/.erlang.cookie':
-    ensure  => 'present',
-    owner   => 'rabbitmq',
-    group   => 'rabbitmq',
-    mode    => '0400',
-    content => hiera('rabbitmq::erlang_cookie'),
-    replace => true,
-  } ->
-  class { '::rabbitmq':
-    service_manage          => false,
-    tcp_keepalive           => false,
-    config_kernel_variables => hiera('rabbitmq_kernel_variables'),
-    config_variables        => hiera('rabbitmq_config_variables'),
-    environment_variables   => hiera('rabbitmq_environment'),
-  }
+  # RabbitMQ
   if $pacemaker_master {
     pacemaker::resource::ocf { 'rabbitmq':
       resource_name => 'heartbeat:rabbitmq-cluster',
@@ -332,6 +337,7 @@ MYSQL_HOST=localhost\n",
   # pre-install swift here so we can build rings
   include ::swift
 
+  # Ceph
   $cinder_enable_rbd_backend = hiera('cinder_enable_rbd_backend', false)
   $enable_ceph = $cinder_enable_rbd_backend
 
