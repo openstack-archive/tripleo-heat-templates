@@ -90,8 +90,10 @@ if hiera('step') >= 2 {
     config_file => $mysql_config_file,
     override_options => {
       'mysqld' => {
-        'bind-address' => hiera('controller_host')
-      }
+        'bind-address' => hiera('controller_host'),
+        'max_connections' => '1024',
+        'open_files_limit' => '-1',
+      },
     }
   }
 
