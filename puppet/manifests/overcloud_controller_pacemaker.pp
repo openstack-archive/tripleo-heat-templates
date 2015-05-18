@@ -37,6 +37,10 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
 
 if hiera('step') >= 1 {
 
+  if count(hiera('ntp::servers')) > 0 {
+    include ::ntp
+  }
+
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
   $controller_node_names = split(downcase(hiera('controller_node_names')), ',')
   class { '::tripleo::loadbalancer' :
@@ -161,10 +165,6 @@ if hiera('step') >= 2 {
     pacemaker::resource::service { 'haproxy':
       clone_params => true,
     }
-  }
-
-  if count(hiera('ntp::servers')) > 0 {
-    include ::ntp
   }
 
   # MongoDB
@@ -373,6 +373,9 @@ MYSQL_HOST=localhost\n",
     include ::ceph::profile::osd
   }
 
+  # Memcached
+  include ::memcached
+
 } #END STEP 2
 
 if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
@@ -534,7 +537,6 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   }
 
   # swift proxy
-  include ::memcached
   include ::swift::proxy
   include ::swift::proxy::proxy_logging
   include ::swift::proxy::healthcheck
