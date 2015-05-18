@@ -377,7 +377,9 @@ MYSQL_HOST=localhost\n",
 
 if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
 
-  include ::keystone
+  class { '::keystone':
+    sync_db => $sync_db,
+  }
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
   keystone_config {
@@ -479,7 +481,9 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   Service['neutron-server'] -> Service['neutron-metadata']
 
   include ::cinder
-  include ::cinder::api
+  class { '::cinder::api':
+    sync_db => $sync_db,
+  }
   include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
