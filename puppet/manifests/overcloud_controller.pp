@@ -26,6 +26,8 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if hiera('step') >= 1 {
 
+  create_resources(sysctl::value, hiera('sysctl_settings'), {})
+
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
 
   class { '::tripleo::loadbalancer' :
