@@ -69,9 +69,6 @@ if hiera('step') >= 1 {
     pacemaker::resource::ip { 'public_vip':
       ip_address => $public_vip,
     }
-    pacemaker::resource::service { 'haproxy':
-      clone => true,
-    }
   }
 
   Class['::pacemaker::corosync'] -> Pacemaker::Resource::Ip <| |>
@@ -97,9 +94,74 @@ if hiera('step') >= 1 {
     content => hiera('rabbitmq::erlang_cookie'),
     replace => true,
   }
+
+  # MongoDB
+  include ::mongodb::globals
+
+  # FIXME: replace with service_manage => false on ::mongodb::server
+  # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
+  class { '::mongodb::server' :
+    service_ensure => undef,
+    service_enable => false,
+  }
+
+  # Galera
+  if str2bool(hiera('enable_galera', 'true')) {
+    $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
+  } else {
+    $mysql_config_file = '/etc/my.cnf.d/server.cnf'
+  }
+  $galera_nodes = downcase(hiera('galera_node_names', $::hostname))
+  $galera_nodes_count = count(split($galera_nodes, ','))
+  $clustercheck_password = hiera('mysql_clustercheck_password')
+  $mysql_root_password = hiera('mysql::server::root_password')
+
+  $mysqld_options = {
+    'mysqld' => {
+      'skip-name-resolve'             => '1',
+      'binlog_format'                 => 'ROW',
+      'default-storage-engine'        => 'innodb',
+      'innodb_autoinc_lock_mode'      => '2',
+      'innodb_locks_unsafe_for_binlog'=> '1',
+      'query_cache_size'              => '0',
+      'query_cache_type'              => '0',
+      'bind-address'                  => hiera('controller_host'),
+      'max_connections'               => '1024',
+      'open_files_limit'              => '-1',
+      'wsrep_provider'                => '/usr/lib64/galera/libgalera_smm.so',
+      'wsrep_cluster_name'            => 'galera_cluster',
+      'wsrep_slave_threads'           => '1',
+      'wsrep_certify_nonPK'           => '1',
+      'wsrep_max_ws_rows'             => '131072',
+      'wsrep_max_ws_size'             => '1073741824',
+      'wsrep_debug'                   => '0',
+      'wsrep_convert_LOCK_to_trx'     => '0',
+      'wsrep_retry_autocommit'        => '1',
+      'wsrep_auto_increment_control'  => '1',
+      'wsrep_drupal_282555_workaround'=> '0',
+      'wsrep_causal_reads'            => '0',
+      'wsrep_notify_cmd'              => '',
+      'wsrep_sst_method'              => 'rsync',
+    }
+  }
+
+  class { '::mysql::server':
+    create_root_user   => false,
+    create_root_my_cnf => false,
+    config_file        => $mysql_config_file,
+    override_options   => $mysqld_options,
+    service_manage     => false,
+  }
+
 }
 
 if hiera('step') >= 2 {
+
+  if $pacemaker_master {
+    pacemaker::resource::service { 'haproxy':
+      clone_params => true,
+    }
+  }
 
   if count(hiera('ntp::servers')) > 0 {
     include ::ntp
@@ -107,15 +169,6 @@ if hiera('step') >= 2 {
 
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-    include ::mongodb::globals
-
-    # FIXME: replace with service_manage => false on ::mongodb::server
-    # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
-    class { '::mongodb::server' :
-      service_ensure => undef,
-      service_enable => false,
-    }
-
     $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
     $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
@@ -169,53 +222,6 @@ if hiera('step') >= 2 {
   }
 
   # Galera
-  if str2bool(hiera('enable_galera', 'true')) {
-    $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
-  } else {
-    $mysql_config_file = '/etc/my.cnf.d/server.cnf'
-  }
-  $galera_nodes = downcase(hiera('galera_node_names', $::hostname))
-  $galera_nodes_count = count(split($galera_nodes, ','))
-  $clustercheck_password = hiera('mysql_clustercheck_password')
-  $mysql_root_password = hiera('mysql::server::root_password')
-
-  $mysqld_options = {
-    'mysqld' => {
-      'skip-name-resolve'             => '1',
-      'binlog_format'                 => 'ROW',
-      'default-storage-engine'        => 'innodb',
-      'innodb_autoinc_lock_mode'      => '2',
-      'innodb_locks_unsafe_for_binlog'=> '1',
-      'query_cache_size'              => '0',
-      'query_cache_type'              => '0',
-      'bind-address'                  => hiera('controller_host'),
-      'max_connections'               => '1024',
-      'open_files_limit'              => '-1',
-      'wsrep_provider'                => '/usr/lib64/galera/libgalera_smm.so',
-      'wsrep_cluster_name'            => 'galera_cluster',
-      'wsrep_slave_threads'           => '1',
-      'wsrep_certify_nonPK'           => '1',
-      'wsrep_max_ws_rows'             => '131072',
-      'wsrep_max_ws_size'             => '1073741824',
-      'wsrep_debug'                   => '0',
-      'wsrep_convert_LOCK_to_trx'     => '0',
-      'wsrep_retry_autocommit'        => '1',
-      'wsrep_auto_increment_control'  => '1',
-      'wsrep_drupal_282555_workaround'=> '0',
-      'wsrep_causal_reads'            => '0',
-      'wsrep_notify_cmd'              => '',
-      'wsrep_sst_method'              => 'rsync',
-    }
-  }
-
-  class { '::mysql::server':
-    create_root_user   => false,
-    create_root_my_cnf => false,
-    config_file        => $mysql_config_file,
-    override_options   => $mysqld_options,
-    service_manage     => false,
-  }
-
   if $pacemaker_master {
     $sync_db = true
 
@@ -369,8 +375,7 @@ MYSQL_HOST=localhost\n",
 
 } #END STEP 2
 
-if (hiera('step') >= 3 and $::hostname == downcase(hiera('bootstrap_nodeid')))
-   or hiera('step') >= 4 {
+if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
 
   include ::keystone
 
