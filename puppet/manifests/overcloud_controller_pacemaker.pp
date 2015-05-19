@@ -165,7 +165,7 @@ if hiera('step') >= 2 {
     pacemaker::resource::ocf { 'rabbitmq':
       ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
       resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
-      clone_params    => true,
+      clone_params    => 'ordered=true interleave=true',
       require         => Class['::rabbitmq'],
     }
 
