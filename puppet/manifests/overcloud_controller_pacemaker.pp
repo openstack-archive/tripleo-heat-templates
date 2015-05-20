@@ -31,8 +31,10 @@ if !str2bool(hiera('enable_package_install', 'false')) {
 
 if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $pacemaker_master = true
+  $sync_db = true
 } else {
   $pacemaker_master = false
+  $sync_db = false
 }
 
 if hiera('step') >= 1 {
@@ -159,18 +161,15 @@ if hiera('step') >= 2 {
     pacemaker::resource::service { 'haproxy':
       clone_params => true,
     }
-  }
 
-  # MongoDB
-  if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-    $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
-    $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
-    $mongo_node_string = join($mongo_node_ips_with_port, ',')
+    pacemaker::resource::ocf { 'rabbitmq':
+      ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
+      resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
+      clone_params    => true,
+      require         => Class['::rabbitmq'],
+    }
 
-    $mongodb_replset = hiera('mongodb::server::replset')
-    $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
-    if downcase(hiera('bootstrap_nodeid')) == $::hostname {
-
+    if downcase(hiera('ceilometer_backend')) == 'mongodb' {
       pacemaker::resource::service { $::mongodb::params::service_name :
         op_params    => 'start timeout=120s',
         clone_params => true,
@@ -179,18 +178,34 @@ if hiera('step') >= 2 {
       }
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
+      $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
+      $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
+      $mongo_node_string = join($mongo_node_ips_with_port, ',')
+      $mongodb_replset = hiera('mongodb::server::replset')
       $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
       exec { 'mongodb-ready' :
         command   => $mongodb_cluster_ready_command,
         timeout   => 600,
         tries     => 60,
         try_sleep => 10,
-        before    => Mongodb_replset[$mongodb_replset],
       }
-
       mongodb_replset { $mongodb_replset :
         members => $mongo_node_ips_with_port,
+        require => Exec['mongodb-ready'],
       }
+    }
+
+    pacemaker::resource::ocf { 'galera' :
+      ocf_agent_name  => 'heartbeat:galera',
+      op_params       => 'promote timeout=300s on-fail=block --master',
+      meta_params     => "master-max=${galera_nodes_count} ordered=true",
+      resource_params => "additional_parameters='--open-files-limit=16384' enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}'",
+      require         => Class['::mysql::server'],
+      before          => Exec['galera-ready'],
+    }
+    mysql_user { 'clustercheckuser@localhost' :
+      password_hash => mysql_password($clustercheck_password),
+      require       => Exec['galera-ready'],
     }
   }
 
@@ -215,34 +230,12 @@ if hiera('step') >= 2 {
     }
   }
 
-  # Galera
-  if $pacemaker_master {
-    $sync_db = true
-
-    pacemaker::resource::ocf { 'galera' :
-      ocf_agent_name  => 'heartbeat:galera',
-      op_params       => 'promote timeout=300s on-fail=block --master',
-      meta_params     => "master-max=${galera_nodes_count} ordered=true",
-      resource_params => "additional_parameters='--open-files-limit=16384' enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}'",
-      require         => Class['::mysql::server'],
-      before          => Exec['galera-ready'],
-    }
-
-    mysql_user { 'clustercheckuser@localhost' :
-      password_hash => mysql_password($clustercheck_password),
-      require       => Exec['galera-ready'],
-    }
-  } else {
-    $sync_db = false
-  }
-
   exec { 'galera-ready' :
     command     => '/bin/mysql -e "SHOW GLOBAL VARIABLES LIKE \'read_only\'" | /bin/grep -i off',
-    timeout     => 3600,
+    timeout     => 600,
     tries       => 60,
-    try_sleep   => 60,
+    try_sleep   => 10,
     environment => 'HOME=/root',
-    require     => Class['::mysql::server'],
   }
 
   file { '/etc/sysconfig/clustercheck' :
@@ -266,7 +259,6 @@ MYSQL_HOST=localhost\n",
     require        => File['/etc/sysconfig/clustercheck'],
   }
 
-  # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
   # Example DSN format: mysql://user:password@host/dbname
   if $sync_db {
@@ -335,16 +327,6 @@ MYSQL_HOST=localhost\n",
         allowed_hosts => $allowed_hosts,
         require       => Exec['galera-ready'],
       }
-    }
-  }
-
-  # RabbitMQ
-  if $pacemaker_master {
-    pacemaker::resource::ocf { 'rabbitmq':
-      ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
-      resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
-      clone_params    => true,
-      require         => Class['::rabbitmq'],
     }
   }
 
@@ -569,7 +551,7 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
       $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
     }
     default : {
-      $ceilometer_database_connection = $ceilometer_mongodb_conn_string
+      $ceilometer_database_connection = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     }
   }
   include ::ceilometer
@@ -616,4 +598,4 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
     snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
   }
 
-} #END STEP 3
+} #END STEP 3/4
