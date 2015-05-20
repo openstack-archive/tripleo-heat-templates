@@ -64,20 +64,6 @@ if hiera('step') >= 1 {
   class { '::pacemaker::stonith':
     disable => true,
   }
-  if $pacemaker_master {
-    $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
-    pacemaker::resource::ip { 'control_vip':
-      ip_address => $control_vip,
-    }
-    $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
-    pacemaker::resource::ip { 'public_vip':
-      ip_address => $public_vip,
-    }
-  }
-
-  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Ip <| |>
-  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Ocf <| |>
-  Class['::pacemaker::corosync'] -> Pacemaker::Resource::Service <| |>
 
   # Only configure RabbitMQ in this step, don't start it yet to
   # avoid races where non-master nodes attempt to start without
@@ -162,6 +148,14 @@ if hiera('step') >= 1 {
 if hiera('step') >= 2 {
 
   if $pacemaker_master {
+    $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
+    pacemaker::resource::ip { 'control_vip':
+      ip_address => $control_vip,
+    }
+    $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
+    pacemaker::resource::ip { 'public_vip':
+      ip_address => $public_vip,
+    }
     pacemaker::resource::service { 'haproxy':
       clone_params => true,
     }
