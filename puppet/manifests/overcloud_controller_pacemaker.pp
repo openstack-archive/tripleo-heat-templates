@@ -95,14 +95,14 @@ if hiera('step') >= 1 {
     replace => true,
   }
 
-  # MongoDB
-  include ::mongodb::globals
-
-  # FIXME: replace with service_manage => false on ::mongodb::server
-  # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
-  class { '::mongodb::server' :
-    service_ensure => undef,
-    service_enable => false,
+  if downcase(hiera('ceilometer_backend')) == 'mongodb' {
+    include ::mongodb::globals
+    # FIXME: replace with service_manage => false on ::mongodb::server
+    # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
+    class { '::mongodb::server' :
+      service_ensure => undef,
+      service_enable => false,
+    }
   }
 
   # Galera
