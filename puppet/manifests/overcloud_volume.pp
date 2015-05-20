@@ -24,6 +24,8 @@ if str2bool(hiera('disable_package_install', 'false')) {
   }
 }
 
+create_resources(sysctl::value, hiera('sysctl_settings'), {})
+
 if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
