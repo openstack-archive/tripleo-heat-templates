@@ -113,8 +113,6 @@ if hiera('step') >= 1 {
   }
   $galera_nodes = downcase(hiera('galera_node_names', $::hostname))
   $galera_nodes_count = count(split($galera_nodes, ','))
-  $clustercheck_password = hiera('mysql_clustercheck_password')
-  $mysql_root_password = hiera('mysql::server::root_password')
 
   $mysqld_options = {
     'mysqld' => {
@@ -193,8 +191,8 @@ if hiera('step') >= 2 {
       $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
       exec { 'mongodb-ready' :
         command   => $mongodb_cluster_ready_command,
-        timeout   => 600,
-        tries     => 60,
+        timeout   => 30,
+        tries     => 180,
         try_sleep => 10,
       }
       mongodb_replset { $mongodb_replset :
@@ -239,19 +237,19 @@ if hiera('step') >= 2 {
   }
 
   exec { 'galera-ready' :
-    command     => '/bin/mysql -e "SHOW GLOBAL VARIABLES LIKE \'read_only\'" | /bin/grep -i off',
-    timeout     => 600,
-    tries       => 60,
+    command     => '/usr/bin/clustercheck >/dev/null',
+    timeout     => 30,
+    tries       => 180,
     try_sleep   => 10,
-    environment => 'HOME=/root',
+    environment => ["AVAILABLE_WHEN_READONLY=0"],
+    require     => File['/etc/sysconfig/clustercheck'],
   }
 
   file { '/etc/sysconfig/clustercheck' :
     ensure  => file,
-    content => "MYSQL_USERNAME=clustercheckuser\n
-MYSQL_PASSWORD=${clustercheck_password}\n
+    content => "MYSQL_USERNAME=root\n
+MYSQL_PASSWORD=''\n
 MYSQL_HOST=localhost\n",
-    require       => Exec['galera-ready'],
   }
 
   xinetd::service { 'galera-monitor' :
