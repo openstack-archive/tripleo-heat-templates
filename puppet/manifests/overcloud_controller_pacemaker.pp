@@ -37,6 +37,14 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $sync_db = false
 }
 
+# When to start and enable services which haven't been Pacemakerized
+# FIXME: change to only step 4 after this patch is merged:
+# https://review.openstack.org/#/c/180565/
+# $non_pcmk_start = hiera('step') >= 4
+# FIXME: remove when we start all OpenStack services using Pacemaker
+# (occurences of this variable will be gradually replaced with false)
+$non_pcmk_start = hiera('step') >= 4 or (hiera('step') >= 3 and $pacemaker_master)
+
 if hiera('step') >= 1 {
 
   create_resources(sysctl::value, hiera('sysctl_settings'), {})
@@ -356,10 +364,12 @@ MYSQL_HOST=localhost\n",
 
 } #END STEP 2
 
-if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
+if hiera('step') >= 3 {
 
   class { '::keystone':
     sync_db => $sync_db,
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
@@ -405,10 +415,14 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   # TODO: notifications, scrubber, etc.
   include ::glance
   class { 'glance::api':
-    known_stores => [$glance_store]
+    known_stores => [$glance_store],
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
   class { '::glance::registry' :
     sync_db => $sync_db,
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
   include join(['::glance::backend::', $glance_backend])
 
@@ -418,20 +432,45 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
 
   class { '::nova::api' :
     sync_db => $sync_db,
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
-  include ::nova::cert
-  include ::nova::conductor
-  include ::nova::consoleauth
+  class { '::nova::cert' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::nova::conductor' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::nova::consoleauth' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::nova::vncproxy' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::nova::scheduler' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
   include ::nova::network::neutron
-  include ::nova::vncproxy
-  include ::nova::scheduler
 
   include ::neutron
   class { '::neutron::server' :
     sync_db => $sync_db,
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
-  include ::neutron::agents::dhcp
-  include ::neutron::agents::l3
+  class { '::neutron::agents::dhcp' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::neutron::agents::l3' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
 
   file { '/etc/neutron/dnsmasq-neutron.conf':
     content => hiera('neutron_dnsmasq_options'),
@@ -448,11 +487,15 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   }
 
   class { 'neutron::agents::ml2::ovs':
+    # manage_service   => $non_pcmk_start,  -- not implemented
+    enabled          => $non_pcmk_start,
     bridge_mappings  => split(hiera('neutron_bridge_mappings'), ','),
     tunnel_types     => split(hiera('neutron_tunnel_types'), ','),
   }
 
   class { 'neutron::agents::metadata':
+    manage_service   => $non_pcmk_start,
+    enabled          => $non_pcmk_start,
     auth_url => join(['http://', hiera('controller_virtual_ip'), ':35357/v2.0']),
   }
 
@@ -464,10 +507,18 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   include ::cinder
   class { '::cinder::api':
     sync_db => $sync_db,
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::cinder::scheduler' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::cinder::volume' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
   }
   include ::cinder::glance
-  include ::cinder::scheduler
-  include ::cinder::volume
   class {'cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
@@ -515,7 +566,10 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   }
 
   # swift proxy
-  include ::swift::proxy
+  class { '::swift::proxy' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
   include ::swift::proxy::proxy_logging
   include ::swift::proxy::healthcheck
   include ::swift::proxy::cache
@@ -530,8 +584,20 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
 
   # swift storage
   if str2bool(hiera('enable_swift_storage', 'true')) {
-    class {'swift::storage::all':
+    class {'::swift::storage::all':
       mount_check => str2bool(hiera('swift_mount_check'))
+    }
+    class {'::swift::storage::account':
+      manage_service => $non_pcmk_start,
+      enabled => $non_pcmk_start,
+    }
+    class {'::swift::storage::container':
+      manage_service => $non_pcmk_start,
+      enabled => $non_pcmk_start,
+    }
+    class {'::swift::storage::object':
+      manage_service => $non_pcmk_start,
+      enabled => $non_pcmk_start,
     }
     if(!defined(File['/srv/node'])) {
       file { '/srv/node':
@@ -557,13 +623,31 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
     }
   }
   include ::ceilometer
-  include ::ceilometer::api
-  include ::ceilometer::agent::notification
-  include ::ceilometer::agent::central
-  include ::ceilometer::alarm::notifier
-  include ::ceilometer::alarm::evaluator
+  class { '::ceilometer::api' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::ceilometer::agent::notification' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::ceilometer::agent::central' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::ceilometer::alarm::notifier' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::ceilometer::alarm::evaluator' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::ceilometer::collector' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
   include ::ceilometer::expirer
-  include ::ceilometer::collector
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
     sync_db             => $sync_db,
@@ -578,10 +662,22 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
   class { '::heat' :
     sync_db => $sync_db,
   }
-  include ::heat::api
-  include ::heat::api_cfn
-  include ::heat::api_cloudwatch
-  include ::heat::engine
+  class { '::heat::api' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::heat::api_cfn' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::heat::api_cloudwatch' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
+  class { '::heat::engine' :
+    manage_service => $non_pcmk_start,
+    enabled => $non_pcmk_start,
+  }
 
   # Horizon
   $vhost_params = { add_listen => false }
@@ -600,4 +696,8 @@ if (hiera('step') >= 3 and $pacemaker_master) or hiera('step') >= 4 {
     snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
   }
 
-} #END STEP 3/4
+} #END STEP 3
+
+if hiera('step') >= 4 {
+  # TODO: pacemaker::resource::service for OpenStack services go here
+} #END STEP 4
