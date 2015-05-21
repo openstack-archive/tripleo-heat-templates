@@ -211,10 +211,6 @@ if hiera('step') >= 2 {
       require         => Class['::mysql::server'],
       before          => Exec['galera-ready'],
     }
-    mysql_user { 'clustercheckuser@localhost' :
-      password_hash => mysql_password($clustercheck_password),
-      require       => Exec['galera-ready'],
-    }
   }
 
   # Redis
