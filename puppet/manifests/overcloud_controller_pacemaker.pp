@@ -411,13 +411,13 @@ if hiera('step') >= 3 {
   include ::glance
   class { 'glance::api':
     known_stores => [$glance_store],
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::glance::registry' :
     sync_db => $sync_db,
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   include join(['::glance::backend::', $glance_backend])
 
@@ -739,4 +739,30 @@ if hiera('step') >= 4 {
     }
 
   }
+
+  # Glance
+  pacemaker::resource::service { $::glance::params::registry_service_name :
+    clone_params => "interleave=true",
+  }
+  pacemaker::resource::service { $::glance::params::api_service_name :
+    clone_params => "interleave=true",
+  }
+
+  pacemaker::constraint::base { 'glance-registry-then-glance-api-constraint':
+    constraint_type => "order",
+    first_resource  => "${::glance::params::registry_service_name}-clone",
+    second_resource => "${::glance::params::api_service_name}-clone",
+    first_action    => "start",
+    second_action   => "start",
+    require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
+                Pacemaker::Resource::Service[$::glance::params::api_service_name]],
+  }
+  pacemaker::constraint::colocation { 'glance-registry-with-glance-api-colocation':
+    source  => "${::glance::params::registry_service_name}-clone",
+    target  => "${::glance::params::api_service_name}-clone",
+    score   => "INFINITY",
+    require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
+                Pacemaker::Resource::Service[$::glance::params::api_service_name]],
+  }
+
 } #END STEP 4
