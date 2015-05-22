@@ -1,0 +1,49 @@
+heat_template_version: 2014-10-16
+
+description: >
+  This is first boot configuration for development purposes. It allows
+  overriding contents of the deployed images via rsync before
+  configuration (e.g. Puppet) starts, speeding up the feedback loop
+  between making a change and seeing it applied.
+
+  To prepare the host, put something like this to /etc/rsyncd.conf:
+
+      [overcloudsync]
+            path = /root/overcloudsync
+            comment = overcloud pre-puppet customizations
+
+  Then run `rsync --daemon`.
+
+parameters:
+  dev_rsync_host:
+    type: string
+    default: 192.168.122.1
+    description: Host to sync contents from via rsync
+  dev_rsync_module:
+    type: string
+    default: overcloudsync
+    description: Name of the module defined in rsyncd.conf on rsync_host
+
+resources:
+  userdata:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: rsync_config}
+        subtype: 'x-shellscript'
+
+  rsync_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            rsync -avr rsync://RSYNC_HOST/RSYNC_MODULE /
+          params:
+            RSYNC_HOST: {get_param: dev_rsync_host}
+            RSYNC_MODULE: {get_param: dev_rsync_module}
+
+outputs:
+  OS::stack_id:
+    value: {get_resource: userdata}
