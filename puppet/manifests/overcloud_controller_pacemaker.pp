@@ -502,16 +502,16 @@ if hiera('step') >= 3 {
   include ::cinder
   class { '::cinder::api':
     sync_db => $sync_db,
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::cinder::scheduler' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::cinder::volume' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   include ::cinder::glance
   class {'cinder::setup_test_volume':
@@ -694,5 +694,49 @@ if hiera('step') >= 3 {
 } #END STEP 3
 
 if hiera('step') >= 4 {
-  # TODO: pacemaker::resource::service for OpenStack services go here
+  if $pacemaker_master {
+
+    # Cinder
+    pacemaker::resource::service { $::cinder::params::api_service :
+      clone_params => "interleave=true",
+    }
+    pacemaker::resource::service { $::cinder::params::scheduler_service :
+      clone_params => "interleave=true",
+    }
+    pacemaker::resource::service { $::cinder::params::volume_service : }
+
+    pacemaker::constraint::base { 'cinder-api-then-cinder-scheduler-constraint':
+      constraint_type => "order",
+      first_resource => "${::cinder::params::api_service}-clone",
+      second_resource => "${::cinder::params::scheduler_service}-clone",
+      first_action => "start",
+      second_action => "start",
+      require => [Pacemaker::Resource::Service[$::cinder::params::api_service],
+                  Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
+    }
+    pacemaker::constraint::colocation { 'cinder-scheduler-with-cinder-api-colocation':
+      source => "${::cinder::params::scheduler_service}-clone",
+      target => "${::cinder::params::api_service}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::cinder::params::api_service],
+                  Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
+    }
+    pacemaker::constraint::base { 'cinder-scheduler-then-cinder-volume-constraint':
+      constraint_type => "order",
+      first_resource => "${::cinder::params::scheduler_service}-clone",
+      second_resource => "${::cinder::params::volume_service}",
+      first_action => "start",
+      second_action => "start",
+      require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
+                  Pacemaker::Resource::Service[$::cinder::params::volume_service]],
+    }
+    pacemaker::constraint::colocation { 'cinder-volume-with-cinder-scheduler-colocation':
+      source => "${::cinder::params::volume_service}",
+      target => "${::cinder::params::scheduler_service}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
+                  Pacemaker::Resource::Service[$::cinder::params::volume_service]],
+    }
+
+  }
 } #END STEP 4
