@@ -96,11 +96,8 @@ if hiera('step') >= 1 {
 
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
-    # FIXME: replace with service_manage => false on ::mongodb::server
-    # when this is merged: https://github.com/puppetlabs/pupp etlabs-mongodb/pull/198
     class { '::mongodb::server' :
-      service_ensure => undef,
-      service_enable => false,
+      service_manage => false,
     }
   }
 
@@ -215,25 +212,20 @@ if hiera('step') >= 2 {
         op_params    => 'start timeout=120s',
         clone_params => true,
         require      => Class['::mongodb::server'],
-        before       => Exec['mongodb-ready'],
       }
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
       $mongo_node_ips = hiera('mongo_node_ips')
       $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
       $mongo_node_string = join($mongo_node_ips_with_port, ',')
-      $mongodb_replset = hiera('mongodb::server::replset')
-      $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
       $mongodb_pacemaker_resource = Pacemaker::Resource::Service[$::mongodb::params::service_name]
-      exec { 'mongodb-ready' :
-        command   => $mongodb_cluster_ready_command,
-        timeout   => 30,
-        tries     => 180,
-        try_sleep => 10,
+      $mongodb_replset = hiera('mongodb::server::replset')
+      mongodb_conn_validator { $mongo_node_ips_with_port :
+        require => Pacemaker::Resource::Service[$::mongodb::params::service_name],
+        before  => Mongodb_replset[$mongodb_replset],
       }
       mongodb_replset { $mongodb_replset :
         members => $mongo_node_ips_with_port,
-        require => Exec['mongodb-ready'],
       }
     }
 
