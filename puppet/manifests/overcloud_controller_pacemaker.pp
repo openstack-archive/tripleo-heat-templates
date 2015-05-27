@@ -756,9 +756,9 @@ if hiera('step') >= 4 {
       require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
                   Pacemaker::Resource::Service[$::glance::params::api_service_name]],
     }
-    pacemaker::constraint::colocation { 'glance-registry-with-glance-api-colocation':
-      source  => "${::glance::params::registry_service_name}-clone",
-      target  => "${::glance::params::api_service_name}-clone",
+    pacemaker::constraint::colocation { 'glance-api-with-glance-registry-colocation':
+      source  => "${::glance::params::api_service_name}-clone",
+      target  => "${::glance::params::registry_service_name}-clone",
       score   => "INFINITY",
       require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
                   Pacemaker::Resource::Service[$::glance::params::api_service_name]],
