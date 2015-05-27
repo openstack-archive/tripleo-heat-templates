@@ -197,6 +197,7 @@ if hiera('step') >= 2 {
       $mongo_node_string = join($mongo_node_ips_with_port, ',')
       $mongodb_replset = hiera('mongodb::server::replset')
       $mongodb_cluster_ready_command = join(suffix(prefix($mongo_node_ips, '/bin/nc -w1 '), ' 27017 < /dev/null'), ' && ')
+      $mongodb_pacemaker_resource = Pacemaker::Resource::Service[$::mongodb::params::service_name]
       exec { 'mongodb-ready' :
         command   => $mongodb_cluster_ready_command,
         timeout   => 30,
@@ -617,28 +618,28 @@ if hiera('step') >= 3 {
   }
   include ::ceilometer
   class { '::ceilometer::api' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::ceilometer::agent::notification' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::ceilometer::agent::central' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::ceilometer::alarm::notifier' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::ceilometer::alarm::evaluator' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::ceilometer::collector' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   include ::ceilometer::expirer
   class { '::ceilometer::db' :
@@ -1029,6 +1030,142 @@ if hiera('step') >= 4 {
       score => "INFINITY",
       require => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
                   Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
+    }
+
+    # Ceilometer
+    pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
+      clone_params => 'interleave=true',
+      require      => [Pacemaker::Resource::Service[$::keystone::params::service_name],
+                       $mongodb_pacemaker_resource],
+    }
+    pacemaker::resource::service { $::ceilometer::params::collector_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::ceilometer::params::api_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::ceilometer::params::alarm_evaluator_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::ceilometer::params::alarm_notifier_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::ceilometer::params::agent_notification_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::ocf { 'delay' :
+      ocf_agent_name  => 'heartbeat:Delay',
+      clone_params    => 'interleave=true',
+      resource_params => 'startdelay=10',
+    }
+    pacemaker::constraint::base { 'ceilometer-central-then-ceilometer-collector-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::agent_central_service_name}-clone",
+      second_resource => "${::ceilometer::params::collector_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                          Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name]],
+    }
+    pacemaker::constraint::base { 'ceilometer-collector-then-ceilometer-api-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::collector_service_name}-clone",
+      second_resource => "${::ceilometer::params::api_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name],
+                          Pacemaker::Resource::Service[$::ceilometer::params::api_service_name]],
+    }
+    pacemaker::constraint::colocation { 'ceilometer-api-with-ceilometer-collector-colocation':
+      source  => "${::ceilometer::params::api_service_name}-clone",
+      target  => "${::ceilometer::params::collector_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
+                  Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name]],
+    }
+    pacemaker::constraint::base { 'ceilometer-api-then-ceilometer-delay-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::api_service_name}-clone",
+      second_resource => 'delay-clone',
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
+                          Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::colocation { 'ceilometer-delay-with-ceilometer-api-colocation':
+      source  => 'delay-clone',
+      target  => "${::ceilometer::params::api_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
+                  Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::base { 'ceilometer-delay-then-ceilometer-alarm-evaluator-constraint':
+      constraint_type => 'order',
+      first_resource  => 'delay-clone',
+      second_resource => "${::ceilometer::params::alarm_evaluator_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::alarm_evaluator_service_name],
+                          Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::colocation { 'ceilometer-alarm-evaluator-with-ceilometer-delay-colocation':
+      source  => "${::ceilometer::params::alarm_evaluator_service_name}-clone",
+      target  => 'delay-clone',
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
+                  Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::base { 'ceilometer-alarm-evaluator-then-ceilometer-alarm-notifier-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::alarm_evaluator_service_name}-clone",
+      second_resource => "${::ceilometer::params::alarm_notifier_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::alarm_evaluator_service_name],
+                          Pacemaker::Resource::Service[$::ceilometer::params::alarm_notifier_service_name]],
+    }
+    pacemaker::constraint::colocation { 'ceilometer-alarm-notifier-with-ceilometer-alarm-evaluator-colocation':
+      source  => "${::ceilometer::params::alarm_notifier_service_name}-clone",
+      target  => "${::ceilometer::params::alarm_evaluator_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::alarm_evaluator_service_name],
+                  Pacemaker::Resource::Service[$::ceilometer::params::alarm_notifier_service_name]],
+    }
+    pacemaker::constraint::base { 'ceilometer-alarm-notifier-then-ceilometer-notification-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::alarm_notifier_service_name}-clone",
+      second_resource => "${::ceilometer::params::agent_notification_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_notification_service_name],
+                          Pacemaker::Resource::Service[$::ceilometer::params::alarm_notifier_service_name]],
+    }
+    pacemaker::constraint::colocation { 'ceilometer-notification-with-ceilometer-alarm-notifier-colocation':
+      source  => "${::ceilometer::params::agent_notification_service_name}-clone",
+      target  => "${::ceilometer::params::alarm_notifier_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::agent_notification_service_name],
+                  Pacemaker::Resource::Service[$::ceilometer::params::alarm_notifier_service_name]],
+    }
+    if downcase(hiera('ceilometer_backend')) == 'mongodb' {
+      pacemaker::constraint::base { 'mongodb-then-ceilometer-central-constraint':
+        constraint_type => 'order',
+        first_resource  => "${::mongodb::params::service_name}-clone",
+        second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
+        first_action    => 'start',
+        second_action   => 'start',
+        require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                            Pacemaker::Resource::Service[$::mongodb::params::service_name]],
+      }
+    }
+    pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
 
   }
