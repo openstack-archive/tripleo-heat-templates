@@ -431,28 +431,28 @@ if hiera('step') >= 3 {
 
   class { '::nova::api' :
     sync_db => $sync_db,
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::nova::cert' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::nova::conductor' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::nova::consoleauth' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::nova::vncproxy' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::nova::scheduler' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   include ::nova::network::neutron
 
@@ -931,6 +931,106 @@ if hiera('step') >= 4 {
       require => [Pacemaker::Resource::Service["${::neutron::params::l3_agent_service}"],
                   Pacemaker::Resource::Service["${::neutron::params::metadata_agent_service}"]]
     }
+
+    # Nova
+    pacemaker::resource::service { $::nova::params::api_service_name :
+      clone_params    => "interleave=true",
+      op_params       => "monitor start-delay=10s",
+    }
+    pacemaker::resource::service { $::nova::params::conductor_service_name :
+      clone_params    => "interleave=true",
+      op_params       => "monitor start-delay=10s",
+    }
+    pacemaker::resource::service { $::nova::params::consoleauth_service_name :
+      clone_params    => "interleave=true",
+      op_params       => "monitor start-delay=10s",
+      require         => Pacemaker::Resource::Service[$::keystone::params::service_name],
+    }
+    pacemaker::resource::service { $::nova::params::vncproxy_service_name :
+      clone_params    => "interleave=true",
+      op_params       => "monitor start-delay=10s",
+    }
+    pacemaker::resource::service { $::nova::params::scheduler_service_name :
+      clone_params    => "interleave=true",
+      op_params       => "monitor start-delay=10s",
+    }
+
+    pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::nova::params::consoleauth_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+    pacemaker::constraint::base { 'nova-consoleauth-then-nova-vncproxy-constraint':
+      constraint_type => "order",
+      first_resource  => "${::nova::params::consoleauth_service_name}-clone",
+      second_resource => "${::nova::params::vncproxy_service_name}-clone",
+      first_action    => "start",
+      second_action   => "start",
+      require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
+    }
+    pacemaker::constraint::colocation { 'nova-vncproxy-with-nova-consoleauth-colocation':
+      source => "${::nova::params::vncproxy_service_name}-clone",
+      target => "${::nova::params::consoleauth_service_name}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
+    }
+    # FIXME(gfidente): novncproxy will not start unless websockify is updated to 0.6
+    # which is not the case for f20 nor f21; ucomment when it becomes available
+    #pacemaker::constraint::base { 'nova-vncproxy-then-nova-api-constraint':
+    #  constraint_type => "order",
+    #  first_resource  => "${::nova::params::vncproxy_service_name}-clone",
+    #  second_resource => "${::nova::params::api_service_name}-clone",
+    #  first_action    => "start",
+    #  second_action   => "start",
+    #  require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
+    #              Pacemaker::Resource::Service[$::nova::params::api_service_name]],
+    #}
+    #pacemaker::constraint::colocation { 'nova-api-with-nova-vncproxy-colocation':
+    #  source => "${::nova::params::api_service_name}-clone",
+    #  target => "${::nova::params::vncproxy_service_name}-clone",
+    #  score => "INFINITY",
+    #  require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
+    #              Pacemaker::Resource::Service[$::nova::params::api_service_name]],
+    #}
+    pacemaker::constraint::base { 'nova-api-then-nova-scheduler-constraint':
+      constraint_type => "order",
+      first_resource  => "${::nova::params::api_service_name}-clone",
+      second_resource => "${::nova::params::scheduler_service_name}-clone",
+      first_action    => "start",
+      second_action   => "start",
+      require => [Pacemaker::Resource::Service[$::nova::params::api_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::scheduler_service_name]],
+    }
+    pacemaker::constraint::colocation { 'nova-scheduler-with-nova-api-colocation':
+      source => "${::nova::params::scheduler_service_name}-clone",
+      target => "${::nova::params::api_service_name}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::nova::params::api_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::scheduler_service_name]],
+    }
+    pacemaker::constraint::base { 'nova-scheduler-then-nova-conductor-constraint':
+      constraint_type => "order",
+      first_resource  => "${::nova::params::scheduler_service_name}-clone",
+      second_resource => "${::nova::params::conductor_service_name}-clone",
+      first_action    => "start",
+      second_action   => "start",
+      require => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
+    }
+    pacemaker::constraint::colocation { 'nova-conductor-with-nova-scheduler-colocation':
+      source => "${::nova::params::conductor_service_name}-clone",
+      target => "${::nova::params::scheduler_service_name}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
+    }
+
   }
 
 } #END STEP 4
