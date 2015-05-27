@@ -359,8 +359,8 @@ if hiera('step') >= 3 {
 
   class { '::keystone':
     sync_db => $sync_db,
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
@@ -691,6 +691,11 @@ if hiera('step') >= 3 {
 
 if hiera('step') >= 4 {
   if $pacemaker_master {
+
+    # Keystone
+    pacemaker::resource::service { $::keystone::params::service_name :
+      clone_params => "interleave=true",
+    }
 
     # Cinder
     pacemaker::resource::service { $::cinder::params::api_service :
