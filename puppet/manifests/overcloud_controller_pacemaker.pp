@@ -202,7 +202,8 @@ if hiera('step') >= 2 {
 
     pacemaker::resource::ocf { 'galera' :
       ocf_agent_name  => 'heartbeat:galera',
-      op_params       => 'promote timeout=300s on-fail=block --master',
+      op_params       => 'promote timeout=300s on-fail=block',
+      master_params   => '',
       meta_params     => "master-max=${galera_nodes_count} ordered=true",
       resource_params => "additional_parameters='--open-files-limit=16384' enable_creation=true wsrep_cluster_address='gcomm://${galera_nodes}'",
       require         => Class['::mysql::server'],
