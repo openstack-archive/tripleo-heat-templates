@@ -743,11 +743,21 @@ if hiera('step') >= 4 {
     # Glance
     pacemaker::resource::service { $::glance::params::registry_service_name :
       clone_params => "interleave=true",
+      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::glance::params::api_service_name :
       clone_params => "interleave=true",
     }
 
+    pacemaker::constraint::base { 'keystone-then-glance-registry-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::glance::params::registry_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
     pacemaker::constraint::base { 'glance-registry-then-glance-api-constraint':
       constraint_type => "order",
       first_resource  => "${::glance::params::registry_service_name}-clone",
