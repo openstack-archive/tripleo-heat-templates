@@ -104,6 +104,11 @@ if hiera('step') >= 1 {
     }
   }
 
+  # Memcached
+  class {'::memcached' :
+    service_manage => false,
+  }
+
   # Galera
   if str2bool(hiera('enable_galera', 'true')) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
@@ -165,6 +170,10 @@ if hiera('step') >= 2 {
     }
     pacemaker::resource::service { 'haproxy':
       clone_params => true,
+    }
+    pacemaker::resource::service { $::memcached::params::service_name :
+      clone_params => true,
+      require      => Class['::memcached'],
     }
 
     pacemaker::resource::ocf { 'rabbitmq':
@@ -351,8 +360,6 @@ MYSQL_HOST=localhost\n",
     include ::ceph::profile::osd
   }
 
-  # Memcached
-  include ::memcached
 
 } #END STEP 2
 
