@@ -701,12 +701,22 @@ if hiera('step') >= 4 {
     # Cinder
     pacemaker::resource::service { $::cinder::params::api_service :
       clone_params => "interleave=true",
+      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::cinder::params::scheduler_service :
       clone_params => "interleave=true",
     }
     pacemaker::resource::service { $::cinder::params::volume_service : }
 
+    pacemaker::constraint::base { 'keystone-then-cinder-api-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::cinder::params::api_service}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::cinder::params::api_service],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
     pacemaker::constraint::base { 'cinder-api-then-cinder-scheduler-constraint':
       constraint_type => "order",
       first_resource => "${::cinder::params::api_service}-clone",
