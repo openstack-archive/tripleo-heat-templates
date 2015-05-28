@@ -680,17 +680,17 @@ resources:
           Debug: {get_param: Debug}
           ExtraConfig: {get_param: ExtraConfig}
           Flavor: {get_param: OvercloudComputeFlavor}
-          GlanceHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          GlanceHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
           GlancePort: {get_param: GlancePort}
           GlanceProtocol: {get_param: GlanceProtocol}
           Image: {get_param: NovaImage}
           ImageUpdatePolicy: {get_param: ImageUpdatePolicy}
           KeyName: {get_param: KeyName}
-          KeystoneHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          KeystoneHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
           NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
           NeutronEnableTunnelling: {get_param: NeutronEnableTunnelling}
           NeutronFlatNetworks: {get_param: NeutronFlatNetworks}
-          NeutronHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          NeutronHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
           NeutronNetworkType: {get_param: NeutronNetworkType}
           NeutronTunnelTypes: {get_param: NeutronTunnelTypes}
           NeutronNetworkVLANRanges: {get_param: NeutronNetworkVLANRanges}
@@ -705,7 +705,7 @@ resources:
           # L3 HA and Failover is not relevant for Computes, should be removed
           NeutronAllowL3AgentFailover: {get_param: NeutronAllowL3AgentFailover}
           NeutronL3HA: {get_param: NeutronL3HA}
-          NovaApiHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          NovaApiHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
           NovaComputeDriver: {get_param: NovaComputeDriver}
           NovaComputeExtraConfig: {get_param: NovaComputeExtraConfig}
           NovaComputeLibvirtType: {get_param: NovaComputeLibvirtType}
@@ -713,7 +713,7 @@ resources:
           NovaPublicIP: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
           NovaPassword: {get_param: NovaPassword}
           NtpServer: {get_param: NtpServer}
-          RabbitHost: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+          RabbitHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
           RabbitPassword: {get_param: RabbitPassword}
           RabbitUserName: {get_param: RabbitUserName}
           RabbitClientUseSSL: {get_param: RabbitClientUseSSL}
@@ -843,6 +843,7 @@ resources:
       fixed_ips: {get_param: ControlFixedIPs}
       replacement_policy: AUTO
 
+  # same as external
   PublicVirtualIP:
     type: OS::Neutron::Port
     depends_on: Networks
@@ -851,6 +852,66 @@ resources:
       network: {get_param: PublicVirtualNetwork}
       fixed_ips: {get_param: PublicVirtualFixedIPs}
       replacement_policy: AUTO
+
+  InternalApiVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::InternalApiPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: internal_api_virtual_ip
+
+  StorageVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::StoragePort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: storage_virtual_ip
+
+  StorageMgmtVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::StorageMgmtPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: storage_management_virtual_ip
+
+  VipMap:
+    type: OS::TripleO::Network::Ports::NetIpMap
+    properties:
+      ExternalIp: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+      InternalApiIp: {get_attr: [InternalApiVirtualIP, ip_address]}
+      StorageIp: {get_attr: [StorageVirtualIP, ip_address]}
+      StorageMgmtIp: {get_attr: [StorageMgmtVirtualIP, ip_address]}
+      # No tenant VIP required
+
+  VipConfig:
+    type: OS::TripleO::VipConfig
+
+  VipDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: VipConfig}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+      input_values:
+        # service VIP mappings
+        keystone_admin_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+        keystone_public_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+        neutron_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+        cinder_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+        glance_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+        glance_registry_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+        swift_proxy_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+        nova_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+        nova_metadata_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
+        ceilometer_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+        heat_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+        horizon_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
+        redis_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
+        mysql_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+        rabbit_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
+        # direct configuration of Virtual IPs for each network
+        internal_api_virtual_ip: {get_attr: [InternalApiVirtualIP, ip_address]}
+        storage_virtual_ip: {get_attr: [StorageVirtualIP, ip_address]}
+        storage_mgmt_virtual_ip: {get_attr: [StorageMgmtVirtualIP, ip_address]}
 
   ControllerBootstrapNodeConfig:
     type: OS::TripleO::BootstrapNode::SoftwareConfig
@@ -1003,5 +1064,5 @@ outputs:
       list_join:
       - ''
       - - http://
-        - {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+        - {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
         - :5000/v2.0/
