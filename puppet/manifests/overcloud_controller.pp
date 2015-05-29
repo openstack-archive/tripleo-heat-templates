@@ -92,7 +92,7 @@ if hiera('step') >= 2 {
     config_file => $mysql_config_file,
     override_options => {
       'mysqld' => {
-        'bind-address' => hiera('controller_host'),
+        'bind-address' => hiera('mysql_bind_host'),
         'max_connections' => '1024',
         'open_files_limit' => '-1',
       },
@@ -102,7 +102,7 @@ if hiera('step') >= 2 {
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
   # Example DSN format: mysql://user:password@host/dbname
-  $allowed_hosts = ['%',hiera('controller_host')]
+  $allowed_hosts = ['%',hiera('mysql_bind_host')]
   $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
   class { 'keystone::db::mysql':
     user          => $keystone_dsn[3],

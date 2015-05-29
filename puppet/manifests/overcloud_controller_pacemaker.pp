@@ -127,7 +127,7 @@ if hiera('step') >= 1 {
       'innodb_locks_unsafe_for_binlog'=> '1',
       'query_cache_size'              => '0',
       'query_cache_type'              => '0',
-      'bind-address'                  => hiera('controller_host'),
+      'bind-address'                  => hiera('mysql_bind_host'),
       'max_connections'               => '1024',
       'open_files_limit'              => '-1',
       'wsrep_provider'                => '/usr/lib64/galera/libgalera_smm.so',
@@ -273,7 +273,7 @@ MYSQL_HOST=localhost\n",
   # Create all the database schemas
   # Example DSN format: mysql://user:password@host/dbname
   if $sync_db {
-    $allowed_hosts = ['%',hiera('controller_host')]
+    $allowed_hosts = ['%',hiera('mysql_bind_host')]
     $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
     class { 'keystone::db::mysql':
       user          => $keystone_dsn[3],
