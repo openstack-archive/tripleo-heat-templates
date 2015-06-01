@@ -494,7 +494,6 @@ if hiera('step') >= 3 {
     enabled          => false,
     bridge_mappings  => split(hiera('neutron_bridge_mappings'), ','),
     tunnel_types     => split(hiera('neutron_tunnel_types'), ','),
-    local_ip    => hiera('controller_host'),
   }
 
 
