@@ -160,6 +160,11 @@ if hiera('step') >= 1 {
 if hiera('step') >= 2 {
 
   if $pacemaker_master {
+
+    # FIXME: we should not have to access tripleo::loadbalancer class
+    # parameters here to configure pacemaker VIPs. The configuration
+    # of pacemaker VIPs could move into puppet-tripleo or we should
+    # make use of less specific hiera parameters here for the settings.
     $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
     pacemaker::resource::ip { 'control_vip':
       ip_address => $control_vip,
@@ -168,6 +173,28 @@ if hiera('step') >= 2 {
     pacemaker::resource::ip { 'public_vip':
       ip_address => $public_vip,
     }
+
+    $internal_api_vip = hiera('tripleo::loadbalancer::internal_api_virtual_ip')
+    if $internal_api_vip and $internal_api_vip != $control_vip {
+      pacemaker::resource::ip { 'internal_api_vip':
+        ip_address => $internal_api_vip,
+      }
+    }
+
+    $storage_vip = hiera('tripleo::loadbalancer::storage_virtual_ip')
+    if $storage_vip and $storage_vip != $control_vip {
+      pacemaker::resource::ip { 'storage_vip':
+        ip_address => $storage_vip,
+      }
+    }
+
+    $storage_mgmt_vip = hiera('tripleo::loadbalancer::storage_mgmt_virtual_ip')
+    if $storage_mgmt_vip and $storage_mgmt_vip != $control_vip {
+      pacemaker::resource::ip { 'storage_mgmt_vip':
+        ip_address => $storage_mgmt_vip,
+      }
+    }
+
     pacemaker::resource::service { 'haproxy':
       clone_params => true,
     }
