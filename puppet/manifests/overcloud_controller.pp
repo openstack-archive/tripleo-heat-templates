@@ -76,9 +76,7 @@ if hiera('step') >= 2 {
   if count($redis_node_ips) > 1 {
     Class['::tripleo::redis_notification'] -> Service['redis-sentinel']
     include ::redis::sentinel
-    class {'::tripleo::redis_notification' :
-      haproxy_monitor_ip => hiera('tripleo::loadbalancer::controller_virtual_ip'),
-    }
+    include ::tripleo::redis_notification
   }
 
   if str2bool(hiera('enable_galera', 'true')) {
@@ -253,10 +251,7 @@ if hiera('step') >= 3 {
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
 
-  class { 'nova':
-    glance_api_servers     => join([hiera('glance_protocol'), '://', hiera('controller_virtual_ip'), ':', hiera('glance_port')]),
-  }
-
+  include ::nova
   include ::nova::api
   include ::nova::cert
   include ::nova::conductor
@@ -269,9 +264,7 @@ if hiera('step') >= 3 {
   include ::neutron::server
   include ::neutron::agents::l3
   include ::neutron::agents::dhcp
-  class { 'neutron::agents::metadata':
-    auth_url => join(['http://', hiera('controller_virtual_ip'), ':35357/v2.0']),
-  }
+  include ::neutron::agents::metadata
 
   file { '/etc/neutron/dnsmasq-neutron.conf':
     content => hiera('neutron_dnsmasq_options'),
@@ -398,11 +391,9 @@ if hiera('step') >= 3 {
   include ::ceilometer::alarm::evaluator
   include ::ceilometer::expirer
   include ::ceilometer::collector
+  include ceilometer::agent::auth
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
-  }
-  class { 'ceilometer::agent::auth':
-    auth_url => join(['http://', hiera('controller_virtual_ip'), ':5000/v2.0']),
   }
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
