@@ -657,20 +657,20 @@ if hiera('step') >= 3 {
     sync_db => $sync_db,
   }
   class { '::heat::api' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::heat::api_cfn' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::heat::api_cloudwatch' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
   class { '::heat::engine' :
-    manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    manage_service => false,
+    enabled => false,
   }
 
   # Horizon
@@ -1166,6 +1166,77 @@ if hiera('step') >= 4 {
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                           Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+
+    # Heat
+    pacemaker::resource::service { $::heat::params::api_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::heat::params::api_cloudwatch_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::heat::params::api_cfn_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::heat::params::engine_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::constraint::base { 'heat-api-then-heat-api-cfn-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::heat::params::api_service_name}-clone",
+      second_resource => "${::heat::params::api_cfn_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
+    }
+    pacemaker::constraint::colocation { 'heat-api-cfn-with-heat-api-colocation':
+      source  => "${::heat::params::api_cfn_service_name}-clone",
+      target  => "${::heat::params::api_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::api_service_name]],
+    }
+    pacemaker::constraint::base { 'heat-api-cfn-then-heat-api-cloudwatch-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::heat::params::api_cfn_service_name}-clone",
+      second_resource => "${::heat::params::api_cloudwatch_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
+    }
+    pacemaker::constraint::colocation { 'heat-api-cloudwatch-with-heat-api-cfn-colocation':
+      source  => "${::heat::params::api_cloudwatch_service_name}-clone",
+      target  => "${::heat::params::api_cfn_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name]],
+    }
+    pacemaker::constraint::base { 'heat-api-cloudwatch-then-heat-engine-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::heat::params::api_cloudwatch_service_name}-clone",
+      second_resource => "${::heat::params::engine_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
+    }
+    pacemaker::constraint::colocation { 'heat-engine-with-heat-api-cloudwatch-colocation':
+      source  => "${::heat::params::engine_service_name}-clone",
+      target  => "${::heat::params::api_cloudwatch_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
+                  Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
+    }
+    pacemaker::constraint::base { 'ceilometer-notification-then-heat-api-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::ceilometer::params::agent_notification_service_name}-clone",
+      second_resource => "${::heat::params::api_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
+                          Pacemaker::Resource::Service[$::ceilometer::params::agent_notification_service_name]],
     }
 
   }
