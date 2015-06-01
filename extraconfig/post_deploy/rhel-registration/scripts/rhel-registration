@@ -1,0 +1,120 @@
+#!/bin/bash
+
+# dib-lint: disable=setu sete setpipefail dibdebugtrace
+
+set -eu
+set -o pipefail
+
+OK=/mnt/state/var/lib/rhsm/rhsm.ok
+
+if [ -e $OK ] ; then
+    exit 0
+fi
+
+opts=
+attach_opts=
+repos="repos --enable rhel-7-server-rpms"
+satellite_repo="rhel-7-server-rh-common-rpms"
+if [ -n "${REG_AUTO_ATTACH:-}" ]; then
+    opts="$opts --auto-attach"
+
+    if [ -n "${REG_SERVICE_LEVEL:-}" ]; then
+        opts="$opts --servicelevel $REG_SERVICE_LEVEL"
+    fi
+
+    if [ -n "${REG_RELEASE:-}" ]; then
+        opts="$opts --release=$REG_RELEASE"
+    fi
+else
+    if [ -n "${REG_SERVICE_LEVEL:-}" ]; then
+        echo "WARNING: REG_SERVICE_LEVEL set without REG_AUTO_ATTACH."
+    fi
+
+    if [ -n "${REG_RELEASE:-}" ]; then
+        echo "WARNING: REG_RELEASE set without REG_AUTO_ATTACH."
+    fi
+
+    if [ -n "${REG_POOL_ID:-}" ]; then
+        attach_opts="$attach_opts --pool=$REG_POOL_ID"
+    fi
+fi
+
+if [ -n "${REG_BASE_URL:-}" ]; then
+    opts="$opts --baseurl=$REG_BASE_URL"
+fi
+
+if [ -n "${REG_ENVIRONMENT:-}" ]; then
+    opts="$opts --env=$REG_ENVIRONMENT"
+fi
+
+if [ -n "${REG_FORCE:-}" ]; then
+    opts="$opts --force"
+fi
+
+if [ -n "${REG_SERVER_URL:-}" ]; then
+    opts="$opts --serverurl=$REG_SERVER_URL"
+fi
+
+if [ -n "${REG_ACTIVATION_KEY:-}" ]; then
+    opts="$opts --activationkey=$REG_ACTIVATION_KEY"
+
+    if [ -z "${REG_ORG:-}" ]; then
+        echo "WARNING: REG_ACTIVATION_KEY set without REG_ORG."
+    fi
+else
+    echo "WARNING: Support for registering with a username and password is deprecated."
+    echo "Please use activation keys instead.  See the README for more information."
+    if [ -n "${REG_PASSWORD:-}" ]; then
+        opts="$opts --password $REG_PASSWORD"
+    fi
+
+    if [ -n "${REG_USER:-}" ]; then
+        opts="$opts --username $REG_USER"
+    fi
+fi
+
+if [ -n "${REG_MACHINE_NAME:-}" ]; then
+    opts="$opts --name $REG_MACHINE_NAME"
+fi
+
+if [ -n "${REG_ORG:-}" ]; then
+    opts="$opts --org=$REG_ORG"
+fi
+
+if [ -n "${REG_REPOS:-}" ]; then
+    for repo in $(echo $REG_REPOS | tr ',' '\n'); do
+        repos="$repos --enable $repo"
+    done
+fi
+
+if [ -n "${REG_TYPE:-}" ]; then
+    opts="$opts --type=$REG_TYPE"
+fi
+
+case "${REG_METHOD:-}" in
+    portal)
+        subscription-manager register $opts
+        if [ -z "${REG_AUTO_ATTACH:-}" ]; then
+            subscription-manager attach $attach_opts
+        fi
+        subscription-manager $repos
+        ;;
+    satellite)
+        repos="$repos --enable ${satellite_repo}"
+        rpm -Uvh "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm" || true
+        subscription-manager register $opts
+        subscription-manager $repos
+        yum install -y katello-agent || true # needed for errata reporting to satellite6
+        katello-package-upload
+        subscription-manager repos --disable ${satellite_repo}
+        ;;
+    disable)
+        echo "Disabling RHEL registration"
+        ;;
+    *)
+        echo "WARNING: only 'portal', 'satellite', and 'disable' are valid values for REG_METHOD."
+        exit 0
+esac
+
+mkdir -p $(dirname $OK)
+touch $OK
