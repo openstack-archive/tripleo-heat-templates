@@ -37,6 +37,8 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $sync_db = false
 }
 
+$enable_fencing = str2bool(hiera('enable_fencing', 'false')) and hiera('step') >= 5
+
 # When to start and enable services which haven't been Pacemakerized
 # FIXME: remove when we start all OpenStack services using Pacemaker
 # (occurences of this variable will be gradually replaced with false)
@@ -72,7 +74,13 @@ if hiera('step') >= 1 {
     setup_cluster   => $pacemaker_master,
   }
   class { '::pacemaker::stonith':
-    disable => true,
+    disable => !$enable_fencing,
+  }
+  if $enable_fencing {
+    include tripleo::fencing
+
+    # enable stonith after all fencing devices have been created
+    Class['tripleo::fencing'] -> Class['pacemaker::stonith']
   }
 
   # Only configure RabbitMQ in this step, don't start it yet to
