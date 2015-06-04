@@ -192,7 +192,7 @@ if hiera('step') >= 2 {
       }
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
-      $mongo_node_ips = split(hiera('mongo_node_ips'), ',')
+      $mongo_node_ips = hiera('mongo_node_ips')
       $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
       $mongo_node_string = join($mongo_node_ips_with_port, ',')
       $mongodb_replset = hiera('mongodb::server::replset')
@@ -222,7 +222,7 @@ if hiera('step') >= 2 {
   }
 
   # Redis
-  $redis_node_ips = split(hiera('redis_node_ips'), ',')
+  $redis_node_ips = hiera('redis_node_ips')
   $redis_master_hostname = downcase(hiera('bootstrap_nodeid'))
 
   if $redis_master_hostname == $::hostname {
@@ -675,7 +675,7 @@ if hiera('step') >= 3 {
   # Horizon
   $vhost_params = { add_listen => false }
   class { 'horizon':
-    cache_server_ip    => split(hiera('memcache_node_ips', '127.0.0.1'), ','),
+    cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
     vhost_extra_params => $vhost_params,
   }
 
