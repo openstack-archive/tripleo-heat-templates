@@ -717,7 +717,11 @@ if hiera('step') >= 3 {
     enabled => false,
   }
 
-  # Horizon
+  # httpd/apache and horizon
+  include ::apache
+  class { '::apache::mod::status':
+    allow_from => ['127.0.0.1'],
+  }
   $vhost_params = { add_listen => false }
   class { 'horizon':
     cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
@@ -1291,6 +1295,12 @@ if hiera('step') >= 4 {
       require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
                           Pacemaker::Resource::Service[$::ceilometer::params::agent_notification_service_name]],
     }
+
+    # Horizon
+    pacemaker::resource::service { $::horizon::params::http_service:
+        clone_params => "interleave=true",
+    }
+
 
   }
 
