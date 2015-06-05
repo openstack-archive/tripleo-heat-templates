@@ -57,6 +57,11 @@ parameters:
     description: >
       Setting to a previously unused value during stack-update will trigger
       package update on all nodes
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
 
 resources:
 
@@ -96,6 +101,13 @@ resources:
       StorageIpSubnet: {get_attr: [StoragePort, ip_subnet]}
       StorageMgmtIpSubnet: {get_attr: [StorageMgmtPort, ip_subnet]}
 
+  NetIpMap:
+    type: OS::TripleO::Network::Ports::NetIpMap
+    properties:
+      InternalApiIp: {get_attr: [InternalApiPort, ip_address]}
+      StorageIp: {get_attr: [StoragePort, ip_address]}
+      StorageMgmtIp: {get_attr: [StorageMgmtPort, ip_address]}
+
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
     properties:
@@ -111,6 +123,8 @@ resources:
           hierarchy:
             - heat_config_%{::deploy_config_name}
             - object
+            - swift_devices_and_proxy # provided by SwiftDevicesAndProxyConfig
+            - all_nodes # provided by allNodesConfig
             - '"%{::osfamily}"'
             - common
           datafiles:
@@ -118,20 +132,20 @@ resources:
               raw_data: {get_file: hieradata/common.yaml}
             object:
               raw_data: {get_file: hieradata/object.yaml}
-              oac_data: # data we map in from other OAC configurations
-                tripleo::ringbuilder::devices: swift.devices
               mapped_data: # data supplied directly to this deployment configuration, etc
                 swift::swift_hash_suffix: { get_input: swift_hash_suffix }
                 tripleo::ringbuilder::part_power: { get_input: swift_part_power }
                 tripleo::ringbuilder::replicas: {get_input: swift_replicas }
                 # Swift
-                swift::storage::all::storage_local_net_ip: {get_input: local_ip}
+                swift::storage::all::storage_local_net_ip: {get_input: swift_management_network}
                 swift_mount_check: {get_input: swift_mount_check }
                 tripleo::ringbuilder::min_part_hours: { get_input: swift_min_part_hours }
                 ntp::servers: {get_input: ntp_servers}
                 # NOTE(dprince): build_ring support is currently not wired in.
                 # See: https://review.openstack.org/#/c/109225/
                 tripleo::ringbuilder::build_ring: True
+                snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
+                snmpd_readonly_user_password: {get_input: snmpd_readonly_user_password}
                 enable_package_install: {get_input: enable_package_install}
 
 
@@ -156,6 +170,7 @@ resources:
             params:
               server: {get_param: NtpServer}
         enable_package_install: {get_param: EnablePackageInstall}
+        swift_management_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, SwiftMgmtNetwork]}]}
 
   UpdateConfig:
     type: OS::TripleO::Tasks::PackageUpdate
@@ -187,7 +202,7 @@ outputs:
       str_replace:
         template: 'r1z1-IP:%PORT%/d1'
         params:
-          IP: {get_attr: [SwiftStorage, networks, ctlplane, 0]}
+          IP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, SwiftMgmtNetwork]}]}
   internal_api_ip_address:
     description: IP address of the server in the internal_api network
     value: {get_attr: [InternalApiPort, ip_address]}
