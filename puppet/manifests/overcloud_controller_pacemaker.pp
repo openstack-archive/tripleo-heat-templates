@@ -509,7 +509,6 @@ if hiera('step') >= 3 {
   class { 'neutron::plugins::ml2':
     flat_networks   => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
-    type_drivers    => [hiera('neutron_tenant_network_type')],
   }
   class { 'neutron::agents::ml2::ovs':
     # manage_service   => false # not implemented
