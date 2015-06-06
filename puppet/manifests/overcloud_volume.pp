@@ -31,6 +31,7 @@ if count(hiera('ntp::servers')) > 0 {
 }
 
 include ::cinder
+include ::cinder::glance
 include ::cinder::volume
 include ::cinder::setup_test_volume
 
