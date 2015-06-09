@@ -55,6 +55,7 @@ if hiera('step') >= 1 {
   class { '::tripleo::loadbalancer' :
     controller_hosts       => $controller_node_ips,
     controller_hosts_names => $controller_node_names,
+    redis                  => false,
     manage_vip             => false,
     haproxy_service_manage => false,
   }
@@ -104,6 +105,13 @@ if hiera('step') >= 1 {
   # Memcached
   class {'::memcached' :
     service_manage => false,
+  }
+
+  # Redis
+  class { '::redis' :
+    bind           => '0.0.0.0',
+    service_manage => false,
+    notify_service => false,
   }
 
   # Galera
@@ -238,25 +246,35 @@ if hiera('step') >= 2 {
       require         => Class['::mysql::server'],
       before          => Exec['galera-ready'],
     }
-  }
 
-  # Redis
-  $redis_node_ips = hiera('redis_node_ips')
-  $redis_master_hostname = downcase(hiera('bootstrap_nodeid'))
+    pacemaker::resource::ocf { 'redis':
+      ocf_agent_name  => 'heartbeat:redis',
+      master_params   => '',
+      meta_params     => 'notify=true ordered=true interleave=true',
+      resource_params => 'wait_last_known_master=true',
+      require         => Class['::redis'],
+    }
+    $redis_vip = hiera('redis_vip')
+    pacemaker::resource::ip { 'vip-redis':
+      ip_address => $redis_vip,
+    }
+    pacemaker::constraint::base { 'redis-master-then-vip-redis':
+      constraint_type => 'order',
+      first_resource  => 'redis-master',
+      second_resource => "ip-${redis_vip}",
+      first_action    => 'promote',
+      second_action   => 'start',
+      require => [Pacemaker::Resource::Ocf['redis'],
+                  Pacemaker::Resource::Ip['vip-redis']],
+    }
+    pacemaker::constraint::colocation { 'vip-redis-with-redis-master':
+      source  => "ip-${redis_vip}",
+      target  => 'redis-master',
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Ocf['redis'],
+                  Pacemaker::Resource::Ip['vip-redis']],
+    }
 
-  if $redis_master_hostname == $::hostname {
-    $slaveof = undef
-  } else {
-    $slaveof = "${redis_master_hostname} 6379"
-  }
-  class {'::redis' :
-    slaveof => $slaveof,
-  }
-
-  if count($redis_node_ips) > 1 {
-    Class['::tripleo::redis_notification'] -> Service['redis-sentinel']
-    include ::redis::sentinel
-    include ::tripleo::redis_notification
   }
 
   exec { 'galera-ready' :
@@ -1182,6 +1200,15 @@ if hiera('step') >= 4 {
         require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                             Pacemaker::Resource::Service[$::mongodb::params::service_name]],
       }
+    }
+    pacemaker::constraint::base { 'vip-redis-then-ceilometer-central':
+      constraint_type => 'order',
+      first_resource  => "ip-${redis_vip}",
+      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                  Pacemaker::Resource::Ip['vip-redis']],
     }
     pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
       constraint_type => 'order',
