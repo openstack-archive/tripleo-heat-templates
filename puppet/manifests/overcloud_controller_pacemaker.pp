@@ -109,7 +109,6 @@ if hiera('step') >= 1 {
 
   # Redis
   class { '::redis' :
-    bind           => '0.0.0.0',
     service_manage => false,
     notify_service => false,
   }
