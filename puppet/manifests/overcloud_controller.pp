@@ -14,6 +14,7 @@
 # under the License.
 
 include ::tripleo::packages
+include ::tripleo::firewall
 
 if hiera('step') >= 1 {
 
