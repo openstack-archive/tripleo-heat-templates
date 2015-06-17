@@ -254,8 +254,10 @@ if hiera('step') >= 2 {
       require         => Class['::redis'],
     }
     $redis_vip = hiera('redis_vip')
-    pacemaker::resource::ip { 'vip-redis':
-      ip_address => $redis_vip,
+    if $redis_vip and $redis_vip != $control_vip {
+        pacemaker::resource::ip { 'vip-redis':
+          ip_address => $redis_vip,
+        }
     }
     pacemaker::constraint::base { 'redis-master-then-vip-redis':
       constraint_type => 'order',
