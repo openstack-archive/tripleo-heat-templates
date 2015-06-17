@@ -719,14 +719,17 @@ if hiera('step') >= 3 {
   }
 
   # httpd/apache and horizon
+  # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
   include ::apache
-  class { '::apache::mod::status':
-    allow_from => ['127.0.0.1'],
+  include ::apache::mod::status
+  $vhost_params = {
+    add_listen => false,
+    priority   => 10,
   }
-  $vhost_params = { add_listen => false }
   class { 'horizon':
     cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
     vhost_extra_params => $vhost_params,
+    server_aliases     => $::hostname,
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
