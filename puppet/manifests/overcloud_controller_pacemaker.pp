@@ -55,7 +55,7 @@ if hiera('step') >= 1 {
   class { '::tripleo::loadbalancer' :
     controller_hosts       => $controller_node_ips,
     controller_hosts_names => $controller_node_names,
-    redis                  => false,
+    redis                  => true,
     manage_vip             => false,
     haproxy_service_manage => false,
   }
@@ -674,7 +674,6 @@ if hiera('step') >= 3 {
   class { '::ceilometer::agent::central' :
     manage_service => false,
     enabled => false,
-    coordination_url => "redis://${redis_vip}:6379",
   }
   class { '::ceilometer::alarm::notifier' :
     manage_service => false,
