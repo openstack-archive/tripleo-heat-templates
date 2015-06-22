@@ -53,3 +53,4 @@ class { 'snmp':
 }
 
 hiera_include('volume_classes')
+package_manifest{'/var/lib/tripleo/installed-packages/overcloud_volume': ensure => present}

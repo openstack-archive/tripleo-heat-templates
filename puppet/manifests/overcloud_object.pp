@@ -49,3 +49,4 @@ class { 'snmp':
 }
 
 hiera_include('object_classes')
+package_manifest{'/var/lib/tripleo/installed-packages/overcloud_object': ensure => present}

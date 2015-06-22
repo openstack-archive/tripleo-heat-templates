@@ -39,3 +39,4 @@ include ::ceph::profile::client
 include ::ceph::profile::osd
 
 hiera_include('ceph_classes')
+package_manifest{'/var/lib/tripleo/installed-packages/overcloud_ceph': ensure => present}

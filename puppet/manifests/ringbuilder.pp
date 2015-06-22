@@ -90,3 +90,5 @@ class tripleo::ringbuilder (
 }
 
 include ::tripleo::ringbuilder
+
+package_manifest{'/var/lib/tripleo/installed-packages/ringbuilder': ensure => present}

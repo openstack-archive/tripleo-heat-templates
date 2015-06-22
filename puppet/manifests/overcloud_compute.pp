@@ -93,3 +93,4 @@ class { 'snmp':
 }
 
 hiera_include('compute_classes')
+package_manifest{'/var/lib/tripleo/installed-packages/overcloud_compute': ensure => present}
