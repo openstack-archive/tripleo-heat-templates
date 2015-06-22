@@ -163,6 +163,11 @@ if hiera('step') >= 1 {
 
 if hiera('step') >= 2 {
 
+  # NOTE(gfidente): the following vars are needed on all nodes so they
+  # need to stay out of pacemaker_master conditional
+  $mongo_node_ips_with_port = suffix(hiera('mongo_node_ips'), ':27017')
+  $mongodb_replset = hiera('mongodb::server::replset')
+
   if $pacemaker_master {
 
     # FIXME: we should not have to access tripleo::loadbalancer class
@@ -222,11 +227,6 @@ if hiera('step') >= 2 {
       }
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
-      $mongo_node_ips = hiera('mongo_node_ips')
-      $mongo_node_ips_with_port = suffix($mongo_node_ips, ':27017')
-      $mongo_node_string = join($mongo_node_ips_with_port, ',')
-      $mongodb_pacemaker_resource = Pacemaker::Resource::Service[$::mongodb::params::service_name]
-      $mongodb_replset = hiera('mongodb::server::replset')
       mongodb_conn_validator { $mongo_node_ips_with_port :
         require => Pacemaker::Resource::Service[$::mongodb::params::service_name],
         before  => Mongodb_replset[$mongodb_replset],
@@ -659,6 +659,7 @@ if hiera('step') >= 3 {
       $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
     }
     default : {
+      $mongo_node_string = join($mongo_node_ips_with_port, ',')
       $ceilometer_database_connection = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     }
   }
@@ -1087,7 +1088,7 @@ if hiera('step') >= 4 {
     pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
       clone_params => 'interleave=true',
       require      => [Pacemaker::Resource::Service[$::keystone::params::service_name],
-                       $mongodb_pacemaker_resource],
+                       Pacemaker::Resource::Service[$::mongodb::params::service_name]],
     }
     pacemaker::resource::service { $::ceilometer::params::collector_service_name :
       clone_params => 'interleave=true',
