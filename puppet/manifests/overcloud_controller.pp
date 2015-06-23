@@ -237,16 +237,18 @@ if hiera('step') >= 3 {
 
   $glance_backend = downcase(hiera('glance_backend', 'swift'))
   case $glance_backend {
-      swift: { $glance_store = 'glance.store.swift.Store' }
-      file: { $glance_store = 'glance.store.filesystem.Store' }
-      rbd: { $glance_store = 'glance.store.rbd.Store' }
+      swift: { $backend_store = 'glance.store.swift.Store' }
+      file: { $backend_store = 'glance.store.filesystem.Store' }
+      rbd: { $backend_store = 'glance.store.rbd.Store' }
       default: { fail('Unrecognized glance_backend parameter.') }
   }
+  $http_store = ['glance.store.http.Store']
+  $glance_store = concat($http_store, $backend_store)
 
   # TODO: notifications, scrubber, etc.
   include ::glance
   class { 'glance::api':
-    known_stores => [$glance_store]
+    known_stores => $glance_store
   }
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
