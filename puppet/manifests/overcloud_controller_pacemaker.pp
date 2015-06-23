@@ -55,7 +55,6 @@ if hiera('step') >= 1 {
   class { '::tripleo::loadbalancer' :
     controller_hosts       => $controller_node_ips,
     controller_hosts_names => $controller_node_names,
-    redis                  => true,
     manage_vip             => false,
     haproxy_service_manage => false,
   }
