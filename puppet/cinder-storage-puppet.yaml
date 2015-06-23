@@ -25,7 +25,7 @@ parameters:
     default: ''
     description: Set to True to enable debugging on all services.
     type: string
-  VirtualIP:
+  VirtualIP: # deprecated. Use per service VIPs instead.
     default: ''
     type: string
   ExtraConfig:
@@ -75,6 +75,10 @@ parameters:
     default: "9292"
     description: Glance port.
     type: string
+  GlanceProtocol:
+    default: http
+    description: Protocol to use when connecting to glance, set to https for SSL.
+    type: string
   KeyName:
     default: default
     description: Name of an existing EC2 KeyPair to enable SSH access to the instances
@@ -120,6 +124,17 @@ parameters:
   Hostname:
     type: string
     default: '' # Defaults to Heat created hostname
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  GlanceApiVirtualIP:
+    type: string
+    default: ''
+  MysqlVirtualIP:
+    type: string
+    default: ''
 
 resources:
   BlockStorage:
@@ -160,6 +175,13 @@ resources:
       StorageIpSubnet: {get_attr: [StoragePort, ip_subnet]}
       StorageMgmtIpSubnet: {get_attr: [StorageMgmtPort, ip_subnet]}
 
+  NetIpMap:
+    type: OS::TripleO::Network::Ports::NetIpMap
+    properties:
+      InternalApiIp: {get_attr: [InternalApiPort, ip_address]}
+      StorageIp: {get_attr: [StoragePort, ip_address]}
+      StorageMgmtIp: {get_attr: [StorageMgmtPort, ip_address]}
+
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
     properties:
@@ -174,7 +196,7 @@ resources:
       config: {get_resource: BlockStorageConfig}
       input_values:
         debug: {get_param: Debug}
-        cinder_dsn: {list_join: ['', ['mysql://cinder:', {get_param: CinderPassword}, '@', {get_param: VirtualIP} , '/cinder']]}
+        cinder_dsn: {list_join: ['', ['mysql://cinder:', {get_param: CinderPassword}, '@', {get_param: MysqlVirtualIP} , '/cinder']]}
         snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
         snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
         cinder_lvm_loop_device_size:
@@ -184,6 +206,15 @@ resources:
               size: {get_param: CinderLVMLoopDeviceSize}
         cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
         cinder_iscsi_helper: {get_param: CinderISCSIHelper}
+        cinder_iscsi_ip_address: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, CinderIscsiNetwork]}]}
+        glance_api_servers:
+          list_join:
+            - ''
+            - - {get_param: GlanceProtocol}
+              - '://'
+              - {get_param: GlanceApiVirtualIP}
+              - ':'
+              - {get_param: GlancePort}
         rabbit_username: {get_param: RabbitUserName}
         rabbit_password: {get_param: RabbitPassword}
         rabbit_client_use_ssl: {get_param: RabbitClientUseSSL}
@@ -213,8 +244,6 @@ resources:
               raw_data: {get_file: hieradata/common.yaml}
             volume:
               raw_data: {get_file: hieradata/volume.yaml}
-              oac_data:
-                cinder_iscsi_ip_address: local-ipv4
               mapped_data:
                 # Cinder
                 cinder::debug: {get_input: debug}
@@ -226,6 +255,8 @@ resources:
                 cinder::rabbit_use_ssl: {get_input: rabbit_client_use_ssl}
                 cinder::rabbit_port: {get_input: rabbit_client_port}
                 cinder_enable_iscsi_backend: {get_input: cinder_enable_iscsi_backend}
+                cinder_iscsi_ip_address: {get_input: cinder_iscsi_ip_address}
+                cinder::glance::glance_api_servers: {get_input: glance_api_servers}
                 ntp::servers: {get_input: ntp_servers}
                 enable_package_install: {get_input: enable_package_install}
                 snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
