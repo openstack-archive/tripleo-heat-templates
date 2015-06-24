@@ -227,6 +227,7 @@ if hiera('step') >= 2 {
       # NOTE (spredzy) : The replset can only be run
       # once all the nodes have joined the cluster.
       mongodb_conn_validator { $mongo_node_ips_with_port :
+        timeout => '600',
         require => Pacemaker::Resource::Service[$::mongodb::params::service_name],
         before  => Mongodb_replset[$mongodb_replset],
       }
