@@ -156,6 +156,7 @@ if hiera('step') >= 1 {
     config_file        => $mysql_config_file,
     override_options   => $mysqld_options,
     service_manage     => false,
+    service_enabled    => false,
   }
 
 }
