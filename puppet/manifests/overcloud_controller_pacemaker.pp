@@ -56,6 +56,7 @@ if hiera('step') >= 1 {
     controller_hosts       => $controller_node_ips,
     controller_hosts_names => $controller_node_names,
     manage_vip             => false,
+    mysql_clustercheck     => true,
     haproxy_service_manage => false,
   }
 
