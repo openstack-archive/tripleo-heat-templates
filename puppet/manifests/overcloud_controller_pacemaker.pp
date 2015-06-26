@@ -1112,6 +1112,15 @@ if hiera('step') >= 4 {
       clone_params    => 'interleave=true',
       resource_params => 'startdelay=10',
     }
+    pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
     pacemaker::constraint::base { 'ceilometer-central-then-ceilometer-collector-constraint':
       constraint_type => 'order',
       first_resource  => "${::ceilometer::params::agent_central_service_name}-clone",
@@ -1221,15 +1230,6 @@ if hiera('step') >= 4 {
       require => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                   Pacemaker::Resource::Ip['vip-redis']],
     }
-    pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::keystone::params::service_name}-clone",
-      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
-    }
 
     # Heat
     pacemaker::resource::service { $::heat::params::api_service_name :
@@ -1243,6 +1243,15 @@ if hiera('step') >= 4 {
     }
     pacemaker::resource::service { $::heat::params::engine_service_name :
       clone_params => 'interleave=true',
+    }
+    pacemaker::constraint::base { 'keystone-then-heat-api-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::heat::params::api_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
     pacemaker::constraint::base { 'heat-api-then-heat-api-cfn-constraint':
       constraint_type => 'order',
