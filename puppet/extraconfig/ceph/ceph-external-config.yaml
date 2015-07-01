@@ -1,5 +1,5 @@
 heat_template_version: 2015-04-30
-description: 'Ceph Cluster config data for Puppet'
+description: 'Configure parameters for an external Ceph cluster via Puppet.'
 
 parameters:
   ceph_storage_count:
@@ -17,6 +17,8 @@ parameters:
   ceph_fsid:
     default: ''
     type: string
+  # The following parameters are unused for external Ceph clusters and
+  # are here and exist for compatibility
   ceph_admin_key:
     default: ''
     type: string
@@ -39,41 +41,22 @@ resources:
             ceph_cluster:
               mapped_data:
                 ceph_storage_count: {get_param: ceph_storage_count}
-                ceph_mon_initial_members:
-                  list_join:
-                  - ','
-                  - {get_param: ceph_mon_names}
-                ceph::profile::params::mon_host:
-                  list_join:
-                  - ','
-                  - {get_param: ceph_mon_ips}
+                enable_external_ceph: true
+                ceph::profile::params::mon_host: {get_param: ceph_external_mon_ips}
                 ceph::profile::params::fsid: {get_param: ceph_fsid}
-                ceph::profile::params::mon_key: {get_param: ceph_mon_key}
-                # We should use a separated key for the non-admin clients
                 ceph::profile::params::client_keys:
                   str_replace:
                     template: "{
-                      client.admin: {
-                        secret: 'ADMIN_KEY',
-                        mode: '0600',
-                        cap_mon: 'allow *',
-                        cap_osd: 'allow *',
-                        cap_mds: 'allow *'
-                      },
-                      client.bootstrap-osd: {
-                        secret: 'ADMIN_KEY',
-                        keyring_path: '/var/lib/ceph/bootstrap-osd/ceph.keyring',
-                        cap_mon: 'allow profile bootstrap-osd'
-                      },
                       client.openstack: {
-                        secret: 'ADMIN_KEY',
+                        secret: 'CLIENT_KEY',
                         mode: '0644',
                         cap_mon: 'allow r',
                         cap_osd: 'allow class-read object_prefix rbd_children, allow rwx pool=volumes, allow rwx pool=vms, allow rwx pool=images'
                       }
                     }"
                     params:
-                      ADMIN_KEY: {get_param: ceph_admin_key}
+                      CLIENT_KEY: {get_param: ceph_client_key}
+
 
 outputs:
   config_id:

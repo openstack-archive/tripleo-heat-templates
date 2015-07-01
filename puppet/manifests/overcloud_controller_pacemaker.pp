@@ -438,8 +438,7 @@ MYSQL_HOST=localhost\n",
   include ::swift
 
   # Ceph
-  $cinder_enable_rbd_backend = hiera('cinder_enable_rbd_backend', false)
-  $enable_ceph = $cinder_enable_rbd_backend
+  $enable_ceph = hiera('ceph_storage_count', 0) > 0
 
   if $enable_ceph {
     class { 'ceph::profile::params':
@@ -463,8 +462,11 @@ MYSQL_HOST=localhost\n",
       } -> Class['ceph::profile::osd']
     }
 
-    include ::ceph::profile::client
     include ::ceph::profile::osd
+  }
+
+  if str2bool(hiera('enable_external_ceph', 'false')) {
+    include ::ceph::profile::client
   }
 
 
@@ -643,9 +645,14 @@ if hiera('step') >= 3 {
 
     $ceph_pools = hiera('ceph_pools')
     ceph::pool { $ceph_pools : }
+
+    $cinder_pool_requires = [Ceph::Pool['volumes']]
+
+  } else {
+    $cinder_pool_requires = []
   }
 
-  if $cinder_enable_rbd_backend {
+  if hiera('cinder_enable_rbd_backend', false) {
     $cinder_rbd_backend = 'tripleo_ceph'
 
     cinder_config {
@@ -656,7 +663,7 @@ if hiera('step') >= 3 {
       rbd_pool        => 'volumes',
       rbd_user        => 'openstack',
       rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
-      require         => Ceph::Pool['volumes'],
+      require         => $cinder_pool_requires,
     }
   }
 
