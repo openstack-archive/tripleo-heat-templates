@@ -61,6 +61,17 @@ if $nova_enable_rbd_backend {
   }
 }
 
+if hiera('cinder_enable_nfs_backend', false) {
+  if ($::selinux != "false") {
+    selboolean { 'virt_use_nfs':
+        value => on,
+        persistent => true,
+    } -> Package['nfs-utils']
+  }
+
+  package {'nfs-utils': } -> Service['nova-compute']
+}
+
 include ::nova::compute::libvirt
 include ::nova::network::neutron
 include ::neutron
