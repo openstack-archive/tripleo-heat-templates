@@ -32,3 +32,5 @@ if count(hiera('ntp::servers')) > 0 {
 
 include ::ceph::profile::client
 include ::ceph::profile::osd
+
+hiera_include('ceph_classes')
