@@ -51,7 +51,7 @@ nova_config {
   'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
 }
 
-$nova_enable_rbd_backend = hiera('nova_enable_rbd_backend', false)
+$nova_enable_rbd_backend = hiera('nova::compute::rbd::ephemeral_storage', false)
 if $nova_enable_rbd_backend {
   include ::ceph::profile::client
 
