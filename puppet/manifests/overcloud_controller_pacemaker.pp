@@ -269,22 +269,6 @@ if hiera('step') >= 2 {
           ip_address => $redis_vip,
         }
     }
-    pacemaker::constraint::base { 'redis-master-then-vip-redis':
-      constraint_type => 'order',
-      first_resource  => 'redis-master',
-      second_resource => "ip-${redis_vip}",
-      first_action    => 'promote',
-      second_action   => 'start',
-      require => [Pacemaker::Resource::Ocf['redis'],
-                  Pacemaker::Resource::Ip['vip-redis']],
-    }
-    pacemaker::constraint::colocation { 'vip-redis-with-redis-master':
-      source  => "ip-${redis_vip}",
-      target  => 'redis-master',
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Ocf['redis'],
-                  Pacemaker::Resource::Ip['vip-redis']],
-    }
 
   }
 
@@ -1238,15 +1222,6 @@ if hiera('step') >= 4 {
         require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                             Pacemaker::Resource::Service[$::mongodb::params::service_name]],
       }
-    }
-    pacemaker::constraint::base { 'vip-redis-then-ceilometer-central':
-      constraint_type => 'order',
-      first_resource  => "ip-${redis_vip}",
-      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                  Pacemaker::Resource::Ip['vip-redis']],
     }
 
     # Heat
