@@ -1,6 +1,11 @@
 This directory contains Heat templates to help configure
 Vlans on a single NICs for each Overcloud role.
 
+There are two versions of the controller role template, one with
+an external network interface, and another without. If the
+external network interface is not configured the ctlplane address
+ranges will be used for external (public) network traffic.
+
 Configuration
 -------------
 
@@ -17,3 +22,10 @@ something like this:
 Or use this Heat environment file:
 
   environments/net-single-nic-with-vlans.yaml
+
+
+Configuration with no External Network
+--------------------------------------
+Same as above except set the following value for the controller role:
+
+    OS::TripleO::Controller::Net::SoftwareConfig: network/config/single-nic-vlans/controller-no-external.yaml
