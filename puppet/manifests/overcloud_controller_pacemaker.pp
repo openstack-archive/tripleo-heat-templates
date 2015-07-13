@@ -494,6 +494,20 @@ MYSQL_HOST=localhost\n",
   }
 
   if str2bool(hiera('enable_ceph_storage', 'false')) {
+    if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
+      exec { 'set selinux to permissive on boot':
+        command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
+        onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
+        path    => ["/usr/bin", "/usr/sbin"],
+      }
+
+      exec { 'set selinux to permissive':
+        command => "setenforce 0",
+        onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
+        path    => ["/usr/bin", "/usr/sbin"],
+      } -> Class['ceph::profile::osd']
+    }
+
     include ::ceph::profile::client
     include ::ceph::profile::osd
   }
