@@ -948,12 +948,7 @@ if hiera('step') >= 4 {
     # as soon as neutron-server is started; to avoid races we want to make this
     # happen only on one node, before normal Pacemaker initialization
     # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
-    exec { 'neutron-server-start-wait-stop' :
-      command   => "systemctl start neutron-server && \
-                    sleep 5s && \
-                    systemctl stop neutron-server",
-      path      => ["/usr/bin", "/usr/sbin"],
-    } ->
+    exec { '/usr/bin/systemctl start neutron-server && /usr/bin/sleep 5' : } ->
     pacemaker::resource::service { $::neutron::params::server_service:
       op_params => "start timeout=90",
       clone_params   => "interleave=true",
