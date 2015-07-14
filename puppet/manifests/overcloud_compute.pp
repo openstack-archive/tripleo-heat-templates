@@ -78,6 +78,14 @@ class { 'neutron::agents::ml2::ovs':
   tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
 }
 
+if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+  class { 'neutron::agents::n1kv_vem':
+    n1kv_source          => hiera('n1kv_vem_source', undef),
+    n1kv_version         => hiera('n1kv_vem_version', undef),
+  }
+}
+
+
 include ::ceilometer
 include ::ceilometer::agent::compute
 include ::ceilometer::agent::auth

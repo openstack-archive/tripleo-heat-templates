@@ -617,6 +617,19 @@ if hiera('step') >= 3 {
     include ::neutron::plugins::ml2::cisco::nexus
     include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
   }
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    include neutron::plugins::ml2::cisco::nexus1000v
+
+    class { 'neutron::agents::n1kv_vem':
+      n1kv_source          => hiera('n1kv_vem_source', undef),
+      n1kv_version         => hiera('n1kv_vem_version', undef),
+    }
+
+    class { 'n1k_vsm':
+      n1kv_source       => hiera('n1kv_vsm_source', undef),
+      n1kv_version      => hiera('n1kv_vsm_version', undef),
+    }
+  }
 
   if hiera('neutron_enable_bigswitch_ml2', false) {
     include neutron::plugins::ml2::bigswitch::restproxy
@@ -859,6 +872,12 @@ if hiera('step') >= 3 {
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
   include ::apache
   include ::apache::mod::status
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    $_profile_support = 'cisco'
+  } else {
+    $_profile_support = 'None'
+  }
+  $neutron_options   = {'profile_support' => $_profile_support }
   $vhost_params = {
     add_listen => false,
     priority   => 10,
@@ -867,6 +886,7 @@ if hiera('step') >= 3 {
     cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
     vhost_extra_params => $vhost_params,
     server_aliases     => $::hostname,
+    neutron_options    => $neutron_options,
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
@@ -1482,6 +1502,30 @@ if hiera('step') >= 4 {
         clone_params => "interleave=true",
     }
 
+    #VSM
+    if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+      pacemaker::resource::ocf { 'vsm-p' :
+        ocf_agent_name  => 'heartbeat:VirtualDomain',
+        resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_primary_deploy.xml',
+        require         => Class['n1k_vsm'],
+        meta_params     => 'resource-stickiness=INFINITY',
+      }
+      if str2bool(hiera('n1k_vsm::pacemaker_control', 'true')) {
+        pacemaker::resource::ocf { 'vsm-s' :
+          ocf_agent_name  => 'heartbeat:VirtualDomain',
+          resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_secondary_deploy.xml',
+          require         => Class['n1k_vsm'],
+          meta_params     => 'resource-stickiness=INFINITY',
+        }
+        pacemaker::constraint::colocation { 'vsm-colocation-contraint':
+          source  => "vsm-p",
+          target  => "vsm-s",
+          score   => "-INFINITY",
+          require => [Pacemaker::Resource::Ocf['vsm-p'],
+                      Pacemaker::Resource::Ocf['vsm-s']],
+        }
+      }
+    }
 
   }
 

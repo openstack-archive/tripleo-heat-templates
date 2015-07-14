@@ -245,6 +245,20 @@ if hiera('step') >= 3 {
     bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
     tunnel_types => split(hiera('neutron_tunnel_types'), ','),
   }
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    include neutron::plugins::ml2::cisco::nexus1000v
+
+    class { 'neutron::agents::n1kv_vem':
+      n1kv_source          => hiera('n1kv_vem_source', undef),
+      n1kv_version         => hiera('n1kv_vem_version', undef),
+    }
+
+    class { 'n1k_vsm':
+      n1kv_source       => hiera('n1kv_vsm_source', undef),
+      n1kv_version      => hiera('n1kv_vsm_version', undef),
+      pacemaker_control => false,
+    }
+  }
 
   if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
     include ::neutron::plugins::ml2::cisco::ucsm
@@ -439,10 +453,17 @@ if hiera('step') >= 3 {
   include ::heat::engine
 
   # Horizon
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    $_profile_support = 'cisco'
+  } else {
+    $_profile_support = 'None'
+  }
+  $neutron_options   = {'profile_support' => $_profile_support }
   $vhost_params = { add_listen => false }
   class { 'horizon':
     cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
     vhost_extra_params => $vhost_params,
+    neutron_options    => $neutron_options,
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
