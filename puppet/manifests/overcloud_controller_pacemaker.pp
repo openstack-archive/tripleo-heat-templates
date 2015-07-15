@@ -974,10 +974,6 @@ if hiera('step') >= 4 {
       ocf_agent_name => "neutron:NetnsCleanup",
       clone_params => "interleave=true",
     }
-    pacemaker::resource::ocf { 'neutron-scale':
-      ocf_agent_name => "neutron:NeutronScale",
-      clone_params => "globally-unique=true clone-max=3 interleave=true",
-    }
     pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
       constraint_type => "order",
       first_resource => "${::keystone::params::service_name}-clone",
@@ -987,29 +983,13 @@ if hiera('step') >= 4 {
       require => [Pacemaker::Resource::Service[$::keystone::params::service_name],
                   Pacemaker::Resource::Service[$::neutron::params::server_service]],
     }
-    pacemaker::constraint::base { 'neutron-server-to-neutron-scale-constraint':
+    pacemaker::constraint::base { 'neutron-server-to-neutron-ovs-cleanup-constraint':
       constraint_type => "order",
       first_resource => "${::neutron::params::server_service}-clone",
-      second_resource => "neutron-scale-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::neutron::params::server_service],
-                  Pacemaker::Resource::Ocf['neutron-scale']],
-    }
-    pacemaker::constraint::base { 'neutron-scale-to-ovs-cleanup-constraint':
-      constraint_type => "order",
-      first_resource => "neutron-scale-clone",
       second_resource => "${::neutron::params::ovs_cleanup_service}-clone",
       first_action => "start",
       second_action => "start",
-      require => [Pacemaker::Resource::Ocf['neutron-scale'],
-                  Pacemaker::Resource::Ocf["${::neutron::params::ovs_cleanup_service}"]],
-    }
-    pacemaker::constraint::colocation { 'neutron-scale-to-ovs-cleanup-colocation':
-      source => "${::neutron::params::ovs_cleanup_service}-clone",
-      target => "neutron-scale-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Ocf['neutron-scale'],
+      require => [Pacemaker::Resource::Service[$::neutron::params::server_service],
                   Pacemaker::Resource::Ocf["${::neutron::params::ovs_cleanup_service}"]],
     }
     pacemaker::constraint::base { 'neutron-ovs-cleanup-to-netns-cleanup-constraint':
