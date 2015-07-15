@@ -74,6 +74,13 @@ if hiera('step') >= 1 {
     Class['tripleo::fencing'] -> Class['pacemaker::stonith']
   }
 
+  # FIXME(gfidente): sets 90secs as default start timeout op
+  # param; until we can use pcmk global defaults we'll still
+  # need to add it to every resource which redefines op params
+  Pacemaker::Resource::Service {
+    op_params => 'start timeout=90s',
+  }
+
   # Only configure RabbitMQ in this step, don't start it yet to
   # avoid races where non-master nodes attempt to start without
   # config (eg. binding on 0.0.0.0)
@@ -1087,24 +1094,24 @@ if hiera('step') >= 4 {
     # Nova
     pacemaker::resource::service { $::nova::params::api_service_name :
       clone_params    => "interleave=true",
-      op_params       => "monitor start-delay=10s",
+      op_params       => "start timeout=90s monitor start-delay=10s",
     }
     pacemaker::resource::service { $::nova::params::conductor_service_name :
       clone_params    => "interleave=true",
-      op_params       => "monitor start-delay=10s",
+      op_params       => "start timeout=90s monitor start-delay=10s",
     }
     pacemaker::resource::service { $::nova::params::consoleauth_service_name :
       clone_params    => "interleave=true",
-      op_params       => "monitor start-delay=10s",
+      op_params       => "start timeout=90s monitor start-delay=10s",
       require         => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
       clone_params    => "interleave=true",
-      op_params       => "monitor start-delay=10s",
+      op_params       => "start timeout=90s monitor start-delay=10s",
     }
     pacemaker::resource::service { $::nova::params::scheduler_service_name :
       clone_params    => "interleave=true",
-      op_params       => "monitor start-delay=10s",
+      op_params       => "start timeout=90s monitor start-delay=10s",
     }
 
     pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
