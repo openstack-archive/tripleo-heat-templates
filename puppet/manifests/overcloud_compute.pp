@@ -44,6 +44,7 @@ exec { 'libvirt-default-net-destroy':
 }
 
 include ::nova
+include ::nova::config
 include ::nova::compute
 
 nova_config {
