@@ -625,7 +625,7 @@ if hiera('step') >= 3 {
     tenant_network_types => [hiera('neutron_tenant_network_type')],
   }
   class { 'neutron::agents::ml2::ovs':
-    # manage_service   => false # not implemented
+    manage_service   => false,
     enabled          => false,
     bridge_mappings  => split(hiera('neutron_bridge_mappings'), ','),
     tunnel_types     => split(hiera('neutron_tunnel_types'), ','),
