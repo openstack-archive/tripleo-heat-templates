@@ -89,65 +89,14 @@ if hiera('step') >= 2 {
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
-  # Example DSN format: mysql://user:password@host/dbname
-  $allowed_hosts = ['%',hiera('mysql_bind_host')]
-  $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
-  class { 'keystone::db::mysql':
-    user          => $keystone_dsn[3],
-    password      => $keystone_dsn[4],
-    host          => $keystone_dsn[5],
-    dbname        => $keystone_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $glance_dsn = split(hiera('glance::api::database_connection'), '[@:/?]')
-  class { 'glance::db::mysql':
-    user          => $glance_dsn[3],
-    password      => $glance_dsn[4],
-    host          => $glance_dsn[5],
-    dbname        => $glance_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $nova_dsn = split(hiera('nova::database_connection'), '[@:/?]')
-  class { 'nova::db::mysql':
-    user          => $nova_dsn[3],
-    password      => $nova_dsn[4],
-    host          => $nova_dsn[5],
-    dbname        => $nova_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $neutron_dsn = split(hiera('neutron::server::database_connection'), '[@:/?]')
-  class { 'neutron::db::mysql':
-    user          => $neutron_dsn[3],
-    password      => $neutron_dsn[4],
-    host          => $neutron_dsn[5],
-    dbname        => $neutron_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $cinder_dsn = split(hiera('cinder::database_connection'), '[@:/?]')
-  class { 'cinder::db::mysql':
-    user          => $cinder_dsn[3],
-    password      => $cinder_dsn[4],
-    host          => $cinder_dsn[5],
-    dbname        => $cinder_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
-  $heat_dsn = split(hiera('heat::database_connection'), '[@:/?]')
-  class { 'heat::db::mysql':
-    user          => $heat_dsn[3],
-    password      => $heat_dsn[4],
-    host          => $heat_dsn[5],
-    dbname        => $heat_dsn[6],
-    allowed_hosts => $allowed_hosts,
-  }
+  include ::keystone::db::mysql
+  include ::glance::db::mysql
+  include ::nova::db::mysql
+  include ::neutron::db::mysql
+  include ::cinder::db::mysql
+  include ::heat::db::mysql
   if downcase(hiera('ceilometer_backend')) == 'mysql' {
-    $ceilometer_dsn = split(hiera('ceilometer_mysql_conn_string'), '[@:/?]')
-    class { 'ceilometer::db::mysql':
-      user          => $ceilometer_dsn[3],
-      password      => $ceilometer_dsn[4],
-      host          => $ceilometer_dsn[5],
-      dbname        => $ceilometer_dsn[6],
-      allowed_hosts => $allowed_hosts,
-    }
+    include ::ceilometer::db::mysql
   }
 
   $rabbit_nodes = hiera('rabbit_node_ips')

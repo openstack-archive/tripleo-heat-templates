@@ -400,71 +400,28 @@ MYSQL_HOST=localhost\n",
   }
 
   # Create all the database schemas
-  # Example DSN format: mysql://user:password@host/dbname
   if $sync_db {
-    $allowed_hosts = ['%',hiera('mysql_bind_host')]
-    $keystone_dsn = split(hiera('keystone::database_connection'), '[@:/?]')
     class { 'keystone::db::mysql':
-      user          => $keystone_dsn[3],
-      password      => $keystone_dsn[4],
-      host          => $keystone_dsn[5],
-      dbname        => $keystone_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
-    $glance_dsn = split(hiera('glance::api::database_connection'), '[@:/?]')
     class { 'glance::db::mysql':
-      user          => $glance_dsn[3],
-      password      => $glance_dsn[4],
-      host          => $glance_dsn[5],
-      dbname        => $glance_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
-    $nova_dsn = split(hiera('nova::database_connection'), '[@:/?]')
     class { 'nova::db::mysql':
-      user          => $nova_dsn[3],
-      password      => $nova_dsn[4],
-      host          => $nova_dsn[5],
-      dbname        => $nova_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
-    $neutron_dsn = split(hiera('neutron::server::database_connection'), '[@:/?]')
     class { 'neutron::db::mysql':
-      user          => $neutron_dsn[3],
-      password      => $neutron_dsn[4],
-      host          => $neutron_dsn[5],
-      dbname        => $neutron_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
-    $cinder_dsn = split(hiera('cinder::database_connection'), '[@:/?]')
     class { 'cinder::db::mysql':
-      user          => $cinder_dsn[3],
-      password      => $cinder_dsn[4],
-      host          => $cinder_dsn[5],
-      dbname        => $cinder_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
-    $heat_dsn = split(hiera('heat::database_connection'), '[@:/?]')
     class { 'heat::db::mysql':
-      user          => $heat_dsn[3],
-      password      => $heat_dsn[4],
-      host          => $heat_dsn[5],
-      dbname        => $heat_dsn[6],
-      allowed_hosts => $allowed_hosts,
       require       => Exec['galera-ready'],
     }
+
     if downcase(hiera('ceilometer_backend')) == 'mysql' {
-      $ceilometer_dsn = split(hiera('ceilometer_mysql_conn_string'), '[@:/?]')
       class { 'ceilometer::db::mysql':
-        user          => $ceilometer_dsn[3],
-        password      => $ceilometer_dsn[4],
-        host          => $ceilometer_dsn[5],
-        dbname        => $ceilometer_dsn[6],
-        allowed_hosts => $allowed_hosts,
         require       => Exec['galera-ready'],
       }
     }
