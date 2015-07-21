@@ -567,6 +567,8 @@ if hiera('step') >= 3 {
     memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
   }
 
+  include ::nova::config
+
   class { '::nova::api' :
     sync_db => $sync_db,
     manage_service => false,
