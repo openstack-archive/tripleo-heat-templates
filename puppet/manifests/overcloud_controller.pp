@@ -451,3 +451,7 @@ if hiera('step') >= 3 {
   hiera_include('controller_classes')
 
 } #END STEP 3
+
+if hiera('step') >= 4 {
+  include ::keystone::cron::token_flush
+} #END STEP 4

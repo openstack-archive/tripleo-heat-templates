@@ -866,6 +866,8 @@ if hiera('step') >= 3 {
 } #END STEP 3
 
 if hiera('step') >= 4 {
+  include ::keystone::cron::token_flush
+
   if $pacemaker_master {
 
     # Keystone
