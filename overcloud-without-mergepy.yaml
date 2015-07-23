@@ -196,11 +196,6 @@ parameters:
         Control the IP allocation for the PublicVirtualInterface port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
-  PublicVirtualNetwork:
-    default: 'ctlplane'
-    type: string
-    description: >
-        Neutron network to allocate public virtual IP port on.
   RabbitCookieSalt:
     type: string
     default: unset
@@ -774,7 +769,7 @@ resources:
           SwiftPassword: {get_param: SwiftPassword}
           SwiftReplicas: { get_param: SwiftReplicas}
           VirtualIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]} # deprecated. Use per service VIP settings instead now.
-          PublicVirtualIP: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]} # deprecated. Use per service VIP settings instead now.
+          PublicVirtualIP: {get_attr: [PublicVirtualIP, ip_address]}
           ServiceNetMap: {get_param: ServiceNetMap}
           HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
           GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
@@ -834,7 +829,7 @@ resources:
           NovaComputeExtraConfig: {get_param: NovaComputeExtraConfig}
           NovaComputeLibvirtType: {get_param: NovaComputeLibvirtType}
           NovaEnableRbdBackend: {get_param: NovaEnableRbdBackend}
-          NovaPublicIP: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+          NovaPublicIP: {get_attr: [PublicVirtualIP, ip_address]}
           NovaPassword: {get_param: NovaPassword}
           NtpServer: {get_param: NtpServer}
           RabbitHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
@@ -1012,15 +1007,15 @@ resources:
       PortName: redis_virtual_ip
       NetworkName: {get_param: [ServiceNetMap, RedisNetwork]}
 
-  # same as external
+  # The public VIP is on the External net, falls back to ctlplane
   PublicVirtualIP:
-    type: OS::Neutron::Port
     depends_on: Networks
+    type: OS::TripleO::Controller::Ports::ExternalPort
     properties:
-      name: public_virtual_ip
-      network: {get_param: PublicVirtualNetwork}
-      fixed_ips: {get_param: PublicVirtualFixedIPs}
-      replacement_policy: AUTO
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
+      PortName: public_virtual_ip
+      FixedIPs: {get_param: PublicVirtualFixedIPs}
 
   InternalApiVirtualIP:
     depends_on: Networks
@@ -1046,7 +1041,7 @@ resources:
   VipMap:
     type: OS::TripleO::Network::Ports::NetIpMap
     properties:
-      ExternalIp: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+      ExternalIp: {get_attr: [PublicVirtualIP, ip_address]}
       InternalApiIp: {get_attr: [InternalApiVirtualIP, ip_address]}
       StorageIp: {get_attr: [StorageVirtualIP, ip_address]}
       StorageMgmtIp: {get_attr: [StorageMgmtVirtualIP, ip_address]}
@@ -1079,7 +1074,7 @@ resources:
         rabbit_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
         # direct configuration of Virtual IPs for each network
         control_virtual_ip: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-        public_virtual_ip: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+        public_virtual_ip: {get_attr: [PublicVirtualIP, ip_address]}
         internal_api_virtual_ip: {get_attr: [InternalApiVirtualIP, ip_address]}
         storage_virtual_ip: {get_attr: [StorageVirtualIP, ip_address]}
         storage_mgmt_virtual_ip: {get_attr: [StorageMgmtVirtualIP, ip_address]}
@@ -1238,11 +1233,11 @@ outputs:
       list_join:
       - ''
       - - http://
-        - {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+        - {get_attr: [PublicVirtualIP, ip_address]}
         - :5000/v2.0/
   PublicVip:
     description: Controller VIP for public API endpoints
-    value: {get_attr: [PublicVirtualIP, fixed_ips, 0, ip_address]}
+    value: {get_attr: [PublicVirtualIP, ip_address]}
   CeilometerInternalVip:
     description: VIP for Ceilometer API internal endpoint
     value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
