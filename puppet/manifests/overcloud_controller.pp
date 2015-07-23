@@ -244,7 +244,9 @@ if hiera('step') >= 3 {
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
 
-  include ::nova
+  class { '::nova' :
+    memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
+  }
   include ::nova::api
   include ::nova::cert
   include ::nova::conductor

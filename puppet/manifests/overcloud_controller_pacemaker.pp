@@ -563,7 +563,9 @@ if hiera('step') >= 3 {
   }
   include join(['::glance::backend::', $glance_backend])
 
-  include ::nova
+  class { '::nova' :
+    memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
+  }
 
   class { '::nova::api' :
     sync_db => $sync_db,
