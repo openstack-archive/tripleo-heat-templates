@@ -365,7 +365,25 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend])
+  if hiera('cinder_enable_nfs_backend', false) {
+    $cinder_nfs_backend = 'tripleo_nfs'
+
+    if ($::selinux != "false") {
+      selboolean { 'virt_use_nfs':
+          value => on,
+          persistent => true,
+      } -> Package['nfs-utils']
+    }
+
+    package {'nfs-utils': } ->
+    cinder::backend::nfs { $cinder_nfs_backend :
+      nfs_servers         => hiera('cinder_nfs_servers'),
+      nfs_mount_options   => hiera('cinder_nfs_mount_options'),
+      nfs_shares_config   => '/etc/cinder/shares-nfs.conf',
+    }
+  }
+
+  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend, $cinder_nfs_backend])
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
