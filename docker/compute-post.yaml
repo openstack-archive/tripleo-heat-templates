@@ -1,0 +1,228 @@
+heat_template_version: 2015-04-30
+
+description: >
+  OpenStack compute node post deployment for Docker.
+
+parameters:
+  servers:
+    type: json
+  NodeConfigIdentifiers:
+     type: json
+     description: Value which changes if the node configuration may need to be re-applied
+  DockerComputeImage:
+    type: string
+  DockerComputeDataImage:
+    type: string
+  DockerLibvirtImage:
+    type: string
+  DockerNeutronAgentImage:
+    type: string
+  DockerOpenvswitchImage:
+    type: string
+  DockerOvsVswitchdImage:
+    type: string
+  DockerOpenvswitchDBImage:
+    type: string
+
+resources:
+
+  ComputePuppetConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      options:
+        enable_hiera: True
+        enable_facter: False
+        tags: package,file,concat,file_line,nova_config,neutron_config,neutron_agent_ovs,neutron_plugin_ml2
+      inputs:
+      - name: tripleo::packages::enable_install
+        type: Boolean
+        default: True
+      outputs:
+      - name: result
+      config:
+        get_file: ../puppet/manifests/overcloud_compute.pp
+
+  ComputePuppetDeployment:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: servers}
+      config: {get_resource: ComputePuppetConfig}
+      input_values:
+        update_identifier: {get_param: NodeConfigIdentifiers}
+        tripleo::packages::enable_install: True
+
+  CopyEtcConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: result
+      config: {get_file: ./copy-etc.sh}
+
+  CopyEtcDeployment:
+    type: OS::Heat::SoftwareDeployments
+    depends_on: ComputePuppetDeployment
+    properties:
+      config: {get_resource: CopyEtcConfig}
+      servers:  {get_param: servers}
+
+  NovaComputeContainersDeploymentOVS:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: NovaComputeContainersConfigOVS}
+      servers: {get_param: servers}
+
+  NovaComputeContainersConfigOVS:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: docker-compose
+      config:
+        ovsvswitchd:
+          image: {get_param: DockerOvsVswitchdImage}
+          container_name: ovs-vswitchd
+          net: host
+          privileged: true
+          restart: always
+          volumes:
+           - /run:/run
+           - /lib/modules:/lib/modules:ro
+          environment:
+           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+
+        openvswitchdb:
+          image: {get_param: DockerOpenvswitchDBImage}
+          container_name: ovs-db-server
+          net: host
+          restart: always
+          volumes:
+           - /run:/run
+          environment:
+           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+
+  NovaComputeContainersDeploymentNetconfig:
+    type: OS::Heat::SoftwareDeployments
+    depends_on: NovaComputeContainersDeploymentOVS
+    properties:
+      config: {get_resource: NovaComputeContainersConfigNetconfig}
+      servers: {get_param: servers}
+
+  # We run os-net-config here because we depend on the ovs containers to be up
+  # and running before we configure the network.  This allows explicit timing
+  # of the network configuration.
+  NovaComputeContainersConfigNetconfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: result
+      config: |
+        #!/bin/bash
+        /usr/local/bin/run-os-net-config
+
+  LibvirtContainersDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: [CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig]
+    properties:
+      config: {get_resource: LibvirtContainersConfig}
+      servers: {get_param: servers}
+
+  LibvirtContainersConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: docker-compose
+      config:
+        computedata:
+          image: {get_param: DockerComputeDataImage}
+          container_name: computedata
+
+        libvirt:
+          image: {get_param: DockerLibvirtImage}
+          container_name: libvirt
+          net: host
+          pid: host
+          privileged: true
+          restart: always
+          volumes:
+           - /run:/run
+           - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/libvirt/libvirtd.conf:/opt/kolla/libvirtd/libvirtd.conf
+           - /var/lib/nova/instances:/var/lib/nova/instances
+          environment:
+           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+          volumes_from:
+           - computedata
+
+  NovaComputeContainersDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: [CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig, LibvirtContainersDeployment]
+    properties:
+      config: {get_resource: NovaComputeContainersConfig}
+      servers: {get_param: servers}
+
+  NovaComputeContainersConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: docker-compose
+      config:
+        openvswitch:
+          image: {get_param: DockerOpenvswitchImage}
+          container_name: openvswitch
+          net: host
+          privileged: true
+          restart: always
+          volumes:
+           - /run:/run
+           - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/neutron/neutron.conf:/etc/kolla/neutron-openvswitch-agent/:ro
+           - /var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/etc/kolla/neutron-openvswitch-agent/:ro
+          environment:
+           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+          volumes_from:
+           - computedata
+           # FIXME: Kolla now uses a JSON model to run custom commands.  We rebuilt a custom container to read in KOLLA_COMMAND_ARGS
+
+        # FIXME: Here we're subjugating kolla's start scripts because we want our custom run command
+        neutronagent:
+          image: {get_param: DockerOpenvswitchImage}
+          container_name: neutronagent
+          net: host
+          pid: host
+          privileged: true
+          restart: always
+          volumes:
+           - /run:/run
+           - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/neutron/neutron.conf:/etc/neutron/neutron.conf:ro
+           - /var/lib/etc-data/neutron/plugins/ml2/openvswitch_agent.ini:/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini:ro
+          environment:
+           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+           # FIXME: Kolla now uses a JSON model to run custom commands.  We rebuilt a custom container to read in KOLLA_COMMAND_ARGS
+           - KOLLA_COMMAND_ARGS=--config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+          volumes_from:
+           - computedata
+
+        novacompute:
+          image: {get_param: DockerComputeImage}
+          container_name: novacompute
+          net: host
+          privileged: true
+          restart: always
+          volumes:
+           - /run:/run
+           - /sys/fs/cgroup:/sys/fs/cgroup
+           - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/:/etc/:ro
+           - /var/lib/nova/instances:/var/lib/nova/instances
+          volumes_from:
+           - computedata
+          # FIXME: this skips the kolla start.sh script and just starts Nova
+          # Ideally we'd have an environment that switched the kolla container
+          # to be externally configured.
+          command: /usr/bin/nova-compute
+
+  ExtraConfig:
+    depends_on: NovaComputeContainersDeployment
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: servers}
