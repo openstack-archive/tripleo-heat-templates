@@ -325,7 +325,7 @@ if hiera('step') >= 3 {
 
     cinder::backend::rbd { $cinder_rbd_backend :
       rbd_pool        => hiera('cinder_rbd_pool_name'),
-      rbd_user        => 'openstack',
+      rbd_user        => hiera('ceph_client_user_name'),
       rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
       require         => $cinder_pool_requires,
     }
