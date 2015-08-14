@@ -173,6 +173,7 @@ if hiera('step') >= 3 {
   include ::keystone::config
   include ::keystone::roles::admin
   include ::keystone::endpoint
+  include ::keystone::wsgi::apache
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
 
