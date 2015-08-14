@@ -254,6 +254,16 @@ if hiera('step') >= 3 {
     include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
   }
 
+  if hiera('neutron_enable_bigswitch_ml2', false) {
+    include neutron::plugins::ml2::bigswitch::restproxy
+  }
+  neutron_l3_agent_config {
+    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+  }
+  neutron_dhcp_agent_config {
+    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+  }
+
   Service['neutron-server'] -> Service['neutron-dhcp-service']
   Service['neutron-server'] -> Service['neutron-l3']
   Service['neutron-server'] -> Service['neutron-ovs-agent-service']
