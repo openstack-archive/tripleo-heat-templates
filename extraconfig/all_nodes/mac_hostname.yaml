@@ -1,0 +1,116 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Example extra config for cluster config
+  this example collects the hostname and MAC addresses for each node in
+  the deployment, then distributes that info to all Controller nodes.
+
+# Parameters passed from the parent template - note if you maintain
+# out-of-tree templates they may require additional parameters if the
+# in-tree templates add a new role.
+parameters:
+  controller_servers:
+    type: json
+  compute_servers:
+    type: json
+  blockstorage_servers:
+    type: json
+  objectstorage_servers:
+    type: json
+  cephstorage_servers:
+    type: json
+# Note extra parameters can be defined, then passed data via the
+# environment parameter_defaults, without modifying the parent template
+
+resources:
+
+  CollectMacConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/sh
+        MACS=$(ifconfig  | grep ether | awk '{print $2}' | tr "\n" " ")
+        HOSTNAME=$(hostname -s)
+        echo "$HOSTNAME $MACS"
+
+  # FIXME(shardy): Long term it'd be better if Heat SoftwareDeployments accepted
+  # list instead of a map, then we could join the lists of servers into one
+  # deployment instead of requiring one deployment per-role.
+  CollectMacDeploymentsController:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: controller_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsCompute:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: compute_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsBlockStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: blockstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsObjectStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: objectstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsCephStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: cephstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  # Now we distribute all-the-macs to all nodes
+  DistributeMacConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: controller_mappings
+      - name: compute_mappings
+      - name: blockstorage_mappings
+      - name: objectstorage_mappings
+      - name: cephstorage_mappings
+      config: |
+        #!/bin/sh
+        echo $controller_mappings > /root/controller_mappings
+        echo $compute_mappings > /root/compute_mappings
+        echo $blockstorage_mappings > /root/blockstorage_mappings
+        echo $objectstorage_mappings > /root/objectstorage_mappings
+        echo $cephstorage_mappings > /root/cephstorage_mappings
+        echo "mappings = $(cat /root/*_mappings)"
+
+  DistributeMacDeploymentsController:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: controller_servers}
+      config: {get_resource: DistributeMacConfig}
+      input_values:
+        # FIXME(shardy): It'd be more convenient if we could join these
+        # items together but because the returned format is a map (not a list)
+        # we can't use list_join or str_replace.  Possible Heat TODO.
+        controller_mappings: {get_attr: [CollectMacDeploymentsController, deploy_stdouts]}
+        compute_mappings: {get_attr: [CollectMacDeploymentsCompute, deploy_stdouts]}
+        blockstorage_mappings: {get_attr: [CollectMacDeploymentsBlockStorage, deploy_stdouts]}
+        objectstorage_mappings: {get_attr: [CollectMacDeploymentsObjectStorage, deploy_stdouts]}
+        cephstorage_mappings: {get_attr: [CollectMacDeploymentsCephStorage, deploy_stdouts]}
+      actions: ['CREATE'] # Only do this on CREATE
+
+outputs:
+  # This value should change if the configuration data has changed
+  # It is used to e.g re-apply puppet after hieradata values change.
+  config_identifier:
+    value: {get_attr: [DistributeMacDeploymentsController, deploy_stdouts]}
+
