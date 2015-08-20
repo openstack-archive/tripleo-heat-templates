@@ -1,0 +1,56 @@
+heat_template_version: 2015-04-30
+
+description: Configure hieradata overrides for specific nodes
+
+parameters:
+  server:
+    description: ID of the controller node to apply this config to
+    type: string
+
+  # Config specific parameters, to be provided via parameter_defaults
+  # This would be a lookup of the node UUID as provided by dmidecode
+  # to the json required for the node-specific hieradata
+  # Note this needs to be a json blob e.g:
+  #      parameter_defaults:
+  #        NodeDataLookup: |
+  #          {"AB4114B1-9C9D-409A-BEFB-D88C151BF2C3": {"foo": "bar"},
+  #           "8CF1A7EA-7B4B-4433-AC83-17675514B1B8": {"foo2": "bar2"}}
+  NodeDataLookup:
+    type: string
+    default: ''
+    description: json string containing per-node configuration map
+
+resources:
+  NodeSpecificConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: node_lookup
+      config: |
+        #!/bin/sh
+        node_id=$(dmidecode --s system-uuid)
+
+        # Create a /etc/puppet/hieradata/UUID.json file to provide
+        # the data of the NodeDataLookup parameter that matches the
+        # system UUID
+        echo $node_lookup | python -c "
+        import json
+        import sys
+        input = sys.stdin.readline() or '{}'
+        cnt = json.loads(input)
+        print json.dumps(cnt.get('${node_id}', {}))
+        " > /etc/puppet/hieradata/${node_id}.json
+
+  NodeSpecificDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config: {get_resource: NodeSpecificConfig}
+      server: {get_param: server}
+      input_values:
+        node_lookup: {get_param: NodeDataLookup}
+
+outputs:
+  deploy_stdout:
+    description: Deployment reference, used to trigger puppet apply on changes
+    value: {get_attr: [NodeSpecificDeployment, deploy_stdout]}
