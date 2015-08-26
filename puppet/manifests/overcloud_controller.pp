@@ -101,6 +101,7 @@ if hiera('step') >= 2 {
   include ::neutron::db::mysql
   include ::cinder::db::mysql
   include ::heat::db::mysql
+  include ::sahara::db::mysql
   if downcase(hiera('ceilometer_backend')) == 'mysql' {
     include ::ceilometer::db::mysql
   }
@@ -540,6 +541,11 @@ if hiera('step') >= 3 {
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
   include ::heat::engine
+
+  # Sahara
+  include ::sahara
+  include ::sahara::service::api
+  include ::sahara::service::engine
 
   # Horizon
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
