@@ -218,6 +218,7 @@ if hiera('step') >= 3 {
   include ::nova::network::neutron
   include ::nova::vncproxy
   include ::nova::scheduler
+  include ::nova::scheduler::filter
 
   include ::neutron
   include ::neutron::server

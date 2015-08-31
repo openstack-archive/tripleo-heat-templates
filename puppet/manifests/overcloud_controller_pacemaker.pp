@@ -561,6 +561,7 @@ if hiera('step') >= 3 {
     manage_service => false,
     enabled => false,
   }
+  include ::nova::scheduler::filter
   class { '::nova::scheduler' :
     manage_service => false,
     enabled => false,
