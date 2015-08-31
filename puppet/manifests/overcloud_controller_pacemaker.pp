@@ -868,6 +868,43 @@ if hiera('step') >= 4 {
       clone_params => "interleave=true",
     }
 
+    pacemaker::constraint::base { 'haproxy-then-keystone-constraint':
+      constraint_type => 'order',
+      first_resource  => "haproxy-clone",
+      second_resource => "${::keystone::params::service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service['haproxy'],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+    pacemaker::constraint::base { 'rabbitmq-then-keystone-constraint':
+      constraint_type => 'order',
+      first_resource  => "rabbitmq-clone",
+      second_resource => "${::keystone::params::service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Ocf['rabbitmq'],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+    pacemaker::constraint::base { 'memcached-then-keystone-constraint':
+      constraint_type => 'order',
+      first_resource  => "memcached-clone",
+      second_resource => "${::keystone::params::service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service['memcached'],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+    pacemaker::constraint::base { 'galera-then-keystone-constraint':
+      constraint_type => 'order',
+      first_resource  => "galera-master",
+      second_resource => "${::keystone::params::service_name}-clone",
+      first_action    => 'promote',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Ocf['galera'],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
+    }
+
     # Cinder
     pacemaker::resource::service { $::cinder::params::api_service :
       clone_params => "interleave=true",
