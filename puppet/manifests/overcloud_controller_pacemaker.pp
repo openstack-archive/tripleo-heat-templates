@@ -177,6 +177,8 @@ if hiera('step') >= 2 {
 
   if $pacemaker_master {
 
+    include pacemaker::resource_defaults
+
     # FIXME: we should not have to access tripleo::loadbalancer class
     # parameters here to configure pacemaker VIPs. The configuration
     # of pacemaker VIPs could move into puppet-tripleo or we should
