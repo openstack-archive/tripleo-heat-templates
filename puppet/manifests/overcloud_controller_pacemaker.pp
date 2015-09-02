@@ -1134,24 +1134,22 @@ if hiera('step') >= 4 {
       require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
                   Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
     }
-    # FIXME(gfidente): novncproxy will not start unless websockify is updated to 0.6
-    # which is not the case for f20 nor f21; ucomment when it becomes available
-    #pacemaker::constraint::base { 'nova-vncproxy-then-nova-api-constraint':
-    #  constraint_type => "order",
-    #  first_resource  => "${::nova::params::vncproxy_service_name}-clone",
-    #  second_resource => "${::nova::params::api_service_name}-clone",
-    #  first_action    => "start",
-    #  second_action   => "start",
-    #  require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
-    #              Pacemaker::Resource::Service[$::nova::params::api_service_name]],
-    #}
-    #pacemaker::constraint::colocation { 'nova-api-with-nova-vncproxy-colocation':
-    #  source => "${::nova::params::api_service_name}-clone",
-    #  target => "${::nova::params::vncproxy_service_name}-clone",
-    #  score => "INFINITY",
-    #  require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
-    #              Pacemaker::Resource::Service[$::nova::params::api_service_name]],
-    #}
+    pacemaker::constraint::base { 'nova-vncproxy-then-nova-api-constraint':
+      constraint_type => "order",
+      first_resource  => "${::nova::params::vncproxy_service_name}-clone",
+      second_resource => "${::nova::params::api_service_name}-clone",
+      first_action    => "start",
+      second_action   => "start",
+      require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::api_service_name]],
+    }
+    pacemaker::constraint::colocation { 'nova-api-with-nova-vncproxy-colocation':
+      source => "${::nova::params::api_service_name}-clone",
+      target => "${::nova::params::vncproxy_service_name}-clone",
+      score => "INFINITY",
+      require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
+                  Pacemaker::Resource::Service[$::nova::params::api_service_name]],
+    }
     pacemaker::constraint::base { 'nova-api-then-nova-scheduler-constraint':
       constraint_type => "order",
       first_resource  => "${::nova::params::api_service_name}-clone",
