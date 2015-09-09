@@ -243,6 +243,14 @@ if hiera('step') >= 3 {
     tunnel_types => split(hiera('neutron_tunnel_types'), ','),
   }
 
+  if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
+    include ::neutron::plugins::ml2::cisco::ucsm
+  }
+  if 'cisco_nexus' in hiera('neutron_mechanism_drivers') {
+    include ::neutron::plugins::ml2::cisco::nexus
+    include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
+  }
+
   Service['neutron-server'] -> Service['neutron-dhcp-service']
   Service['neutron-server'] -> Service['neutron-l3']
   Service['neutron-server'] -> Service['neutron-ovs-agent-service']
