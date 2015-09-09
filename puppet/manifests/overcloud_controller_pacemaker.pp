@@ -655,10 +655,6 @@ if hiera('step') >= 3 {
   if hiera('cinder_enable_rbd_backend', false) {
     $cinder_rbd_backend = 'tripleo_ceph'
 
-    cinder_config {
-      "${cinder_rbd_backend}/host": value => 'hostgroup';
-    }
-
     cinder::backend::rbd { $cinder_rbd_backend :
       rbd_pool        => 'volumes',
       rbd_user        => 'openstack',
