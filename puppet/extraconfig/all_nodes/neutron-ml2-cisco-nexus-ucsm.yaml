@@ -1,0 +1,326 @@
+heat_template_version: 2015-04-30
+
+description: Configure hieradata for Network Cisco configuration
+
+parameters:
+  # Parameters passed from the parent template
+  controller_servers:
+    type: json
+  compute_servers:
+    type: json
+  blockstorage_servers:
+    type: json
+  objectstorage_servers:
+    type: json
+  cephstorage_servers:
+    type: json
+
+  # extra parameters passed via parameter_defaults
+  NetworkUCSMIp:
+    type: string
+    description: Cisco UCSM IP
+    default: 127.0.0.1
+  NetworkUCSMUsername:
+    type: string
+    description: Cisco UCSM username
+    default: admin
+  NetworkUCSMPassword:
+    type: string
+    description: Cisco UCSM password
+    default: password
+  NetworkUCSMHostList:
+    type: string
+    description: >
+      Mac address to service profile mapping for UCSM-controlled hosts
+      The format is
+      '<host1-mac>:<profile>, <host2-mac>:<profile>, ...'
+    default: ''
+  NetworkUCSMSupportedPciDevs:
+    type: string
+    description: Cisco UCSM SR-IOV and VM-FEX vendors supported
+    default: ''
+  NetworkNexusConfig:
+    type: json
+    description: Nexus switch configuration
+    default: {}
+  NetworkNexusManagedPhysicalNetwork:
+    type: string
+    description: The name of the physical_network
+    default: ''
+  NetworkNexusVlanNamePrefix:
+    type: string
+    description: A short prefix to prepend to the VLAN name
+    default: 'q-'
+  NetworkNexusSviRoundRobin:
+    type: boolean
+    description: A flag to enable round robin scheduling
+    default: false
+  NetworkNexusProviderVlanNamePrefix:
+    type: string
+    description:  A short prefix to prepend to the VLAN name
+    default: 'p-'
+  NetworkNexusPersistentSwitchConfig:
+    type: string
+    description: To make Nexus device persistent
+    default: false
+  NetworkNexusSwitchHeartbeatTime:
+    type: number
+    description: Time interval to check the state of the Nexus device
+    default: 0
+  NetworkNexusSwitchReplayCount:
+    type: number
+    description: Number of times to attempt config replay
+    default: 3
+  NetworkNexusProviderVlanAutoCreate:
+    type: boolean
+    description: A flag whether to manage the creation and removal of VLANs
+    default: true
+  NetworkNexusProviderVlanAutoTrunk:
+    type: boolean
+    description: A flag whether to manage the trunk ports on the Nexus
+    default: true
+  NetworkNexusVxlanGlobalConfig:
+    type: boolean
+    description: A flag whether to manage the VXLAN global settings
+    default: true
+  NetworkNexusHostKeyChecks:
+    type: boolean
+    description: enable strict host key checks when connecting to Nexus switches
+    default: false
+  NetworkNexusVxlanVniRanges:
+    type: string
+    description: VXLAN Network IDs that are available for tenant network
+    default: ''
+  NetworkNexusVxlanMcastRanges:
+    type: string
+    description: Multicast groups for the VXLAN interface.
+    default: ''
+
+
+resources:
+  # First we lay down the base configuration via the static hieradata mappings
+  NetworkCiscoConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        hiera:
+          datafiles:
+            neutron_cisco_data:
+              mapped_data:
+                neutron::plugins::ml2::cisco::ucsm::ucsm_ip: {get_input: UCSM_ip}
+                neutron::plugins::ml2::cisco::ucsm::ucsm_username: {get_input: UCSM_username}
+                neutron::plugins::ml2::cisco::ucsm::ucsm_password: {get_input: UCSM_password}
+                neutron::plugins::ml2::cisco::ucsm::ucsm_host_list: {get_input: UCSM_host_list}
+                neutron::plugins::ml2::cisco::ucsm::supported_pci_devs:  {get_input: UCSMSupportedPciDevs}
+                neutron::plugins::ml2::cisco::nexus::nexus_config: {get_input: NexusConfig}
+                neutron::plugins::ml2::cisco::nexus::managed_physical_network: {get_input: NexusManagedPhysicalNetwork}
+                neutron::plugins::ml2::cisco::nexus::vlan_name_prefix: {get_input: NexusVlanNamePrefix}
+                neutron::plugins::ml2::cisco::nexus::svi_round_robin: {get_input: NexusSviRoundRobin}
+                neutron::plugins::ml2::cisco::nexus::provider_vlan_name_prefix: {get_input: NexusProviderVlanNamePrefix}
+                neutron::plugins::ml2::cisco::nexus::persistent_switch_config: {get_input: NexusPersistentSwitchConfig}
+                neutron::plugins::ml2::cisco::nexus::switch_heartbeat_time: {get_input: NexusSwitchHeartbeatTime}
+                neutron::plugins::ml2::cisco::nexus::switch_replay_count: {get_input: NexusSwitchReplayCount}
+                neutron::plugins::ml2::cisco::nexus::provider_vlan_auto_create: {get_input: NexusProviderVlanAutoCreate}
+                neutron::plugins::ml2::cisco::nexus::provider_vlan_auto_trunk: {get_input: NexusProviderVlanAutoTrunk}
+                neutron::plugins::ml2::cisco::nexus::vxlan_global_config: {get_input: NexusVxlanGlobalConfig}
+                neutron::plugins::ml2::cisco::nexus::host_key_checks: {get_input: NexusHostKeyChecks}
+                neutron::plugins::ml2::cisco::type_nexus_vxlan::vni_ranges: {get_input: NexusVxlanVniRanges}
+                neutron::plugins::ml2::cisco::type_nexus_vxlan::mcast_ranges: {get_input: NexusVxlanMcastRanges}
+
+  NetworkCiscoDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: NetworkCiscoConfig}
+      servers:  {get_param: controller_servers}
+      input_values:
+        UCSM_ip: {get_param: NetworkUCSMIp}
+        UCSM_username: {get_param: NetworkUCSMUsername}
+        UCSM_password: {get_param: NetworkUCSMPassword}
+        UCSM_host_list: {get_attr: [MappingToUCSMDeploymentsController, deploy_stdout]}
+        UCSMSupportedPciDevs: {get_param: NetworkUCSMSupportedPciDevs}
+        NexusConfig: {get_attr: [MappingToNexusDeploymentsController, deploy_stdout]}
+        NexusManagedPhysicalNetwork: {get_param: NetworkNexusManagedPhysicalNetwork}
+        NexusVlanNamePrefix: {get_param: NetworkNexusVlanNamePrefix}
+        NexusSviRoundRobin: {get_param: NetworkNexusSviRoundRobin}
+        NexusProviderVlanNamePrefix: {get_param: NetworkNexusProviderVlanNamePrefix}
+        NexusPersistentSwitchConfig: {get_param: NetworkNexusPersistentSwitchConfig}
+        NexusSwitchHeartbeatTime: {get_param: NetworkNexusSwitchHeartbeatTime}
+        NexusSwitchReplayCount: {get_param: NetworkNexusSwitchReplayCount}
+        NexusProviderVlanAutoCreate: {get_param: NetworkNexusProviderVlanAutoCreate}
+        NexusProviderVlanAutoTrunk: {get_param: NetworkNexusProviderVlanAutoTrunk}
+        NexusVxlanGlobalConfig: {get_param: NetworkNexusVxlanGlobalConfig}
+        NexusHostKeyChecks: {get_param: NetworkNexusHostKeyChecks}
+        NexusVxlanVniRanges: {get_param: NetworkNexusVxlanVniRanges}
+        NexusVxlanMcastRanges: {get_param: NetworkNexusVxlanMcastRanges}
+
+  # Now we collect the Mac->Hostname mappings for all nodes, which enables
+  # calculation of the neutron::plugins::ml2::cisco::nexus::nexus_config data
+  CollectMacConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/sh
+        MACS=$(ifconfig  | grep ether | awk '{print $2}' | tr "\n" " ")
+        HOSTNAME=$(hostname -f)
+        echo "$HOSTNAME $MACS"
+
+  CollectMacDeploymentsController:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: controller_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsCompute:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: compute_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsBlockStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: blockstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsObjectStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: objectstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  CollectMacDeploymentsCephStorage:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers:  {get_param: cephstorage_servers}
+      config: {get_resource: CollectMacConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  # Now we calculate the additional nexus config based on the mappings
+  MappingToNexusConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: controller_mappings
+      - name: compute_mappings
+      - name: blockstorage_mappings
+      - name: objectstorage_mappings
+      - name: cephstorage_mappings
+      - name: nexus_config
+      config: |
+        #!/bin/python
+        import ast
+        import json
+        import os
+        from copy import deepcopy
+
+        mappings = ['controller_mappings',
+                    'compute_mappings',
+                    'blockstorage_mappings',
+                    'objectstorage_mappings',
+                    'cephstorage_mappings',
+                    'nexus_config']
+        mapdict_list = []
+        nexus = {}
+        for map_name in mappings:
+          f_name = '/root/' + map_name
+          map_data = os.getenv(map_name, "Nada")
+          with open(f_name, 'a') as f:
+            f.write(map_data)
+          if map_data is not "Nada":
+            if map_name is not 'nexus_config':
+              mapdict_list.append(ast.literal_eval(map_data))
+            else:
+              nexus = ast.literal_eval(map_data)
+
+        mac2host = {}
+        for mapdict in mapdict_list:
+          for (listnum, host2mac_list) in mapdict.iteritems():
+            vals = host2mac_list.rstrip().split()
+            for mac in vals[1:]:
+              mac2host[mac.lower()] = vals[0]
+
+        with open('/root/mac2host', 'a') as f:
+          f.write(str(mac2host))
+
+        # now we have mac to host, map host to switchport in hieradata
+        # nexus = ast.literal_eval(os.getenv('nexus_config', None))
+        nexus_cp = deepcopy(nexus)
+        for nexus_switch in nexus:
+          for (mac,swport) in nexus[nexus_switch]['servers'].iteritems():
+            lmac=mac.lower()
+            if lmac in mac2host:
+              if mac2host[lmac] in nexus_cp[nexus_switch]['servers']:
+                cur_swports = nexus_cp[nexus_switch]['servers'][mac2host[lmac]]
+                nexus_cp[nexus_switch]['servers'][mac2host[lmac]] = cur_swports + ',' + swport
+              else:
+                nexus_cp[nexus_switch]['servers'][mac2host[lmac]] = swport
+            del nexus_cp[nexus_switch]['servers'][mac]
+        # Note this echo means you can view the data via heat deployment-show
+        print json.dumps(nexus_cp)
+
+  MappingToNexusDeploymentsController:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      server:  {get_param: [controller_servers, '0']}
+      config: {get_resource: MappingToNexusConfig}
+      input_values:
+        # FIXME(shardy): It'd be more convenient if we could join these
+        # items together but because the returned format is a map (not a list)
+        # we can't use list_join or str_replace.  Possible Heat TODO.
+        controller_mappings: {get_attr: [CollectMacDeploymentsController, deploy_stdouts]}
+        compute_mappings: {get_attr: [CollectMacDeploymentsCompute, deploy_stdouts]}
+        blockstorage_mappings: {get_attr: [CollectMacDeploymentsBlockStorage, deploy_stdouts]}
+        objectstorage_mappings: {get_attr: [CollectMacDeploymentsObjectStorage, deploy_stdouts]}
+        cephstorage_mappings: {get_attr: [CollectMacDeploymentsCephStorage, deploy_stdouts]}
+        nexus_config: {get_param: NetworkNexusConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  MappingToUCSMConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+       - name: ucsm_config
+      config: |
+        #!/bin/python
+        import ast
+        import os
+        with open('/root/mac2host', 'r') as f:
+          s=f.read()
+          m2h=ast.literal_eval(s)
+        ucs_config = os.getenv('ucsm_config', "Nada")
+        ucs_data = []
+        lines = ucs_config.split(',')
+        for line in lines:
+          entry=line.rsplit(":",1)
+          mac = entry[0].lower().strip()
+          if mac in m2h:
+            ucs_data.append(m2h[mac] + ":" + entry[1])
+
+        print ", ".join(ucs_data)
+
+
+  MappingToUCSMDeploymentsController:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: MappingToNexusDeploymentsController
+    properties:
+      server:  {get_param: [controller_servers, '0']}
+      config: {get_resource: MappingToUCSMConfig}
+      input_values:
+        ucsm_config: {get_param: NetworkUCSMHostList}
+      actions: ['CREATE'] # Only do this on CREATE
+
+outputs:
+  # The Deployment applying the hieradata outputs the derived config-id, which
+  # changes if the input_values change, so if the stdouts from
+  # NetworkCiscoDeployment change, we need to reapply puppet (which will
+  # happen if we return a different config_identifier)
+  config_identifier:
+    value: {get_attr: [NetworkCiscoDeployment, deploy_stdouts]}
