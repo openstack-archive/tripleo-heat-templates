@@ -239,6 +239,7 @@ if hiera('step') >= 3 {
   class { 'neutron::plugins::ml2':
     flat_networks => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
+    mechanism_drivers   => [hiera('neutron_mechanism_drivers')],
   }
   class { 'neutron::agents::ml2::ovs':
     bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
