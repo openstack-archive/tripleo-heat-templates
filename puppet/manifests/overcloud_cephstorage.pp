@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-include tripleo::packages
+include ::tripleo::packages
 
 create_resources(sysctl::value, hiera('sysctl_settings'), {})
 
@@ -25,13 +25,13 @@ if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
   exec { 'set selinux to permissive on boot':
     command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
     onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-    path    => ["/usr/bin", "/usr/sbin"],
+    path    => ['/usr/bin', '/usr/sbin'],
   }
 
   exec { 'set selinux to permissive':
-    command => "setenforce 0",
+    command => 'setenforce 0',
     onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-    path    => ["/usr/bin", "/usr/sbin"],
+    path    => ['/usr/bin', '/usr/sbin'],
   } -> Class['ceph::profile::osd']
 }
 
