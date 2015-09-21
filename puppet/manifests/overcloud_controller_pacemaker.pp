@@ -18,7 +18,7 @@ Pcmk_resource <| |> {
   try_sleep => 3,
 }
 
-include tripleo::packages
+include ::tripleo::packages
 
 if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $pacemaker_master = true
@@ -28,7 +28,7 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $sync_db = false
 }
 
-$enable_fencing = str2bool(hiera('enable_fencing', 'false')) and hiera('step') >= 5
+$enable_fencing = str2bool(hiera('enable_fencing', false)) and hiera('step') >= 5
 
 # When to start and enable services which haven't been Pacemakerized
 # FIXME: remove when we start all OpenStack services using Pacemaker
@@ -55,7 +55,7 @@ if hiera('step') >= 1 {
 
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   user { 'hacluster':
-   ensure => present,
+    ensure => present,
   } ->
   class { '::pacemaker':
     hacluster_pwd => hiera('hacluster_pwd'),
@@ -68,7 +68,7 @@ if hiera('step') >= 1 {
     disable => !$enable_fencing,
   }
   if $enable_fencing {
-    include tripleo::fencing
+    include ::tripleo::fencing
 
     # enable stonith after all fencing devices have been created
     Class['tripleo::fencing'] -> Class['pacemaker::stonith']
@@ -93,7 +93,7 @@ if hiera('step') >= 1 {
     environment_variables   => hiera('rabbitmq_environment'),
   } ->
   file { '/var/lib/rabbitmq/.erlang.cookie':
-    ensure  => 'present',
+    ensure  => file,
     owner   => 'rabbitmq',
     group   => 'rabbitmq',
     mode    => '0400',
@@ -120,7 +120,7 @@ if hiera('step') >= 1 {
   }
 
   # Galera
-  if str2bool(hiera('enable_galera', 'true')) {
+  if str2bool(hiera('enable_galera', true)) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
   } else {
     $mysql_config_file = '/etc/my.cnf.d/server.cnf'
@@ -154,7 +154,7 @@ if hiera('step') >= 1 {
       'wsrep_causal_reads'            => '0',
       'wsrep_notify_cmd'              => '',
       'wsrep_sst_method'              => 'rsync',
-    }
+    },
   }
 
   class { '::mysql::server':
@@ -178,7 +178,7 @@ if hiera('step') >= 2 {
 
   if $pacemaker_master {
 
-    include pacemaker::resource_defaults
+    include ::pacemaker::resource_defaults
 
     # FIXME: we should not have to access tripleo::loadbalancer class
     # parameters here to configure pacemaker VIPs. The configuration
@@ -199,8 +199,8 @@ if hiera('step') >= 2 {
       first_action      => 'start',
       second_action     => 'start',
       constraint_params => 'kind=Optional',
-      require => [Pacemaker::Resource::Service['haproxy'],
-                  Pacemaker::Resource::Ip['control_vip']],
+      require           => [Pacemaker::Resource::Service['haproxy'],
+                            Pacemaker::Resource::Ip['control_vip']],
     }
     pacemaker::constraint::colocation { 'control_vip-with-haproxy':
       source  => "ip-${control_vip}",
@@ -222,8 +222,8 @@ if hiera('step') >= 2 {
         first_action      => 'start',
         second_action     => 'start',
         constraint_params => 'kind=Optional',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['public_vip']],
+        require           => [Pacemaker::Resource::Service['haproxy'],
+                              Pacemaker::Resource::Ip['public_vip']],
       }
       pacemaker::constraint::colocation { 'public_vip-with-haproxy':
         source  => "ip-${public_vip}",
@@ -246,8 +246,8 @@ if hiera('step') >= 2 {
         first_action      => 'start',
         second_action     => 'start',
         constraint_params => 'kind=Optional',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['redis_vip']],
+        require           => [Pacemaker::Resource::Service['haproxy'],
+                              Pacemaker::Resource::Ip['redis_vip']],
       }
       pacemaker::constraint::colocation { 'redis_vip-with-haproxy':
         source  => "ip-${redis_vip}",
@@ -270,8 +270,8 @@ if hiera('step') >= 2 {
         first_action      => 'start',
         second_action     => 'start',
         constraint_params => 'kind=Optional',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['internal_api_vip']],
+        require           => [Pacemaker::Resource::Service['haproxy'],
+                              Pacemaker::Resource::Ip['internal_api_vip']],
       }
       pacemaker::constraint::colocation { 'internal_api_vip-with-haproxy':
         source  => "ip-${internal_api_vip}",
@@ -294,8 +294,8 @@ if hiera('step') >= 2 {
         first_action      => 'start',
         second_action     => 'start',
         constraint_params => 'kind=Optional',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['storage_vip']],
+        require           => [Pacemaker::Resource::Service['haproxy'],
+                              Pacemaker::Resource::Ip['storage_vip']],
       }
       pacemaker::constraint::colocation { 'storage_vip-with-haproxy':
         source  => "ip-${storage_vip}",
@@ -318,8 +318,8 @@ if hiera('step') >= 2 {
         first_action      => 'start',
         second_action     => 'start',
         constraint_params => 'kind=Optional',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['storage_mgmt_vip']],
+        require           => [Pacemaker::Resource::Service['haproxy'],
+                              Pacemaker::Resource::Ip['storage_mgmt_vip']],
       }
       pacemaker::constraint::colocation { 'storage_mgmt_vip-with-haproxy':
         source  => "ip-${storage_mgmt_vip}",
@@ -331,7 +331,7 @@ if hiera('step') >= 2 {
     }
 
     pacemaker::resource::service { $::memcached::params::service_name :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
       require      => Class['::memcached'],
     }
 
@@ -385,7 +385,7 @@ if hiera('step') >= 2 {
     timeout     => 30,
     tries       => 180,
     try_sleep   => 10,
-    environment => ["AVAILABLE_WHEN_READONLY=0"],
+    environment => ['AVAILABLE_WHEN_READONLY=0'],
     require     => File['/etc/sysconfig/clustercheck'],
   }
 
@@ -411,28 +411,28 @@ MYSQL_HOST=localhost\n",
 
   # Create all the database schemas
   if $sync_db {
-    class { 'keystone::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::keystone::db::mysql':
+      require => Exec['galera-ready'],
     }
-    class { 'glance::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::glance::db::mysql':
+      require => Exec['galera-ready'],
     }
-    class { 'nova::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::nova::db::mysql':
+      require => Exec['galera-ready'],
     }
-    class { 'neutron::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::neutron::db::mysql':
+      require => Exec['galera-ready'],
     }
-    class { 'cinder::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::cinder::db::mysql':
+      require => Exec['galera-ready'],
     }
-    class { 'heat::db::mysql':
-      require       => Exec['galera-ready'],
+    class { '::heat::db::mysql':
+      require => Exec['galera-ready'],
     }
 
     if downcase(hiera('ceilometer_backend')) == 'mysql' {
-      class { 'ceilometer::db::mysql':
-        require       => Exec['galera-ready'],
+      class { '::ceilometer::db::mysql':
+        require => Exec['galera-ready'],
       }
     }
   }
@@ -444,31 +444,31 @@ MYSQL_HOST=localhost\n",
   $enable_ceph = hiera('ceph_storage_count', 0) > 0
 
   if $enable_ceph {
-    class { 'ceph::profile::params':
-      mon_initial_members => downcase(hiera('ceph_mon_initial_members'))
+    class { '::ceph::profile::params':
+      mon_initial_members => downcase(hiera('ceph_mon_initial_members')),
     }
     include ::ceph::profile::mon
   }
 
-  if str2bool(hiera('enable_ceph_storage', 'false')) {
+  if str2bool(hiera('enable_ceph_storage', false)) {
     if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
       exec { 'set selinux to permissive on boot':
         command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
         onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-        path    => ["/usr/bin", "/usr/sbin"],
+        path    => ['/usr/bin', '/usr/sbin'],
       }
 
       exec { 'set selinux to permissive':
-        command => "setenforce 0",
+        command => 'setenforce 0',
         onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-        path    => ["/usr/bin", "/usr/sbin"],
+        path    => ['/usr/bin', '/usr/sbin'],
       } -> Class['ceph::profile::osd']
     }
 
     include ::ceph::profile::osd
   }
 
-  if str2bool(hiera('enable_external_ceph', 'false')) {
+  if str2bool(hiera('enable_external_ceph', false)) {
     include ::ceph::profile::client
   }
 
@@ -478,9 +478,9 @@ MYSQL_HOST=localhost\n",
 if hiera('step') >= 3 {
 
   class { '::keystone':
-    sync_db => $sync_db,
+    sync_db        => $sync_db,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
@@ -517,16 +517,16 @@ if hiera('step') >= 3 {
 
   $glance_backend = downcase(hiera('glance_backend', 'swift'))
   case $glance_backend {
-      swift: { $backend_store = 'glance.store.swift.Store' }
-      file: { $backend_store = 'glance.store.filesystem.Store' }
-      rbd: { $backend_store = 'glance.store.rbd.Store' }
+      'swift': { $backend_store = 'glance.store.swift.Store' }
+      'file': { $backend_store = 'glance.store.filesystem.Store' }
+      'rbd': { $backend_store = 'glance.store.rbd.Store' }
       default: { fail('Unrecognized glance_backend parameter.') }
   }
   $http_store = ['glance.store.http.Store']
   $glance_store = concat($http_store, $backend_store)
 
   if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
-    pacemaker::resource::filesystem { "glance-fs":
+    pacemaker::resource::filesystem { 'glance-fs':
       device       => hiera('glance_file_pcmk_device'),
       directory    => hiera('glance_file_pcmk_directory'),
       fstype       => hiera('glance_file_pcmk_fstype'),
@@ -537,15 +537,15 @@ if hiera('step') >= 3 {
 
   # TODO: notifications, scrubber, etc.
   include ::glance
-  class { 'glance::api':
-    known_stores => $glance_store,
+  class { '::glance::api':
+    known_stores   => $glance_store,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::glance::registry' :
-    sync_db => $sync_db,
+    sync_db        => $sync_db,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   include join(['::glance::backend::', $glance_backend])
 
@@ -556,51 +556,51 @@ if hiera('step') >= 3 {
   include ::nova::config
 
   class { '::nova::api' :
-    sync_db => $sync_db,
+    sync_db        => $sync_db,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::nova::cert' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::nova::conductor' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::nova::consoleauth' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::nova::vncproxy' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   include ::nova::scheduler::filter
   class { '::nova::scheduler' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   include ::nova::network::neutron
 
   # Neutron class definitions
   include ::neutron
   class { '::neutron::server' :
-    sync_db => $sync_db,
+    sync_db        => $sync_db,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::neutron::agents::dhcp' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::neutron::agents::l3' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
-  class { 'neutron::agents::metadata':
+  class { '::neutron::agents::metadata':
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   file { '/etc/neutron/dnsmasq-neutron.conf':
     content => hiera('neutron_dnsmasq_options'),
@@ -609,16 +609,16 @@ if hiera('step') >= 3 {
     notify  => Service['neutron-dhcp-service'],
     require => Package['neutron'],
   }
-  class { 'neutron::plugins::ml2':
-    flat_networks   => split(hiera('neutron_flat_networks'), ','),
+  class { '::neutron::plugins::ml2':
+    flat_networks        => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
-    mechanism_drivers   => [hiera('neutron_mechanism_drivers')],
+    mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
   }
-  class { 'neutron::agents::ml2::ovs':
-    manage_service   => false,
-    enabled          => false,
-    bridge_mappings  => split(hiera('neutron_bridge_mappings'), ','),
-    tunnel_types     => split(hiera('neutron_tunnel_types'), ','),
+  class { '::neutron::agents::ml2::ovs':
+    manage_service  => false,
+    enabled         => false,
+    bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
+    tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
   }
 
   if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
@@ -629,21 +629,21 @@ if hiera('step') >= 3 {
     include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
   }
   if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
-    include neutron::plugins::ml2::cisco::nexus1000v
+    include ::neutron::plugins::ml2::cisco::nexus1000v
 
-    class { 'neutron::agents::n1kv_vem':
-      n1kv_source          => hiera('n1kv_vem_source', undef),
-      n1kv_version         => hiera('n1kv_vem_version', undef),
+    class { '::neutron::agents::n1kv_vem':
+      n1kv_source  => hiera('n1kv_vem_source', undef),
+      n1kv_version => hiera('n1kv_vem_version', undef),
     }
 
-    class { 'n1k_vsm':
-      n1kv_source       => hiera('n1kv_vsm_source', undef),
-      n1kv_version      => hiera('n1kv_vsm_version', undef),
+    class { '::n1k_vsm':
+      n1kv_source  => hiera('n1kv_vsm_source', undef),
+      n1kv_version => hiera('n1kv_vsm_version', undef),
     }
   }
 
   if hiera('neutron_enable_bigswitch_ml2', false) {
-    include neutron::plugins::ml2::bigswitch::restproxy
+    include ::neutron::plugins::ml2::bigswitch::restproxy
   }
   neutron_l3_agent_config {
     'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
@@ -654,20 +654,20 @@ if hiera('step') >= 3 {
 
   include ::cinder
   class { '::cinder::api':
-    sync_db => $sync_db,
+    sync_db        => $sync_db,
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::cinder::scheduler' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::cinder::volume' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   include ::cinder::glance
-  class {'cinder::setup_test_volume':
+  class { '::cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
 
@@ -747,18 +747,18 @@ if hiera('step') >= 3 {
   if hiera('cinder_enable_nfs_backend', false) {
     $cinder_nfs_backend = 'tripleo_nfs'
 
-    if ($::selinux != "false") {
+    if str2bool($::selinux) {
       selboolean { 'virt_use_nfs':
-          value => on,
-          persistent => true,
+        value      => on,
+        persistent => true,
       } -> Package['nfs-utils']
     }
 
-    package {'nfs-utils': } ->
+    package { 'nfs-utils': } ->
     cinder::backend::nfs { $cinder_nfs_backend:
-      nfs_servers         => hiera('cinder_nfs_servers'),
-      nfs_mount_options   => hiera('cinder_nfs_mount_options'),
-      nfs_shares_config   => '/etc/cinder/shares-nfs.conf',
+      nfs_servers       => hiera('cinder_nfs_servers'),
+      nfs_mount_options => hiera('cinder_nfs_mount_options'),
+      nfs_shares_config => '/etc/cinder/shares-nfs.conf',
     }
   }
 
@@ -770,7 +770,7 @@ if hiera('step') >= 3 {
   # swift proxy
   class { '::swift::proxy' :
     manage_service => $non_pcmk_start,
-    enabled => $non_pcmk_start,
+    enabled        => $non_pcmk_start,
   }
   include ::swift::proxy::proxy_logging
   include ::swift::proxy::healthcheck
@@ -784,21 +784,21 @@ if hiera('step') >= 3 {
   include ::swift::proxy::formpost
 
   # swift storage
-  if str2bool(hiera('enable_swift_storage', 'true')) {
+  if str2bool(hiera('enable_swift_storage', true)) {
     class {'::swift::storage::all':
-      mount_check => str2bool(hiera('swift_mount_check'))
+      mount_check => str2bool(hiera('swift_mount_check')),
     }
     class {'::swift::storage::account':
       manage_service => $non_pcmk_start,
-      enabled => $non_pcmk_start,
+      enabled        => $non_pcmk_start,
     }
     class {'::swift::storage::container':
       manage_service => $non_pcmk_start,
-      enabled => $non_pcmk_start,
+      enabled        => $non_pcmk_start,
     }
     class {'::swift::storage::object':
       manage_service => $non_pcmk_start,
-      enabled => $non_pcmk_start,
+      enabled        => $non_pcmk_start,
     }
     if(!defined(File['/srv/node'])) {
       file { '/srv/node':
@@ -827,34 +827,34 @@ if hiera('step') >= 3 {
   include ::ceilometer::config
   class { '::ceilometer::api' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::ceilometer::agent::notification' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::ceilometer::agent::central' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::ceilometer::alarm::notifier' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::ceilometer::alarm::evaluator' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::ceilometer::collector' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   include ::ceilometer::expirer
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
     sync_db             => $sync_db,
   }
-  include ceilometer::agent::auth
+  include ::ceilometer::agent::auth
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
@@ -864,19 +864,19 @@ if hiera('step') >= 3 {
   }
   class { '::heat::api' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::heat::api_cfn' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::heat::api_cloudwatch' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
   class { '::heat::engine' :
     manage_service => false,
-    enabled => false,
+    enabled        => false,
   }
 
   # httpd/apache and horizon
@@ -892,9 +892,9 @@ if hiera('step') >= 3 {
     $_profile_support = 'None'
   }
   $neutron_options   = {'profile_support' => $_profile_support }
-  class { 'horizon':
-    cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
-    neutron_options    => $neutron_options,
+  class { '::horizon':
+    cache_server_ip => hiera('memcache_node_ips', '127.0.0.1'),
+    neutron_options => $neutron_options,
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
@@ -902,7 +902,7 @@ if hiera('step') >= 3 {
     authtype => 'MD5',
     authpass => hiera('snmpd_readonly_user_password'),
   }
-  class { 'snmp':
+  class { '::snmp':
     agentaddress => ['udp:161','udp6:[::1]:161'],
     snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
   }
@@ -918,12 +918,12 @@ if hiera('step') >= 4 {
 
     # Keystone
     pacemaker::resource::service { $::keystone::params::service_name :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
 
     pacemaker::constraint::base { 'haproxy-then-keystone-constraint':
       constraint_type => 'order',
-      first_resource  => "haproxy-clone",
+      first_resource  => 'haproxy-clone',
       second_resource => "${::keystone::params::service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
@@ -932,7 +932,7 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'rabbitmq-then-keystone-constraint':
       constraint_type => 'order',
-      first_resource  => "rabbitmq-clone",
+      first_resource  => 'rabbitmq-clone',
       second_resource => "${::keystone::params::service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
@@ -941,7 +941,7 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'memcached-then-keystone-constraint':
       constraint_type => 'order',
-      first_resource  => "memcached-clone",
+      first_resource  => 'memcached-clone',
       second_resource => "${::keystone::params::service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
@@ -950,7 +950,7 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'galera-then-keystone-constraint':
       constraint_type => 'order',
-      first_resource  => "galera-master",
+      first_resource  => 'galera-master',
       second_resource => "${::keystone::params::service_name}-clone",
       first_action    => 'promote',
       second_action   => 'start',
@@ -960,11 +960,11 @@ if hiera('step') >= 4 {
 
     # Cinder
     pacemaker::resource::service { $::cinder::params::api_service :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
       require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::cinder::params::scheduler_service :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
     pacemaker::resource::service { $::cinder::params::volume_service : }
 
@@ -978,45 +978,45 @@ if hiera('step') >= 4 {
                           Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
     pacemaker::constraint::base { 'cinder-api-then-cinder-scheduler-constraint':
-      constraint_type => "order",
-      first_resource => "${::cinder::params::api_service}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::cinder::params::api_service}-clone",
       second_resource => "${::cinder::params::scheduler_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::cinder::params::api_service],
-                  Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::cinder::params::api_service],
+                          Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
     }
     pacemaker::constraint::colocation { 'cinder-scheduler-with-cinder-api-colocation':
-      source => "${::cinder::params::scheduler_service}-clone",
-      target => "${::cinder::params::api_service}-clone",
-      score => "INFINITY",
+      source  => "${::cinder::params::scheduler_service}-clone",
+      target  => "${::cinder::params::api_service}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::cinder::params::api_service],
                   Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
     }
     pacemaker::constraint::base { 'cinder-scheduler-then-cinder-volume-constraint':
-      constraint_type => "order",
-      first_resource => "${::cinder::params::scheduler_service}-clone",
-      second_resource => "${::cinder::params::volume_service}",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
-                  Pacemaker::Resource::Service[$::cinder::params::volume_service]],
+      constraint_type => 'order',
+      first_resource  => "${::cinder::params::scheduler_service}-clone",
+      second_resource => $::cinder::params::volume_service,
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
+                          Pacemaker::Resource::Service[$::cinder::params::volume_service]],
     }
     pacemaker::constraint::colocation { 'cinder-volume-with-cinder-scheduler-colocation':
-      source => "${::cinder::params::volume_service}",
-      target => "${::cinder::params::scheduler_service}-clone",
-      score => "INFINITY",
+      source  => $::cinder::params::volume_service,
+      target  => "${::cinder::params::scheduler_service}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
                   Pacemaker::Resource::Service[$::cinder::params::volume_service]],
     }
 
     # Glance
     pacemaker::resource::service { $::glance::params::registry_service_name :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
       require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::glance::params::api_service_name :
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
 
     pacemaker::constraint::base { 'keystone-then-glance-registry-constraint':
@@ -1029,18 +1029,18 @@ if hiera('step') >= 4 {
                           Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
     pacemaker::constraint::base { 'glance-registry-then-glance-api-constraint':
-      constraint_type => "order",
+      constraint_type => 'order',
       first_resource  => "${::glance::params::registry_service_name}-clone",
       second_resource => "${::glance::params::api_service_name}-clone",
-      first_action    => "start",
-      second_action   => "start",
-      require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
-                  Pacemaker::Resource::Service[$::glance::params::api_service_name]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
+                          Pacemaker::Resource::Service[$::glance::params::api_service_name]],
     }
     pacemaker::constraint::colocation { 'glance-api-with-glance-registry-colocation':
       source  => "${::glance::params::api_service_name}-clone",
       target  => "${::glance::params::registry_service_name}-clone",
-      score   => "INFINITY",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
                   Pacemaker::Resource::Service[$::glance::params::api_service_name]],
     }
@@ -1052,154 +1052,154 @@ if hiera('step') >= 4 {
     # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
     exec { '/usr/bin/systemctl start neutron-server && /usr/bin/sleep 5' : } ->
     pacemaker::resource::service { $::neutron::params::server_service:
-      clone_params   => "interleave=true",
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name]
+      clone_params => 'interleave=true',
+      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::neutron::params::l3_agent_service:
-      clone_params   => "interleave=true",
+      clone_params => 'interleave=true',
     }
     pacemaker::resource::service { $::neutron::params::dhcp_agent_service:
-      clone_params   => "interleave=true",
+      clone_params => 'interleave=true',
     }
     pacemaker::resource::service { $::neutron::params::ovs_agent_service:
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
     pacemaker::resource::service { $::neutron::params::metadata_agent_service:
-      clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
     pacemaker::resource::ocf { $::neutron::params::ovs_cleanup_service:
-      ocf_agent_name => "neutron:OVSCleanup",
-      clone_params => "interleave=true",
+      ocf_agent_name => 'neutron:OVSCleanup',
+      clone_params   => 'interleave=true',
     }
     pacemaker::resource::ocf { 'neutron-netns-cleanup':
-      ocf_agent_name => "neutron:NetnsCleanup",
-      clone_params => "interleave=true",
+      ocf_agent_name => 'neutron:NetnsCleanup',
+      clone_params   => 'interleave=true',
     }
 
     # neutron - one chain ovs-cleanup-->netns-cleanup-->ovs-agent
     pacemaker::constraint::base { 'neutron-ovs-cleanup-to-netns-cleanup-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::ovs_cleanup_service}-clone",
-      second_resource => "neutron-netns-cleanup-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Ocf["${::neutron::params::ovs_cleanup_service}"],
-                  Pacemaker::Resource::Ocf['neutron-netns-cleanup']],
+      constraint_type => 'order',
+      first_resource  => "${::neutron::params::ovs_cleanup_service}-clone",
+      second_resource => 'neutron-netns-cleanup-clone',
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Ocf[$::neutron::params::ovs_cleanup_service],
+                          Pacemaker::Resource::Ocf['neutron-netns-cleanup']],
     }
     pacemaker::constraint::colocation { 'neutron-ovs-cleanup-to-netns-cleanup-colocation':
-      source => "neutron-netns-cleanup-clone",
-      target => "${::neutron::params::ovs_cleanup_service}-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Ocf["${::neutron::params::ovs_cleanup_service}"],
+      source  => 'neutron-netns-cleanup-clone',
+      target  => "${::neutron::params::ovs_cleanup_service}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Ocf[$::neutron::params::ovs_cleanup_service],
                   Pacemaker::Resource::Ocf['neutron-netns-cleanup']],
     }
     pacemaker::constraint::base { 'neutron-netns-cleanup-to-openvswitch-agent-constraint':
-      constraint_type => "order",
-      first_resource => "neutron-netns-cleanup-clone",
+      constraint_type => 'order',
+      first_resource  => 'neutron-netns-cleanup-clone',
       second_resource => "${::neutron::params::ovs_agent_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Ocf["neutron-netns-cleanup"],
-                  Pacemaker::Resource::Service["${::neutron::params::ovs_agent_service}"]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Ocf['neutron-netns-cleanup'],
+                          Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
     }
     pacemaker::constraint::colocation { 'neutron-netns-cleanup-to-openvswitch-agent-colocation':
-      source => "${::neutron::params::ovs_agent_service}-clone",
-      target => "neutron-netns-cleanup-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Ocf["neutron-netns-cleanup"],
-                  Pacemaker::Resource::Service["${::neutron::params::ovs_agent_service}"]],
+      source  => "${::neutron::params::ovs_agent_service}-clone",
+      target  => 'neutron-netns-cleanup-clone',
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Ocf['neutron-netns-cleanup'],
+                  Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
     }
 
     #another chain keystone-->neutron-server-->ovs-agent-->dhcp-->l3
     pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
-      constraint_type => "order",
-      first_resource => "${::keystone::params::service_name}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
       second_resource => "${::neutron::params::server_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::keystone::params::service_name],
-                  Pacemaker::Resource::Service[$::neutron::params::server_service]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::keystone::params::service_name],
+                          Pacemaker::Resource::Service[$::neutron::params::server_service]],
     }
     pacemaker::constraint::base { 'neutron-server-to-openvswitch-agent-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::server_service}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::neutron::params::server_service}-clone",
       second_resource => "${::neutron::params::ovs_agent_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::neutron::params::server_service],
-                  Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::neutron::params::server_service],
+                          Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
     }
     pacemaker::constraint::base { 'neutron-openvswitch-agent-to-dhcp-agent-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::ovs_agent_service}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::neutron::params::ovs_agent_service}-clone",
       second_resource => "${::neutron::params::dhcp_agent_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service["${::neutron::params::ovs_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::dhcp_agent_service}"]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service],
+                          Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
 
     }
     pacemaker::constraint::colocation { 'neutron-openvswitch-agent-to-dhcp-agent-colocation':
-      source => "${::neutron::params::dhcp_agent_service}-clone",
-      target => "${::neutron::params::ovs_agent_service}-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Service["${::neutron::params::ovs_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::dhcp_agent_service}"]],
+      source  => "${::neutron::params::dhcp_agent_service}-clone",
+      target  => "${::neutron::params::ovs_agent_service}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service],
+                  Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
     }
     pacemaker::constraint::base { 'neutron-dhcp-agent-to-l3-agent-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::dhcp_agent_service}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::neutron::params::dhcp_agent_service}-clone",
       second_resource => "${::neutron::params::l3_agent_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service["${::neutron::params::dhcp_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::l3_agent_service}"]]
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
+                          Pacemaker::Resource::Service[$::neutron::params::l3_agent_service]],
     }
     pacemaker::constraint::colocation { 'neutron-dhcp-agent-to-l3-agent-colocation':
-      source => "${::neutron::params::l3_agent_service}-clone",
-      target => "${::neutron::params::dhcp_agent_service}-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Service["${::neutron::params::dhcp_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::l3_agent_service}"]]
+      source  => "${::neutron::params::l3_agent_service}-clone",
+      target  => "${::neutron::params::dhcp_agent_service}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
+                  Pacemaker::Resource::Service[$::neutron::params::l3_agent_service]],
     }
     pacemaker::constraint::base { 'neutron-l3-agent-to-metadata-agent-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::l3_agent_service}-clone",
+      constraint_type => 'order',
+      first_resource  => "${::neutron::params::l3_agent_service}-clone",
       second_resource => "${::neutron::params::metadata_agent_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service["${::neutron::params::l3_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::metadata_agent_service}"]]
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::neutron::params::l3_agent_service],
+                          Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
     }
     pacemaker::constraint::colocation { 'neutron-l3-agent-to-metadata-agent-colocation':
-      source => "${::neutron::params::metadata_agent_service}-clone",
-      target => "${::neutron::params::l3_agent_service}-clone",
-      score => "INFINITY",
-      require => [Pacemaker::Resource::Service["${::neutron::params::l3_agent_service}"],
-                  Pacemaker::Resource::Service["${::neutron::params::metadata_agent_service}"]]
+      source  => "${::neutron::params::metadata_agent_service}-clone",
+      target  => "${::neutron::params::l3_agent_service}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::neutron::params::l3_agent_service],
+                  Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
     }
 
     # Nova
     pacemaker::resource::service { $::nova::params::api_service_name :
-      clone_params    => "interleave=true",
-      op_params       => "start timeout=90s monitor start-delay=10s",
+      clone_params => 'interleave=true',
+      op_params    => 'start timeout=90s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::conductor_service_name :
-      clone_params    => "interleave=true",
-      op_params       => "start timeout=90s monitor start-delay=10s",
+      clone_params => 'interleave=true',
+      op_params    => 'start timeout=90s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::consoleauth_service_name :
-      clone_params    => "interleave=true",
-      op_params       => "start timeout=90s monitor start-delay=10s",
-      require         => Pacemaker::Resource::Service[$::keystone::params::service_name],
+      clone_params => 'interleave=true',
+      op_params    => 'start timeout=90s monitor start-delay=10s',
+      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
-      clone_params    => "interleave=true",
-      op_params       => "start timeout=90s monitor start-delay=10s",
+      clone_params => 'interleave=true',
+      op_params    => 'start timeout=90s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::scheduler_service_name :
-      clone_params    => "interleave=true",
-      op_params       => "start timeout=90s monitor start-delay=10s",
+      clone_params => 'interleave=true',
+      op_params    => 'start timeout=90s monitor start-delay=10s',
     }
 
     pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
@@ -1212,66 +1212,66 @@ if hiera('step') >= 4 {
                           Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
     pacemaker::constraint::base { 'nova-consoleauth-then-nova-vncproxy-constraint':
-      constraint_type => "order",
+      constraint_type => 'order',
       first_resource  => "${::nova::params::consoleauth_service_name}-clone",
       second_resource => "${::nova::params::vncproxy_service_name}-clone",
-      first_action    => "start",
-      second_action   => "start",
-      require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
-                  Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
+                          Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
     }
     pacemaker::constraint::colocation { 'nova-vncproxy-with-nova-consoleauth-colocation':
-      source => "${::nova::params::vncproxy_service_name}-clone",
-      target => "${::nova::params::consoleauth_service_name}-clone",
-      score => "INFINITY",
+      source  => "${::nova::params::vncproxy_service_name}-clone",
+      target  => "${::nova::params::consoleauth_service_name}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
                   Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name]],
     }
     pacemaker::constraint::base { 'nova-vncproxy-then-nova-api-constraint':
-      constraint_type => "order",
+      constraint_type => 'order',
       first_resource  => "${::nova::params::vncproxy_service_name}-clone",
       second_resource => "${::nova::params::api_service_name}-clone",
-      first_action    => "start",
-      second_action   => "start",
-      require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
-                  Pacemaker::Resource::Service[$::nova::params::api_service_name]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
+                          Pacemaker::Resource::Service[$::nova::params::api_service_name]],
     }
     pacemaker::constraint::colocation { 'nova-api-with-nova-vncproxy-colocation':
-      source => "${::nova::params::api_service_name}-clone",
-      target => "${::nova::params::vncproxy_service_name}-clone",
-      score => "INFINITY",
+      source  => "${::nova::params::api_service_name}-clone",
+      target  => "${::nova::params::vncproxy_service_name}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::nova::params::vncproxy_service_name],
                   Pacemaker::Resource::Service[$::nova::params::api_service_name]],
     }
     pacemaker::constraint::base { 'nova-api-then-nova-scheduler-constraint':
-      constraint_type => "order",
+      constraint_type => 'order',
       first_resource  => "${::nova::params::api_service_name}-clone",
       second_resource => "${::nova::params::scheduler_service_name}-clone",
-      first_action    => "start",
-      second_action   => "start",
-      require => [Pacemaker::Resource::Service[$::nova::params::api_service_name],
-                  Pacemaker::Resource::Service[$::nova::params::scheduler_service_name]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::nova::params::api_service_name],
+                          Pacemaker::Resource::Service[$::nova::params::scheduler_service_name]],
     }
     pacemaker::constraint::colocation { 'nova-scheduler-with-nova-api-colocation':
-      source => "${::nova::params::scheduler_service_name}-clone",
-      target => "${::nova::params::api_service_name}-clone",
-      score => "INFINITY",
+      source  => "${::nova::params::scheduler_service_name}-clone",
+      target  => "${::nova::params::api_service_name}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::nova::params::api_service_name],
                   Pacemaker::Resource::Service[$::nova::params::scheduler_service_name]],
     }
     pacemaker::constraint::base { 'nova-scheduler-then-nova-conductor-constraint':
-      constraint_type => "order",
+      constraint_type => 'order',
       first_resource  => "${::nova::params::scheduler_service_name}-clone",
       second_resource => "${::nova::params::conductor_service_name}-clone",
-      first_action    => "start",
-      second_action   => "start",
-      require => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
-                  Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
+                          Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
     }
     pacemaker::constraint::colocation { 'nova-conductor-with-nova-scheduler-colocation':
-      source => "${::nova::params::conductor_service_name}-clone",
-      target => "${::nova::params::scheduler_service_name}-clone",
-      score => "INFINITY",
+      source  => "${::nova::params::conductor_service_name}-clone",
+      target  => "${::nova::params::scheduler_service_name}-clone",
+      score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::nova::params::scheduler_service_name],
                   Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
     }
@@ -1288,7 +1288,7 @@ if hiera('step') >= 4 {
         pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
           clone_params => 'interleave=true',
           require      => [Pacemaker::Resource::Service[$::keystone::params::service_name],
-                           Pacemaker::Resource::Service[$::mongodb::params::service_name]],
+                            Pacemaker::Resource::Service[$::mongodb::params::service_name]],
         }
       }
     }
@@ -1320,7 +1320,7 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'redis-then-ceilometer-central-constraint':
       constraint_type   => 'order',
-      first_resource    => "redis-master",
+      first_resource    => 'redis-master',
       second_resource   => "${::ceilometer::params::agent_central_service_name}-clone",
       first_action      => 'promote',
       second_action     => 'start',
@@ -1466,8 +1466,8 @@ if hiera('step') >= 4 {
       second_resource => "${::heat::params::api_cfn_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
+      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
+                          Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
     }
     pacemaker::constraint::colocation { 'heat-api-cfn-with-heat-api-colocation':
       source  => "${::heat::params::api_cfn_service_name}-clone",
@@ -1482,8 +1482,8 @@ if hiera('step') >= 4 {
       second_resource => "${::heat::params::api_cloudwatch_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
+      require         => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
+                          Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
     }
     pacemaker::constraint::colocation { 'heat-api-cloudwatch-with-heat-api-cfn-colocation':
       source  => "${::heat::params::api_cloudwatch_service_name}-clone",
@@ -1498,8 +1498,8 @@ if hiera('step') >= 4 {
       second_resource => "${::heat::params::engine_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
+      require         => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
+                          Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
     }
     pacemaker::constraint::colocation { 'heat-engine-with-heat-api-cloudwatch-colocation':
       source  => "${::heat::params::engine_service_name}-clone",
@@ -1520,7 +1520,7 @@ if hiera('step') >= 4 {
 
     # Horizon
     pacemaker::resource::service { $::horizon::params::http_service:
-        clone_params => "interleave=true",
+      clone_params => 'interleave=true',
     }
 
     #VSM
@@ -1531,7 +1531,7 @@ if hiera('step') >= 4 {
         require         => Class['n1k_vsm'],
         meta_params     => 'resource-stickiness=INFINITY',
       }
-      if str2bool(hiera('n1k_vsm::pacemaker_control', 'true')) {
+      if str2bool(hiera('n1k_vsm::pacemaker_control', true)) {
         pacemaker::resource::ocf { 'vsm-s' :
           ocf_agent_name  => 'heartbeat:VirtualDomain',
           resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_secondary_deploy.xml',
@@ -1539,9 +1539,9 @@ if hiera('step') >= 4 {
           meta_params     => 'resource-stickiness=INFINITY',
         }
         pacemaker::constraint::colocation { 'vsm-colocation-contraint':
-          source  => "vsm-p",
-          target  => "vsm-s",
-          score   => "-INFINITY",
+          source  => 'vsm-p',
+          target  => 'vsm-s',
+          score   => '-INFINITY',
           require => [Pacemaker::Resource::Ocf['vsm-p'],
                       Pacemaker::Resource::Ocf['vsm-s']],
         }

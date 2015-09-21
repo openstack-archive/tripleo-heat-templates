@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-include tripleo::packages
+include ::tripleo::packages
 
 if hiera('step') >= 1 {
 
@@ -70,18 +70,18 @@ if hiera('step') >= 2 {
     include ::tripleo::redis_notification
   }
 
-  if str2bool(hiera('enable_galera', 'true')) {
+  if str2bool(hiera('enable_galera', true)) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
   } else {
     $mysql_config_file = '/etc/my.cnf.d/server.cnf'
   }
   # TODO Galara
-  class { 'mysql::server':
-    config_file => $mysql_config_file,
-    override_options => {
+  class { '::mysql::server':
+    config_file             => $mysql_config_file,
+    override_options        => {
       'mysqld' => {
-        'bind-address' => hiera('mysql_bind_host'),
-        'max_connections' => hiera('mysql_max_connections'),
+        'bind-address'     => hiera('mysql_bind_host'),
+        'max_connections'  => hiera('mysql_max_connections'),
         'open_files_limit' => '-1',
       },
     },
@@ -126,31 +126,31 @@ if hiera('step') >= 2 {
   $enable_ceph = hiera('ceph_storage_count', 0) > 0
 
   if $enable_ceph {
-    class { 'ceph::profile::params':
-      mon_initial_members => downcase(hiera('ceph_mon_initial_members'))
+    class { '::ceph::profile::params':
+      mon_initial_members => downcase(hiera('ceph_mon_initial_members')),
     }
     include ::ceph::profile::mon
   }
 
-  if str2bool(hiera('enable_ceph_storage', 'false')) {
+  if str2bool(hiera('enable_ceph_storage', false)) {
     if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
       exec { 'set selinux to permissive on boot':
         command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
         onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-        path    => ["/usr/bin", "/usr/sbin"],
+        path    => ['/usr/bin', '/usr/sbin'],
       }
 
       exec { 'set selinux to permissive':
-        command => "setenforce 0",
+        command => 'setenforce 0',
         onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-        path    => ["/usr/bin", "/usr/sbin"],
+        path    => ['/usr/bin', '/usr/sbin'],
       } -> Class['ceph::profile::osd']
     }
 
     include ::ceph::profile::osd
   }
 
-  if str2bool(hiera('enable_external_ceph', 'false')) {
+  if str2bool(hiera('enable_external_ceph', false)) {
     include ::ceph::profile::client
   }
 
@@ -194,9 +194,9 @@ if hiera('step') >= 3 {
 
   $glance_backend = downcase(hiera('glance_backend', 'swift'))
   case $glance_backend {
-      swift: { $backend_store = 'glance.store.swift.Store' }
-      file: { $backend_store = 'glance.store.filesystem.Store' }
-      rbd: { $backend_store = 'glance.store.rbd.Store' }
+      'swift': { $backend_store = 'glance.store.swift.Store' }
+      'file': { $backend_store = 'glance.store.filesystem.Store' }
+      'rbd': { $backend_store = 'glance.store.rbd.Store' }
       default: { fail('Unrecognized glance_backend parameter.') }
   }
   $http_store = ['glance.store.http.Store']
@@ -204,8 +204,8 @@ if hiera('step') >= 3 {
 
   # TODO: notifications, scrubber, etc.
   include ::glance
-  class { 'glance::api':
-    known_stores => $glance_store
+  class { '::glance::api':
+    known_stores => $glance_store,
   }
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
@@ -237,24 +237,24 @@ if hiera('step') >= 3 {
     require => Package['neutron'],
   }
 
-  class { 'neutron::plugins::ml2':
-    flat_networks => split(hiera('neutron_flat_networks'), ','),
+  class { '::neutron::plugins::ml2':
+    flat_networks        => split(hiera('neutron_flat_networks'), ','),
     tenant_network_types => [hiera('neutron_tenant_network_type')],
-    mechanism_drivers   => [hiera('neutron_mechanism_drivers')],
+    mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
   }
-  class { 'neutron::agents::ml2::ovs':
+  class { '::neutron::agents::ml2::ovs':
     bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
-    tunnel_types => split(hiera('neutron_tunnel_types'), ','),
+    tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
   }
   if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
-    include neutron::plugins::ml2::cisco::nexus1000v
+    include ::neutron::plugins::ml2::cisco::nexus1000v
 
-    class { 'neutron::agents::n1kv_vem':
-      n1kv_source          => hiera('n1kv_vem_source', undef),
-      n1kv_version         => hiera('n1kv_vem_version', undef),
+    class { '::neutron::agents::n1kv_vem':
+      n1kv_source  => hiera('n1kv_vem_source', undef),
+      n1kv_version => hiera('n1kv_vem_version', undef),
     }
 
-    class { 'n1k_vsm':
+    class { '::n1k_vsm':
       n1kv_source       => hiera('n1kv_vsm_source', undef),
       n1kv_version      => hiera('n1kv_vsm_version', undef),
       pacemaker_control => false,
@@ -270,7 +270,7 @@ if hiera('step') >= 3 {
   }
 
   if hiera('neutron_enable_bigswitch_ml2', false) {
-    include neutron::plugins::ml2::bigswitch::restproxy
+    include ::neutron::plugins::ml2::bigswitch::restproxy
   }
   neutron_l3_agent_config {
     'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
@@ -289,7 +289,7 @@ if hiera('step') >= 3 {
   include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
-  class {'cinder::setup_test_volume':
+  class { '::cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
 
@@ -369,18 +369,18 @@ if hiera('step') >= 3 {
   if hiera('cinder_enable_nfs_backend', false) {
     $cinder_nfs_backend = 'tripleo_nfs'
 
-    if ($::selinux != "false") {
+    if str2bool($::selinux) {
       selboolean { 'virt_use_nfs':
-          value => on,
-          persistent => true,
+        value      => on,
+        persistent => true,
       } -> Package['nfs-utils']
     }
 
     package {'nfs-utils': } ->
     cinder::backend::nfs { $cinder_nfs_backend :
-      nfs_servers         => hiera('cinder_nfs_servers'),
-      nfs_mount_options   => hiera('cinder_nfs_mount_options'),
-      nfs_shares_config   => '/etc/cinder/shares-nfs.conf',
+      nfs_servers       => hiera('cinder_nfs_servers'),
+      nfs_mount_options => hiera('cinder_nfs_mount_options'),
+      nfs_shares_config => '/etc/cinder/shares-nfs.conf',
     }
   }
 
@@ -404,9 +404,9 @@ if hiera('step') >= 3 {
   include ::swift::proxy::formpost
 
   # swift storage
-  if str2bool(hiera('enable_swift_storage', 'true')) {
-    class {'swift::storage::all':
-      mount_check => str2bool(hiera('swift_mount_check'))
+  if str2bool(hiera('enable_swift_storage', true)) {
+    class { '::swift::storage::all':
+      mount_check => str2bool(hiera('swift_mount_check')),
     }
     if(!defined(File['/srv/node'])) {
       file { '/srv/node':
@@ -440,7 +440,7 @@ if hiera('step') >= 3 {
   include ::ceilometer::alarm::evaluator
   include ::ceilometer::expirer
   include ::ceilometer::collector
-  include ceilometer::agent::auth
+  include ::ceilometer::agent::auth
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
   }
@@ -461,9 +461,10 @@ if hiera('step') >= 3 {
     $_profile_support = 'None'
   }
   $neutron_options   = {'profile_support' => $_profile_support }
-  class { 'horizon':
-    cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
-    neutron_options    => $neutron_options,
+
+  class { '::horizon':
+    cache_server_ip => hiera('memcache_node_ips', '127.0.0.1'),
+    neutron_options => $neutron_options,
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')
@@ -471,7 +472,7 @@ if hiera('step') >= 3 {
     authtype => 'MD5',
     authpass => hiera('snmpd_readonly_user_password'),
   }
-  class { 'snmp':
+  class { '::snmp':
     agentaddress => ['udp:161','udp6:[::1]:161'],
     snmpd_config => [ join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
   }
