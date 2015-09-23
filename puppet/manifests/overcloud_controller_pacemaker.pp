@@ -1271,6 +1271,22 @@ if hiera('step') >= 4 {
       clone_params    => 'interleave=true',
       resource_params => 'startdelay=10',
     }
+    # Fedora doesn't know `require-all` parameter for constraints yet
+    if $::operatingsystem == 'Fedora' {
+      $redis_ceilometer_constraint_params = undef
+    } else {
+      $redis_ceilometer_constraint_params = 'require-all=false'
+    }
+    pacemaker::constraint::base { 'redis-then-ceilometer-central-constraint':
+      constraint_type   => 'order',
+      first_resource    => "redis-master",
+      second_resource   => "${::ceilometer::params::agent_central_service_name}-clone",
+      first_action      => 'promote',
+      second_action     => 'start',
+      constraint_params => $redis_ceilometer_constraint_params,
+      require           => [Pacemaker::Resource::Ocf['redis'],
+                            Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name]],
+    }
     pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
       constraint_type => 'order',
       first_resource  => "${::keystone::params::service_name}-clone",
