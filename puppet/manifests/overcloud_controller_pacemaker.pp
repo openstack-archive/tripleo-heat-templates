@@ -1048,24 +1048,8 @@ if hiera('step') >= 4 {
       ocf_agent_name => "neutron:NetnsCleanup",
       clone_params => "interleave=true",
     }
-    pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
-      constraint_type => "order",
-      first_resource => "${::keystone::params::service_name}-clone",
-      second_resource => "${::neutron::params::server_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::keystone::params::service_name],
-                  Pacemaker::Resource::Service[$::neutron::params::server_service]],
-    }
-    pacemaker::constraint::base { 'neutron-server-to-neutron-ovs-cleanup-constraint':
-      constraint_type => "order",
-      first_resource => "${::neutron::params::server_service}-clone",
-      second_resource => "${::neutron::params::ovs_cleanup_service}-clone",
-      first_action => "start",
-      second_action => "start",
-      require => [Pacemaker::Resource::Service[$::neutron::params::server_service],
-                  Pacemaker::Resource::Ocf["${::neutron::params::ovs_cleanup_service}"]],
-    }
+
+    # neutron - one chain ovs-cleanup-->netns-cleanup-->ovs-agent
     pacemaker::constraint::base { 'neutron-ovs-cleanup-to-netns-cleanup-constraint':
       constraint_type => "order",
       first_resource => "${::neutron::params::ovs_cleanup_service}-clone",
@@ -1097,6 +1081,26 @@ if hiera('step') >= 4 {
       score => "INFINITY",
       require => [Pacemaker::Resource::Ocf["neutron-netns-cleanup"],
                   Pacemaker::Resource::Service["${::neutron::params::ovs_agent_service}"]],
+    }
+
+    #another chain keystone-->neutron-server-->ovs-agent-->dhcp-->l3
+    pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
+      constraint_type => "order",
+      first_resource => "${::keystone::params::service_name}-clone",
+      second_resource => "${::neutron::params::server_service}-clone",
+      first_action => "start",
+      second_action => "start",
+      require => [Pacemaker::Resource::Service[$::keystone::params::service_name],
+                  Pacemaker::Resource::Service[$::neutron::params::server_service]],
+    }
+    pacemaker::constraint::base { 'neutron-server-to-openvswitch-agent-constraint':
+      constraint_type => "order",
+      first_resource => "${::neutron::params::server_service}-clone",
+      second_resource => "${::neutron::params::ovs_agent_service}-clone",
+      first_action => "start",
+      second_action => "start",
+      require => [Pacemaker::Resource::Service[$::neutron::params::server_service],
+                  Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
     }
     pacemaker::constraint::base { 'neutron-openvswitch-agent-to-dhcp-agent-constraint':
       constraint_type => "order",
