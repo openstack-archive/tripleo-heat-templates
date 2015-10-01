@@ -233,64 +233,72 @@ if hiera('step') >= 3 {
   include ::neutron
   include ::neutron::server
   include ::neutron::server::notifications
-  include ::neutron::agents::l3
-  include ::neutron::agents::dhcp
-  include ::neutron::agents::metadata
 
-  file { '/etc/neutron/dnsmasq-neutron.conf':
-    content => hiera('neutron_dnsmasq_options'),
-    owner   => 'neutron',
-    group   => 'neutron',
-    notify  => Service['neutron-dhcp-service'],
-    require => Package['neutron'],
-  }
+  # If the value of core plugin is set to 'nuage',
+  # include nuage core plugin,
+  # else use the default value of 'ml2'
+  if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
+    include ::neutron::plugins::nuage
+  } else {
+    include ::neutron::agents::l3
+    include ::neutron::agents::dhcp
+    include ::neutron::agents::metadata
 
-  class { '::neutron::plugins::ml2':
-    flat_networks        => split(hiera('neutron_flat_networks'), ','),
-    tenant_network_types => [hiera('neutron_tenant_network_type')],
-    mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
-  }
-  class { '::neutron::agents::ml2::ovs':
-    bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
-    tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
-  }
-  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::nexus1000v
-
-    class { '::neutron::agents::n1kv_vem':
-      n1kv_source  => hiera('n1kv_vem_source', undef),
-      n1kv_version => hiera('n1kv_vem_version', undef),
+    file { '/etc/neutron/dnsmasq-neutron.conf':
+      content => hiera('neutron_dnsmasq_options'),
+      owner   => 'neutron',
+      group   => 'neutron',
+      notify  => Service['neutron-dhcp-service'],
+      require => Package['neutron'],
     }
 
-    class { '::n1k_vsm':
-      n1kv_source       => hiera('n1kv_vsm_source', undef),
-      n1kv_version      => hiera('n1kv_vsm_version', undef),
-      pacemaker_control => false,
+    class { '::neutron::plugins::ml2':
+      flat_networks        => split(hiera('neutron_flat_networks'), ','),
+      tenant_network_types => [hiera('neutron_tenant_network_type')],
+      mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
     }
-  }
+    class { '::neutron::agents::ml2::ovs':
+      bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
+      tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
+    }
+    if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+      include ::neutron::plugins::ml2::cisco::nexus1000v
 
-  if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::ucsm
-  }
-  if 'cisco_nexus' in hiera('neutron_mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::nexus
-    include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
-  }
+      class { '::neutron::agents::n1kv_vem':
+        n1kv_source  => hiera('n1kv_vem_source', undef),
+        n1kv_version => hiera('n1kv_vem_version', undef),
+      }
 
-  if hiera('neutron_enable_bigswitch_ml2', false) {
-    include ::neutron::plugins::ml2::bigswitch::restproxy
-  }
-  neutron_l3_agent_config {
-    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-  }
-  neutron_dhcp_agent_config {
-    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-  }
+      class { '::n1k_vsm':
+        n1kv_source       => hiera('n1kv_vsm_source', undef),
+        n1kv_version      => hiera('n1kv_vsm_version', undef),
+        pacemaker_control => false,
+      }
+    }
 
-  Service['neutron-server'] -> Service['neutron-dhcp-service']
-  Service['neutron-server'] -> Service['neutron-l3']
-  Service['neutron-server'] -> Service['neutron-ovs-agent-service']
-  Service['neutron-server'] -> Service['neutron-metadata']
+    if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
+      include ::neutron::plugins::ml2::cisco::ucsm
+    }
+    if 'cisco_nexus' in hiera('neutron_mechanism_drivers') {
+      include ::neutron::plugins::ml2::cisco::nexus
+      include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
+    }
+
+    if hiera('neutron_enable_bigswitch_ml2', false) {
+      include ::neutron::plugins::ml2::bigswitch::restproxy
+    }
+    neutron_l3_agent_config {
+      'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+    }
+    neutron_dhcp_agent_config {
+      'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+    }
+
+    Service['neutron-server'] -> Service['neutron-dhcp-service']
+    Service['neutron-server'] -> Service['neutron-l3']
+    Service['neutron-server'] -> Service['neutron-ovs-agent-service']
+    Service['neutron-server'] -> Service['neutron-metadata']
+  }
 
   include ::cinder
   include ::cinder::api
