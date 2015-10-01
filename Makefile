@@ -22,19 +22,19 @@ overcloud.yaml: deprecated/overcloud-source.yaml deprecated/block-storage.yaml d
 	python ./tripleo_heat_merge/merge.py --hot --scale NovaCompute=$${COMPUTESCALE:-'1'} --scale controller=$${CONTROLSCALE:-'1'} --scale SwiftStorage=$${SWIFTSTORAGESCALE:-'0'} --scale BlockStorage=$${BLOCKSTORAGESCALE:-'0'} --scale CephStorage=$${CEPHSTORAGESCALE:-'0'} deprecated/overcloud-source.yaml deprecated/block-storage.yaml deprecated/swift-source.yaml deprecated/swift-storage-source.yaml deprecated/ssl-source.yaml deprecated/swift-deploy.yaml deprecated/nova-compute-config.yaml ${CONTROLEXTRA} > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm.yaml: undercloud-source.yaml undercloud-vm-nova-config.yaml undercloud-vm-nova-deploy.yaml
+undercloud-vm.yaml: deprecated/undercloud-source.yaml deprecated/undercloud-vm-nova-config.yaml deprecated/undercloud-vm-nova-deploy.yaml
 	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
 	mv $@.tmp $@
 
-undercloud-bm.yaml: undercloud-source.yaml undercloud-bm-nova-config.yaml undercloud-bm-nova-deploy.yaml
+undercloud-bm.yaml: deprecated/undercloud-source.yaml deprecated/undercloud-bm-nova-config.yaml deprecated/undercloud-bm-nova-deploy.yaml
 	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm-ironic.yaml: undercloud-source.yaml undercloud-vm-ironic-config.yaml undercloud-vm-ironic-deploy.yaml
+undercloud-vm-ironic.yaml: deprecated/undercloud-source.yaml deprecated/undercloud-vm-ironic-config.yaml deprecated/undercloud-vm-ironic-deploy.yaml
 	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
 	mv $@.tmp $@
 
-undercloud-vm-ironic-vlan.yaml: undercloud-source.yaml undercloud-vm-ironic-config.yaml undercloud-vm-ironic-deploy.yaml undercloud-vlan-port.yaml
+undercloud-vm-ironic-vlan.yaml: deprecated/undercloud-source.yaml deprecated/undercloud-vm-ironic-config.yaml deprecated/undercloud-vm-ironic-deploy.yaml deprecated/undercloud-vlan-port.yaml
 	python ./tripleo_heat_merge/merge.py --hot $^ > $@.tmp
 	mv $@.tmp $@
 
