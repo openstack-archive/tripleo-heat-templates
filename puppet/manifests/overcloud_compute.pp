@@ -70,20 +70,28 @@ include ::nova::compute::libvirt
 include ::nova::network::neutron
 include ::neutron
 
-class { '::neutron::plugins::ml2':
-  flat_networks        => split(hiera('neutron_flat_networks'), ','),
-  tenant_network_types => [hiera('neutron_tenant_network_type')],
-}
+# If the value of core plugin is set to 'nuage',
+# include nuage agent,
+# else use the default value of 'ml2'
+if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
+  include ::nuage::vrs
+  include ::nova::compute::neutron
+} else {
+  class { '::neutron::plugins::ml2':
+    flat_networks        => split(hiera('neutron_flat_networks'), ','),
+    tenant_network_types => [hiera('neutron_tenant_network_type')],
+  }
 
-class { '::neutron::agents::ml2::ovs':
-  bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
-  tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
-}
+  class { '::neutron::agents::ml2::ovs':
+    bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
+    tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
+  }
 
-if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
-  class { '::neutron::agents::n1kv_vem':
-    n1kv_source  => hiera('n1kv_vem_source', undef),
-    n1kv_version => hiera('n1kv_vem_version', undef),
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    class { '::neutron::agents::n1kv_vem':
+      n1kv_source  => hiera('n1kv_vem_source', undef),
+      n1kv_version => hiera('n1kv_vem_version', undef),
+    }
   }
 }
 
