@@ -158,12 +158,13 @@ if hiera('step') >= 1 {
   }
 
   class { '::mysql::server':
-    create_root_user   => false,
-    create_root_my_cnf => false,
-    config_file        => $mysql_config_file,
-    override_options   => $mysqld_options,
-    service_manage     => false,
-    service_enabled    => false,
+    create_root_user        => false,
+    create_root_my_cnf      => false,
+    config_file             => $mysql_config_file,
+    override_options        => $mysqld_options,
+    remove_default_accounts => $pacemaker_master,
+    service_manage          => false,
+    service_enabled         => false,
   }
 
 }
