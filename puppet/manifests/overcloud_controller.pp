@@ -484,6 +484,15 @@ if hiera('step') >= 3 {
 
 if hiera('step') >= 4 {
   include ::keystone::cron::token_flush
+
+  include ::ceilometer::keystone::auth
+  include ::cinder::keystone::auth
+  include ::glance::keystone::auth
+  include ::heat::keystone::auth
+  include ::neutron::keystone::auth
+  include ::nova::keystone::auth
+  include ::swift::keystone::auth
+
 } #END STEP 4
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])
