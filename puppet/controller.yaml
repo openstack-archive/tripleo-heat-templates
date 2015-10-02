@@ -4,6 +4,11 @@ description: >
   OpenStack controller node configured by Puppet.
 
 parameters:
+  AdminEmail:
+    default: 'admin@example.com'
+    description: The email for the keystone admin account.
+    type: string
+    hidden: true
   AdminPassword:
     default: unset
     description: The password for the keystone admin account, used for monitoring, querying neutron etc.
@@ -277,6 +282,10 @@ parameters:
     type: string
     constraints:
       - allowed_values: [ 'basic', 'cadf' ]
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
   MysqlClusterUniquePart:
     description: A unique identifier of the MySQL cluster the controller is in.
     type: string
@@ -461,7 +470,7 @@ parameters:
         Specifies the interface where the public-facing virtual ip will be assigned.
         This should be int_public when a VLAN is being used.
     type: string
-  PublicVirtualIP: # DEPRECATED: use per service settings instead
+  PublicVirtualIP:
     type: string
     default: ''  # Has to be here because of the ignored empty value bug
   RabbitCookie:
@@ -721,6 +730,7 @@ resources:
         heat_auth_encryption_key: {get_param: HeatAuthEncryptionKey}
         horizon_allowed_hosts: {get_param: HorizonAllowedHosts}
         horizon_secret: {get_param: HorizonSecret}
+        admin_email: {get_param: AdminEmail}
         admin_password: {get_param: AdminPassword}
         admin_token: {get_param: AdminToken}
         neutron_public_interface_ip: {get_param: NeutronPublicInterfaceIP}
@@ -797,13 +807,25 @@ resources:
             - ''
             - - 'http://'
               - {get_param: KeystoneAdminApiVirtualIP}
-              - ':35357/'
+              - ':35357'
         keystone_auth_uri:
           list_join:
             - ''
             - - 'http://'
               - {get_param: KeystonePublicApiVirtualIP}
               - ':5000/v2.0/'
+        keystone_public_url:
+          list_join:
+            - ''
+            - - 'http://'
+              - {get_param: PublicVirtualIP}
+              - ':5000'
+        keystone_internal_url:
+          list_join:
+            - ''
+            - - 'http://'
+              - {get_param: KeystonePublicApiVirtualIP}
+              - ':5000'
         keystone_ec2_uri:
           list_join:
             - ''
@@ -978,6 +1000,7 @@ resources:
         heat_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
         keystone_public_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
         keystone_admin_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+        keystone_region: {get_param: KeystoneRegion}
         mongo_db_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, MongoDbNetwork]}]}
         neutron_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
         neutron_local_ip: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NeutronTenantNetwork]}]}
@@ -1155,6 +1178,12 @@ resources:
                 keystone::rabbit_port: {get_input: rabbit_client_port}
                 keystone::notification_driver: {get_input: keystone_notification_driver}
                 keystone::notification_format: {get_input: keystone_notification_format}
+                keystone::roles::admin::email: {get_input: admin_email}
+                keystone::roles::admin::password: {get_input: admin_password}
+                keystone::endpoint::public_url: {get_input: keystone_public_url}
+                keystone::endpoint::internal_url: {get_input: keystone_internal_url}
+                keystone::endpoint::admin_url: {get_input: keystone_identity_uri}
+                keystone::endpoint::region: {get_input: keystone_region}
                 # MongoDB
                 mongodb::server::bind_ip: {get_input: mongo_db_network}
                 mongodb::server::nojournal: {get_input: mongodb_no_journal}

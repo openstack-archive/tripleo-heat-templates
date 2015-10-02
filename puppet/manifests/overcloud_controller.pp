@@ -159,6 +159,8 @@ if hiera('step') >= 2 {
 if hiera('step') >= 3 {
 
   include ::keystone
+  include ::keystone::roles::admin
+  include ::keystone::endpoint
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
   keystone_config {

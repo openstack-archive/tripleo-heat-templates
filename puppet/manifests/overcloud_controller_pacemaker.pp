@@ -919,7 +919,11 @@ if hiera('step') >= 4 {
 
     # Keystone
     pacemaker::resource::service { $::keystone::params::service_name :
-      clone_params => "interleave=true",
+      clone_params     => "interleave=true",
+      verify_on_create => true,
+      require          => [File['/etc/keystone/ssl/certs/ca.pem'],
+                           File['/etc/keystone/ssl/private/signing_key.pem'],
+                           File['/etc/keystone/ssl/certs/signing_cert.pem']],
     }
 
     pacemaker::constraint::base { 'haproxy-then-keystone-constraint':
@@ -1543,6 +1547,21 @@ if hiera('step') >= 4 {
   }
 
 } #END STEP 4
+
+if hiera('step') >= 5 {
+
+  if $pacemaker_master {
+
+    class {'::keystone::roles::admin' :
+      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
+    } ->
+    class {'::keystone::endpoint' :
+      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
+    }
+
+  }
+
+} #END STEP 5
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller_pacemaker', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
