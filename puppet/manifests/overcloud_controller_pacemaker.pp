@@ -801,6 +801,7 @@ if hiera('step') >= 3 {
     }
   }
   include ::ceilometer
+  include ::ceilometer::config
   class { '::ceilometer::api' :
     manage_service => false,
     enabled => false,

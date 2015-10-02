@@ -79,6 +79,7 @@ class { 'neutron::agents::ml2::ovs':
 }
 
 include ::ceilometer
+include ::ceilometer::config
 include ::ceilometer::agent::compute
 include ::ceilometer::agent::auth
 
