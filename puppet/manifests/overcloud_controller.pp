@@ -431,6 +431,7 @@ if hiera('step') >= 3 {
     }
   }
   include ::ceilometer
+  include ::ceilometer::config
   include ::ceilometer::api
   include ::ceilometer::agent::notification
   include ::ceilometer::agent::central
