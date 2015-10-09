@@ -84,7 +84,8 @@ if hiera('step') >= 2 {
         'max_connections' => hiera('mysql_max_connections'),
         'open_files_limit' => '-1',
       },
-    }
+    },
+    remove_default_accounts => true,
   }
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
