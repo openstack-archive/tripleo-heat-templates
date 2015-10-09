@@ -871,7 +871,10 @@ if hiera('step') >= 3 {
 
   # httpd/apache and horizon
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
-  include ::apache
+  class { '::apache' :
+    service_enable => false,
+    # service_manage => false, # <-- not supported with horizon&apache mod_wsgi?
+  }
   include ::apache::mod::status
   if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
     $_profile_support = 'cisco'
