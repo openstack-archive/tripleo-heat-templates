@@ -883,14 +883,8 @@ if hiera('step') >= 3 {
     $_profile_support = 'None'
   }
   $neutron_options   = {'profile_support' => $_profile_support }
-  $vhost_params = {
-    add_listen => false,
-    priority   => 10,
-  }
   class { 'horizon':
     cache_server_ip    => hiera('memcache_node_ips', '127.0.0.1'),
-    vhost_extra_params => $vhost_params,
-    server_aliases     => $::hostname,
     neutron_options    => $neutron_options,
   }
 
