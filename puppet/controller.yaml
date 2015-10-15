@@ -523,6 +523,10 @@ parameters:
     description: |
         Whether to create cron job for purging soft deleted rows in Nova database.
     type: boolean
+  NovaIPv6:
+    default: false
+    description: Enable IPv6 features in Nova
+    type: boolean
   NovaPassword:
     description: The password for the nova service and db account, used by nova-api.
     type: string
@@ -534,6 +538,10 @@ parameters:
   MongoDbNoJournal:
     default: false
     description: Should MongoDb journaling be disabled
+    type: boolean
+  MongoDbIPv6:
+    default: false
+    description: Enable IPv6 if Mongo DB VIP is IPv6
     type: boolean
   NtpServer:
     default: ''
@@ -582,6 +590,10 @@ parameters:
   RedisVirtualIP:
     type: string
     default: ''  # Has to be here because of the ignored empty value bug
+  RedisVirtualIPUri:
+    type: string
+    default: ''  # Has to be here because of the ignored empty value bug
+    description: An IP address which is wrapped in brackets in case of IPv6
   SnmpdReadonlyUserName:
     default: ro_snmp_user
     description: The user name for SNMPd with readonly rights running on all Overcloud nodes
@@ -637,6 +649,9 @@ parameters:
   HeatApiVirtualIP:
     type: string
     default: ''
+  HeatApiVirtualIPUri:
+    type: string
+    default: ''
   GlanceApiVirtualIP:
     type: string
     default: ''
@@ -644,6 +659,9 @@ parameters:
     type: string
     default: ''
   MysqlVirtualIP:
+    type: string
+    default: ''
+  MysqlVirtualIPUri:
     type: string
     default: ''
   KeystoneAdminApiVirtualIP:
@@ -803,11 +821,17 @@ resources:
     properties:
       ControlPlaneIp: {get_attr: [Controller, networks, ctlplane, 0]}
       ExternalIp: {get_attr: [ExternalPort, ip_address]}
+      ExternalIpUri: {get_attr: [ExternalPort, ip_address_uri]}
       InternalApiIp: {get_attr: [InternalApiPort, ip_address]}
+      InternalApiIpUri: {get_attr: [InternalApiPort, ip_address_uri]}
       StorageIp: {get_attr: [StoragePort, ip_address]}
+      StorageIpUri: {get_attr: [StoragePort, ip_address_uri]}
       StorageMgmtIp: {get_attr: [StorageMgmtPort, ip_address]}
+      StorageMgmtIpUri: {get_attr: [StorageMgmtPort, ip_address_uri]}
       TenantIp: {get_attr: [TenantPort, ip_address]}
+      TenantIpUri: {get_attr: [TenantPort, ip_address_uri]}
       ManagementIp: {get_attr: [ManagementPort, ip_address]}
+      ManagementIpUri: {get_attr: [ManagementPort, ip_address_uri]}
 
   NetIpSubnetMap:
     type: OS::TripleO::Network::Ports::NetIpSubnetMap
@@ -880,19 +904,19 @@ resources:
           list_join:
             - ''
             - - 'http://'
-              - {get_param: HeatApiVirtualIP}
+              - {get_param: HeatApiVirtualIPUri}
               - ':8003'
         heat.metadata_server_url:
           list_join:
             - ''
             - - 'http://'
-              - {get_param: HeatApiVirtualIP}
+              - {get_param: HeatApiVirtualIPUri}
               - ':8000'
         heat.waitcondition_server_url:
           list_join:
             - ''
             - - 'http://'
-              - {get_param: HeatApiVirtualIP}
+              - {get_param: HeatApiVirtualIPUri}
               - ':8000/v1/waitcondition'
         heat_auth_encryption_key: {get_param: HeatAuthEncryptionKey}
         horizon_allowed_hosts: {get_param: HorizonAllowedHosts}
@@ -921,7 +945,7 @@ resources:
             - - 'mysql+pymysql://cinder:'
               - {get_param: CinderPassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/cinder'
         glance_port: {get_param: [EndpointMap, GlanceInternal, port]}
         glance_password: {get_param: GlancePassword}
@@ -938,7 +962,7 @@ resources:
             - - 'mysql+pymysql://glance:'
               - {get_param: GlancePassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/glance'
         heat_password: {get_param: HeatPassword}
         heat_stack_domain_admin_password: {get_param: HeatStackDomainAdminPassword}
@@ -948,7 +972,7 @@ resources:
             - - 'mysql+pymysql://heat:'
               - {get_param: HeatPassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/heat'
         keystone_ca_certificate: {get_param: KeystoneCACertificate}
         keystone_signing_key: {get_param: KeystoneSigningKey}
@@ -964,7 +988,7 @@ resources:
             - - 'mysql+pymysql://keystone:'
               - {get_param: AdminToken}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/keystone'
         keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
         keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
@@ -1072,7 +1096,7 @@ resources:
             - - 'mysql+pymysql://neutron:'
               - {get_param: NeutronPassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/ovs_neutron?charset=utf8'
         neutron_internal_url: { get_param: [ EndpointMap, NeutronInternal, uri ] }
         neutron_public_url: { get_param: [ EndpointMap, NeutronPublic, uri ] }
@@ -1087,7 +1111,7 @@ resources:
           list_join:
             - ''
             - - 'redis://'
-              - {get_param: RedisVirtualIP}
+              - {get_param: RedisVirtualIPUri}
               - ':6379'
         ceilometer_dsn:
           list_join:
@@ -1095,11 +1119,12 @@ resources:
             - - 'mysql+pymysql://ceilometer:'
               - {get_param: CeilometerPassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/ceilometer'
         snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
         snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
         nova_enable_db_purge: {get_param: NovaEnableDBPurge}
+        nova_ipv6: {get_param: NovaIPv6}
         nova_password: {get_param: NovaPassword}
         nova_dsn:
           list_join:
@@ -1107,7 +1132,7 @@ resources:
             - - 'mysql+pymysql://nova:'
               - {get_param: NovaPassword}
               - '@'
-              - {get_param: MysqlVirtualIP}
+              - {get_param: MysqlVirtualIPUri}
               - '/nova'
         upgrade_level_nova_compute: {get_param: UpgradeLevelNovaCompute}
         instance_name_template: {get_param: InstanceNameTemplate}
@@ -1119,6 +1144,7 @@ resources:
         rabbit_client_use_ssl: {get_param: RabbitClientUseSSL}
         rabbit_client_port: {get_param: RabbitClientPort}
         mongodb_no_journal: {get_param: MongoDbNoJournal}
+        mongodb_ipv6: {get_param: MongoDbIPv6}
         # We need to force this into quotes or hiera will return integer causing
         # the puppet module validation regexp to fail.
         # Remove when: https://github.com/puppetlabs/puppetlabs-rabbitmq/pull/401
@@ -1351,6 +1377,7 @@ resources:
                 # MongoDB
                 mongodb::server::bind_ip: {get_input: mongo_db_network}
                 mongodb::server::nojournal: {get_input: mongodb_no_journal}
+                mongodb::server::ipv6: {get_input: mongodb_ipv6}
                 # MySQL
                 admin_password: {get_input: admin_password}
                 enable_galera: {get_input: enable_galera}
@@ -1453,6 +1480,7 @@ resources:
                 nova::rabbit_port: {get_input: rabbit_client_port}
                 nova::upgrade_level_compute: {get_input: upgrade_level_nova_compute}
                 nova::debug: {get_input: debug}
+                nova::use_ipv6: {get_input: nova_ipv6}
                 nova::api::auth_uri: {get_input: keystone_auth_uri}
                 nova::api::identity_uri: {get_input: keystone_identity_uri}
                 nova::api::api_bind_address: {get_input: nova_api_network}
