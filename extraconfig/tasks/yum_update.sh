@@ -44,7 +44,13 @@ pacemaker_status=$(systemctl is-active pacemaker)
 
 if [[ "$pacemaker_status" == "active" ]] ; then
     echo "Pacemaker running, stopping cluster node and doing full package update"
-    pcs cluster stop
+    node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
+    if [[ "$node_count" == "1" ]] ; then
+        echo "Active node count is 1, stopping node with --force"
+        pcs cluster stop --force
+    else
+        pcs cluster stop
+    fi
 else
     echo "Excluding upgrading packages that are handled by config management tooling"
     command_arguments="$command_arguments --skip-broken"
