@@ -589,8 +589,54 @@ if hiera('step') >= 3 {
   }
   include ::nova::network::neutron
 
-  # Neutron class definitions
-  include ::neutron
+  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+
+    # TODO(devvesa) provide non-controller ips for these services
+    $zookeeper_node_ips = hiera('neutron_api_node_ips')
+    $cassandra_node_ips = hiera('neutron_api_node_ips')
+
+    # Run zookeeper in the controller if configured
+    if hiera('enable_zookeeper_on_controller') {
+      class {'::tripleo::cluster::zookeeper':
+        zookeeper_server_ips => $zookeeper_node_ips,
+        zookeeper_client_ip  => $ipaddress,
+        zookeeper_hostnames  => hiera('controller_node_names')
+      }
+    }
+
+    # Run cassandra in the controller if configured
+    if hiera('enable_cassandra_on_controller') {
+      class {'::tripleo::cluster::cassandra':
+        cassandra_servers => $cassandra_node_ips,
+        cassandra_ip      => $ipaddress
+      }
+    }
+
+    class {'::tripleo::network::midonet::agent':
+      zookeeper_servers => $zookeeper_node_ips,
+      cassandra_seeds   => $cassandra_node_ips
+    }
+
+    class {'::tripleo::network::midonet::api':
+      zookeeper_servers    => hiera('neutron_api_node_ips'),
+      vip                  => $public_vip,
+      keystone_ip          => $public_vip,
+      keystone_admin_token => hiera('keystone::admin_token'),
+      bind_address         => $ipaddress,
+      admin_password       => hiera('admin_password')
+    }
+
+    # Configure Neutron
+    class {'::neutron':
+      service_plugins => []
+    }
+
+  }
+  else {
+    # Neutron class definitions
+    include ::neutron
+  }
+
   class { '::neutron::server' :
     sync_db        => $sync_db,
     manage_service => false,
@@ -599,6 +645,13 @@ if hiera('step') >= 3 {
 
   if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
+  }
+  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+    class {'::neutron::plugins::midonet':
+      midonet_api_ip    => $public_vip,
+      keystone_tenant   => hiera('neutron::server::auth_tenant'),
+      keystone_password => hiera('neutron::server::auth_password')
+    }
   }
   if hiera('neutron::enable_dhcp_agent',true) {
     class { '::neutron::agents::dhcp' :
@@ -1120,6 +1173,11 @@ if hiera('step') >= 4 {
         clone_params => 'interleave=true',
       }
     }
+    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+      pacemaker::resource::service {'tomcat':
+        clone_params => 'interleave=true',
+      }
+    }
     if hiera('neutron::enable_metadata_agent', true) {
       pacemaker::resource::service { $::neutron::params::metadata_agent_service:
         clone_params => 'interleave=true',
@@ -1170,7 +1228,6 @@ if hiera('step') >= 4 {
       }
     }
 
-    #another chain keystone-->neutron-server-->ovs-agent-->dhcp-->l3
     pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
       constraint_type => 'order',
       first_resource  => "${::keystone::params::service_name}-clone",
@@ -1244,6 +1301,43 @@ if hiera('step') >= 4 {
         score   => 'INFINITY',
         require => [Pacemaker::Resource::Service[$::neutron::params::l3_agent_service],
                     Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]]
+      }
+    }
+    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+      #midonet-chain chain keystone-->neutron-server-->dhcp-->metadata->tomcat
+      pacemaker::constraint::base { 'neutron-server-to-dhcp-agent-constraint':
+        constraint_type => 'order',
+        first_resource  => "${::neutron::params::server_service}-clone",
+        second_resource => "${::neutron::params::dhcp_agent_service}-clone",
+        first_action    => 'start',
+        second_action   => 'start',
+        require         => [Pacemaker::Resource::Service[$::neutron::params::server_service],
+                            Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
+      }
+      pacemaker::constraint::base { 'neutron-dhcp-agent-to-metadata-agent-constraint':
+        constraint_type => 'order',
+        first_resource  => "${::neutron::params::dhcp_agent_service}-clone",
+        second_resource => "${::neutron::params::metadata_agent_service}-clone",
+        first_action    => 'start',
+        second_action   => 'start',
+        require         => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
+                            Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
+      }
+      pacemaker::constraint::base { 'neutron-metadata-agent-to-tomcat-constraint':
+        constraint_type => 'order',
+        first_resource  => "${::neutron::params::metadata_agent_service}-clone",
+        second_resource => 'tomcat-clone',
+        first_action    => 'start',
+        second_action   => 'start',
+        require         => [Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service],
+                            Pacemaker::Resource::Service['tomcat']],
+      }
+      pacemaker::constraint::colocation { 'neutron-dhcp-agent-to-metadata-agent-colocation':
+        source  => "${::neutron::params::metadata_agent_service}-clone",
+        target  => "${::neutron::params::dhcp_agent_service}-clone",
+        score   => 'INFINITY',
+        require => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
+                    Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
       }
     }
 
