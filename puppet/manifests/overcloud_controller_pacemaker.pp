@@ -331,7 +331,7 @@ if hiera('step') >= 2 {
     }
 
     pacemaker::resource::service { $::memcached::params::service_name :
-      clone_params => true,
+      clone_params => "interleave=true",
       require      => Class['::memcached'],
     }
 
