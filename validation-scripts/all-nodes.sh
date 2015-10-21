@@ -15,7 +15,7 @@ function ping_controller_ips() {
 
        if [ $REMOTE_NETWORK/$LOCAL_CIDR == $LOCAL_NETWORK ]; then
          echo -n "Trying to ping $REMOTE_IP for local network $LOCAL_NETWORK..."
-         if ! ping -c 1 $REMOTE_IP &> /dev/null; then
+         if ! ping -W 300 -c 1 $REMOTE_IP &> /dev/null; then
            echo "FAILURE"
            echo "$REMOTE_IP is not pingable. Local Network: $LOCAL_NETWORK" >&2
            exit 1
