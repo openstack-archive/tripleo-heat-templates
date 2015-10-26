@@ -814,12 +814,11 @@ if hiera('step') >= 3 {
   }
 
   # Ceilometer
-  $ceilometer_backend = downcase(hiera('ceilometer_backend'))
-  case $ceilometer_backend {
-    /mysql/ : {
+  case downcase(hiera('ceilometer_backend')) {
+    /mysql/: {
       $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
     }
-    default : {
+    default: {
       $mongo_node_string = join($mongo_node_ips_with_port, ',')
       $ceilometer_database_connection = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     }
@@ -1279,10 +1278,20 @@ if hiera('step') >= 4 {
     }
 
     # Ceilometer
-    pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
-      clone_params => 'interleave=true',
-      require      => [Pacemaker::Resource::Service[$::keystone::params::service_name],
-                       Pacemaker::Resource::Service[$::mongodb::params::service_name]],
+    case downcase(hiera('ceilometer_backend')) {
+      /mysql/: {
+        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
+          clone_params => 'interleave=true',
+          require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
+        }
+      }
+      default: {
+        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
+          clone_params => 'interleave=true',
+          require      => [Pacemaker::Resource::Service[$::keystone::params::service_name],
+                           Pacemaker::Resource::Service[$::mongodb::params::service_name]],
+        }
+      }
     }
     pacemaker::resource::service { $::ceilometer::params::collector_service_name :
       clone_params => 'interleave=true',
