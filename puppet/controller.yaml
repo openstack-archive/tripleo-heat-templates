@@ -514,20 +514,6 @@ parameters:
     description: The user password for SNMPd with readonly rights running on all Overcloud nodes
     type: string
     hidden: true
-  SSLCACertificate:
-    default: ''
-    description: If set, the contents of an SSL certificate authority file.
-    type: string
-  SSLCertificate:
-    default: ''
-    description: If set, the contents of an SSL certificate .crt file for encrypting SSL endpoints.
-    type: string
-    hidden: true
-  SSLKey:
-    default: ''
-    description: If set, the contents of an SSL certificate .key file for encrypting SSL endpoints.
-    type: string
-    hidden: true
   SwiftHashSuffix:
     default: unset
     description: A random string to be used as a salt when hashing to determine mappings
@@ -611,6 +597,9 @@ parameters:
     description: >
       Heat action when to apply network configuration changes
     default: ['CREATE']
+  NodeIndex:
+    type: number
+    default: 0
 
 resources:
 
@@ -711,6 +700,14 @@ resources:
       input_values:
         bridge_name: br-ex
         interface_name: {get_param: NeutronPublicInterface}
+
+  # Hook for site-specific passing of private keys/certificates
+  NodeTLSData:
+    depends_on: NetworkDeployment
+    type: OS::TripleO::NodeTLSData
+    properties:
+      server: {get_resource: Controller}
+      NodeIndex: {get_param: NodeIndex}
 
   ControllerDeployment:
     type: OS::TripleO::SoftwareDeployment
@@ -1289,6 +1286,12 @@ resources:
                 tripleo::loadbalancer::control_virtual_interface: {get_input: control_virtual_interface}
                 tripleo::loadbalancer::public_virtual_interface: {get_input: public_virtual_interface}
                 tripleo::loadbalancer::haproxy_log_address: {get_input: haproxy_log_address}
+                # NOTE(jaosorior): The service certificate configuration for
+                # HAProxy was left commented because to properly use this, we
+                # need to be able to set up the keystone endpoints. And
+                # currently that is not possible, but is being addressed by
+                # other commits.  A subsequent commit will uncomment this.
+                #tripleo::loadbalancer::service_certificate: {get_attr: [NodeTLSData, deployed_ssl_certificate_path]}
                 tripleo::packages::enable_install: {get_input: enable_package_install}
                 tripleo::packages::enable_upgrade: {get_input: enable_package_upgrade}
 
@@ -1382,5 +1385,6 @@ outputs:
       list_join:
         - ','
         - - {get_attr: [ControllerDeployment, deploy_stdout]}
+          - {get_attr: [NodeTLSData, deploy_stdout]}
           - {get_attr: [ControllerExtraConfigPre, deploy_stdout]}
           - {get_param: UpdateIdentifier}
