@@ -79,14 +79,6 @@ parameters:
     default: ''
     description: Set to True to enable debugging on all services.
     type: string
-  GlancePort:
-    default: "9292"
-    description: Glance port.
-    type: string
-  GlanceProtocol:
-    default: http
-    description: Protocol to use when connecting to glance, set to https for SSL.
-    type: string
   HAProxySyslogAddress:
     default: /dev/log
     description: Syslog address where HAproxy will send its log
@@ -759,6 +751,22 @@ resources:
     properties:
       length: 10
 
+  EndpointMap:
+    type: OS::TripleO::EndpointMap
+    properties:
+      CeilometerApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+      CinderApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+      GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+      GlanceRegistryVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+      HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+      KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+      KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+      MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+      NeutronApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+      NovaApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+      SwiftProxyVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+      PublicVirtualIP: {get_attr: [VipMap, net_ip_map, external]}
+
   Controller:
     type: OS::Heat::ResourceGroup
     depends_on: Networks
@@ -792,8 +800,6 @@ resources:
           ExtraConfig: {get_param: ExtraConfig}
           FencingConfig: {get_param: FencingConfig}
           Flavor: {get_param: OvercloudControlFlavor}
-          GlancePort: {get_param: GlancePort}
-          GlanceProtocol: {get_param: GlanceProtocol}
           GlancePassword: {get_param: GlancePassword}
           GlanceBackend: {get_param: GlanceBackend}
           GlanceNotifierStrategy: {get_param: GlanceNotifierStrategy}
@@ -867,6 +873,7 @@ resources:
           VirtualIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]} # deprecated. Use per service VIP settings instead now.
           PublicVirtualIP: {get_attr: [PublicVirtualIP, ip_address]}
           ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
           CeilometerApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
           CinderApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
           HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
@@ -904,8 +911,6 @@ resources:
           ExtraConfig: {get_param: ExtraConfig}
           Flavor: {get_param: OvercloudComputeFlavor}
           GlanceHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
-          GlancePort: {get_param: GlancePort}
-          GlanceProtocol: {get_param: GlanceProtocol}
           Image: {get_param: NovaImage}
           ImageUpdatePolicy: {get_param: ImageUpdatePolicy}
           KeyName: {get_param: KeyName}
@@ -948,6 +953,7 @@ resources:
           SnmpdReadonlyUserName: {get_param: SnmpdReadonlyUserName}
           SnmpdReadonlyUserPassword: {get_param: SnmpdReadonlyUserPassword}
           ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
           UpdateIdentifier: {get_param: UpdateIdentifier}
           Hostname:
             str_replace:
@@ -974,8 +980,6 @@ resources:
           KeyName: {get_param: KeyName}
           Flavor: {get_param: OvercloudBlockStorageFlavor}
           VirtualIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-          GlancePort: {get_param: GlancePort}
-          GlanceProtocol: {get_param: GlanceProtocol}
           GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
           RabbitPassword: {get_param: RabbitPassword}
           RabbitUserName: {get_param: RabbitUserName}
@@ -989,6 +993,7 @@ resources:
               params:
                 '%stackname%': {get_param: 'OS::stack_name'}
           ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
           MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
           ExtraConfig: {get_param: ExtraConfig}
           BlockStorageExtraConfig: {get_param: BlockStorageExtraConfig}
@@ -1414,12 +1419,7 @@ resources:
 outputs:
   KeystoneURL:
     description: URL for the Overcloud Keystone service
-    value:
-      list_join:
-      - ''
-      - - http://
-        - {get_attr: [PublicVirtualIP, ip_address]}
-        - :5000/v2.0/
+    value: {get_attr: [EndpointMap, endpoint_map, KeystonePublic, uri]}
   KeystoneAdminVip:
     description: Keystone Admin VIP endpoint
     value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
