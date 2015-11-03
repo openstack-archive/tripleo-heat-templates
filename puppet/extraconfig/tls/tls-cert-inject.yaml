@@ -1,0 +1,81 @@
+heat_template_version: 2015-04-30
+
+description: >
+  This is a template which will build the TLS Certificates necessary
+  for the load balancer using the given parameters.
+
+parameters:
+  # Can be overriden via parameter_defaults in the environment
+  SSLCertificate:
+    default: ''
+    description: >
+      The content of the SSL certificate (without Key) in PEM format.
+    type: string
+  SSLIntermediateCertificate:
+    default: ''
+    description: >
+      The content of an SSL intermediate CA certificate in PEM format.
+    type: string
+  SSLKey:
+    default: ''
+    description: >
+      The content of the SSL Key in PEM format.
+    type: string
+    hidden: true
+
+  # Can be overriden by parameter_defaults if the user wants to try deploying
+  # this in a distro that doesn't support this path.
+  DeployedSSLCertificatePath:
+    default: '/etc/pki/tls/private/overcloud_endpoint.pem'
+    description: >
+        The filepath of the certificate as it will be stored in the controller.
+    type: string
+
+  # Passed in by the controller
+  NodeIndex:
+    default: 0
+    type: number
+  server:
+    description: ID of the controller node to apply this config to
+    type: string
+
+resources:
+  ControllerTLSConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: cert_path
+        - name: cert_chain_content
+      outputs:
+        - name: chain_md5sum
+      config: |
+        #!/bin/sh
+        cat << EOF | tee ${cert_path} > /dev/null
+        ${cert_chain_content}
+        EOF
+        chmod 0440 ${cert_path}
+        chown root:haproxy ${cert_path}
+        md5sum ${cert_path} > ${heat_outputs_path}.chain_md5sum
+
+  ControllerTLSDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config: {get_resource: ControllerTLSConfig}
+      server: {get_param: server}
+      input_values:
+        cert_path: {get_param: DeployedSSLCertificatePath}
+        cert_chain_content:
+          list_join:
+            - ''
+            - - {get_param: SSLCertificate}
+              - {get_param: SSLIntermediateCertificate}
+              - {get_param: SSLKey}
+
+outputs:
+  deploy_stdout:
+    description: Deployment reference
+    value: {get_attr: [ControllerTLSDeployment, chain_md5sum]}
+  deployed_ssl_certificate_path:
+    description: The location that the TLS certificate was deployed to.
+    value: {get_param: DeployedSSLCertificatePath}
