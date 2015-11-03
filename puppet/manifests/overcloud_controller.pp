@@ -113,6 +113,7 @@ if hiera('step') >= 2 {
   include ::sahara::db::mysql
   if downcase(hiera('ceilometer_backend')) == 'mysql' {
     include ::ceilometer::db::mysql
+    include ::aodh::db::mysql
   }
 
   $rabbit_nodes = hiera('rabbit_node_ips')
@@ -570,6 +571,21 @@ if hiera('step') >= 3 {
   }
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
+
+  # Aodh
+  class { '::aodh' :
+    database_connection => $ceilometer_database_connection,
+  }
+  include ::aodh::db::sync
+  # To manage the upgrade:
+  Exec['ceilometer-dbsync'] -> Exec['aodh-db-sync']
+  include ::aodh::auth
+  include ::aodh::api
+  include ::aodh::wsgi::apache
+  include ::aodh::evaluator
+  include ::aodh::notifier
+  include ::aodh::listener
+  include ::aodh::client
 
   # Heat
   class { '::heat' :
