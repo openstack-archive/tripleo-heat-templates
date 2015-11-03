@@ -1,0 +1,66 @@
+heat_template_version: 2015-04-30
+
+description: >
+  This is a template which will inject the trusted anchor.
+
+parameters:
+  # Can be overriden via parameter_defaults in the environment
+  SSLRootCertificate:
+    description: >
+      The content of a CA's SSL certificate file in PEM format.
+      This is evaluated on the client side.
+    type: string
+  SSLRootCertificatePath:
+    default: '/etc/pki/ca-trust/source/anchors/ca.crt.pem'
+    description: >
+      The filepath of the root certificate as it will be stored in the nodes.
+      Note that the path has to be one that can be picked up by the update
+      trust anchor command. e.g. in RHEL it would be
+      /etc/pki/ca-trust/source/anchors/ca.crt.pem
+    type: string
+  UpdateTrustAnchorsCommand:
+    default: update-ca-trust extract
+    description: >
+        command that will be executed to update the trust anchors.
+    type: string
+
+  # Passed in by controller.yaml
+  server:
+    description: ID of the node to apply this config to
+    type: string
+
+resources:
+  CAConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: cacert_path
+        - name: cacert_content
+        - name: update_anchor_command
+      outputs:
+        - name: root_cert_md5sum
+      config: |
+        #!/bin/sh
+        cat > ${cacert_path} << EOF
+        ${cacert_content}
+        EOF
+        chmod 0440 ${cacert_path}
+        chown root:root ${cacert_path}
+        ${update_anchor_command}
+        md5sum ${cacert_path} > ${heat_outputs_path}.root_cert_md5sum
+
+  CADeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config: {get_resource: CAConfig}
+      server: {get_param: server}
+      input_values:
+        cacert_path: {get_param: SSLRootCertificatePath}
+        cacert_content: {get_param: SSLRootCertificate}
+        update_anchor_command: {get_param: UpdateTrustAnchorsCommand}
+
+outputs:
+  deploy_stdout:
+    description: Deployment reference
+    value: {get_attr: [CADeployment, root_cert_md5sum]}
