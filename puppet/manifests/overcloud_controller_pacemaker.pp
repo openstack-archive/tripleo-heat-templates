@@ -1557,27 +1557,6 @@ if hiera('step') >= 5 {
     } ->
     class {'::keystone::endpoint' :
       require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::ceilometer::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::cinder::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::glance::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::heat::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::neutron::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::nova::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
-    } ->
-    class { '::swift::keystone::auth' :
-      require => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
 
   }
