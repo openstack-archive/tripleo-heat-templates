@@ -1052,7 +1052,6 @@ if hiera('step') >= 4 {
     # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
     exec { '/usr/bin/systemctl start neutron-server && /usr/bin/sleep 5' : } ->
     pacemaker::resource::service { $::neutron::params::server_service:
-      op_params => "start timeout=90",
       clone_params   => "interleave=true",
       require => Pacemaker::Resource::Service[$::keystone::params::service_name]
     }
