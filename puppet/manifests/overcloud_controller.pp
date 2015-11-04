@@ -222,7 +222,7 @@ if hiera('step') >= 3 {
   $http_store = ['glance.store.http.Store']
   $glance_store = concat($http_store, $backend_store)
 
-  # TODO: notifications, scrubber, etc.
+  # TODO: scrubber and other additional optional features
   include ::glance
   include ::glance::config
   class { '::glance::api':
@@ -230,6 +230,10 @@ if hiera('step') >= 3 {
   }
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
+  $rabbit_port = hiera('rabbitmq::port')
+  class { '::glance::notify::rabbitmq':
+    rabbit_hosts => suffix(hiera('rabbit_node_ips'), ":${rabbit_port}"),
+  }
 
   class { '::nova' :
     memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
@@ -380,6 +384,7 @@ if hiera('step') >= 3 {
   include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
+  include ::cinder::ceilometer
   class { '::cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
@@ -565,7 +570,9 @@ if hiera('step') >= 3 {
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
   # Heat
-  include ::heat
+  class { '::heat' :
+    notification_driver => 'messaging',
+  }
   include ::heat::config
   include ::heat::api
   include ::heat::api_cfn

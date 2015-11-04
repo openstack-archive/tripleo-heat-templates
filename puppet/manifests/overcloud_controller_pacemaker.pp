@@ -576,6 +576,10 @@ if hiera('step') >= 3 {
     enabled        => false,
   }
   include join(['::glance::backend::', $glance_backend])
+  $rabbit_port = hiera('rabbitmq::port')
+  class { '::glance::notify::rabbitmq':
+    rabbit_hosts => suffix(hiera('rabbit_node_ips'), ":${rabbit_port}"),
+  }
 
   class { '::nova' :
     memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
@@ -742,6 +746,9 @@ if hiera('step') >= 3 {
   neutron_dhcp_agent_config {
     'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
   }
+  neutron_config {
+    'DEFAULT/notification_driver': value => 'messaging';
+  }
 
   include ::cinder
   include ::cinder::config
@@ -760,6 +767,7 @@ if hiera('step') >= 3 {
     enabled        => false,
   }
   include ::cinder::glance
+  include ::cinder::ceilometer
   class { '::cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
@@ -986,7 +994,8 @@ if hiera('step') >= 3 {
   # Heat
   include ::heat::config
   class { '::heat' :
-    sync_db => $sync_db,
+    sync_db             => $sync_db,
+    notification_driver => 'messaging',
   }
   class { '::heat::api' :
     manage_service => false,
