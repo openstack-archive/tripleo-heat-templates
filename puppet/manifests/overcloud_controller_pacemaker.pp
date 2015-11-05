@@ -526,11 +526,12 @@ if hiera('step') >= 3 {
   $glance_store = concat($http_store, $backend_store)
 
   if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
+    $secontext = 'context="system_u:object_r:glance_var_lib_t:s0"'
     pacemaker::resource::filesystem { 'glance-fs':
       device       => hiera('glance_file_pcmk_device'),
       directory    => hiera('glance_file_pcmk_directory'),
       fstype       => hiera('glance_file_pcmk_fstype'),
-      fsoptions    => hiera('glance_file_pcmk_options', ''),
+      fsoptions    => join([$secontext, hiera('glance_file_pcmk_options', '')],','),
       clone_params => '',
     }
   }
