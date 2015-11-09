@@ -51,9 +51,10 @@ echo nameserver 8.8.8.8 > /etc/resolv.conf
 HOSTNAME=$(hostname)
 echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
-# Another hack.. we need latest docker..
+# Another hack.. we need a different docker version
+# (should obviously be dropped once the atomic image contains docker 1.8.2)
 /usr/bin/systemctl stop docker.service
-/bin/curl -o /tmp/docker https://get.docker.com/builds/Linux/x86_64/docker-latest
+/bin/curl -o /tmp/docker https://get.docker.com/builds/Linux/x86_64/docker-1.8.2
 /bin/mount -o remount,rw /usr
 /bin/rm /bin/docker
 /bin/cp /tmp/docker /bin/docker
