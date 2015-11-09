@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-include tripleo::packages
+include ::tripleo::packages
 
 define add_devices(
   $swift_zones = '1'
@@ -37,31 +37,33 @@ define add_devices(
   $base = regsubst($name,'^r1.*-(.*)$','\1')
   $object = regsubst($base, '%PORT%', '6000')
   ring_object_device { $object:
-    zone        => '1',
-    weight      => 100,
+    zone   => '1',
+    weight => 100,
   }
   $container = regsubst($base, '%PORT%', '6001')
   ring_container_device { $container:
-    zone        => '1',
-    weight      => 100,
+    zone   => '1',
+    weight => 100,
   }
   $account = regsubst($base, '%PORT%', '6002')
   ring_account_device { $account:
-    zone        => '1',
-    weight      => 100,
+    zone   => '1',
+    weight => 100,
   }
 }
 
 class tripleo::ringbuilder (
   $swift_zones     = '1',
   $devices         = '',
-  $build_ring      = 'True',
+  $build_ring      = true,
   $part_power,
   $replicas,
   $min_part_hours,
 ) {
 
-  if str2bool(downcase("$build_ring")) {
+  validate_bool($build_ring)
+
+  if $build_ring {
 
     $device_array = strip(split(rstrip($devices), ','))
 
@@ -74,7 +76,7 @@ class tripleo::ringbuilder (
 
     # add all other devices
     add_devices {$device_array:
-      swift_zones => $swift_zones
+      swift_zones => $swift_zones,
     } ->
 
     # rebalance
