@@ -316,7 +316,7 @@ if hiera('step') >= 3 {
     $ceph_pools = hiera('ceph_pools')
     ceph::pool { $ceph_pools : }
 
-    $cinder_pool_requires = [Ceph::Pool['volumes']]
+    $cinder_pool_requires = [Ceph::Pool[hiera('cinder_rbd_pool_name')]]
 
   } else {
     $cinder_pool_requires = []
@@ -326,7 +326,7 @@ if hiera('step') >= 3 {
     $cinder_rbd_backend = 'tripleo_ceph'
 
     cinder::backend::rbd { $cinder_rbd_backend :
-      rbd_pool        => 'volumes',
+      rbd_pool        => hiera('cinder_rbd_pool_name'),
       rbd_user        => 'openstack',
       rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
       require         => $cinder_pool_requires,
