@@ -1,0 +1,46 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Manila-api service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ManilaPassword:
+    description: The password for the manila service account.
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+resources:
+  ManilaBase:
+    type: ./manila-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Manila-api role.
+    value:
+      service_name: manila_api
+      config_settings:
+        map_merge:
+          - get_attr: [ManilaBase, role_data, config_settings]
+          - manila::api::keystone_password: {get_param: ManilaPassword}
+            manila::api::keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::api::keystone_auth_host: {get_param: [EndpointMap, ManilaInternal, host]}
+            manila::keystone::auth::public_url: {get_param: [EndpointMap, ManilaPublic, uri]}
+            manila::keystone::auth::internal_url: {get_param: [EndpointMap, ManilaInternal, uri]}
+            manila::keystone::auth::admin_url: {get_param: [EndpointMap, ManilaAdmin, uri]}
+            manila::keystone::auth::password: {get_param: ManilaPassword }
+            manila::keystone::auth::region: {get_param: KeystoneRegion }
+            manila::api::keystone_tenant: 'service'
+      step_config: |
+        include ::tripleo::profile::base::manila::api
+
