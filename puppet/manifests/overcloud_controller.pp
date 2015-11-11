@@ -320,14 +320,12 @@ if hiera('step') >= 3 {
 
   if $enable_ceph {
 
-    Ceph_pool {
+    $ceph_pools = hiera('ceph_pools')
+    ceph::pool { $ceph_pools :
       pg_num  => hiera('ceph::profile::params::osd_pool_default_pg_num'),
       pgp_num => hiera('ceph::profile::params::osd_pool_default_pgp_num'),
       size    => hiera('ceph::profile::params::osd_pool_default_size'),
     }
-
-    $ceph_pools = hiera('ceph_pools')
-    ceph::pool { $ceph_pools : }
 
     $cinder_pool_requires = [Ceph::Pool[hiera('cinder_rbd_pool_name')]]
 
