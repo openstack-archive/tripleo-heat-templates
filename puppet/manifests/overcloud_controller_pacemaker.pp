@@ -799,6 +799,27 @@ if hiera('step') >= 3 {
     }
   }
 
+  if hiera('cinder_enable_dellsc_backend', false) {
+    $cinder_dellsc_backend = hiera('cinder::backend::dellsc_iscsi::volume_backend_name')
+
+    cinder_config {
+      "${cinder_dellsc_backend}/host": value => 'hostgroup';
+    }
+
+    cinder::backend::dellsc_iscsi{ $cinder_dellsc_backend :
+      volume_backend_name   => hiera('cinder::backend::dellsc_iscsi::volume_backend_name', undef),
+      san_ip                => hiera('cinder::backend::dellsc_iscsi::san_ip', undef),
+      san_login             => hiera('cinder::backend::dellsc_iscsi::san_login', undef),
+      san_password          => hiera('cinder::backend::dellsc_iscsi::san_password', undef),
+      dell_sc_ssn           => hiera('cinder::backend::dellsc_iscsi::dell_sc_ssn', undef),
+      iscsi_ip_address      => hiera('cinder::backend::dellsc_iscsi::iscsi_ip_address', undef),
+      iscsi_port            => hiera('cinder::backend::dellsc_iscsi::iscsi_port', undef),
+      dell_sc_port          => hiera('cinder::backend::dellsc_iscsi::dell_sc_port', undef),
+      dell_sc_server_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_server_folder', undef),
+      dell_sc_volume_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_volume_folder', undef),
+    }
+  }
+
   if hiera('cinder_enable_netapp_backend', false) {
     $cinder_netapp_backend = hiera('cinder::backend::netapp::title')
 
@@ -852,7 +873,7 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend, $cinder_nfs_backend,$cinder_eqlx_backend])
+  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_eqlx_backend, $cinder_dellsc_backend, $cinder_netapp_backend, $cinder_nfs_backend])
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
