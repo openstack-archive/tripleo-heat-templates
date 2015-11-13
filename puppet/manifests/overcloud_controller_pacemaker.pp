@@ -757,7 +757,7 @@ if hiera('step') >= 3 {
     package { 'nfs-utils': } ->
     cinder::backend::nfs { $cinder_nfs_backend:
       nfs_servers       => hiera('cinder_nfs_servers'),
-      nfs_mount_options => hiera('cinder_nfs_mount_options'),
+      nfs_mount_options => hiera('cinder_nfs_mount_options',''),
       nfs_shares_config => '/etc/cinder/shares-nfs.conf',
     }
   }
