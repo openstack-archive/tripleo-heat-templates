@@ -170,14 +170,6 @@ parameters:
     description: The password for the glance service and db account, used by the glance services.
     type: string
     hidden: true
-  GlancePort:
-    default: "9292"
-    description: Glance port.
-    type: string
-  GlanceProtocol:
-    default: http
-    description: Protocol to use when connecting to glance, set to https for SSL.
-    type: string
   GlanceBackend:
     default: swift
     description: The short name of the Glance backend to use. Should be one
@@ -591,6 +583,11 @@ parameters:
     description: Mapping of service_name -> network name. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   UpdateIdentifier:
     default: ''
     type: string
@@ -760,7 +757,7 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIP}
               - '/cinder'
-        glance_port: {get_param: GlancePort}
+        glance_port: {get_param: [EndpointMap, GlanceInternal, port]}
         glance_password: {get_param: GlancePassword}
         glance_backend: {get_param: GlanceBackend}
         glance_file_pcmk_device: {get_param: GlanceFilePcmkDevice}
@@ -787,7 +784,6 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIP}
               - '/heat'
-        keystone_auth_address: {list_join: ['', ['http://', {get_param: KeystonePublicApiVirtualIP} , ':5000/v2.0']]}
         keystone_ca_certificate: {get_param: KeystoneCACertificate}
         keystone_signing_key: {get_param: KeystoneSigningKey}
         keystone_signing_certificate: {get_param: KeystoneSigningCertificate}
@@ -803,36 +799,11 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIP}
               - '/keystone'
-        keystone_identity_uri:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: KeystoneAdminApiVirtualIP}
-              - ':35357'
-        keystone_auth_uri:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: KeystonePublicApiVirtualIP}
-              - ':5000/v2.0/'
-        keystone_public_url:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: PublicVirtualIP}
-              - ':5000'
-        keystone_internal_url:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: KeystonePublicApiVirtualIP}
-              - ':5000'
-        keystone_ec2_uri:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: KeystonePublicApiVirtualIP}
-              - ':5000/v2.0/ec2tokens'
+        keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+        keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        keystone_public_url: { get_param: [EndpointMap, KeystonePublic, uri_no_suffix] }
+        keystone_internal_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+        keystone_ec2_uri: { get_param: [EndpointMap, KeystoneEC2, uri] }
         enable_fencing: {get_param: EnableFencing}
         enable_galera: {get_param: EnableGalera}
         enable_ceph_storage: {get_param: EnableCephStorage}
@@ -912,18 +883,10 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIP}
               - '/ovs_neutron?charset=utf8'
-        neutron_url:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: NeutronApiVirtualIP}
-              - ':9696'
-        neutron_admin_auth_url:
-          list_join:
-            - ''
-            - - 'http://'
-              - {get_param: KeystoneAdminApiVirtualIP}
-              - ':35357/v2.0'
+        neutron_internal_url: { get_param: [ EndpointMap, NeutronInternal, uri ] }
+        neutron_public_url: { get_param: [ EndpointMap, NeutronPublic, uri ] }
+        neutron_admin_url: { get_param: [ EndpointMap, NeutronAdmin, uri ] }
+        neutron_admin_auth_url: { get_param: [ EndpointMap, KeystoneAdmin, uri ] }
         ceilometer_backend: {get_param: CeilometerBackend}
         ceilometer_metering_secret: {get_param: CeilometerMeteringSecret}
         ceilometer_password: {get_param: CeilometerPassword}
@@ -985,14 +948,7 @@ resources:
         cinder_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
         glance_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
         glance_registry_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
-        glance_api_servers:
-          list_join:
-            - ''
-            - - {get_param: GlanceProtocol}
-              - '://'
-              - {get_param: GlanceApiVirtualIP}
-              - ':'
-              - {get_param: GlancePort}
+        glance_api_servers: { get_param: [EndpointMap, GlanceInternal, uri]}
         glance_registry_host: {get_param: GlanceRegistryVirtualIP}
         heat_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
         keystone_public_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
@@ -1126,7 +1082,7 @@ resources:
                 glance::registry::auth_uri: {get_input: keystone_auth_uri}
                 glance::registry::identity_uri: {get_input: keystone_identity_uri}
                 glance::registry::debug: {get_input: debug}
-                glance::backend::swift::swift_store_auth_address: {get_input: keystone_auth_address}
+                glance::backend::swift::swift_store_auth_address: {get_input: keystone_auth_uri}
                 glance::backend::swift::swift_store_user: service:glance
                 glance::backend::swift::swift_store_key: {get_input: glance_password}
                 glance_backend: {get_input: glance_backend}
@@ -1252,7 +1208,7 @@ resources:
                 ceilometer::api::keystone_auth_uri: {get_input: keystone_auth_uri}
                 ceilometer::api::keystone_identity_uri: {get_input: keystone_identity_uri}
                 ceilometer::agent::auth::auth_password: {get_input: ceilometer_password}
-                ceilometer::agent::auth::auth_url: {get_input: keystone_auth_address}
+                ceilometer::agent::auth::auth_url: {get_input: keystone_auth_uri}
                 ceilometer::agent::central::coordination_url: {get_input: ceilometer_coordination_url}
                 ceilometer::db::mysql::password: {get_input: ceilometer_password}
                 snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
@@ -1273,7 +1229,7 @@ resources:
                 nova::glance_api_servers: {get_input: glance_api_servers}
                 nova::api::neutron_metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
                 nova::network::neutron::neutron_admin_password: {get_input: neutron_password}
-                nova::network::neutron::neutron_url: {get_input: neutron_url}
+                nova::network::neutron::neutron_url: {get_input: neutron_internal_url}
                 nova::network::neutron::neutron_admin_auth_url: {get_input: neutron_admin_auth_url}
                 nova::vncproxy::host: {get_input: nova_api_network}
                 nova::db::mysql::password: {get_input: nova_password}
