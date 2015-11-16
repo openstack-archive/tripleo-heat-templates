@@ -43,6 +43,36 @@ fi
 pacemaker_status=$(systemctl is-active pacemaker)
 
 if [[ "$pacemaker_status" == "active" ]] ; then
+    echo "Checking for and adding missing constraints"
+
+    if ! pcs constraint order show | grep "start openstack-nova-novncproxy-clone then start openstack-nova-api-clone"; then
+        pcs constraint order start openstack-nova-novncproxy-clone then openstack-nova-api-clone
+    fi
+
+    if ! pcs constraint order show | grep "start rabbitmq-clone then start openstack-keystone-clone"; then
+        pcs constraint order start rabbitmq-clone then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "promote galera-master then start openstack-keystone-clone"; then
+        pcs constraint order promote galera-master then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "start haproxy-clone then start openstack-keystone-clone"; then
+        pcs constraint order start haproxy-clone then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "start memcached-clone then start openstack-keystone-clone"; then
+        pcs constraint order start memcached-clone then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "promote redis-master then start openstack-ceilometer-central-clone"; then
+        pcs constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
+    fi
+
+    if ! pcs resource defaults | grep "resource-stickiness: INFINITY"; then
+        pcs resource defaults resource-stickiness=INFINITY
+    fi
+
     echo "Pacemaker running, stopping cluster node and doing full package update"
     node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
     if [[ "$node_count" == "1" ]] ; then
