@@ -73,6 +73,78 @@ if [[ "$pacemaker_status" == "active" ]] ; then
         pcs resource defaults resource-stickiness=INFINITY
     fi
 
+    echo "Setting resource start/stop timeouts"
+
+    # timeouts for non-openstack services and special cases
+    pcs resource update haproxy op start timeout=100s
+    pcs resource update haproxy op stop timeout=100s
+    # mongod start timeout is also higher, setting only stop timeout
+    pcs resource update mongod op stop timeout=100s
+    # rabbit start timeout is already 100s
+    pcs resource update rabbitmq op stop timeout=100s
+    pcs resource update memcached op start timeout=100s
+    pcs resource update memcached op stop timeout=100s
+    pcs resource update httpd op start timeout=100s
+    pcs resource update httpd op stop timeout=100s
+    # neutron-netns-cleanup stop timeout is 300s, setting only start timeout
+    pcs resource update neutron-netns-cleanup op start timeout=100s
+    # neutron-ovs-cleanup stop timeout is 300s, setting only start timeout
+    pcs resource update neutron-ovs-cleanup op start timeout=100s
+
+    # timeouts for openstack services
+    pcs resource update neutron-dhcp-agent op start timeout=100s
+    pcs resource update neutron-dhcp-agent op stop timeout=100s
+    pcs resource update neutron-l3-agent op start timeout=100s
+    pcs resource update neutron-l3-agent op stop timeout=100s
+    pcs resource update neutron-metadata-agent op start timeout=100s
+    pcs resource update neutron-metadata-agent op stop timeout=100s
+    pcs resource update neutron-openvswitch-agent op start timeout=100s
+    pcs resource update neutron-openvswitch-agent op stop timeout=100s
+    pcs resource update neutron-server op start timeout=100s
+    pcs resource update neutron-server op stop timeout=100s
+    pcs resource update openstack-ceilometer-alarm-evaluator op start timeout=100s
+    pcs resource update openstack-ceilometer-alarm-evaluator op stop timeout=100s
+    pcs resource update openstack-ceilometer-alarm-notifier op start timeout=100s
+    pcs resource update openstack-ceilometer-alarm-notifier op stop timeout=100s
+    pcs resource update openstack-ceilometer-api op start timeout=100s
+    pcs resource update openstack-ceilometer-api op stop timeout=100s
+    pcs resource update openstack-ceilometer-central op start timeout=100s
+    pcs resource update openstack-ceilometer-central op stop timeout=100s
+    pcs resource update openstack-ceilometer-collector op start timeout=100s
+    pcs resource update openstack-ceilometer-collector op stop timeout=100s
+    pcs resource update openstack-ceilometer-notification op start timeout=100s
+    pcs resource update openstack-ceilometer-notification op stop timeout=100s
+    pcs resource update openstack-cinder-api op start timeout=100s
+    pcs resource update openstack-cinder-api op stop timeout=100s
+    pcs resource update openstack-cinder-scheduler op start timeout=100s
+    pcs resource update openstack-cinder-scheduler op stop timeout=100s
+    pcs resource update openstack-cinder-volume op start timeout=100s
+    pcs resource update openstack-cinder-volume op stop timeout=100s
+    pcs resource update openstack-glance-api op start timeout=100s
+    pcs resource update openstack-glance-api op stop timeout=100s
+    pcs resource update openstack-glance-registry op start timeout=100s
+    pcs resource update openstack-glance-registry op stop timeout=100s
+    pcs resource update openstack-heat-api op start timeout=100s
+    pcs resource update openstack-heat-api op stop timeout=100s
+    pcs resource update openstack-heat-api-cfn op start timeout=100s
+    pcs resource update openstack-heat-api-cfn op stop timeout=100s
+    pcs resource update openstack-heat-api-cloudwatch op start timeout=100s
+    pcs resource update openstack-heat-api-cloudwatch op stop timeout=100s
+    pcs resource update openstack-heat-engine op start timeout=100s
+    pcs resource update openstack-heat-engine op stop timeout=100s
+    pcs resource update openstack-keystone op start timeout=100s
+    pcs resource update openstack-keystone op stop timeout=100s
+    pcs resource update openstack-nova-api op start timeout=100s
+    pcs resource update openstack-nova-api op stop timeout=100s
+    pcs resource update openstack-nova-conductor op start timeout=100s
+    pcs resource update openstack-nova-conductor op stop timeout=100s
+    pcs resource update openstack-nova-consoleauth op start timeout=100s
+    pcs resource update openstack-nova-consoleauth op stop timeout=100s
+    pcs resource update openstack-nova-novncproxy op start timeout=100s
+    pcs resource update openstack-nova-novncproxy op stop timeout=100s
+    pcs resource update openstack-nova-scheduler op start timeout=100s
+    pcs resource update openstack-nova-scheduler op stop timeout=100s
+
     echo "Pacemaker running, stopping cluster node and doing full package update"
     node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
     if [[ "$node_count" == "1" ]] ; then
