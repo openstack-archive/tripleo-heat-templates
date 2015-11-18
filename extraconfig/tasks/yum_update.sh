@@ -23,6 +23,7 @@ update_identifier=${update_identifier//[^a-zA-Z0-9-_]/}
 
 # seconds to wait for this node to rejoin the cluster after update
 cluster_start_timeout=360
+galera_sync_timeout=360
 
 timestamp_file="$timestamp_dir/$update_identifier"
 if [[ -a "$timestamp_file" ]]; then
@@ -185,6 +186,17 @@ if [[ "$pacemaker_status" == "active" ]] ; then
             exit 1
         fi
     done
+
+    tstart=$(date +%s)
+    while ! clustercheck; do
+        sleep 5
+        tnow=$(date +%s)
+        if (( tnow-tstart > galera_sync_timeout )) ; then
+            echo "ERROR galera sync timed out"
+            exit 1
+        fi
+    done
+
     pcs status
 
 else
