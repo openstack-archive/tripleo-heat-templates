@@ -67,8 +67,24 @@ resources:
       config: {get_resource: CopyEtcConfig}
       servers:  {get_param: servers}
 
+  CopyJsonConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: result
+      config: {get_file: ./generate_json_config.sh}
+
+  CopyJsonDeployment:
+    type: OS::Heat::SoftwareDeployments
+    depends_on: CopyEtcDeployment
+    properties:
+      config: {get_resource: CopyJsonConfig}
+      servers:  {get_param: servers}
+
   NovaComputeContainersDeploymentOVS:
     type: OS::Heat::StructuredDeployments
+    depends_on: CopyJsonDeployment
     properties:
       config: {get_resource: NovaComputeContainersConfigOVS}
       servers: {get_param: servers}
@@ -87,8 +103,9 @@ resources:
           volumes:
            - /run:/run
            - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/json-config/ovs-vswitchd.json:/var/lib/kolla/config_files/config.json
           environment:
-           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
 
         openvswitchdb:
           image: {get_param: DockerOpenvswitchDBImage}
@@ -97,8 +114,9 @@ resources:
           restart: always
           volumes:
            - /run:/run
+           - /var/lib/etc-data/json-config/ovs-dbserver.json:/var/lib/kolla/config_files/config.json
           environment:
-           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
 
   NovaComputeContainersDeploymentNetconfig:
     type: OS::Heat::SoftwareDeployments
@@ -122,7 +140,7 @@ resources:
 
   LibvirtContainersDeployment:
     type: OS::Heat::StructuredDeployments
-    depends_on: [CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig]
+    depends_on: [CopyJsonDeployment, CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig]
     properties:
       config: {get_resource: LibvirtContainersConfig}
       servers: {get_param: servers}
@@ -135,6 +153,9 @@ resources:
         computedata:
           image: {get_param: DockerComputeDataImage}
           container_name: computedata
+          volumes:
+           - /var/lib/nova/instances
+           - /var/lib/libvirt
 
         libvirt:
           image: {get_param: DockerLibvirtImage}
@@ -146,16 +167,16 @@ resources:
           volumes:
            - /run:/run
            - /lib/modules:/lib/modules:ro
-           - /var/lib/etc-data/libvirt/libvirtd.conf:/opt/kolla/libvirtd/libvirtd.conf
-           - /var/lib/nova/instances:/var/lib/nova/instances
+           - /var/lib/etc-data/json-config/nova-libvirt.json:/var/lib/kolla/config_files/config.json
+           - /var/lib/etc-data/libvirt/libvirtd.conf:/var/lib/kolla/config_files/libvirtd.conf
           environment:
-           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           volumes_from:
            - computedata
 
   NovaComputeContainersDeployment:
     type: OS::Heat::StructuredDeployments
-    depends_on: [CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig, LibvirtContainersDeployment]
+    depends_on: [CopyJsonDeployment, CopyEtcDeployment, ComputePuppetDeployment, NovaComputeContainersDeploymentNetconfig, LibvirtContainersDeployment]
     properties:
       config: {get_resource: NovaComputeContainersConfig}
       servers: {get_param: servers}
@@ -174,15 +195,15 @@ resources:
           volumes:
            - /run:/run
            - /lib/modules:/lib/modules:ro
+           - /var/lib/etc-data/json-config/neutron-openvswitch-agent.json:/var/lib/kolla/config_files/config.json
            - /var/lib/etc-data/neutron/neutron.conf:/etc/kolla/neutron-openvswitch-agent/:ro
-           - /var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/etc/kolla/neutron-openvswitch-agent/:ro
+           - /var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/var/lib/kolla/config_files/ml2_conf.ini:ro
+           - /var/lib/etc-data/neutron/neutron.conf:/var/lib/kolla/config_files/neutron.conf:ro
           environment:
-           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           volumes_from:
            - computedata
-           # FIXME: Kolla now uses a JSON model to run custom commands.  We rebuilt a custom container to read in KOLLA_COMMAND_ARGS
 
-        # FIXME: Here we're subjugating kolla's start scripts because we want our custom run command
         neutronagent:
           image: {get_param: DockerOpenvswitchImage}
           container_name: neutronagent
@@ -193,12 +214,11 @@ resources:
           volumes:
            - /run:/run
            - /lib/modules:/lib/modules:ro
-           - /var/lib/etc-data/neutron/neutron.conf:/etc/neutron/neutron.conf:ro
-           - /var/lib/etc-data/neutron/plugins/ml2/openvswitch_agent.ini:/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini:ro
+           - /var/lib/etc-data/json-config/neutron-agent.json:/var/lib/kolla/config_files/config.json
+           - /var/lib/etc-data/neutron/plugins/ml2/openvswitch_agent.ini:/var/lib/kolla/config_files/ovs_neutron_plugin.ini:ro
+           - /var/lib/etc-data/neutron/neutron.conf:/var/lib/kolla/config_files/neutron.conf:ro
           environment:
-           - KOLLA_CONFIG_STRATEGY=CONFIG_EXTERNAL_COPY_ALWAYS
-           # FIXME: Kolla now uses a JSON model to run custom commands.  We rebuilt a custom container to read in KOLLA_COMMAND_ARGS
-           - KOLLA_COMMAND_ARGS=--config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           volumes_from:
            - computedata
 
@@ -212,14 +232,12 @@ resources:
            - /run:/run
            - /sys/fs/cgroup:/sys/fs/cgroup
            - /lib/modules:/lib/modules:ro
-           - /var/lib/etc-data/:/etc/:ro
-           - /var/lib/nova/instances:/var/lib/nova/instances
+           - /var/lib/etc-data/json-config/nova-compute.json:/var/lib/kolla/config_files/config.json
+           - /var/lib/etc-data/nova/nova.conf:/var/lib/kolla/config_files/nova.conf:ro
+          environment:
+           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           volumes_from:
            - computedata
-          # FIXME: this skips the kolla start.sh script and just starts Nova
-          # Ideally we'd have an environment that switched the kolla container
-          # to be externally configured.
-          command: /usr/bin/nova-compute
 
   ExtraConfig:
     depends_on: NovaComputeContainersDeployment
