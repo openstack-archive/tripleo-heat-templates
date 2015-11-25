@@ -15,8 +15,7 @@ Features
 The ability to deploy a multi-node, role based OpenStack deployment using
 OpenStack Heat. Notable features include:
 
- * Choice of deployment/configuration tooling: puppet, os-apply-config, and
-   (soon) docker
+ * Choice of deployment/configuration tooling: puppet, (soon) docker
 
  * Role based deployment: roles for the controller, compute, ceph, swift,
    and cinder storage
@@ -42,12 +41,6 @@ A description of the directory layout in TripleO Heat Templates.
 
  * puppet: templates mostly driven by configuration with puppet. To use these
            templates you can use the overcloud-resource-registry-puppet.yaml.
-
- * os-apply-config: templates mostly driven by configuration w/
-                    os-collect-config and bash based
-                    elements (which use the Heat os-apply-config group).
-                    These will soon be deprecated and are no longer part
-                    of the upstream CI testing efforts.
 
  * validation-scripts: validation scripts useful to all deployment
                        configurations
