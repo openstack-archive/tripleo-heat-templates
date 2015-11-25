@@ -1,0 +1,1498 @@
+heat_template_version: 2015-04-30
+
+description: >
+  Deploy an OpenStack environment, consisting of several node types (roles),
+  Controller, Compute, BlockStorage, SwiftStorage and CephStorage.  The Storage
+  roles enable independent scaling of the storage components, but the minimal
+  deployment is one Controller and one Compute node.
+
+
+# TODO(shadower): we should probably use the parameter groups to put
+# some order in here.
+parameters:
+
+  # Common parameters (not specific to a role)
+  AdminPassword:
+    default: unset
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+  CeilometerBackend:
+    default: 'mongodb'
+    description: The ceilometer backend type.
+    type: string
+  CeilometerMeteringSecret:
+    default: unset
+    description: Secret shared by the ceilometer services.
+    type: string
+    hidden: true
+  CeilometerPassword:
+    default: unset
+    description: The password for the ceilometer service account.
+    type: string
+    hidden: true
+  # This has to be an UUID so for now we generate it outside the template
+  CephClusterFSID:
+    default: ''
+    type: string
+    description: The Ceph cluster FSID. Must be a UUID.
+  CephMonKey:
+    default: ''
+    description: The Ceph monitors key. Can be created with ceph-authtool --gen-print-key.
+    type: string
+    hidden: true
+  CephAdminKey:
+    default: ''
+    description: The Ceph admin client key. Can be created with ceph-authtool --gen-print-key.
+    type: string
+    hidden: true
+  CinderEnableNfsBackend:
+    default: false
+    description: Whether to enable or not the NFS backend for Cinder
+    type: boolean
+  CephClientKey:
+    default: ''
+    description: The Ceph client key. Can be created with ceph-authtool --gen-print-key. Currently only used for external Ceph deployments to create the openstack user keyring.
+    type: string
+    hidden: true
+  CephExternalMonHost:
+    default: ''
+    type: string
+    description: List of externally managed Ceph Mon Host IPs. Only used for external Ceph deployments.
+  CinderEnableIscsiBackend:
+    default: true
+    description: Whether to enable or not the Iscsi backend for Cinder
+    type: boolean
+  CinderEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Cinder
+    type: boolean
+  CloudName:
+    default: ''
+    description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
+    type: string
+  ControlFixedIPs:
+    default: []
+    description: Should be used for arbitrary ips.
+    type: json
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  HAProxySyslogAddress:
+    default: /dev/log
+    description: Syslog address where HAproxy will send its log
+    type: string
+  HorizonAllowedHosts:
+    default: '*'
+    description: A list of IP/Hostname allowed to connect to horizon
+    type: comma_delimited_list
+  ImageUpdatePolicy:
+    default: 'REBUILD_PRESERVE_EPHEMERAL'
+    description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
+    type: string
+  KeyName:
+    default: default
+    description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    type: string
+    constraints:
+      - custom_constraint: nova.keypair
+  NeutronExternalNetworkBridge:
+    description: Name of bridge used for external network traffic.
+    type: string
+    default: 'br-ex'
+  NeutronBridgeMappings:
+    description: >
+      The OVS logical->physical bridge mappings to use. See the Neutron
+      documentation for details. Defaults to mapping br-ex - the external
+      bridge on hosts - to a physical name 'datacentre' which can be used
+      to create provider networks (and we use this for the default floating
+      network) - if changing this either use different post-install network
+      scripts or be sure to keep 'datacentre' as a mapping network name.
+    type: string
+    default: "datacentre:br-ex"
+  NeutronControlPlaneID:
+    default: 'ctlplane'
+    type: string
+    description: Neutron ID or name for ctlplane network.
+  NeutronEnableIsolatedMetadata:
+    default: 'False'
+    description: If True, DHCP provide metadata route to VM.
+    type: string
+  NeutronEnableTunnelling:
+    type: string
+    default: "True"
+  NeutronEnableL2Pop:
+    type: string
+    description: >
+        Enable/disable the L2 population feature in the Neutron agents.
+    default: "False"
+  NeutronFlatNetworks:
+    type: string
+    default: 'datacentre'
+    description: >
+      If set, flat networks to configure in neutron plugins. Defaults to
+      'datacentre' to permit external network creation.
+  NeutronNetworkType:
+    default: 'vxlan'
+    description: The tenant network type for Neutron, either gre or vxlan.
+    type: string
+  NeutronPassword:
+    default: unset
+    description: The password for the neutron service account, used by neutron agents.
+    type: string
+    hidden: true
+  NeutronPublicInterface:
+    default: nic1
+    description: What interface to bridge onto br-ex for network nodes.
+    type: string
+  NeutronPublicInterfaceTag:
+    default: ''
+    description: >
+      VLAN tag for creating a public VLAN. The tag will be used to
+      create an access port on the exterior bridge for each control plane node,
+      and that port will be given the IP address returned by neutron from the
+      public network. Set CONTROLEXTRA=overcloud-vlan-port.yaml when compiling
+      overcloud.yaml to include the deployment of VLAN ports to the control
+      plane.
+    type: string
+  NeutronComputeAgentMode:
+    default: 'dvr'
+    description: Agent mode for the neutron-l3-agent on the compute hosts
+    type: string
+  NeutronAgentMode:
+    default: 'dvr_snat'
+    description: Agent mode for the neutron-l3-agent on the controller hosts
+    type: string
+  NeutronDVR:
+    default: 'False'
+    description: Whether to configure Neutron Distributed Virtual Routers
+    type: string
+  NeutronMetadataProxySharedSecret:
+    default: 'unset'
+    description: Shared secret to prevent spoofing
+    type: string
+    hidden: true
+  NeutronTunnelTypes:
+    default: 'vxlan'
+    description: |
+        The tunnel types for the Neutron tenant network. To specify multiple
+        values, use a comma separated string, like so: 'gre,vxlan'
+    type: string
+  NeutronTunnelIdRanges:
+    description: |
+        Comma-separated list of <tun_min>:<tun_max> tuples enumerating ranges
+        of GRE tunnel IDs that are available for tenant network allocation
+    default: ["1:1000", ]
+    type: comma_delimited_list
+  NeutronVniRanges:
+    description: |
+        Comma-separated list of <vni_min>:<vni_max> tuples enumerating ranges
+        of VXLAN VNI IDs that are available for tenant network allocation
+    default: ["1:1000", ]
+    type: comma_delimited_list
+  NeutronCorePlugin:
+    default: 'ml2'
+    description: |
+        The core plugin for Neutron. The value should be the entrypoint to be loaded
+        from neutron.core_plugins namespace.
+    type: string
+  NeutronServicePlugins:
+    default: "router"
+    description: |
+        Comma-separated list of service plugin entrypoints to be loaded from the
+        neutron.service_plugins namespace.
+    type: comma_delimited_list
+  NeutronTypeDrivers:
+    default: "vxlan,vlan,flat,gre"
+    description: |
+        Comma-separated list of network type driver entrypoints to be loaded.
+    type: comma_delimited_list
+  NeutronMechanismDrivers:
+    default: 'openvswitch'
+    description: |
+        The mechanism drivers for the Neutron tenant network. To specify multiple
+        values, use a comma separated string, like so: 'openvswitch,l2_population'
+    type: string
+  NeutronAllowL3AgentFailover:
+    default: 'False'
+    description: Allow automatic l3-agent failover
+    type: string
+  NeutronL3HA:
+    default: 'False'
+    description: Whether to enable l3-agent HA
+    type: string
+  NeutronDhcpAgentsPerNetwork:
+    type: number
+    default: 1
+    description: The number of neutron dhcp agents to schedule per network
+  NovaPassword:
+    default: unset
+    description: The password for the nova service account, used by nova-api.
+    type: string
+    hidden: true
+  NtpServer:
+    default: ''
+    description: Comma-separated list of ntp servers
+    type: comma_delimited_list
+  MongoDbNoJournal:
+    default: false
+    description: Should MongoDb journaling be disabled
+    type: boolean
+  PublicVirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the PublicVirtualInterface port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+  RabbitCookieSalt:
+    type: string
+    default: unset
+    description: Salt for the rabbit cookie, change this to force the randomly generated rabbit cookie to change.
+  # FIXME: 'guest' is provisioned in RabbitMQ by default, we should create a user if these are changed
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitPassword:
+    default: guest
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+  # We need to set this as string because 'unlimited' is a valid setting
+  RabbitFDLimit:
+    default: 16384
+    description: Configures RabbitMQ FD limit
+    type: string
+  SnmpdReadonlyUserName:
+    default: ro_snmp_user
+    description: The user name for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+  SnmpdReadonlyUserPassword:
+    default: unset
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+  CloudDomain:
+    default: 'localdomain'
+    type: string
+    description: >
+      The DNS domain used for the hosts. This should match the dhcp_domain
+      configured in the Undercloud neutron. Defaults to localdomain.
+
+  # Controller-specific params
+  AdminToken:
+    default: unset
+    description: The keystone auth secret.
+    type: string
+    hidden: true
+  CinderLVMLoopDeviceSize:
+    default: 5000
+    description: The size of the loopback file used by the cinder LVM driver.
+    type: number
+  CinderNfsMountOptions:
+    default: ''
+    description: >
+      Mount options for NFS mounts used by Cinder NFS backend. Effective
+      when CinderEnableNfsBackend is true.
+    type: string
+  CinderNfsServers:
+    default: ''
+    description: >
+      NFS servers used by Cinder NFS backend. Effective when
+      CinderEnableNfsBackend is true.
+    type: comma_delimited_list
+  CinderPassword:
+    default: unset
+    description: The password for the cinder service account, used by cinder-api.
+    type: string
+    hidden: true
+  CinderISCSIHelper:
+    default: tgtadm
+    description: The iSCSI helper to use with cinder.
+    type: string
+  ControllerCount:
+    type: number
+    default: 1
+    constraints:
+      - range: {min: 1}
+  controllerExtraConfig:
+    default: {}
+    description: |
+      Controller specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+  controllerImage:
+    type: string
+    default: overcloud-control
+    constraints:
+      - custom_constraint: glance.image
+  OvercloudControlFlavor:
+    description: Flavor for control nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  ControlVirtualInterface:
+    default: 'br-ex'
+    description: Interface where virtual ip will be assigned.
+    type: string
+  EnableFencing:
+    default: false
+    description: Whether to enable fencing in Pacemaker or not.
+    type: boolean
+  EnableGalera:
+    default: true
+    description: Whether to use Galera instead of regular MariaDB.
+    type: boolean
+  ControllerEnableCephStorage:
+    default: false
+    description: Whether to deploy Ceph Storage (OSD) on the Controller
+    type: boolean
+  ControllerEnableSwiftStorage:
+    default: true
+    description: Whether to enable Swift Storage on the Controller
+    type: boolean
+  ExtraConfig:
+    default: {}
+    description: |
+      Additional configuration to inject into the cluster. The format required
+      may be implementation specific, e.g puppet hieradata.  Any role specific
+      ExtraConfig, e.g controllerExtraConfig takes precedence over ExtraConfig.
+    type: json
+  FencingConfig:
+    default: {}
+    description: |
+      Pacemaker fencing configuration. The JSON should have
+      the following structure:
+        {
+          "devices": [
+            {
+              "agent": "AGENT_NAME",
+              "host_mac": "HOST_MAC_ADDRESS",
+              "params": {"PARAM_NAME": "PARAM_VALUE"}
+            }
+          ]
+        }
+      For instance:
+        {
+          "devices": [
+            {
+              "agent": "fence_xvm",
+              "host_mac": "52:54:00:aa:bb:cc",
+              "params": {
+                "multicast_address": "225.0.0.12",
+                "port": "baremetal_0",
+                "manage_fw": true,
+                "manage_key_file": true,
+                "key_file": "/etc/fence_xvm.key",
+                "key_file_password": "abcdef"
+              }
+            }
+          ]
+        }
+    type: json
+  GlanceLogFile:
+    description: The filepath of the file to use for logging messages from Glance.
+    type: string
+    default: ''
+  GlanceNotifierStrategy:
+    description: Strategy to use for Glance notification queue
+    type: string
+    default: noop
+  GlancePassword:
+    default: unset
+    description: The password for the glance service account, used by the glance services.
+    type: string
+    hidden: true
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
+  HeatPassword:
+    default: unset
+    description: The password for the Heat service account, used by the Heat services.
+    type: string
+    hidden: true
+  HeatStackDomainAdminPassword:
+    description: Password for heat_domain_admin user.
+    type: string
+    default: ''
+    hidden: true
+  KeystoneCACertificate:
+    default: ''
+    description: Keystone self-signed certificate authority certificate.
+    type: string
+  KeystoneSigningCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSigningKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  KeystoneSSLCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSSLCertificateKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  KeystoneNotificationDriver:
+    description: Comma-separated list of Oslo notification drivers used by Keystone
+    default: ['messaging']
+    type: comma_delimited_list
+  KeystoneNotificationFormat:
+    description: The Keystone notification format
+    default: 'basic'
+    type: string
+    constraints:
+      - allowed_values: [ 'basic', 'cadf' ]
+  ManageFirewall:
+    default: false
+    description: Whether to manage IPtables rules.
+    type: boolean
+  PurgeFirewallRules:
+    default: false
+    description: Whether IPtables rules should be purged before setting up the ones.
+    type: boolean
+  MysqlInnodbBufferPoolSize:
+    description: >
+        Specifies the size of the buffer pool in megabytes. Setting to
+        zero should be interpreted as "no value" and will defer to the
+        lower level default.
+    type: number
+    default: 0
+  MysqlMaxConnections:
+    description: Configures MySQL max_connections config setting
+    type: number
+    default: 4096
+  NeutronDnsmasqOptions:
+    default: 'dhcp-option-force=26,1400'
+    description: Dnsmasq options for neutron-dhcp-agent. The default value here forces MTU to be set to 1400 to account for the tunnel overhead.
+    type: string
+  NeutronPublicInterfaceDefaultRoute:
+    default: ''
+    description: A custom default route for the NeutronPublicInterface.
+    type: string
+  NeutronPublicInterfaceIP:
+    default: ''
+    description: A custom IP address to put onto the NeutronPublicInterface.
+    type: string
+  NeutronPublicInterfaceRawDevice:
+    default: ''
+    description: If set, the public interface is a vlan with this device as the raw device.
+    type: string
+  PublicVirtualInterface:
+    default: 'br-ex'
+    description: >
+        Specifies the interface where the public-facing virtual ip will be assigned.
+        This should be int_public when a VLAN is being used.
+    type: string
+  SwiftHashSuffix:
+    default: unset
+    description: A random string to be used as a salt when hashing to determine mappings in the ring.
+    type: string
+    hidden: true
+  SwiftPassword:
+    default: unset
+    description: The password for the swift service account, used by the swift proxy services.
+    type: string
+    hidden: true
+  SwiftMountCheck:
+    default: 'false'
+    description: Value of mount_check in Swift account/container/object -server.conf
+    type: boolean
+  SwiftMinPartHours:
+    type: number
+    default: 1
+    description: The minimum time (in hours) before a partition in a ring can be moved following a rebalance.
+  SwiftPartPower:
+    default: 10
+    description: Partition Power to use when building Swift rings
+    type: number
+  SwiftReplicas:
+    type: number
+    default: 3
+    description: How many replicas to use in the swift rings.
+
+# Compute-specific params
+  CeilometerComputeAgent:
+    description: Indicates whether the Compute agent is present and expects nova-compute to be configured accordingly
+    type: string
+    default: ''
+    constraints:
+    - allowed_values: ['', Present]
+  ComputeCount:
+    type: number
+    default: 1
+  HypervisorNeutronPhysicalBridge:
+    default: 'br-ex'
+    description: >
+      An OVS bridge to create on each hypervisor. This defaults to br-ex the
+      same as the control plane nodes, as we have a uniform configuration of
+      the openvswitch agent. Typically should not need to be changed.
+    type: string
+  HypervisorNeutronPublicInterface:
+    default: nic1
+    description: What interface to add to the HypervisorNeutronPhysicalBridge.
+    type: string
+  NeutronNetworkVLANRanges:
+    default: 'datacentre'
+    description: >
+      The Neutron ML2 and OpenVSwitch vlan mapping range to support. See the
+      Neutron documentation for permitted values. Defaults to permitting any
+      VLAN on the 'datacentre' physical network (See NeutronBridgeMappings).
+    type: comma_delimited_list
+  NovaComputeDriver:
+    type: string
+    default: libvirt.LibvirtDriver
+  NovaComputeExtraConfig:
+    default: {}
+    description: |
+      NovaCompute specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+  NovaComputeLibvirtType:
+    default: ''
+    type: string
+  NovaComputeLibvirtVifDriver:
+    default: ''
+    description: Libvirt VIF driver configuration for the network
+    type: string
+  NovaEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Nova
+    type: boolean
+  NovaImage:
+    type: string
+    default: overcloud-compute
+    constraints:
+      - custom_constraint: glance.image
+  NovaOVSBridge:
+    default: 'br-int'
+    description: Name of integration bridge used by Open vSwitch
+    type: string
+  NovaSecurityGroupAPI:
+    default: 'neutron'
+    description: The full class name of the security API class
+    type: string
+  OvercloudComputeFlavor:
+    description: Use this flavor
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  ServiceNetMap:
+    default:
+      NeutronTenantNetwork: tenant
+      CeilometerApiNetwork: internal_api
+      MongoDbNetwork: internal_api
+      CinderApiNetwork: internal_api
+      CinderIscsiNetwork: storage
+      GlanceApiNetwork: storage
+      GlanceRegistryNetwork: internal_api
+      KeystoneAdminApiNetwork: ctlplane # allows undercloud to config endpoints
+      KeystonePublicApiNetwork: internal_api
+      NeutronApiNetwork: internal_api
+      HeatApiNetwork: internal_api
+      NovaApiNetwork: internal_api
+      NovaMetadataNetwork: internal_api
+      NovaVncProxyNetwork: internal_api
+      SwiftMgmtNetwork: storage_mgmt
+      SwiftProxyNetwork: storage
+      HorizonNetwork: internal_api
+      MemcachedNetwork: internal_api
+      RabbitMqNetwork: internal_api
+      RedisNetwork: internal_api
+      MysqlNetwork: internal_api
+      CephClusterNetwork: storage_mgmt
+      CephPublicNetwork: storage
+      ControllerHostnameResolveNetwork: internal_api
+      ComputeHostnameResolveNetwork: internal_api
+      BlockStorageHostnameResolveNetwork: internal_api
+      ObjectStorageHostnameResolveNetwork: internal_api
+      CephStorageHostnameResolveNetwork: storage
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+# Block storage specific parameters
+  BlockStorageCount:
+    type: number
+    default: 0
+  BlockStorageImage:
+    default: overcloud-cinder-volume
+    type: string
+  OvercloudBlockStorageFlavor:
+    description: Flavor for block storage nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  BlockStorageExtraConfig:
+    default: {}
+    description: |
+      BlockStorage specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+
+# Object storage specific parameters
+  ObjectStorageCount:
+    type: number
+    default: 0
+  OvercloudSwiftStorageFlavor:
+    description: Flavor for Swift storage nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  SwiftStorageImage:
+    default: overcloud-swift-storage
+    type: string
+  ObjectStorageExtraConfig:
+    default: {}
+    description: |
+      ObjectStorage specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+
+
+# Ceph storage specific parameters
+  CephStorageCount:
+    type: number
+    default: 0
+  CephStorageImage:
+    default: overcloud-ceph-storage
+    type: string
+  OvercloudCephStorageFlavor:
+    default: baremetal
+    description: Flavor for Ceph storage nodes to request when deploying.
+    type: string
+    constraints:
+      - custom_constraint: nova.flavor
+  CephStorageExtraConfig:
+    default: {}
+    description: |
+      CephStorage specific configuration to inject into the cluster. Same
+      structure as ExtraConfig.
+    type: json
+
+  # Hostname format for each role
+  # Note %index% is translated into the index of the node, e.g 0/1/2 etc
+  # and %stackname% is replaced with OS::stack_name in the template below.
+  # If you want to use the heat generated names, pass '' (empty string).
+  ControllerHostnameFormat:
+    type: string
+    description: Format for Controller node hostnames
+    default: '%stackname%-controller-%index%'
+  ComputeHostnameFormat:
+    type: string
+    description: Format for Compute node hostnames
+    default: '%stackname%-novacompute-%index%'
+  BlockStorageHostnameFormat:
+    type: string
+    description: Format for BlockStorage node hostnames
+    default: '%stackname%-blockstorage-%index%'
+  ObjectStorageHostnameFormat:
+    type: string
+    description: Format for SwiftStorage node hostnames
+    default: '%stackname%-objectstorage-%index%'
+  CephStorageHostnameFormat:
+    type: string
+    description: Format for CephStorage node hostnames
+    default: '%stackname%-cephstorage-%index%'
+
+  # Identifiers to trigger tasks on nodes
+  UpdateIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting to a previously unused value during stack-update will trigger
+      package update on all nodes
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
+
+  # If you want to remove a specific node from a resource group, you can pass
+  # the node name or id as a <Group>RemovalPolicies parameter, for example:
+  # ComputeRemovalPolicies: [{'resource_list': ['0']}]
+  ControllerRemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from ControllerResourceGroup when
+      doing an update which requires removal of specific resources.
+  ComputeRemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from ComputeResourceGroup when
+      doing an update which requires removal of specific resources.
+  BlockStorageRemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from BlockStorageResourceGroup when
+      doing an update which requires removal of specific resources.
+  ObjectStorageRemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from ObjectStorageResourceGroup when
+      doing an update which requires removal of specific resources.
+  CephStorageRemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from CephStorageResourceGroup when
+      doing an update which requires removal of specific resources.
+
+
+resources:
+
+  HeatAuthEncryptionKey:
+    type: OS::Heat::RandomString
+
+  PcsdPassword:
+    type: OS::Heat::RandomString
+    properties:
+      length: 16
+
+  HorizonSecret:
+    type: OS::Heat::RandomString
+    properties:
+      length: 10
+
+  EndpointMap:
+    type: OS::TripleO::EndpointMap
+    properties:
+      CloudName: {get_param: CloudName}
+      CeilometerApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+      CinderApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+      GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+      GlanceRegistryVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+      HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+      KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+      KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+      MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+      NeutronApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+      NovaApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+      SwiftProxyVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+      PublicVirtualIP: {get_attr: [VipMap, net_ip_map, external]}
+
+  Controller:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: ControllerCount}
+      removal_policies: {get_param: ControllerRemovalPolicies}
+      resource_def:
+        type: OS::TripleO::Controller
+        properties:
+          AdminPassword: {get_param: AdminPassword}
+          AdminToken: {get_param: AdminToken}
+          CeilometerBackend: {get_param: CeilometerBackend}
+          CeilometerMeteringSecret: {get_param: CeilometerMeteringSecret}
+          CeilometerPassword: {get_param: CeilometerPassword}
+          CinderLVMLoopDeviceSize: {get_param: CinderLVMLoopDeviceSize}
+          CinderNfsMountOptions: {get_param: CinderNfsMountOptions}
+          CinderNfsServers: {get_param: CinderNfsServers}
+          CinderPassword: {get_param: CinderPassword}
+          CinderISCSIHelper: {get_param: CinderISCSIHelper}
+          CinderEnableNfsBackend: {get_param: CinderEnableNfsBackend}
+          CinderEnableIscsiBackend: {get_param: CinderEnableIscsiBackend}
+          CinderEnableRbdBackend: {get_param: CinderEnableRbdBackend}
+          CloudName: {get_param: CloudName}
+          CloudDomain: {get_param: CloudDomain}
+          ControlVirtualInterface: {get_param: ControlVirtualInterface}
+          ControllerExtraConfig: {get_param: controllerExtraConfig}
+          Debug: {get_param: Debug}
+          EnableFencing: {get_param: EnableFencing}
+          ManageFirewall: {get_param: ManageFirewall}
+          PurgeFirewallRules: {get_param: PurgeFirewallRules}
+          EnableGalera: {get_param: EnableGalera}
+          EnableCephStorage: {get_param: ControllerEnableCephStorage}
+          EnableSwiftStorage: {get_param: ControllerEnableSwiftStorage}
+          ExtraConfig: {get_param: ExtraConfig}
+          FencingConfig: {get_param: FencingConfig}
+          Flavor: {get_param: OvercloudControlFlavor}
+          GlancePassword: {get_param: GlancePassword}
+          GlanceBackend: {get_param: GlanceBackend}
+          GlanceNotifierStrategy: {get_param: GlanceNotifierStrategy}
+          GlanceLogFile: {get_param: GlanceLogFile}
+          HAProxySyslogAddress: {get_param: HAProxySyslogAddress}
+          HeatPassword: {get_param: HeatPassword}
+          HeatStackDomainAdminPassword: {get_param: HeatStackDomainAdminPassword}
+          HeatAuthEncryptionKey: {get_resource: HeatAuthEncryptionKey}
+          HorizonAllowedHosts: {get_param: HorizonAllowedHosts}
+          HorizonSecret: {get_resource: HorizonSecret}
+          Image: {get_param: controllerImage}
+          ImageUpdatePolicy: {get_param: ImageUpdatePolicy}
+          KeyName: {get_param: KeyName}
+          KeystoneCACertificate: {get_param: KeystoneCACertificate}
+          KeystoneSigningCertificate: {get_param: KeystoneSigningCertificate}
+          KeystoneSigningKey: {get_param: KeystoneSigningKey}
+          KeystoneSSLCertificate: {get_param: KeystoneSSLCertificate}
+          KeystoneSSLCertificateKey: {get_param: KeystoneSSLCertificateKey}
+          KeystoneNotificationDriver: {get_param: KeystoneNotificationDriver}
+          KeystoneNotificationFormat: {get_param: KeystoneNotificationFormat}
+          MysqlClusterUniquePart: {get_attr: [MysqlClusterUniquePart, value]}
+          MysqlInnodbBufferPoolSize: {get_param: MysqlInnodbBufferPoolSize}
+          MysqlMaxConnections: {get_param: MysqlMaxConnections}
+          MysqlRootPassword: {get_attr: [MysqlRootPassword, value]}
+          NeutronPublicInterfaceIP: {get_param: NeutronPublicInterfaceIP}
+          NeutronFlatNetworks: {get_param: NeutronFlatNetworks}
+          NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
+          NeutronExternalNetworkBridge: {get_param: NeutronExternalNetworkBridge}
+          NeutronEnableIsolatedMetadata: {get_param: NeutronEnableIsolatedMetadata}
+          NeutronEnableTunnelling: {get_param: NeutronEnableTunnelling}
+          NeutronEnableL2Pop: {get_param: NeutronEnableL2Pop}
+          NeutronNetworkVLANRanges: {get_param: NeutronNetworkVLANRanges}
+          NeutronPublicInterface: {get_param: NeutronPublicInterface}
+          NeutronPublicInterfaceDefaultRoute: {get_param: NeutronPublicInterfaceDefaultRoute}
+          NeutronPublicInterfaceRawDevice: {get_param: NeutronPublicInterfaceRawDevice}
+          NeutronPassword: {get_param: NeutronPassword}
+          NeutronDnsmasqOptions: {get_param: NeutronDnsmasqOptions}
+          NeutronDVR: {get_param: NeutronDVR}
+          NeutronMetadataProxySharedSecret: {get_param: NeutronMetadataProxySharedSecret}
+          NeutronAgentMode: {get_param: NeutronAgentMode}
+          NeutronCorePlugin: {get_param: NeutronCorePlugin}
+          NeutronServicePlugins: {get_param: NeutronServicePlugins}
+          NeutronTypeDrivers: {get_param: NeutronTypeDrivers}
+          NeutronMechanismDrivers: {get_param: NeutronMechanismDrivers}
+          NeutronAllowL3AgentFailover: {get_param: NeutronAllowL3AgentFailover}
+          NeutronL3HA: {get_param: NeutronL3HA}
+          NeutronDhcpAgentsPerNetwork: {get_param: NeutronDhcpAgentsPerNetwork}
+          NeutronNetworkType: {get_param: NeutronNetworkType}
+          NeutronTunnelTypes: {get_param: NeutronTunnelTypes}
+          NovaPassword: {get_param: NovaPassword}
+          NtpServer: {get_param: NtpServer}
+          MongoDbNoJournal: {get_param: MongoDbNoJournal}
+          PcsdPassword: {get_resource: PcsdPassword}
+          PublicVirtualInterface: {get_param: PublicVirtualInterface}
+          RabbitPassword: {get_param: RabbitPassword}
+          RabbitUserName: {get_param: RabbitUserName}
+          RabbitCookie: {get_attr: [RabbitCookie, value]}
+          RabbitClientUseSSL: {get_param: RabbitClientUseSSL}
+          RabbitClientPort: {get_param: RabbitClientPort}
+          RabbitFDLimit: {get_param: RabbitFDLimit}
+          SnmpdReadonlyUserName: {get_param: SnmpdReadonlyUserName}
+          SnmpdReadonlyUserPassword: {get_param: SnmpdReadonlyUserPassword}
+          RedisVirtualIP: {get_attr: [RedisVirtualIP, ip_address]}
+          SwiftHashSuffix: {get_param: SwiftHashSuffix}
+          SwiftMountCheck: {get_param: SwiftMountCheck}
+          SwiftMinPartHours: {get_param: SwiftMinPartHours}
+          SwiftPartPower: {get_param: SwiftPartPower}
+          SwiftPassword: {get_param: SwiftPassword}
+          SwiftReplicas: { get_param: SwiftReplicas}
+          VirtualIP: {get_attr: [VipMap, net_ip_map, ctlplane]} # deprecated. Use per service VIP settings instead now.
+          PublicVirtualIP: {get_attr: [VipMap, net_ip_map, external]}
+          ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
+          CeilometerApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+          CinderApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+          HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+          GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+          GlanceRegistryVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+          NovaApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+          SwiftProxyVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+          MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+          KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+          KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+          NeutronApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+          NovaApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+          UpdateIdentifier: {get_param: UpdateIdentifier}
+          Hostname:
+            str_replace:
+              template: {get_param: ControllerHostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          NodeIndex: '%index%'
+
+  Compute:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: ComputeCount}
+      removal_policies: {get_param: ComputeRemovalPolicies}
+      resource_def:
+        type: OS::TripleO::Compute
+        properties:
+          AdminPassword: {get_param: AdminPassword}
+          CeilometerComputeAgent: {get_param: CeilometerComputeAgent}
+          CeilometerMeteringSecret: {get_param: CeilometerMeteringSecret}
+          CeilometerPassword: {get_param: CeilometerPassword}
+          CinderEnableNfsBackend: {get_param: CinderEnableNfsBackend}
+          CinderEnableRbdBackend: {get_param: CinderEnableRbdBackend}
+          Debug: {get_param: Debug}
+          ExtraConfig: {get_param: ExtraConfig}
+          Flavor: {get_param: OvercloudComputeFlavor}
+          GlanceHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+          Image: {get_param: NovaImage}
+          ImageUpdatePolicy: {get_param: ImageUpdatePolicy}
+          KeyName: {get_param: KeyName}
+          KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+          KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+          NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
+          NeutronEnableTunnelling: {get_param: NeutronEnableTunnelling}
+          NeutronEnableL2Pop : {get_param: NeutronEnableL2Pop}
+          NeutronFlatNetworks: {get_param: NeutronFlatNetworks}
+          NeutronHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+          NeutronNetworkType: {get_param: NeutronNetworkType}
+          NeutronTunnelTypes: {get_param: NeutronTunnelTypes}
+          NeutronNetworkVLANRanges: {get_param: NeutronNetworkVLANRanges}
+          NeutronPassword: {get_param: NeutronPassword}
+          NeutronPhysicalBridge: {get_param: HypervisorNeutronPhysicalBridge}
+          NeutronPublicInterface: {get_param: HypervisorNeutronPublicInterface}
+          NeutronDVR: {get_param: NeutronDVR}
+          NeutronMetadataProxySharedSecret: {get_param: NeutronMetadataProxySharedSecret}
+          NeutronAgentMode: {get_param: NeutronComputeAgentMode}
+          NeutronPublicInterfaceRawDevice: {get_param: NeutronPublicInterfaceRawDevice}
+          NeutronCorePlugin: {get_param: NeutronCorePlugin}
+          NeutronServicePlugins: {get_param: NeutronServicePlugins}
+          NeutronTypeDrivers: {get_param: NeutronTypeDrivers}
+          NeutronMechanismDrivers: {get_param: NeutronMechanismDrivers}
+          # L3 HA and Failover is not relevant for Computes, should be removed
+          NeutronAllowL3AgentFailover: {get_param: NeutronAllowL3AgentFailover}
+          NeutronL3HA: {get_param: NeutronL3HA}
+          NovaApiHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+          NovaComputeDriver: {get_param: NovaComputeDriver}
+          NovaComputeExtraConfig: {get_param: NovaComputeExtraConfig}
+          NovaComputeLibvirtType: {get_param: NovaComputeLibvirtType}
+          NovaComputeLibvirtVifDriver: {get_param: NovaComputeLibvirtVifDriver}
+          NovaEnableRbdBackend: {get_param: NovaEnableRbdBackend}
+          NovaPublicIP: {get_attr: [VipMap, net_ip_map, external]}
+          NovaPassword: {get_param: NovaPassword}
+          NovaOVSBridge: {get_param: NovaOVSBridge}
+          NovaSecurityGroupAPI: {get_param: NovaSecurityGroupAPI}
+          NtpServer: {get_param: NtpServer}
+          RabbitHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
+          RabbitPassword: {get_param: RabbitPassword}
+          RabbitUserName: {get_param: RabbitUserName}
+          RabbitClientUseSSL: {get_param: RabbitClientUseSSL}
+          RabbitClientPort: {get_param: RabbitClientPort}
+          SnmpdReadonlyUserName: {get_param: SnmpdReadonlyUserName}
+          SnmpdReadonlyUserPassword: {get_param: SnmpdReadonlyUserPassword}
+          ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
+          UpdateIdentifier: {get_param: UpdateIdentifier}
+          Hostname:
+            str_replace:
+              template: {get_param: ComputeHostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          CloudDomain: {get_param: CloudDomain}
+
+  BlockStorage:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: BlockStorageCount}
+      removal_policies: {get_param: BlockStorageRemovalPolicies}
+      resource_def:
+        type: OS::TripleO::BlockStorage
+        properties:
+          Debug: {get_param: Debug}
+          Image: {get_param: BlockStorageImage}
+          CinderISCSIHelper: {get_param: CinderISCSIHelper}
+          CinderLVMLoopDeviceSize: {get_param: CinderLVMLoopDeviceSize}
+          # Purpose of the dedicated BlockStorage nodes should be to use their local LVM
+          CinderEnableIscsiBackend: {get_param: CinderEnableIscsiBackend}
+          CinderPassword: {get_param: CinderPassword}
+          KeyName: {get_param: KeyName}
+          Flavor: {get_param: OvercloudBlockStorageFlavor}
+          VirtualIP: {get_attr: [VipMap, net_ip_map, ctlplane]}
+          GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+          RabbitPassword: {get_param: RabbitPassword}
+          RabbitUserName: {get_param: RabbitUserName}
+          RabbitClientUseSSL: {get_param: RabbitClientUseSSL}
+          RabbitClientPort: {get_param: RabbitClientPort}
+          NtpServer: {get_param: NtpServer}
+          UpdateIdentifier: {get_param: UpdateIdentifier}
+          Hostname:
+            str_replace:
+              template: {get_param: BlockStorageHostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          ServiceNetMap: {get_param: ServiceNetMap}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
+          MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+          ExtraConfig: {get_param: ExtraConfig}
+          BlockStorageExtraConfig: {get_param: BlockStorageExtraConfig}
+          CloudDomain: {get_param: CloudDomain}
+
+  ObjectStorage:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: ObjectStorageCount}
+      removal_policies: {get_param: ObjectStorageRemovalPolicies}
+      resource_def:
+        type: OS::TripleO::ObjectStorage
+        properties:
+          KeyName: {get_param: KeyName}
+          Flavor: {get_param: OvercloudSwiftStorageFlavor}
+          HashSuffix: {get_param: SwiftHashSuffix}
+          MountCheck: {get_param: SwiftMountCheck}
+          MinPartHours: {get_param: SwiftMinPartHours}
+          PartPower: {get_param: SwiftPartPower}
+          Image: {get_param: SwiftStorageImage}
+          Replicas: { get_param: SwiftReplicas}
+          NtpServer: {get_param: NtpServer}
+          UpdateIdentifier: {get_param: UpdateIdentifier}
+          ServiceNetMap: {get_param: ServiceNetMap}
+          Hostname:
+            str_replace:
+              template: {get_param: ObjectStorageHostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          ExtraConfig: {get_param: ExtraConfig}
+          ObjectStorageExtraConfig: {get_param: ObjectStorageExtraConfig}
+          CloudDomain: {get_param: CloudDomain}
+
+  CephStorage:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: CephStorageCount}
+      removal_policies: {get_param: CephStorageRemovalPolicies}
+      resource_def:
+        type: OS::TripleO::CephStorage
+        properties:
+          Image: {get_param: CephStorageImage}
+          KeyName: {get_param: KeyName}
+          Flavor: {get_param: OvercloudCephStorageFlavor}
+          NtpServer: {get_param: NtpServer}
+          ServiceNetMap: {get_param: ServiceNetMap}
+          UpdateIdentifier: {get_param: UpdateIdentifier}
+          Hostname:
+            str_replace:
+              template: {get_param: CephStorageHostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          ExtraConfig: {get_param: ExtraConfig}
+          CephStorageExtraConfig: {get_param: CephStorageExtraConfig}
+          CloudDomain: {get_param: CloudDomain}
+
+  ControllerIpListMap:
+    type: OS::TripleO::Network::Ports::NetIpListMap
+    properties:
+      ControlPlaneIpList: {get_attr: [Controller, ip_address]}
+      ExternalIpList: {get_attr: [Controller, external_ip_address]}
+      InternalApiIpList: {get_attr: [Controller, internal_api_ip_address]}
+      StorageIpList: {get_attr: [Controller, storage_ip_address]}
+      StorageMgmtIpList: {get_attr: [Controller, storage_mgmt_ip_address]}
+      TenantIpList: {get_attr: [Controller, tenant_ip_address]}
+
+  allNodesConfig:
+    type: OS::TripleO::AllNodes::SoftwareConfig
+    properties:
+      compute_hosts: {get_attr: [Compute, hosts_entry]}
+      controller_hosts: {get_attr: [Controller, hosts_entry]}
+      controller_ips: {get_attr: [Controller, ip_address]}
+      block_storage_hosts: {get_attr: [BlockStorage, hosts_entry]}
+      object_storage_hosts: {get_attr: [ObjectStorage, hosts_entry]}
+      ceph_storage_hosts: {get_attr: [CephStorage, hosts_entry]}
+      controller_names: {get_attr: [Controller, hostname]}
+      rabbit_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
+      mongo_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MongoDbNetwork]}]}
+      redis_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
+      memcache_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MemcachedNetwork]}]}
+      mysql_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+      horizon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
+      heat_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+      swift_proxy_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+      ceilometer_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+      nova_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+      nova_metadata_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
+      glance_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+      glance_registry_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+      cinder_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+      neutron_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+      keystone_public_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+      keystone_admin_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+
+  MysqlRootPassword:
+    type: OS::Heat::RandomString
+    properties:
+      length: 10
+
+  MysqlClusterUniquePart:
+    type: OS::Heat::RandomString
+    properties:
+      length: 10
+
+  RabbitCookie:
+    type: OS::Heat::RandomString
+    properties:
+      length: 20
+      salt: {get_param: RabbitCookieSalt}
+
+  # creates the network architecture
+  Networks:
+    type: OS::TripleO::Network
+
+  ControlVirtualIP:
+    type: OS::Neutron::Port
+    depends_on: Networks
+    properties:
+      name: control_virtual_ip
+      network: {get_param: NeutronControlPlaneID}
+      fixed_ips: {get_param: ControlFixedIPs}
+      replacement_policy: AUTO
+
+  RedisVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::RedisVipPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
+      PortName: redis_virtual_ip
+      NetworkName: {get_param: [ServiceNetMap, RedisNetwork]}
+
+  # The public VIP is on the External net, falls back to ctlplane
+  PublicVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::ExternalPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
+      PortName: public_virtual_ip
+      FixedIPs: {get_param: PublicVirtualFixedIPs}
+
+  InternalApiVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::InternalApiPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: internal_api_virtual_ip
+
+  StorageVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::StoragePort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: storage_virtual_ip
+
+  StorageMgmtVirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Controller::Ports::StorageMgmtPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: storage_management_virtual_ip
+
+  VipMap:
+    type: OS::TripleO::Network::Ports::NetVipMap
+    properties:
+      ControlPlaneIp: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ExternalIp: {get_attr: [PublicVirtualIP, ip_address]}
+      InternalApiIp: {get_attr: [InternalApiVirtualIP, ip_address]}
+      StorageIp: {get_attr: [StorageVirtualIP, ip_address]}
+      StorageMgmtIp: {get_attr: [StorageMgmtVirtualIP, ip_address]}
+      # No tenant VIP required
+
+  VipConfig:
+    type: OS::TripleO::VipConfig
+
+  VipDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: VipConfig}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+      input_values:
+        # service VIP mappings
+        keystone_admin_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+        keystone_public_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+        neutron_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+        cinder_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+        glance_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+        glance_registry_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
+        swift_proxy_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+        nova_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+        nova_metadata_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
+        ceilometer_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+        heat_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+        horizon_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
+        redis_vip: {get_attr: [RedisVirtualIP, ip_address]}
+        mysql_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+        rabbit_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
+        # direct configuration of Virtual IPs for each network
+        control_virtual_ip: {get_attr: [VipMap, net_ip_map, ctlplane]}
+        public_virtual_ip: {get_attr: [VipMap, net_ip_map, external]}
+        internal_api_virtual_ip: {get_attr: [VipMap, net_ip_map, internal_api]}
+        storage_virtual_ip: {get_attr: [VipMap, net_ip_map, storage]}
+        storage_mgmt_virtual_ip: {get_attr: [VipMap, net_ip_map, storage_mgmt]}
+
+  ControllerBootstrapNodeConfig:
+    type: OS::TripleO::BootstrapNode::SoftwareConfig
+    properties:
+      bootstrap_nodeid: {get_attr: [Controller, resource.0.hostname]}
+      bootstrap_nodeid_ip: {get_attr: [Controller, resource.0.ip_address]}
+
+  ControllerBootstrapNodeDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [ControllerBootstrapNodeConfig, config_id]}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  ControllerSwiftDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [SwiftDevicesAndProxyConfig, config_id]}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  ObjectStorageSwiftDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [SwiftDevicesAndProxyConfig, config_id]}
+      servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+
+  SwiftDevicesAndProxyConfig:
+    type: OS::TripleO::SwiftDevicesAndProxy::SoftwareConfig
+    properties:
+      controller_swift_devices: {get_attr: [Controller, swift_device]}
+      object_store_swift_devices: {get_attr: [ObjectStorage, swift_device]}
+      controller_swift_proxy_memcaches: {get_attr: [Controller, swift_proxy_memcache]}
+
+  ComputeCephDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [CephClusterConfig, config_id]}
+      servers: {get_attr: [Compute, attributes, nova_server_resource]}
+
+  ControllerCephDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [CephClusterConfig, config_id]}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  CephStorageCephDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [CephClusterConfig, config_id]}
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
+  CephClusterConfig:
+    type: OS::TripleO::CephClusterConfig::SoftwareConfig
+    properties:
+      ceph_storage_count: {get_param: CephStorageCount}
+      ceph_fsid: {get_param: CephClusterFSID}
+      ceph_mon_key: {get_param: CephMonKey}
+      ceph_admin_key: {get_param: CephAdminKey}
+      ceph_client_key: {get_param: CephClientKey}
+      ceph_external_mon_ips: {get_param: CephExternalMonHost}
+      ceph_mon_names: {get_attr: [Controller, hostname]}
+      ceph_mon_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CephPublicNetwork]}]}
+
+  ControllerClusterConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        corosync:
+          nodes: {get_attr: [Controller, corosync_node]}
+        horizon:
+          caches:
+            memcached:
+              nodes: {get_attr: [Controller, hostname]}
+        mysql:
+          nodes: {get_attr: [Controller, corosync_node]}
+        haproxy:
+          nodes: {get_attr: [Controller, corosync_node]}
+
+  ControllerClusterDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_resource: ControllerClusterConfig}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  ControllerAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  ComputeAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [Compute, attributes, nova_server_resource]}
+
+  BlockStorageAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [BlockStorage, attributes, nova_server_resource]}
+
+  ObjectStorageAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+
+  CephStorageAllNodesDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      config: {get_attr: [allNodesConfig, config_id]}
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
+  # All Nodes Validations
+  AllNodesValidationConfig:
+    type: OS::TripleO::AllNodes::Validation
+    properties:
+      PingTestIps:
+        list_join:
+        - ' '
+        - - {get_attr: [Controller, resource.0.external_ip_address]}
+          - {get_attr: [Controller, resource.0.internal_api_ip_address]}
+          - {get_attr: [Controller, resource.0.storage_ip_address]}
+          - {get_attr: [Controller, resource.0.storage_mgmt_ip_address]}
+          - {get_attr: [Controller, resource.0.tenant_ip_address]}
+
+  ControllerAllNodesValidationDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: ControllerAllNodesDeployment
+    properties:
+      config: {get_resource: AllNodesValidationConfig}
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+
+  ComputeAllNodesValidationDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: ComputeAllNodesDeployment
+    properties:
+      config: {get_resource: AllNodesValidationConfig}
+      servers: {get_attr: [Compute, attributes, nova_server_resource]}
+
+  BlockStorageAllNodesValidationDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: BlockStorageAllNodesDeployment
+    properties:
+      config: {get_resource: AllNodesValidationConfig}
+      servers: {get_attr: [BlockStorage, attributes, nova_server_resource]}
+
+  ObjectStorageAllNodesValidationDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: ObjectStorageAllNodesDeployment
+    properties:
+      config: {get_resource: AllNodesValidationConfig}
+      servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+
+  CephStorageAllNodesValidationDeployment:
+    type: OS::Heat::StructuredDeployments
+    depends_on: CephStorageAllNodesDeployment
+    properties:
+      config: {get_resource: AllNodesValidationConfig}
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
+  # Optional ExtraConfig for all nodes - all roles are passed in here, but
+  # the nested template may configure each role differently (or not at all)
+  AllNodesExtraConfig:
+    type: OS::TripleO::AllNodesExtraConfig
+    properties:
+      controller_servers: {get_attr: [Controller, attributes, nova_server_resource]}
+      compute_servers: {get_attr: [Compute, attributes, nova_server_resource]}
+      blockstorage_servers: {get_attr: [BlockStorage, attributes, nova_server_resource]}
+      objectstorage_servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+      cephstorage_servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+
+  # Nested stack deployment runs after all other controller deployments
+  ControllerNodesPostDeployment:
+    type: OS::TripleO::ControllerPostDeployment
+    depends_on: [ControllerBootstrapNodeDeployment, ControllerAllNodesDeployment, ControllerSwiftDeployment, ControllerCephDeployment]
+    properties:
+      servers: {get_attr: [Controller, attributes, nova_server_resource]}
+      NodeConfigIdentifiers:
+        allnodes_extra: {get_attr: [AllNodesExtraConfig, config_identifier]}
+        controller_config: {get_attr: [Controller, attributes, config_identifier]}
+        deployment_identifier: {get_param: DeployIdentifier}
+
+  ComputeNodesPostDeployment:
+    type: OS::TripleO::ComputePostDeployment
+    depends_on: [ComputeAllNodesDeployment, ComputeCephDeployment]
+    properties:
+      servers: {get_attr: [Compute, attributes, nova_server_resource]}
+      NodeConfigIdentifiers:
+        allnodes_extra: {get_attr: [AllNodesExtraConfig, config_identifier]}
+        compute_config: {get_attr: [Compute, attributes, config_identifier]}
+        deployment_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageNodesPostDeployment:
+    type: OS::TripleO::ObjectStoragePostDeployment
+    depends_on: [ObjectStorageSwiftDeployment, ObjectStorageAllNodesDeployment]
+    properties:
+      servers: {get_attr: [ObjectStorage, attributes, nova_server_resource]}
+      NodeConfigIdentifiers:
+        allnodes_extra: {get_attr: [AllNodesExtraConfig, config_identifier]}
+        objectstorage_config: {get_attr: [ObjectStorage, attributes, config_identifier]}
+        deployment_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageNodesPostDeployment:
+    type: OS::TripleO::BlockStoragePostDeployment
+    depends_on: [ControllerNodesPostDeployment, BlockStorageAllNodesDeployment]
+    properties:
+      servers: {get_attr: [BlockStorage, attributes, nova_server_resource]}
+      NodeConfigIdentifiers:
+        allnodes_extra: {get_attr: [AllNodesExtraConfig, config_identifier]}
+        blockstorage_config: {get_attr: [BlockStorage, attributes, config_identifier]}
+        deployment_identifier: {get_param: DeployIdentifier}
+
+  CephStorageNodesPostDeployment:
+    type: OS::TripleO::CephStoragePostDeployment
+    depends_on: [ControllerNodesPostDeployment, CephStorageCephDeployment, CephStorageAllNodesDeployment]
+    properties:
+      servers: {get_attr: [CephStorage, attributes, nova_server_resource]}
+      NodeConfigIdentifiers:
+        allnodes_extra: {get_attr: [AllNodesExtraConfig, config_identifier]}
+        cephstorage_config: {get_attr: [CephStorage, attributes, config_identifier]}
+        deployment_identifier: {get_param: DeployIdentifier}
+
+outputs:
+  KeystoneURL:
+    description: URL for the Overcloud Keystone service
+    value: {get_attr: [EndpointMap, endpoint_map, KeystonePublic, uri]}
+  KeystoneAdminVip:
+    description: Keystone Admin VIP endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+  PublicVip:
+    description: Controller VIP for public API endpoints
+    value: {get_attr: [VipMap, net_ip_map, external]}
+  CeilometerInternalVip:
+    description: VIP for Ceilometer API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+  CinderInternalVip:
+    description: VIP for Cinder API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+  GlanceInternalVip:
+    description: VIP for Glance API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+  HeatInternalVip:
+    description: VIP for Heat API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+  KeystoneInternalVip:
+    description: VIP for Keystone API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+  NeutronInternalVip:
+    description: VIP for Neutron API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+  NovaInternalVip:
+    description: VIP for Nova API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+  SwiftInternalVip:
+    description: VIP for Swift Proxy internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
