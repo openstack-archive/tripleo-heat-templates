@@ -39,6 +39,8 @@ if hiera('step') >= 2 {
     include ::ntp
   }
 
+  include ::timezone
+
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
