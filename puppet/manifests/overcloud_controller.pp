@@ -16,15 +16,19 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
+$enable_load_balancer = hiera('enable_load_balancer', true)
+
 if hiera('step') >= 1 {
 
   create_resources(sysctl::value, hiera('sysctl_settings'), {})
 
   $controller_node_ips = split(hiera('controller_node_ips'), ',')
 
-  class { '::tripleo::loadbalancer' :
-    controller_hosts => $controller_node_ips,
-    manage_vip       => true,
+  if $enable_load_balancer {
+    class { '::tripleo::loadbalancer' :
+      controller_hosts => $controller_node_ips,
+      manage_vip       => true,
+    }
   }
 
 }
