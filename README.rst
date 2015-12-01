@@ -29,8 +29,6 @@ Directories
 
 A description of the directory layout in TripleO Heat Templates.
 
- * deprecated: contains templates that have been deprecated
-
  * environments: contains heat environment files that can be used with -e
                  on the command like to enable features, etc.
 
