@@ -456,6 +456,7 @@ MYSQL_HOST=localhost\n",
       mon_initial_members => downcase(hiera('ceph_mon_initial_members')),
     }
     include ::ceph::profile::mon
+    include ::ceph::profile::rgw
   }
 
   if str2bool(hiera('enable_ceph_storage', false)) {
@@ -1560,6 +1561,14 @@ if hiera('step') >= 4 {
       }
     }
 
+  }
+
+  if $ceph::profile::params::enable_rgw
+  {
+    exec { 'create_radosgw_keyring':
+      command => "/usr/bin/ceph auth get-or-create client.radosgw.gateway mon 'allow rwx' osd 'allow rwx' -o /etc/ceph/ceph.client.radosgw.gateway.keyring" ,
+      creates => "/etc/ceph/ceph.client.radosgw.gateway.keyring" ,
+    }
   }
 
 } #END STEP 4
