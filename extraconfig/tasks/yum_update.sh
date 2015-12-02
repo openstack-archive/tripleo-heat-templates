@@ -45,53 +45,7 @@ pacemaker_status=$(systemctl is-active pacemaker)
 pacemaker_dumpfile=$(mktemp)
 
 if [[ "$pacemaker_status" == "active" ]] ; then
-    echo "Dumping Pacemaker config"
-    pcs cluster cib $pacemaker_dumpfile
-
-    echo "Checking for missing constraints"
-
-    if ! pcs constraint order show | grep "start openstack-nova-novncproxy-clone then start openstack-nova-api-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order start openstack-nova-novncproxy-clone then openstack-nova-api-clone
-    fi
-
-    if ! pcs constraint order show | grep "start rabbitmq-clone then start openstack-keystone-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order start rabbitmq-clone then openstack-keystone-clone
-    fi
-
-    if ! pcs constraint order show | grep "promote galera-master then start openstack-keystone-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order promote galera-master then openstack-keystone-clone
-    fi
-
-    if ! pcs constraint order show | grep "start haproxy-clone then start openstack-keystone-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order start haproxy-clone then openstack-keystone-clone
-    fi
-
-    if ! pcs constraint order show | grep "start memcached-clone then start openstack-keystone-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order start memcached-clone then openstack-keystone-clone
-    fi
-
-    if ! pcs constraint order show | grep "promote redis-master then start openstack-ceilometer-central-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
-    fi
-
-    # ensure neutron constraints https://review.openstack.org/#/c/229466
-    # remove ovs-cleanup after server and add openvswitch-agent instead
-    if  pcs constraint order show  | grep "start neutron-server-clone then start neutron-ovs-cleanup-clone"; then
-        pcs -f $pacemaker_dumpfile constraint remove order-neutron-server-clone-neutron-ovs-cleanup-clone-mandatory
-    fi
-    if ! pcs constraint order show | grep "start neutron-server-clone then start neutron-openvswitch-agent-clone"; then
-        pcs -f $pacemaker_dumpfile constraint order start neutron-server-clone then neutron-openvswitch-agent-clone
-    fi
-
-
-    if ! pcs resource defaults | grep "resource-stickiness: INFINITY"; then
-        pcs -f $pacemaker_dumpfile resource defaults resource-stickiness=INFINITY
-    fi
-
-    echo "Setting resource start/stop timeouts"
-    SERVICES="
-haproxy
-memcached
+SERVICES="memcached
 httpd
 neutron-dhcp-agent
 neutron-l3-agent
@@ -119,6 +73,54 @@ openstack-nova-conductor
 openstack-nova-consoleauth
 openstack-nova-novncproxy
 openstack-nova-scheduler"
+
+    echo "Dumping Pacemaker config"
+    pcs cluster cib $pacemaker_dumpfile
+
+    echo "Checking for missing constraints"
+
+    if ! pcs constraint order show | grep "start openstack-nova-novncproxy-clone then start openstack-nova-api-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order start openstack-nova-novncproxy-clone then openstack-nova-api-clone
+    fi
+
+    if ! pcs constraint order show | grep "start rabbitmq-clone then start openstack-keystone-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order start rabbitmq-clone then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "promote galera-master then start openstack-keystone-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order promote galera-master then openstack-keystone-clone
+    fi
+
+    if pcs resource | grep "haproxy-clone"; then
+        SERVICES="$SERVICES haproxy"
+        if ! pcs constraint order show | grep "start haproxy-clone then start openstack-keystone-clone"; then
+            pcs -f $pacemaker_dumpfile constraint order start haproxy-clone then openstack-keystone-clone
+        fi
+    fi
+
+    if ! pcs constraint order show | grep "start memcached-clone then start openstack-keystone-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order start memcached-clone then openstack-keystone-clone
+    fi
+
+    if ! pcs constraint order show | grep "promote redis-master then start openstack-ceilometer-central-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
+    fi
+
+    # ensure neutron constraints https://review.openstack.org/#/c/229466
+    # remove ovs-cleanup after server and add openvswitch-agent instead
+    if  pcs constraint order show  | grep "start neutron-server-clone then start neutron-ovs-cleanup-clone"; then
+        pcs -f $pacemaker_dumpfile constraint remove order-neutron-server-clone-neutron-ovs-cleanup-clone-mandatory
+    fi
+    if ! pcs constraint order show | grep "start neutron-server-clone then start neutron-openvswitch-agent-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order start neutron-server-clone then neutron-openvswitch-agent-clone
+    fi
+
+
+    if ! pcs resource defaults | grep "resource-stickiness: INFINITY"; then
+        pcs -f $pacemaker_dumpfile resource defaults resource-stickiness=INFINITY
+    fi
+
+    echo "Setting resource start/stop timeouts"
     for service in $SERVICES; do
         pcs -f $pacemaker_dumpfile resource update $service op start timeout=100s op stop timeout=100s
     done
