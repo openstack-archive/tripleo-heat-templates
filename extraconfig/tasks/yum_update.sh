@@ -123,7 +123,7 @@ openstack-nova-scheduler"
         pcs -f $pacemaker_dumpfile resource update $service op start timeout=100s op stop timeout=100s
     done
     # mongod start timeout is higher, setting only stop timeout
-    pcs resource update mongod op stop timeout=100s
+    pcs -f $pacemaker_dumpfile resource update mongod op stop timeout=100s
 
     echo "Applying new Pacemaker config"
     pcs cluster cib-push $pacemaker_dumpfile
