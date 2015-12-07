@@ -22,7 +22,12 @@ https://github.com/openstack/tripleo-common/blob/master/scripts/tripleo.sh
 
 Create the Overcloud:
 ```
-$ openstack overcloud deploy --templates=tripleo-heat-templates -e tripleo-heat-templates/environments/docker-rdo.yaml --libvirt-type=qemu
+$ openstack overcloud deploy --templates=tripleo-heat-templates -e tripleo-heat-templates/environments/docker.yaml -e tripleo-heat-templates/environments/docker-network.yaml --libvirt-type=qemu
+```
+
+Using Network Isolation in the Overcloud:
+```
+$ openstack overcloud deploy --templates=tripleo-heat-templates -e tripleo-heat-templates/environments/docker.yaml -e tripleo-heat-templates/environments/docker-network-isolation.yaml --libvirt-type=qemu
 ```
 
 Source the overcloudrc and then you can use the overcloud.
