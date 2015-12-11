@@ -22,7 +22,7 @@ mkdir -p $timestamp_dir
 update_identifier=${update_identifier//[^a-zA-Z0-9-_]/}
 
 # seconds to wait for this node to rejoin the cluster after update
-cluster_start_timeout=360
+cluster_start_timeout=600
 galera_sync_timeout=360
 
 timestamp_file="$timestamp_dir/$update_identifier"
@@ -42,109 +42,81 @@ if [[ "$list_updates" == "" ]]; then
 fi
 
 pacemaker_status=$(systemctl is-active pacemaker)
+pacemaker_dumpfile=$(mktemp)
 
 if [[ "$pacemaker_status" == "active" ]] ; then
-    echo "Checking for and adding missing constraints"
+    echo "Dumping Pacemaker config"
+    pcs cluster cib $pacemaker_dumpfile
+
+    echo "Checking for missing constraints"
 
     if ! pcs constraint order show | grep "start openstack-nova-novncproxy-clone then start openstack-nova-api-clone"; then
-        pcs constraint order start openstack-nova-novncproxy-clone then openstack-nova-api-clone
+        pcs -f $pacemaker_dumpfile constraint order start openstack-nova-novncproxy-clone then openstack-nova-api-clone
     fi
 
     if ! pcs constraint order show | grep "start rabbitmq-clone then start openstack-keystone-clone"; then
-        pcs constraint order start rabbitmq-clone then openstack-keystone-clone
+        pcs -f $pacemaker_dumpfile constraint order start rabbitmq-clone then openstack-keystone-clone
     fi
 
     if ! pcs constraint order show | grep "promote galera-master then start openstack-keystone-clone"; then
-        pcs constraint order promote galera-master then openstack-keystone-clone
+        pcs -f $pacemaker_dumpfile constraint order promote galera-master then openstack-keystone-clone
     fi
 
     if ! pcs constraint order show | grep "start haproxy-clone then start openstack-keystone-clone"; then
-        pcs constraint order start haproxy-clone then openstack-keystone-clone
+        pcs -f $pacemaker_dumpfile constraint order start haproxy-clone then openstack-keystone-clone
     fi
 
     if ! pcs constraint order show | grep "start memcached-clone then start openstack-keystone-clone"; then
-        pcs constraint order start memcached-clone then openstack-keystone-clone
+        pcs -f $pacemaker_dumpfile constraint order start memcached-clone then openstack-keystone-clone
     fi
 
     if ! pcs constraint order show | grep "promote redis-master then start openstack-ceilometer-central-clone"; then
-        pcs constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
+        pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
     fi
 
     if ! pcs resource defaults | grep "resource-stickiness: INFINITY"; then
-        pcs resource defaults resource-stickiness=INFINITY
+        pcs -f $pacemaker_dumpfile resource defaults resource-stickiness=INFINITY
     fi
 
     echo "Setting resource start/stop timeouts"
-
-    # timeouts for non-openstack services and special cases
-    pcs resource update haproxy op start timeout=100s
-    pcs resource update haproxy op stop timeout=100s
-    # mongod start timeout is also higher, setting only stop timeout
+    SERVICES="
+haproxy
+memcached
+httpd
+neutron-dhcp-agent
+neutron-l3-agent
+neutron-metadata-agent
+neutron-openvswitch-agent
+neutron-server
+openstack-ceilometer-alarm-evaluator
+openstack-ceilometer-alarm-notifier
+openstack-ceilometer-api
+openstack-ceilometer-central
+openstack-ceilometer-collector
+openstack-ceilometer-notification
+openstack-cinder-api
+openstack-cinder-scheduler
+openstack-cinder-volume
+openstack-glance-api
+openstack-glance-registry
+openstack-heat-api
+openstack-heat-api-cfn
+openstack-heat-api-cloudwatch
+openstack-heat-engine
+openstack-keystone
+openstack-nova-api
+openstack-nova-conductor
+openstack-nova-consoleauth
+openstack-nova-novncproxy
+openstack-nova-scheduler"
+    for service in $SERVICES; do
+        pcs -f $pacemaker_dumpfile resource update $service op start timeout=100s op stop timeout=100s
+    done
+    # mongod start timeout is higher, setting only stop timeout
     pcs resource update mongod op stop timeout=100s
-    # rabbit start timeout is already 100s
-    pcs resource update rabbitmq op stop timeout=100s
-    pcs resource update memcached op start timeout=100s
-    pcs resource update memcached op stop timeout=100s
-    pcs resource update httpd op start timeout=100s
-    pcs resource update httpd op stop timeout=100s
-    # neutron-netns-cleanup stop timeout is 300s, setting only start timeout
-    pcs resource update neutron-netns-cleanup op start timeout=100s
-    # neutron-ovs-cleanup stop timeout is 300s, setting only start timeout
-    pcs resource update neutron-ovs-cleanup op start timeout=100s
 
-    # timeouts for openstack services
-    pcs resource update neutron-dhcp-agent op start timeout=100s
-    pcs resource update neutron-dhcp-agent op stop timeout=100s
-    pcs resource update neutron-l3-agent op start timeout=100s
-    pcs resource update neutron-l3-agent op stop timeout=100s
-    pcs resource update neutron-metadata-agent op start timeout=100s
-    pcs resource update neutron-metadata-agent op stop timeout=100s
-    pcs resource update neutron-openvswitch-agent op start timeout=100s
-    pcs resource update neutron-openvswitch-agent op stop timeout=100s
-    pcs resource update neutron-server op start timeout=100s
-    pcs resource update neutron-server op stop timeout=100s
-    pcs resource update openstack-ceilometer-alarm-evaluator op start timeout=100s
-    pcs resource update openstack-ceilometer-alarm-evaluator op stop timeout=100s
-    pcs resource update openstack-ceilometer-alarm-notifier op start timeout=100s
-    pcs resource update openstack-ceilometer-alarm-notifier op stop timeout=100s
-    pcs resource update openstack-ceilometer-api op start timeout=100s
-    pcs resource update openstack-ceilometer-api op stop timeout=100s
-    pcs resource update openstack-ceilometer-central op start timeout=100s
-    pcs resource update openstack-ceilometer-central op stop timeout=100s
-    pcs resource update openstack-ceilometer-collector op start timeout=100s
-    pcs resource update openstack-ceilometer-collector op stop timeout=100s
-    pcs resource update openstack-ceilometer-notification op start timeout=100s
-    pcs resource update openstack-ceilometer-notification op stop timeout=100s
-    pcs resource update openstack-cinder-api op start timeout=100s
-    pcs resource update openstack-cinder-api op stop timeout=100s
-    pcs resource update openstack-cinder-scheduler op start timeout=100s
-    pcs resource update openstack-cinder-scheduler op stop timeout=100s
-    pcs resource update openstack-cinder-volume op start timeout=100s
-    pcs resource update openstack-cinder-volume op stop timeout=100s
-    pcs resource update openstack-glance-api op start timeout=100s
-    pcs resource update openstack-glance-api op stop timeout=100s
-    pcs resource update openstack-glance-registry op start timeout=100s
-    pcs resource update openstack-glance-registry op stop timeout=100s
-    pcs resource update openstack-heat-api op start timeout=100s
-    pcs resource update openstack-heat-api op stop timeout=100s
-    pcs resource update openstack-heat-api-cfn op start timeout=100s
-    pcs resource update openstack-heat-api-cfn op stop timeout=100s
-    pcs resource update openstack-heat-api-cloudwatch op start timeout=100s
-    pcs resource update openstack-heat-api-cloudwatch op stop timeout=100s
-    pcs resource update openstack-heat-engine op start timeout=100s
-    pcs resource update openstack-heat-engine op stop timeout=100s
-    pcs resource update openstack-keystone op start timeout=100s
-    pcs resource update openstack-keystone op stop timeout=100s
-    pcs resource update openstack-nova-api op start timeout=100s
-    pcs resource update openstack-nova-api op stop timeout=100s
-    pcs resource update openstack-nova-conductor op start timeout=100s
-    pcs resource update openstack-nova-conductor op stop timeout=100s
-    pcs resource update openstack-nova-consoleauth op start timeout=100s
-    pcs resource update openstack-nova-consoleauth op stop timeout=100s
-    pcs resource update openstack-nova-novncproxy op start timeout=100s
-    pcs resource update openstack-nova-novncproxy op stop timeout=100s
-    pcs resource update openstack-nova-scheduler op start timeout=100s
-    pcs resource update openstack-nova-scheduler op stop timeout=100s
+    echo "Applying new Pacemaker config"
+    pcs cluster cib-push $pacemaker_dumpfile
 
     echo "Pacemaker running, stopping cluster node and doing full package update"
     node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
