@@ -12,7 +12,7 @@ Download the fedora atomic image into glance:
 
 ```
 wget https://download.fedoraproject.org/pub/fedora/linux/releases/22/Cloud/x86_64/Images/Fedora-Cloud-Atomic-22-20150521.x86_64.qcow2
-glance image-create --name fedora-atomic --file Fedora-Cloud-Atomic-22-20150521.x86_64.qcow2 --disk-format qcow2 --container-format bare
+glance image-create --name atomic-image --file Fedora-Cloud-Atomic-22-20150521.x86_64.qcow2 --disk-format qcow2 --container-format bare
 ```
 
 ## Configuring TripleO
