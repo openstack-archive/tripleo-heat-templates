@@ -225,6 +225,7 @@ if hiera('step') >= 3 {
 
   include ::neutron
   include ::neutron::server
+  include ::neutron::server::notifications
   include ::neutron::agents::l3
   include ::neutron::agents::dhcp
   include ::neutron::agents::metadata
