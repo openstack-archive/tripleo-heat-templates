@@ -7,7 +7,7 @@ if ! hostname | grep compute &>/dev/null; then
  exit 0
 fi
 
-mkdir -p /var/lib/etc-data/ #FIXME: this should be a docker data container
+mkdir -p /var/lib/etc-data/json-config #FIXME: this should be a docker data container
 
 # heat-docker-agents service
 cat <<EOF > /etc/systemd/system/heat-docker-agents.service
@@ -42,9 +42,6 @@ EOF
 
 /sbin/setenforce 0
 /sbin/modprobe ebtables
-
-# Create /var/lib/etc-data for now.  FIXME: This should go into a data container.
-#mkdir -p /var/lib/etc-data
 
 echo nameserver 8.8.8.8 > /etc/resolv.conf
 
