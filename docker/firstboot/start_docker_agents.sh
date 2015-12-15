@@ -38,7 +38,9 @@ EOF
 #echo "ADD_REGISTRY='--registry-mirror $docker_registry'" >> /etc/sysconfig/docker
 
 # Local docker registry 1.8
-#/bin/sed -i s/ADD_REGISTRY/#ADD_REGISTRY/ /etc/sysconfig/docker
+if [ $docker_namespace_is_registry ]; then
+    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry '/INSECURE_REGISTRY='--insecure-registry $docker_registry'/g" /etc/sysconfig/docker
+fi
 
 /sbin/setenforce 0
 /sbin/modprobe ebtables
