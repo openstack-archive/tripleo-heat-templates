@@ -780,6 +780,14 @@ if hiera('step') >= 3 {
       keystone_password => hiera('neutron::server::auth_password')
     }
   }
+  if hiera('neutron::core_plugin') == 'networking_plumgrid.neutron.plugins.plugin.NeutronPluginPLUMgridV2' {
+    class { '::neutron::plugins::plumgrid' :
+      connection                   => hiera('neutron::server::database_connection'),
+      controller_priv_host         => hiera('keystone_admin_api_vip'),
+      admin_password               => hiera('admin_password'),
+      metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
+    }
+  }
   if hiera('neutron::enable_dhcp_agent',true) {
     class { '::neutron::agents::dhcp' :
       manage_service => false,
