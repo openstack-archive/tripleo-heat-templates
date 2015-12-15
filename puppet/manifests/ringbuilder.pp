@@ -70,7 +70,7 @@ class tripleo::ringbuilder (
     # create local rings
     swift::ringbuilder::create{ ['object', 'account', 'container']:
       part_power     => $part_power,
-      replicas       => $replicas,
+      replicas       => min(count($device_array), $replicas),
       min_part_hours => $min_part_hours,
     } ->
 
