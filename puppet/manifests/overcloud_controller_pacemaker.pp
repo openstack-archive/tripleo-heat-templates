@@ -628,27 +628,20 @@ if hiera('step') >= 3 {
       enabled        => false,
     }
   }
-  if hiera('neutron::core_plugin') == 'ml2' {
-    class { '::neutron::plugins::ml2':
-      flat_networks        => split(hiera('neutron_flat_networks'), ','),
-      tenant_network_types => [hiera('neutron_tenant_network_type')],
-      mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
-    }
-    class { '::neutron::agents::ml2::ovs':
-      manage_service  => false,
-      enabled         => false,
-      bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
-      tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
-    }
+  include ::neutron::plugins::ml2
+  class { '::neutron::agents::ml2::ovs':
+    manage_service => false,
+    enabled        => false,
   }
-  if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
+
+  if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     include ::neutron::plugins::ml2::cisco::ucsm
   }
-  if 'cisco_nexus' in hiera('neutron_mechanism_drivers') {
+  if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     include ::neutron::plugins::ml2::cisco::nexus
     include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
   }
-  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     include ::neutron::plugins::ml2::cisco::nexus1000v
 
     class { '::neutron::agents::n1kv_vem':
@@ -896,7 +889,7 @@ if hiera('step') >= 3 {
     # service_manage => false, # <-- not supported with horizon&apache mod_wsgi?
   }
   include ::apache::mod::status
-  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     $_profile_support = 'cisco'
   } else {
     $_profile_support = 'None'
@@ -1503,7 +1496,7 @@ if hiera('step') >= 4 {
     }
 
     #VSM
-    if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
       pacemaker::resource::ocf { 'vsm-p' :
         ocf_agent_name  => 'heartbeat:VirtualDomain',
         resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_primary_deploy.xml',
