@@ -1053,15 +1053,32 @@ if hiera('step') >= 4 {
                   Pacemaker::Resource::Service[$::glance::params::api_service_name]],
     }
 
-    # Neutron
-    # NOTE(gfidente): Neutron will try to populate the database with some data
-    # as soon as neutron-server is started; to avoid races we want to make this
-    # happen only on one node, before normal Pacemaker initialization
-    # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
-    exec { '/usr/bin/systemctl start neutron-server && /usr/bin/sleep 5' : } ->
-    pacemaker::resource::service { $::neutron::params::server_service:
-      clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
+    if hiera('step') == 4 {
+      # Neutron
+      # NOTE(gfidente): Neutron will try to populate the database with some data
+      # as soon as neutron-server is started; to avoid races we want to make this
+      # happen only on one node, before normal Pacemaker initialization
+      # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
+      # NOTE(emilien): we need to run this Exec only at Step 4 otherwise this exec
+      # will try to start the service while it's already started by Pacemaker
+      # It would result to a deployment failure since systemd would return 1 to Puppet
+      # and the overcloud would fail to deploy (6 would be returned).
+      # This conditional prevents from a race condition during the deployment.
+      # https://bugzilla.redhat.com/show_bug.cgi?id=1290582
+      exec { 'neutron-server-systemd-start-sleep' :
+        command => 'systemctl start neutron-server && /usr/bin/sleep 5',
+        path    => '/usr/bin',
+        unless  => '/sbin/pcs resource show neutron-server',
+      } ->
+      pacemaker::resource::service { $::neutron::params::server_service:
+        clone_params => 'interleave=true',
+        require      => Pacemaker::Resource::Service[$::keystone::params::service_name]
+      }
+    } else {
+      pacemaker::resource::service { $::neutron::params::server_service:
+        clone_params => 'interleave=true',
+        require      => Pacemaker::Resource::Service[$::keystone::params::service_name]
+      }
     }
     if hiera('neutron::enable_l3_agent', true) {
       pacemaker::resource::service { $::neutron::params::l3_agent_service:
