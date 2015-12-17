@@ -24,6 +24,7 @@ update_identifier=${update_identifier//[^a-zA-Z0-9-_]/}
 # seconds to wait for this node to rejoin the cluster after update
 cluster_start_timeout=600
 galera_sync_timeout=360
+cluster_settle_timeout=1800
 
 timestamp_file="$timestamp_dir/$update_identifier"
 if [[ -a "$timestamp_file" ]]; then
@@ -128,7 +129,10 @@ openstack-nova-scheduler"
     pcs -f $pacemaker_dumpfile resource update mongod op stop timeout=100s
 
     echo "Applying new Pacemaker config"
-    pcs cluster cib-push $pacemaker_dumpfile
+    if ! pcs cluster cib-push $pacemaker_dumpfile; then
+        echo "ERROR failed to apply new pacemaker config"
+        exit 1
+    fi
 
     echo "Pacemaker running, stopping cluster node and doing full package update"
     node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
@@ -187,6 +191,12 @@ if [[ "$pacemaker_status" == "active" ]] ; then
             exit 1
         fi
     done
+
+    echo "Waiting for pacemaker cluster to settle"
+    if ! timeout -k 10 $cluster_settle_timeout crm_resource --wait; then
+        echo "ERROR timed out while waiting for the cluster to settle"
+        exit 1
+    fi
 
     pcs status
 
