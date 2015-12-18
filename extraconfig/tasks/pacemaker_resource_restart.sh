@@ -26,6 +26,7 @@ function check_resource {
           sleep $check_interval
       else
         echo "$service has $state"
+        timeout -k 10 $timeout crm_resource --wait
         return
       fi
   done
@@ -50,7 +51,7 @@ if [ "$pacemaker_status" = "active" -a \
     pcs resource disable httpd
     check_resource httpd stopped 300
     pcs resource disable openstack-keystone
-    check_resource openstack-keystone stopped 1200
+    check_resource openstack-keystone stopped 1800
 
     if pcs status | grep haproxy-clone; then
         pcs resource restart haproxy-clone
@@ -62,7 +63,7 @@ if [ "$pacemaker_status" = "active" -a \
     pcs resource restart galera-master
 
     pcs resource enable openstack-keystone
-    check_resource openstack-keystone started 300
+    check_resource openstack-keystone started 1800
     pcs resource enable httpd
     check_resource httpd started 800
 
