@@ -441,7 +441,7 @@ MYSQL_HOST=localhost\n",
   } else {
     $_profile_support = 'None'
   }
-  $neutron_options   = {'profile_support' => $_profile_support }
+  $neutron_options   = merge({'profile_support' => $_profile_support },hiera('horizon::neutron_options',undef))
 
   $memcached_ipv6 = hiera('memcached_ipv6', false)
   if $memcached_ipv6 {
