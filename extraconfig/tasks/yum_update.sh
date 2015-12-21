@@ -106,6 +106,16 @@ openstack-nova-scheduler"
         pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
     fi
 
+    # ensure neutron constraints https://review.openstack.org/#/c/229466
+    # remove ovs-cleanup after server and add openvswitch-agent instead
+    if  pcs constraint order show  | grep "start neutron-server-clone then start neutron-ovs-cleanup-clone"; then
+        pcs -f $pacemaker_dumpfile constraint remove order-neutron-server-clone-neutron-ovs-cleanup-clone-mandatory
+    fi
+    if ! pcs constraint order show | grep "start neutron-server-clone then start neutron-openvswitch-agent-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order start neutron-server-clone then neutron-openvswitch-agent-clone
+    fi
+
+
     if ! pcs resource defaults | grep "resource-stickiness: INFINITY"; then
         pcs -f $pacemaker_dumpfile resource defaults resource-stickiness=INFINITY
     fi
