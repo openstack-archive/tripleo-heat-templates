@@ -128,6 +128,13 @@ openstack-nova-scheduler"
     else
         pcs cluster stop
     fi
+
+    # clean leftover keepalived and radvd instances from neutron
+    # (can be removed when we remove neutron-netns-cleanup from cluster services)
+    # see https://review.gerrithub.io/#/c/248931/1/neutron-netns-cleanup.init
+    killall neutron-keepalived-state-change 2>/dev/null || :
+    kill $(ps ax | grep -e "keepalived.*\.pid-vrrp" | awk '{print $1}') 2>/dev/null || :
+    kill $(ps ax | grep -e "radvd.*\.pid\.radvd" | awk '{print $1}') 2>/dev/null || :
 else
     echo "Excluding upgrading packages that are handled by config management tooling"
     command_arguments="$command_arguments --skip-broken"
