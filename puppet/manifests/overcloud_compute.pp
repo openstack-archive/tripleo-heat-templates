@@ -68,11 +68,19 @@ if hiera('cinder_enable_nfs_backend', false) {
 }
 
 include ::nova::compute::libvirt
+if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+  file {'/etc/libvirt/qemu.conf':
+    ensure  => present,
+    content => hiera('midonet_libvirt_qemu_data')
+  }
+}
 include ::nova::network::neutron
 include ::neutron
 
 # If the value of core plugin is set to 'nuage',
 # include nuage agent,
+# If the value of core plugin is set to 'midonet',
+# include midonet agent,
 # else use the default value of 'ml2'
 if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
   include ::nuage::vrs
@@ -84,7 +92,20 @@ if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     nova_metadata_ip    => hiera('nova_metadata_node_ips'),
     nova_auth_ip        => hiera('keystone_public_api_virtual_ip'),
   }
-} else {
+}
+elsif hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+
+  # TODO(devvesa) provide non-controller ips for these services
+  $zookeeper_node_ips = hiera('neutron_api_node_ips')
+  $cassandra_node_ips = hiera('neutron_api_node_ips')
+
+  class {'::tripleo::network::midonet::agent':
+    zookeeper_servers => $zookeeper_node_ips,
+    cassandra_seeds   => $cassandra_node_ips
+  }
+}
+else {
+
   include ::neutron::plugins::ml2
   include ::neutron::agents::ml2::ovs
 
