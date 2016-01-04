@@ -14,6 +14,7 @@
 # under the License.
 
 include ::tripleo::packages
+include ::tripleo::firewall
 
 $enable_load_balancer = hiera('enable_load_balancer', true)
 

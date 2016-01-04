@@ -14,6 +14,7 @@
 # under the License.
 
 include ::tripleo::packages
+include ::tripleo::firewall
 
 create_resources(sysctl::value, hiera('sysctl_settings'), {})
 

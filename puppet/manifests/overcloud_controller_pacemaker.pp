@@ -19,6 +19,7 @@ Pcmk_resource <| |> {
 }
 
 include ::tripleo::packages
+include ::tripleo::firewall
 
 if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $pacemaker_master = true
