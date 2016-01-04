@@ -458,7 +458,7 @@ MYSQL_HOST=localhost\n",
   include ::swift
 
   # Ceph
-  $enable_ceph = hiera('ceph_storage_count', 0) > 0
+  $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
 
   if $enable_ceph {
     class { '::ceph::profile::params':
