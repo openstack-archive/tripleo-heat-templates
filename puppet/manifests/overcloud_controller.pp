@@ -548,7 +548,12 @@ if hiera('step') >= 3 {
 } #END STEP 3
 
 if hiera('step') >= 4 {
+  $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
+
   include ::keystone::cron::token_flush
+  if $nova_enable_db_purge {
+    include ::nova::cron::archive_deleted_rows
+  }
 } #END STEP 4
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])
