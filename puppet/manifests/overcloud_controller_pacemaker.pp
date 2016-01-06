@@ -773,6 +773,27 @@ if hiera('step') >= 3 {
     }
   }
 
+  if hiera('cinder_enable_eqlx_backend', false) {
+    $cinder_eqlx_backend = hiera('cinder::backend::eqlx::volume_backend_name')
+
+    cinder_config {
+      "${cinder_eqlx_backend}/host": value => 'hostgroup';
+    }
+
+    cinder::backend::eqlx { $cinder_eqlx_backend :
+      volume_backend_name => hiera('cinder::backend::eqlx::volume_backend_name', undef),
+      san_ip              => hiera('cinder::backend::eqlx::san_ip', undef),
+      san_login           => hiera('cinder::backend::eqlx::san_login', undef),
+      san_password        => hiera('cinder::backend::eqlx::san_password', undef),
+      san_thin_provision  => hiera('cinder::backend::eqlx::san_thin_provision', undef),
+      eqlx_group_name     => hiera('cinder::backend::eqlx::eqlx_group_name', undef),
+      eqlx_pool           => hiera('cinder::backend::eqlx::eqlx_lpool', undef),
+      eqlx_use_chap       => hiera('cinder::backend::eqlx::eqlx_use_chap', undef),
+      eqlx_chap_login     => hiera('cinder::backend::eqlx::eqlx_chap_login', undef),
+      eqlx_chap_password  => hiera('cinder::backend::eqlx::eqlx_san_password', undef),
+    }
+  }
+
   if hiera('cinder_enable_netapp_backend', false) {
     $cinder_netapp_backend = hiera('cinder::backend::netapp::title')
 
@@ -826,7 +847,7 @@ if hiera('step') >= 3 {
     }
   }
 
-  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend, $cinder_nfs_backend])
+  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_netapp_backend, $cinder_nfs_backend,$cinder_eqlx_backend])
   class { '::cinder::backends' :
     enabled_backends => $cinder_enabled_backends,
   }
