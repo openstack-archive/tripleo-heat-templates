@@ -598,7 +598,6 @@ if hiera('step') >= 3 {
     manage_service => false,
     enabled        => false,
   }
-  include ::neutron::server::notifications
   class { '::neutron::agents::dhcp' :
     manage_service => false,
     enabled        => false,
