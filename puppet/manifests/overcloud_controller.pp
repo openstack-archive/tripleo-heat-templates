@@ -252,16 +252,10 @@ if hiera('step') >= 3 {
       require => Package['neutron'],
     }
 
-    class { '::neutron::plugins::ml2':
-      flat_networks        => split(hiera('neutron_flat_networks'), ','),
-      tenant_network_types => [hiera('neutron_tenant_network_type')],
-      mechanism_drivers    => [hiera('neutron_mechanism_drivers')],
-    }
-    class { '::neutron::agents::ml2::ovs':
-      bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
-      tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
-    }
-    if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+    include ::neutron::plugins::ml2
+    include ::neutron::agents::ml2::ovs
+
+    if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
       include ::neutron::plugins::ml2::cisco::nexus1000v
 
       class { '::neutron::agents::n1kv_vem':
@@ -276,10 +270,10 @@ if hiera('step') >= 3 {
       }
     }
 
-    if 'cisco_ucsm' in hiera('neutron_mechanism_drivers') {
+    if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
       include ::neutron::plugins::ml2::cisco::ucsm
     }
-    if 'cisco_nexus' in hiera('neutron_mechanism_drivers') {
+    if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
       include ::neutron::plugins::ml2::cisco::nexus
       include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
     }
@@ -471,7 +465,7 @@ if hiera('step') >= 3 {
   include ::heat::engine
 
   # Horizon
-  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
+  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     $_profile_support = 'cisco'
   } else {
     $_profile_support = 'None'
