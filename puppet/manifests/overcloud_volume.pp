@@ -22,6 +22,8 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
+include ::timezone
+
 include ::cinder
 include ::cinder::config
 include ::cinder::glance

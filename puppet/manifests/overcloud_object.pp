@@ -22,6 +22,8 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
+include ::timezone
+
 include ::swift
 class { '::swift::storage::all':
   mount_check => str2bool(hiera('swift_mount_check')),

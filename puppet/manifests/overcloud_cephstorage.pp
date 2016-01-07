@@ -22,6 +22,8 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
+include ::timezone
+
 if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
   exec { 'set selinux to permissive on boot':
     command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",

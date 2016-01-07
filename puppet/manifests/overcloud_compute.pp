@@ -22,6 +22,8 @@ if count(hiera('ntp::servers')) > 0 {
   include ::ntp
 }
 
+include ::timezone
+
 file { ['/etc/libvirt/qemu/networks/autostart/default.xml',
         '/etc/libvirt/qemu/networks/default.xml']:
   ensure => absent,
