@@ -39,7 +39,10 @@ EOF
 
 # Local docker registry 1.8
 if [ $docker_namespace_is_registry ]; then
-    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry '/INSECURE_REGISTRY='--insecure-registry $docker_registry'/g" /etc/sysconfig/docker
+    # if namespace is used with local registry, trim all namespacing
+    trim_var=$docker_registry
+    registry_host="${trim_var%%/*}"
+    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry'/INSECURE_REGISTRY='--insecure-registry $registry_host'/g" /etc/sysconfig/docker
 fi
 
 /sbin/setenforce 0
