@@ -34,7 +34,7 @@ $enable_load_balancer = hiera('enable_load_balancer', true)
 
 # When to start and enable services which haven't been Pacemakerized
 # FIXME: remove when we start all OpenStack services using Pacemaker
-# (occurences of this variable will be gradually replaced with false)
+# (occurrences of this variable will be gradually replaced with false)
 $non_pcmk_start = hiera('step') >= 4
 
 if hiera('step') >= 1 {
