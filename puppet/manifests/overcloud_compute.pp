@@ -77,6 +77,13 @@ include ::neutron
 if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
   include ::nuage::vrs
   include ::nova::compute::neutron
+
+  class { '::nuage::metadataagent':
+    nova_os_tenant_name => hiera('nova::api::admin_tenant_name'),
+    nova_os_password    => hiera('nova_password'),
+    nova_metadata_ip    => hiera('nova_metadata_node_ips'),
+    nova_auth_ip        => hiera('keystone_public_api_virtual_ip'),
+  }
 } else {
   include ::neutron::plugins::ml2
   include ::neutron::agents::ml2::ovs
