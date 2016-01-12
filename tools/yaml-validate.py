@@ -16,11 +16,13 @@ import sys
 import traceback
 import yaml
 
-base_path = sys.argv[1]
-exit_val = 0
-failed_files = []
+
+def exit_usage():
+    print('Usage %s <yaml file or directory>' % sys.argv[0])
+    sys.exit(1)
 
 def validate(filename):
+    print('Validating %s' % filename)
     try:
         yaml.load(open(filename).read())
     except Exception:
@@ -28,14 +30,31 @@ def validate(filename):
         return 1
     return 0
 
-for subdir, dirs, files in os.walk(base_path):
-    for f in files:
-        if f.endswith('.yaml'):
-            file_path = os.path.join(subdir, f)
-            failed = validate(file_path)
-            if failed:
-                failed_files.append(file_path)
-            exit_val |= failed
+if len(sys.argv) < 2:
+    exit_usage()
+
+path_args = sys.argv[1:]
+exit_val = 0
+failed_files = []
+
+for base_path in path_args:
+    if os.path.isdir(base_path):
+        for subdir, dirs, files in os.walk(base_path):
+            for f in files:
+                if f.endswith('.yaml'):
+                    file_path = os.path.join(subdir, f)
+                    failed = validate(file_path)
+                    if failed:
+                        failed_files.append(file_path)
+                    exit_val |= failed
+    elif os.path.isfile(base_path) and base_path.endswith('.yaml'):
+        failed = validate(base_path)
+        if failed:
+            failed_files.append(base_path)
+        exit_val |= failed
+    else:
+        print('Unexpected argument %s' % base_path)
+        exit_usage()
 
 if failed_files:
     print('Validation failed on:')
