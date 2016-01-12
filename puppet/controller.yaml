@@ -325,6 +325,14 @@ parameters:
     default: 0
     description: Number of workers for Keystone service.
     type: number
+  SaharaApiVirtualIP:
+    type: string
+    default: ''
+  SaharaPassword:
+    default: unset
+    description: The password for the sahara service account, used by sahara-api.
+    type: string
+    hidden: true
   MysqlClusterUniquePart:
     description: A unique identifier of the MySQL cluster the controller is in.
     type: string
@@ -846,6 +854,7 @@ resources:
       server: {get_resource: Controller}
       NodeIndex: {get_param: NodeIndex}
 
+
   ControllerDeployment:
     type: OS::TripleO::SoftwareDeployment
     depends_on: NetworkDeployment
@@ -1126,6 +1135,15 @@ resources:
         swift_mount_check: {get_param: SwiftMountCheck}
         enable_package_install: {get_param: EnablePackageInstall}
         enable_package_upgrade: {get_attr: [UpdateDeployment, update_managed_packages]}
+        sahara_password: {get_param: SaharaPassword}
+        sahara_dsn:
+          list_join:
+            - ''
+            - - 'mysql://sahara:'
+              - {get_param: SaharaPassword}
+              - '@'
+              - {get_param: MysqlVirtualIP}
+              - '/sahara'
         swift_proxy_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
         swift_management_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, SwiftMgmtNetwork]}]}
         cinder_iscsi_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, CinderIscsiNetwork]}]}
@@ -1148,6 +1166,7 @@ resources:
         rabbitmq_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
         redis_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
         redis_vip: {get_param: RedisVirtualIP}
+        sahara_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, SaharaApiNetwork]}]}
         memcached_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, MemcachedNetwork]}]}
         mysql_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
         mysql_virtual_ip: {get_param: MysqlVirtualIP}
@@ -1465,6 +1484,29 @@ resources:
                 horizon::secret_key: {get_input: horizon_secret}
                 horizon::bind_address: {get_input: horizon_network}
                 horizon::keystone_url: {get_input: keystone_auth_uri}
+
+                # Sahara
+                sahara::host: {get_input: sahara_api_network}
+                sahara::plugins:
+                  - cdh
+                  - hdp
+                  - mapr
+                  - vanilla
+                  - spark
+                  - storm
+                sahara::admin_password: {get_input: sahara_password}
+                sahara::auth_uri: {get_input: keystone_auth_uri}
+                sahara::admin_user: sahara
+                sahara::identity_uri: {get_input: keystone_identity_uri}
+                sahara::use_neutron: true
+                sahara::database_connection: {get_input: sahara_dsn}
+                sahara::debug: {get_input: debug}
+                sahara::rpc_backend: rabbit
+                sahara::rabbit_userid: {get_input: rabbit_username}
+                sahara::rabbit_password: {get_input: rabbit_password}
+                sahara::rabbit_use_ssl: {get_input: rabbit_client_use_ssl}
+                sahara::rabbit_port: {get_input: rabbit_client_port}
+                sahara::db::mysql::password: {get_input: sahara_password}
 
                 # Rabbit
                 rabbitmq::node_ip_address: {get_input: rabbitmq_network}

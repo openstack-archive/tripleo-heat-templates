@@ -445,6 +445,10 @@ MYSQL_HOST=localhost\n",
         require => Exec['galera-ready'],
       }
     }
+
+    class { '::sahara::db::mysql':
+      require       => Exec['galera-ready'],
+    }
   }
 
   # pre-install swift here so we can build rings
@@ -875,6 +879,18 @@ if hiera('step') >= 3 {
     enabled_backends => $cinder_enabled_backends,
   }
 
+  class { '::sahara':
+    sync_db => $sync_db,
+  }
+  class { '::sahara::service::api':
+    manage_service => false,
+    enabled        => false,
+  }
+  class { '::sahara::service::engine':
+    manage_service => false,
+    enabled        => false,
+  }
+
   # swift proxy
   class { '::swift::proxy' :
     manage_service => $non_pcmk_start,
@@ -1125,6 +1141,24 @@ if hiera('step') >= 4 {
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
                   Pacemaker::Resource::Service[$::cinder::params::volume_service]],
+    }
+
+    # Sahara
+    pacemaker::resource::service { $::sahara::params::api_service_name :
+      clone_params => 'interleave=true',
+      require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
+    }
+    pacemaker::resource::service { $::sahara::params::engine_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::constraint::base { 'keystone-then-sahara-api-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::keystone::params::service_name}-clone",
+      second_resource => "${::sahara::params::api_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
+                          Pacemaker::Resource::Service[$::keystone::params::service_name]],
     }
 
     # Glance
