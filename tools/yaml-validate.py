@@ -24,10 +24,19 @@ def exit_usage():
 def validate(filename):
     print('Validating %s' % filename)
     try:
-        yaml.load(open(filename).read())
+        tpl = yaml.load(open(filename).read())
     except Exception:
         print(traceback.format_exc())
         return 1
+    # yaml is OK, now walk the parameters and output a warning for unused ones
+    for p in tpl.get('parameters', {}):
+        str_p = '\'%s\'' % p
+        in_resources =  str_p in str(tpl.get('resources', {}))
+        in_outputs =  str_p in str(tpl.get('outputs', {}))
+        if not in_resources and not in_outputs:
+            print('Warning: parameter %s in template %s appears to be unused'
+                  % (p, filename))
+
     return 0
 
 if len(sys.argv) < 2:
