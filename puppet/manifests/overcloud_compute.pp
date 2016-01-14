@@ -85,10 +85,17 @@ if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     nova_auth_ip        => hiera('keystone_public_api_virtual_ip'),
   }
 } else {
-  include ::neutron::plugins::ml2
-  include ::neutron::agents::ml2::ovs
+  class { '::neutron::plugins::ml2':
+    flat_networks        => split(hiera('neutron_flat_networks'), ','),
+    tenant_network_types => [hiera('neutron_tenant_network_type')],
+  }
 
-  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
+  class { '::neutron::agents::ml2::ovs':
+    bridge_mappings => split(hiera('neutron_bridge_mappings'), ','),
+    tunnel_types    => split(hiera('neutron_tunnel_types'), ','),
+  }
+
+  if 'cisco_n1kv' in hiera('neutron_mechanism_drivers') {
     class { '::neutron::agents::n1kv_vem':
       n1kv_source  => hiera('n1kv_vem_source', undef),
       n1kv_version => hiera('n1kv_vem_version', undef),
