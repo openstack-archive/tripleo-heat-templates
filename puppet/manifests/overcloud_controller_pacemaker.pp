@@ -599,8 +599,9 @@ if hiera('step') >= 3 {
     if hiera('enable_zookeeper_on_controller') {
       class {'::tripleo::cluster::zookeeper':
         zookeeper_server_ips => $zookeeper_node_ips,
-        zookeeper_client_ip  => $ipaddress,
-        zookeeper_hostnames  => hiera('controller_node_names')
+        # TODO: create a 'bind' hiera key for zookeeper
+        zookeeper_client_ip  => hiera('neutron::bind_host'),
+        zookeeper_hostnames  => split(hiera('controller_node_names'), ',')
       }
     }
 
@@ -608,7 +609,8 @@ if hiera('step') >= 3 {
     if hiera('enable_cassandra_on_controller') {
       class {'::tripleo::cluster::cassandra':
         cassandra_servers => $cassandra_node_ips,
-        cassandra_ip      => $ipaddress
+        # TODO: create a 'bind' hiera key for cassandra
+        cassandra_ip      => hiera('neutron::bind_host'),
       }
     }
 
@@ -618,11 +620,12 @@ if hiera('step') >= 3 {
     }
 
     class {'::tripleo::network::midonet::api':
-      zookeeper_servers    => hiera('neutron_api_node_ips'),
-      vip                  => $public_vip,
-      keystone_ip          => $public_vip,
+      zookeeper_servers    => $zookeeper_node_ips,
+      vip                  => hiera('tripleo::loadbalancer::public_virtual_ip'),
+      keystone_ip          => hiera('tripleo::loadbalancer::public_virtual_ip'),
       keystone_admin_token => hiera('keystone::admin_token'),
-      bind_address         => $ipaddress,
+      # TODO: create a 'bind' hiera key for api
+      bind_address         => hiera('neutron::bind_host'),
       admin_password       => hiera('admin_password')
     }
 
@@ -648,7 +651,7 @@ if hiera('step') >= 3 {
   }
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
     class {'::neutron::plugins::midonet':
-      midonet_api_ip    => $public_vip,
+      midonet_api_ip    => hiera('tripleo::loadbalancer::public_virtual_ip'),
       keystone_tenant   => hiera('neutron::server::auth_tenant'),
       keystone_password => hiera('neutron::server::auth_password')
     }
