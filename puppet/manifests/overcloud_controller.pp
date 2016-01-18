@@ -374,6 +374,7 @@ if hiera('step') >= 3 {
   }
 
   include ::cinder
+  include ::cinder::config
   include ::cinder::api
   include ::cinder::glance
   include ::cinder::scheduler
