@@ -657,6 +657,7 @@ if hiera('step') >= 3 {
     include ::neutron
   }
 
+  include ::neutron::config
   class { '::neutron::server' :
     sync_db        => $sync_db,
     manage_service => false,

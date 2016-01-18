@@ -91,6 +91,7 @@ if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' 
 }
 include ::nova::network::neutron
 include ::neutron
+include ::neutron::config
 
 # If the value of core plugin is set to 'nuage',
 # include nuage agent,
