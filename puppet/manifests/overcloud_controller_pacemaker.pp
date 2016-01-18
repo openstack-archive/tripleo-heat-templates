@@ -556,6 +556,7 @@ if hiera('step') >= 3 {
 
   # TODO: notifications, scrubber, etc.
   include ::glance
+  include ::glance::config
   class { '::glance::api':
     known_stores   => $glance_store,
     manage_service => false,
