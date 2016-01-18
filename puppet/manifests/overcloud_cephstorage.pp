@@ -38,6 +38,7 @@ if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
   } -> Class['ceph::profile::osd']
 }
 
+include ::ceph::conf
 include ::ceph::profile::client
 include ::ceph::profile::osd
 

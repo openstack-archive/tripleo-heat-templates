@@ -461,6 +461,7 @@ MYSQL_HOST=localhost\n",
     class { '::ceph::profile::params':
       mon_initial_members => downcase(hiera('ceph_mon_initial_members')),
     }
+    include ::ceph::conf
     include ::ceph::profile::mon
   }
 
@@ -479,10 +480,12 @@ MYSQL_HOST=localhost\n",
       } -> Class['ceph::profile::osd']
     }
 
+    include ::ceph::conf
     include ::ceph::profile::osd
   }
 
   if str2bool(hiera('enable_external_ceph', false)) {
+    include ::ceph::conf
     include ::ceph::profile::client
   }
 
