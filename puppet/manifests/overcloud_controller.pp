@@ -563,6 +563,7 @@ if hiera('step') >= 3 {
 
   # Heat
   include ::heat
+  include ::heat::config
   include ::heat::api
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
