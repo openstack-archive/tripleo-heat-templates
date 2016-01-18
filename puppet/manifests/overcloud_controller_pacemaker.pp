@@ -982,6 +982,7 @@ if hiera('step') >= 3 {
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
   # Heat
+  include ::heat::config
   class { '::heat' :
     sync_db             => $sync_db,
   }
