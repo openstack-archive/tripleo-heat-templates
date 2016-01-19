@@ -90,8 +90,17 @@ if str2bool(hiera('nova::use_ipv6', false)) {
 } else {
   $vncserver_listen = '0.0.0.0'
 }
-class { '::nova::compute::libvirt' :
-  vncserver_listen => $vncserver_listen,
+
+if $rbd_ephemeral_storage {
+  class { '::nova::compute::libvirt':
+    libvirt_disk_cachemodes => ['network=writeback'],
+    libvirt_hw_disk_discard => 'unmap',
+    vncserver_listen        => $vncserver_listen,
+  }
+} else {
+  class { '::nova::compute::libvirt' :
+    vncserver_listen => $vncserver_listen,
+  }
 }
 
 nova_config {
