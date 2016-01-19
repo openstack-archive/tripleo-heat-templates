@@ -229,9 +229,7 @@ if hiera('step') >= 3 {
 
   include ::neutron
   include ::neutron::server
-  include ::neutron::agents::l3
-  include ::neutron::agents::dhcp
-  include ::neutron::agents::metadata
+  include ::neutron::server::notifications
 
   # If the value of core plugin is set to 'nuage',
   # include nuage core plugin,
