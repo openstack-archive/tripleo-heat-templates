@@ -653,6 +653,9 @@ if hiera('step') >= 3 {
   if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   }
+  if  hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+    include ::neutron::plugins::opencontrail
+  }
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
     class {'::neutron::plugins::midonet':
       midonet_api_ip    => hiera('tripleo::loadbalancer::public_virtual_ip'),
