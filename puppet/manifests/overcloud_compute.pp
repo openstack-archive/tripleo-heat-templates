@@ -83,7 +83,14 @@ if hiera('cinder_enable_nfs_backend', false) {
   package {'nfs-utils': } -> Service['nova-compute']
 }
 
-include ::nova::compute::libvirt
+if str2bool(hiera('nova::use_ipv6', false)) {
+  $vncserver_listen = '::0'
+} else {
+  $vncserver_listen = '0.0.0.0'
+}
+class { '::nova::compute::libvirt' :
+  vncserver_listen => $vncserver_listen,
+}
 if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
   file {'/etc/libvirt/qemu.conf':
     ensure  => present,
