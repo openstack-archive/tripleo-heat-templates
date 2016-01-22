@@ -49,6 +49,7 @@ nova_config {
 $rbd_ephemeral_storage = hiera('nova::compute::rbd::ephemeral_storage', false)
 $rbd_persistent_storage = hiera('rbd_persistent_storage', false)
 if $rbd_ephemeral_storage or $rbd_persistent_storage {
+  include ::ceph::conf
   include ::ceph::profile::client
 
   $client_keys = hiera('ceph::profile::params::client_keys')
