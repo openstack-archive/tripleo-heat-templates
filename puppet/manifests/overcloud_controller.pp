@@ -285,6 +285,7 @@ if hiera('step') >= 3 {
     include ::neutron
   }
 
+  include ::neutron::config
   include ::neutron::server
   include ::neutron::server::notifications
 
