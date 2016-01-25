@@ -40,6 +40,14 @@ if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
   } -> Class['ceph::profile::osd']
 }
 
+if str2bool(hiera('ceph_ipv6', false)) {
+  $mon_host = hiera('ceph_mon_host_v6')
+} else {
+  $mon_host = hiera('ceph_mon_host')
+}
+class { '::ceph::profile::params':
+  mon_host            => $mon_host,
+}
 include ::ceph::conf
 include ::ceph::profile::client
 include ::ceph::profile::osd
