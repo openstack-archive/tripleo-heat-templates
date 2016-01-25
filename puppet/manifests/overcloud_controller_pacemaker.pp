@@ -732,8 +732,9 @@ if hiera('step') >= 3 {
     }
   }
 
-  if hiera('neutron_enable_bigswitch_ml2', false) {
+  if 'bsn_ml2' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     include ::neutron::plugins::ml2::bigswitch::restproxy
+    include ::neutron::agents::bigswitch
   }
   neutron_l3_agent_config {
     'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);

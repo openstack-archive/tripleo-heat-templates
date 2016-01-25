@@ -131,6 +131,10 @@ else {
       n1kv_version => hiera('n1kv_vem_version', undef),
     }
   }
+
+  if 'bsn_ml2' in hiera('neutron::plugins::ml2::mechanism_drivers') {
+    include ::neutron::agents::bigswitch
+  }
 }
 
 
