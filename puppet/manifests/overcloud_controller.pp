@@ -164,11 +164,10 @@ if hiera('step') >= 2 {
 if hiera('step') >= 3 {
 
   include ::keystone
+  include ::keystone::config
 
   #TODO: need a cleanup-keystone-tokens.sh solution here
-  keystone_config {
-    'ec2/driver': value => 'keystone.contrib.ec2.backends.sql.Ec2';
-  }
+
   file { [ '/etc/keystone/ssl', '/etc/keystone/ssl/certs', '/etc/keystone/ssl/private' ]:
     ensure  => 'directory',
     owner   => 'keystone',
