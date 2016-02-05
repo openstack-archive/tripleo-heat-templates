@@ -429,6 +429,9 @@ MYSQL_HOST=localhost\n",
     class { '::nova::db::mysql':
       require => Exec['galera-ready'],
     }
+    class { '::nova::db::mysql_api':
+      require => Exec['galera-ready'],
+    }
     class { '::neutron::db::mysql':
       require => Exec['galera-ready'],
     }
@@ -574,6 +577,7 @@ if hiera('step') >= 3 {
 
   class { '::nova::api' :
     sync_db        => $sync_db,
+    sync_db_api    => $sync_db,
     manage_service => false,
     enabled        => false,
   }

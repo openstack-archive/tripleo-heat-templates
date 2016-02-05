@@ -100,6 +100,7 @@ if hiera('step') >= 2 {
   include ::keystone::db::mysql
   include ::glance::db::mysql
   include ::nova::db::mysql
+  include ::nova::db::mysql_api
   include ::neutron::db::mysql
   include ::cinder::db::mysql
   include ::heat::db::mysql
