@@ -814,7 +814,7 @@ if hiera('step') >= 3 {
       dell_sc_ssn           => hiera('cinder::backend::dellsc_iscsi::dell_sc_ssn', undef),
       iscsi_ip_address      => hiera('cinder::backend::dellsc_iscsi::iscsi_ip_address', undef),
       iscsi_port            => hiera('cinder::backend::dellsc_iscsi::iscsi_port', undef),
-      dell_sc_port          => hiera('cinder::backend::dellsc_iscsi::dell_sc_port', undef),
+      dell_sc_api_port      => hiera('cinder::backend::dellsc_iscsi::dell_sc_api_port', undef),
       dell_sc_server_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_server_folder', undef),
       dell_sc_volume_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_volume_folder', undef),
     }
