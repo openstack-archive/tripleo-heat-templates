@@ -37,6 +37,16 @@ exec { 'libvirt-default-net-destroy':
   before  => Service['libvirt'],
 }
 
+# When utilising images for deployment, we need to reset the iSCSI initiator name to make it unique
+exec { 'reset-iscsi-initiator-name':
+  command => '/bin/echo InitiatorName=$(/usr/sbin/iscsi-iname) > /etc/iscsi/initiatorname.iscsi',
+  onlyif  => '/usr/bin/test ! -f /etc/iscsi/.initiator_reset',
+}->
+
+file { '/etc/iscsi/.initiator_reset':
+  ensure => present,
+}
+
 include ::nova
 include ::nova::config
 include ::nova::compute
