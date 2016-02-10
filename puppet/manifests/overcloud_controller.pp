@@ -44,7 +44,7 @@ if hiera('step') >= 2 {
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
-
+    include ::mongodb::client
     include ::mongodb::server
     $mongo_node_ips_with_port = suffix(hiera('mongo_node_ips'), ':27017')
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
