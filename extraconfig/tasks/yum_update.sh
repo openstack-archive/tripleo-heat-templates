@@ -151,14 +151,14 @@ openstack-nova-scheduler"
     kill $(ps ax | grep -e "radvd.*\.pid\.radvd" | awk '{print $1}') 2>/dev/null || :
 else
     echo "Upgrading openstack-puppet-modules"
-    yum -y update openstack-puppet-modules
+    yum -q -y update openstack-puppet-modules
     echo "Upgrading other packages is handled by config management tooling"
     echo -n "true" > $heat_outputs_path.update_managed_packages
     exit 0
 fi
 
 command=${command:-update}
-full_command="yum -y $command $command_arguments"
+full_command="yum -q -y $command $command_arguments"
 echo "Running: $full_command"
 
 result=$($full_command)
