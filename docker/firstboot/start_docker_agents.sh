@@ -45,8 +45,6 @@ fi
 /sbin/setenforce 0
 /sbin/modprobe ebtables
 
-echo nameserver 8.8.8.8 > /etc/resolv.conf
-
 # We need hostname -f to return in a centos container for the puppet hook
 HOSTNAME=$(hostname)
 echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
