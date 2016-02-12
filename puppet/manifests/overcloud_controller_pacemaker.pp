@@ -1028,6 +1028,7 @@ if hiera('step') >= 4 {
   $keystone_enable_db_purge = hiera('keystone_enable_db_purge', true)
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
+  $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
 
   if $keystone_enable_db_purge {
     include ::keystone::cron::token_flush
@@ -1037,6 +1038,9 @@ if hiera('step') >= 4 {
   }
   if $cinder_enable_db_purge {
     include ::cinder::cron::db_purge
+  }
+  if $heat_enable_db_purge {
+    include ::heat::cron::purge_deleted
   }
 
   if $pacemaker_master {
