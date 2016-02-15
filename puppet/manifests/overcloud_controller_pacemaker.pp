@@ -736,6 +736,7 @@ if hiera('step') >= 3 {
 
   include ::cinder
   include ::cinder::config
+  include ::tripleo::ssl::cinder_config
   class { '::cinder::api':
     sync_db        => $sync_db,
     manage_service => false,
