@@ -227,15 +227,63 @@ if hiera('step') >= 3 {
   include ::nova::scheduler
   include ::nova::scheduler::filter
 
-  include ::neutron
+  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+
+    # TODO(devvesa) provide non-controller ips for these services
+    $zookeeper_node_ips = hiera('neutron_api_node_ips')
+    $cassandra_node_ips = hiera('neutron_api_node_ips')
+
+    # Run zookeeper in the controller if configured
+    if hiera('enable_zookeeper_on_controller') {
+      class {'::tripleo::cluster::zookeeper':
+        zookeeper_server_ips => $zookeeper_node_ips,
+        zookeeper_client_ip  => $ipaddress,
+        zookeeper_hostnames  => hiera('controller_node_names')
+      }
+    }
+
+    # Run cassandra in the controller if configured
+    if hiera('enable_cassandra_on_controller') {
+      class {'::tripleo::cluster::cassandra':
+        cassandra_servers => $cassandra_node_ips,
+        cassandra_ip      => $ipaddress
+      }
+    }
+
+    class {'::tripleo::network::midonet::agent':
+      zookeeper_servers => $zookeeper_node_ips,
+      cassandra_seeds   => $cassandra_node_ips
+    }
+
+    class {'::tripleo::network::midonet::api':
+      zookeeper_servers    => $zookeeper_node_ips,
+      vip                  => $ipaddress,
+      keystone_ip          => $ipaddress,
+      keystone_admin_token => hiera('keystone::admin_token'),
+      bind_address         => $ipaddress,
+      admin_password       => hiera('admin_password')
+    }
+
+    # TODO: find a way to get an empty list from hiera
+    class {'::neutron':
+      service_plugins => []
+    }
+
+  }
+  else {
+
+    # ML2 plugin
+    include ::neutron
+  }
+
   include ::neutron::server
   include ::neutron::agents::l3
   include ::neutron::agents::dhcp
   include ::neutron::agents::metadata
 
   # If the value of core plugin is set to 'nuage',
-  # include nuage core plugin,
-  # else use the default value of 'ml2'
+  # include nuage core plugin, and it does not
+  # need the l3, dhcp and metadata agents
   if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   } else {
@@ -251,45 +299,57 @@ if hiera('step') >= 3 {
       require => Package['neutron'],
     }
 
-    include ::neutron::plugins::ml2
-    include ::neutron::agents::ml2::ovs
+    # If the value of core plugin is set to 'midonet',
+    # skip all the ML2 configuration
+    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
-    if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-      include ::neutron::plugins::ml2::cisco::nexus1000v
+      class {'::neutron::plugins::midonet':
+        midonet_api_ip    => $ipaddress,
+        keystone_tenant   => hiera('neutron::server::auth_tenant'),
+        keystone_password => hiera('neutron::server::auth_password')
+      }
+    } else {
 
-      class { '::neutron::agents::n1kv_vem':
-        n1kv_source  => hiera('n1kv_vem_source', undef),
-        n1kv_version => hiera('n1kv_vem_version', undef),
+      include ::neutron::plugins::ml2
+      include ::neutron::agents::ml2::ovs
+
+      if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
+        include ::neutron::plugins::ml2::cisco::nexus1000v
+
+        class { '::neutron::agents::n1kv_vem':
+          n1kv_source  => hiera('n1kv_vem_source', undef),
+          n1kv_version => hiera('n1kv_vem_version', undef),
+        }
+
+        class { '::n1k_vsm':
+          n1kv_source       => hiera('n1kv_vsm_source', undef),
+          n1kv_version      => hiera('n1kv_vsm_version', undef),
+          pacemaker_control => false,
+        }
       }
 
-      class { '::n1k_vsm':
-        n1kv_source       => hiera('n1kv_vsm_source', undef),
-        n1kv_version      => hiera('n1kv_vsm_version', undef),
-        pacemaker_control => false,
+      if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
+        include ::neutron::plugins::ml2::cisco::ucsm
       }
-    }
+      if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
+        include ::neutron::plugins::ml2::cisco::nexus
+        include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
+      }
 
-    if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-      include ::neutron::plugins::ml2::cisco::ucsm
-    }
-    if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-      include ::neutron::plugins::ml2::cisco::nexus
-      include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
-    }
-
-    if hiera('neutron_enable_bigswitch_ml2', false) {
-      include ::neutron::plugins::ml2::bigswitch::restproxy
-    }
-    neutron_l3_agent_config {
-      'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-    }
-    neutron_dhcp_agent_config {
-      'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+      if hiera('neutron_enable_bigswitch_ml2', false) {
+        include ::neutron::plugins::ml2::bigswitch::restproxy
+      }
+      neutron_l3_agent_config {
+        'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+      }
+      neutron_dhcp_agent_config {
+        'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
+      }
+      Service['neutron-server'] -> Service['neutron-ovs-agent-service']
     }
 
     Service['neutron-server'] -> Service['neutron-dhcp-service']
     Service['neutron-server'] -> Service['neutron-l3']
-    Service['neutron-server'] -> Service['neutron-ovs-agent-service']
     Service['neutron-server'] -> Service['neutron-metadata']
   }
 

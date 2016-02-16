@@ -1,0 +1,119 @@
+heat_template_version: 2015-10-15
+
+description: Configure hieradata for all MidoNet nodes
+
+parameters:
+  # Parameters passed from the parent template
+  controller_servers:
+    type: json
+  compute_servers:
+    type: json
+  blockstorage_servers:
+    type: json
+  objectstorage_servers:
+    type: json
+  cephstorage_servers:
+    type: json
+
+  EnableZookeeperOnController:
+    label: Enable Zookeeper On Controller
+    description: 'Whether enable Zookeeper cluster on Controller'
+    type: boolean
+    default: false
+  EnableCassandraOnController:
+    label: Enable Cassandra On Controller
+    description: 'Whether enable Cassandra cluster on Controller'
+    type: boolean
+    default: false
+  CassandraStoragePort:
+    label: Cassandra Storage Port
+    description: 'The Cassandra port for inter-node communication'
+    type: string
+    default: '7000'
+  CassandraSslStoragePort:
+    label: Cassandra SSL Storage Port
+    description: 'The SSL port for encrypted communication. Unused unless enabled in encryption_options'
+    type: string
+    default: '7001'
+  CassandraClientPort:
+    label: Cassandra Client Port
+    description: 'Native Transport Port'
+    type: string
+    default: '9042'
+  CassandraClientPortThrift:
+    label: Cassandra Client Thrift Port
+    description: 'The port for the Thrift RPC service, which is used for client connections'
+    type: string
+    default: '9160'
+  TunnelZoneName:
+    label: Name of the Tunnelzone
+    description: 'Name of the tunnel zone used to tunnel packages'
+    type: string
+    default: 'tunnelzone_tripleo'
+  TunnelZoneType:
+    label: Type of the Tunnel
+    description: 'Type of the tunnels on the overlay. Choose between `gre` and `vxlan`'
+    type: string
+    default: 'vxlan'
+
+resources:
+
+  NetworkMidoNetConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        hiera:
+          datafiles:
+            midonet_data:
+              mapped_data:
+                enable_zookeeper_on_controller: {get_param: EnableZookeeperOnController}
+                enable_cassandra_on_controller: {get_param: EnableCassandraOnController}
+                midonet_tunnelzone_name: {get_param: TunnelZoneName}
+                midonet_tunnelzone_type: {get_param: TunnelZoneType}
+                midonet_libvirt_qemu_data: |
+                    user = "root"
+                    group = "root"
+                    cgroup_device_acl = [
+                        "/dev/null", "/dev/full", "/dev/zero",
+                        "/dev/random", "/dev/urandom",
+                        "/dev/ptmx", "/dev/kvm", "/dev/kqemu",
+                        "/dev/rtc","/dev/hpet", "/dev/vfio/vfio",
+                        "/dev/net/tun"
+                    ]
+                tripleo::cluster::cassandra::storage_port: {get_param: CassandraStoragePort}
+                tripleo::cluster::cassandra::ssl_storage_port: {get_param: CassandraSslStoragePort}
+                tripleo::cluster::cassandra::client_port: {get_param: CassandraClientPort}
+                tripleo::cluster::cassandra::client_port_thrift: {get_param: CassandraClientPortThrift}
+                tripleo::loadbalancer::midonet_api: true
+                # Missed Neutron Puppet data
+                neutron::agents::dhcp::interface_driver: 'neutron.agent.linux.interface.MidonetInterfaceDriver'
+                neutron::agents::dhcp::dhcp_driver: 'midonet.neutron.agent.midonet_driver.DhcpNoOpDriver'
+                neutron::plugins::midonet::midonet_api_port: 8081
+                neutron::params::midonet_server_package: 'python-networking-midonet'
+
+                # Make sure the l3 agent does not run
+                l3_agent_service: false
+                neutron::agents::l3::manage_service: false
+                neutron::agents::l3::enabled: false
+
+
+  NetworkMidonetDeploymentControllers:
+    type: OS::Heat::StructuredDeploymentGroup
+    properties:
+      config: {get_resource: NetworkMidoNetConfig}
+      servers: {get_param: controller_servers}
+
+  NetworkMidonetDeploymentComputes:
+    type: OS::Heat::StructuredDeploymentGroup
+    properties:
+      config: {get_resource: NetworkMidoNetConfig}
+      servers: {get_param: compute_servers}
+
+outputs:
+  config_identifier:
+    value:
+      list_join:
+        - ' '
+        - - {get_attr: [NetworkMidonetDeploymentControllers, deploy_stdouts]}
+          - {get_attr: [NetworkMidonetDeploymentComputes, deploy_stdouts]}
