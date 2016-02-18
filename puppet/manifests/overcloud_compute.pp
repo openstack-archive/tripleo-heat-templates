@@ -16,7 +16,9 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
+create_resources(kmod::load, hiera('kernel_modules'), {})
 create_resources(sysctl::value, hiera('sysctl_settings'), {})
+Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
 
 if count(hiera('ntp::servers')) > 0 {
   include ::ntp
