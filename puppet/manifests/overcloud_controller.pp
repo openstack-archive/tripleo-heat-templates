@@ -599,10 +599,14 @@ if hiera('step') >= 3 {
 
 if hiera('step') >= 4 {
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
+  $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
 
   include ::keystone::cron::token_flush
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
+  }
+  if $cinder_enable_db_purge {
+    include ::cinder::cron::db_purge
   }
 } #END STEP 4
 
