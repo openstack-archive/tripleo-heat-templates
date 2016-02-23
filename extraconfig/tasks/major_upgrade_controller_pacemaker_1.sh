@@ -49,7 +49,7 @@ done
 yum update -y
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
-crudini  --set /etc/nova/nova.conf upgrade_levels compute liberty
+crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
 # https://bugzilla.redhat.com/show_bug.cgi?id=1284047
 # Change-Id: Ib3f6c12ff5471e1f017f28b16b1e6496a4a4b435
 crudini  --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend rabbit
