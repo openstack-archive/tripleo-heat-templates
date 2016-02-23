@@ -128,6 +128,9 @@ openstack-nova-scheduler"
     # mongod start timeout is higher, setting only stop timeout
     pcs -f $pacemaker_dumpfile resource update mongod op start timeout=370s op  stop timeout=200s
 
+    echo "Making sure rabbitmq has the notify=true meta parameter"
+    pcs -f $pacemaker_dumpfile resource update rabbitmq meta notify=true
+
     echo "Applying new Pacemaker config"
     if ! pcs cluster cib-push $pacemaker_dumpfile; then
         echo "ERROR failed to apply new pacemaker config"
