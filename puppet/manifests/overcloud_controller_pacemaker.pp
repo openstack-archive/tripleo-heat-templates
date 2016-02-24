@@ -1370,24 +1370,19 @@ if hiera('step') >= 4 {
     # Nova
     pacemaker::resource::service { $::nova::params::api_service_name :
       clone_params => 'interleave=true',
-      op_params    => 'start timeout=200s stop timeout=200s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::conductor_service_name :
       clone_params => 'interleave=true',
-      op_params    => 'start timeout=200s stop timeout=200s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::consoleauth_service_name :
       clone_params => 'interleave=true',
-      op_params    => 'start timeout=200s stop timeout=200s monitor start-delay=10s',
       require      => Pacemaker::Resource::Service[$::keystone::params::service_name],
     }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
       clone_params => 'interleave=true',
-      op_params    => 'start timeout=200s stop timeout=200s monitor start-delay=10s',
     }
     pacemaker::resource::service { $::nova::params::scheduler_service_name :
       clone_params => 'interleave=true',
-      op_params    => 'start timeout=200s stop timeout=200s monitor start-delay=10s',
     }
 
     pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
