@@ -408,10 +408,6 @@ if hiera('step') >= 3 {
   if hiera('cinder_enable_eqlx_backend', false) {
     $cinder_eqlx_backend = hiera('cinder::backend::eqlx::volume_backend_name')
 
-    cinder_config {
-      "${cinder_eqlx_backend}/host": value => 'hostgroup';
-    }
-
     cinder::backend::eqlx { $cinder_eqlx_backend :
       volume_backend_name => hiera('cinder::backend::eqlx::volume_backend_name', undef),
       san_ip              => hiera('cinder::backend::eqlx::san_ip', undef),
@@ -429,10 +425,6 @@ if hiera('step') >= 3 {
   if hiera('cinder_enable_dellsc_backend', false) {
     $cinder_dellsc_backend = hiera('cinder::backend::dellsc_iscsi::volume_backend_name')
 
-    cinder_config {
-      "${cinder_dellsc_backend}/host": value => 'hostgroup';
-    }
-
     cinder::backend::dellsc_iscsi{ $cinder_dellsc_backend :
       volume_backend_name   => hiera('cinder::backend::dellsc_iscsi::volume_backend_name', undef),
       san_ip                => hiera('cinder::backend::dellsc_iscsi::san_ip', undef),
@@ -449,10 +441,6 @@ if hiera('step') >= 3 {
 
   if hiera('cinder_enable_netapp_backend', false) {
     $cinder_netapp_backend = hiera('cinder::backend::netapp::title')
-
-    cinder_config {
-      "${cinder_netapp_backend}/host": value => 'hostgroup';
-    }
 
     if hiera('cinder::backend::netapp::nfs_shares', undef) {
       $cinder_netapp_nfs_shares = split(hiera('cinder::backend::netapp::nfs_shares', undef), ',')
