@@ -7,11 +7,14 @@ check_interval=3
 
 function check_resource {
 
+  if [ "$#" -ne 3 ]; then
+      echo "ERROR: check_resource function expects 3 parameters, $# given" | tee /dev/fd/2
+      exit 1
+  fi
+
   service=$1
   state=$2
   timeout=$3
-  tstart=$(date +%s)
-  tend=$(( $tstart + $timeout ))
 
   if [ "$state" = "stopped" ]; then
       match_for_incomplete='Started'
@@ -19,20 +22,18 @@ function check_resource {
       match_for_incomplete='Stopped'
   fi
 
-  while (( $(date +%s) < $tend )); do
+  if timeout -k 10 $timeout crm_resource --wait; then
       node_states=$(pcs status --full | grep "$service" | grep -v Clone)
       if echo "$node_states" | grep -q "$match_for_incomplete"; then
-          echo "$service not yet $state, sleeping $check_interval seconds."
-          sleep $check_interval
+          echo "ERROR: cluster settled but $service was not in $state state, exiting." | tee /dev/fd/2
+          exit 1
       else
         echo "$service has $state"
-        timeout -k 10 $timeout crm_resource --wait
-        return
       fi
-  done
-
-  echo "$service never $state after $timeout seconds" | tee /dev/fd/2
-  exit 1
+  else
+      echo "ERROR: cluster remained unstable for more than $timeout seconds, exiting." | tee /dev/fd/2
+      exit 1
+  fi
 
 }
 
