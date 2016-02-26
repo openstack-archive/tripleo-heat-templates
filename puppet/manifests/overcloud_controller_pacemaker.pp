@@ -195,6 +195,11 @@ if hiera('step') >= 2 {
 
       include ::pacemaker::resource_defaults
 
+      # Create an openstack-core dummy resource. See RHBZ 1290121
+      pacemaker::resource::ocf { 'openstack-core':
+        ocf_agent_name => 'heartbeat:Dummy',
+        clone_params   => true,
+      }
       # FIXME: we should not have to access tripleo::loadbalancer class
       # parameters here to configure pacemaker VIPs. The configuration
       # of pacemaker VIPs could move into puppet-tripleo or we should
@@ -1059,45 +1064,55 @@ if hiera('step') >= 4 {
       pacemaker::constraint::base { 'haproxy-then-keystone-constraint':
         constraint_type => 'order',
         first_resource  => 'haproxy-clone',
-        second_resource => "${::apache::params::service_name}-clone",
+        second_resource => 'openstack-core-clone',
         first_action    => 'start',
         second_action   => 'start',
         require         => [Pacemaker::Resource::Service['haproxy'],
-                            Pacemaker::Resource::Service[$::apache::params::service_name]],
+                            Pacemaker::Resource::Ocf['openstack-core']],
       }
+    }
+
+    pacemaker::constraint::base { 'openstack-core-then-httpd-constraint':
+      constraint_type => 'order',
+      first_resource  => 'openstack-core-clone',
+      second_resource => "${::apache::params::service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::apache::params::service_name],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'rabbitmq-then-keystone-constraint':
       constraint_type => 'order',
       first_resource  => 'rabbitmq-clone',
-      second_resource => "${::apache::params::service_name}-clone",
+      second_resource => 'openstack-core-clone',
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Ocf['rabbitmq'],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
-    pacemaker::constraint::base { 'memcached-then-keystone-constraint':
+    pacemaker::constraint::base { 'memcached-then-openstack-core-constraint':
       constraint_type => 'order',
       first_resource  => 'memcached-clone',
-      second_resource => "${::apache::params::service_name}-clone",
+      second_resource => 'openstack-core-clone',
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service['memcached'],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
-    pacemaker::constraint::base { 'galera-then-keystone-constraint':
+    pacemaker::constraint::base { 'galera-then-openstack-core-constraint':
       constraint_type => 'order',
       first_resource  => 'galera-master',
-      second_resource => "${::apache::params::service_name}-clone",
+      second_resource => 'openstack-core-clone',
       first_action    => 'promote',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Ocf['galera'],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
 
     # Cinder
     pacemaker::resource::service { $::cinder::params::api_service :
       clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Service[$::apache::params::service_name],
+      require      => Pacemaker::Resource::Ocf['openstack-core'],
     }
     pacemaker::resource::service { $::cinder::params::scheduler_service :
       clone_params => 'interleave=true',
@@ -1106,12 +1121,12 @@ if hiera('step') >= 4 {
 
     pacemaker::constraint::base { 'keystone-then-cinder-api-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::cinder::params::api_service}-clone",
       first_action    => 'start',
       second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::cinder::params::api_service],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+      require         => [Pacemaker::Resource::Ocf['openstack-core'],
+                          Pacemaker::Resource::Service[$::cinder::params::api_service]],
     }
     pacemaker::constraint::base { 'cinder-api-then-cinder-scheduler-constraint':
       constraint_type => 'order',
@@ -1149,25 +1164,25 @@ if hiera('step') >= 4 {
     # Sahara
     pacemaker::resource::service { $::sahara::params::api_service_name :
       clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Service[$::apache::params::service_name],
+      require      => Pacemaker::Resource::Ocf['openstack-core'],
     }
     pacemaker::resource::service { $::sahara::params::engine_service_name :
       clone_params => 'interleave=true',
     }
     pacemaker::constraint::base { 'keystone-then-sahara-api-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::sahara::params::api_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
 
     # Glance
     pacemaker::resource::service { $::glance::params::registry_service_name :
       clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Service[$::apache::params::service_name],
+      require      => Pacemaker::Resource::Ocf['openstack-core'],
     }
     pacemaker::resource::service { $::glance::params::api_service_name :
       clone_params => 'interleave=true',
@@ -1175,12 +1190,12 @@ if hiera('step') >= 4 {
 
     pacemaker::constraint::base { 'keystone-then-glance-registry-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::glance::params::registry_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'glance-registry-then-glance-api-constraint':
       constraint_type => 'order',
@@ -1218,12 +1233,12 @@ if hiera('step') >= 4 {
       } ->
       pacemaker::resource::service { $::neutron::params::server_service:
         clone_params => 'interleave=true',
-        require      => Pacemaker::Resource::Service[$::apache::params::service_name]
+        require      => Pacemaker::Resource::Ocf['openstack-core']
       }
     } else {
       pacemaker::resource::service { $::neutron::params::server_service:
         clone_params => 'interleave=true',
-        require      => Pacemaker::Resource::Service[$::apache::params::service_name]
+        require      => Pacemaker::Resource::Ocf['openstack-core']
       }
     }
     if hiera('neutron::enable_l3_agent', true) {
@@ -1296,14 +1311,14 @@ if hiera('step') >= 4 {
       }
     }
     pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
-      constraint_type   => 'order',
-      first_resource    => "${::apache::params::service_name}-clone",
-        second_resource => "${::neutron::params::server_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::apache::params::service_name],
-                            Pacemaker::Resource::Service[$::neutron::params::server_service]],
-      }
+      constraint_type => 'order',
+      first_resource  => 'openstack-core-clone',
+      second_resource => "${::neutron::params::server_service}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Ocf['openstack-core'],
+                          Pacemaker::Resource::Service[$::neutron::params::server_service]],
+    }
     if hiera('neutron::enable_ovs_agent',true) {
       pacemaker::constraint::base { 'neutron-openvswitch-agent-to-dhcp-agent-constraint':
         constraint_type => 'order',
@@ -1417,7 +1432,7 @@ if hiera('step') >= 4 {
     }
     pacemaker::resource::service { $::nova::params::consoleauth_service_name :
       clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Service[$::apache::params::service_name],
+      require      => Pacemaker::Resource::Ocf['openstack-core'],
     }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
       clone_params => 'interleave=true',
@@ -1428,12 +1443,12 @@ if hiera('step') >= 4 {
 
     pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::nova::params::consoleauth_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'nova-consoleauth-then-nova-vncproxy-constraint':
       constraint_type => 'order',
@@ -1503,16 +1518,16 @@ if hiera('step') >= 4 {
     # Ceilometer
     case downcase(hiera('ceilometer_backend')) {
       /mysql/: {
-        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
+        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name:
           clone_params => 'interleave=true',
-          require      => Pacemaker::Resource::Service[$::apache::params::service_name],
+          require      => Pacemaker::Resource::Ocf['openstack-core'],
         }
       }
       default: {
-        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name :
+        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name:
           clone_params => 'interleave=true',
-          require      => [Pacemaker::Resource::Service[$::apache::params::service_name],
-          Pacemaker::Resource::Service[$::mongodb::params::service_name]],
+          require      => [Pacemaker::Resource::Ocf['openstack-core'],
+                          Pacemaker::Resource::Service[$::mongodb::params::service_name]],
         }
       }
     }
@@ -1548,12 +1563,12 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'ceilometer-central-then-ceilometer-collector-constraint':
       constraint_type => 'order',
@@ -1623,12 +1638,12 @@ if hiera('step') >= 4 {
     }
     pacemaker::constraint::base { 'keystone-then-heat-api-constraint':
       constraint_type => 'order',
-      first_resource  => "${::apache::params::service_name}-clone",
+      first_resource  => 'openstack-core-clone',
       second_resource => "${::heat::params::api_service_name}-clone",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
-                          Pacemaker::Resource::Service[$::apache::params::service_name]],
+                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'heat-api-then-heat-api-cfn-constraint':
       constraint_type => 'order',
