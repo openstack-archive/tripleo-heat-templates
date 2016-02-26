@@ -1227,11 +1227,6 @@ password=\"${mysql_root_password}\"",
     pacemaker::resource::service { $::ceilometer::params::agent_notification_service_name :
       clone_params => 'interleave=true',
     }
-    pacemaker::resource::ocf { 'delay' :
-      ocf_agent_name  => 'heartbeat:Delay',
-      clone_params    => 'interleave=true',
-      resource_params => 'startdelay=10',
-    }
     # Fedora doesn't know `require-all` parameter for constraints yet
     if $::operatingsystem == 'Fedora' {
       $redis_ceilometer_constraint_params = undef
@@ -1303,22 +1298,6 @@ password=\"${mysql_root_password}\"",
       require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
                   Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name]],
     }
-    pacemaker::constraint::base { 'ceilometer-api-then-ceilometer-delay-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::ceilometer::params::api_service_name}-clone",
-      second_resource => 'delay-clone',
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
-                          Pacemaker::Resource::Ocf['delay']],
-    }
-    pacemaker::constraint::colocation { 'ceilometer-delay-with-ceilometer-api-colocation':
-      source  => 'delay-clone',
-      target  => "${::ceilometer::params::api_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
-                  Pacemaker::Resource::Ocf['delay']],
-    }
     # Aodh
     pacemaker::resource::service { $::aodh::params::evaluator_service_name :
       clone_params => 'interleave=true',
@@ -1328,22 +1307,6 @@ password=\"${mysql_root_password}\"",
     }
     pacemaker::resource::service { $::aodh::params::listener_service_name :
       clone_params => 'interleave=true',
-    }
-    pacemaker::constraint::base { 'aodh-delay-then-aodh-evaluator-constraint':
-      constraint_type => 'order',
-      first_resource  => 'delay-clone',
-      second_resource => "${::aodh::params::evaluator_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
-                          Pacemaker::Resource::Ocf['delay']],
-    }
-    pacemaker::constraint::colocation { 'aodh-evaluator-with-aodh-delay-colocation':
-      source  => "${::aodh::params::evaluator_service_name}-clone",
-      target  => 'delay-clone',
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
-                  Pacemaker::Resource::Ocf['delay']],
     }
     pacemaker::constraint::base { 'aodh-evaluator-then-aodh-notifier-constraint':
       constraint_type => 'order',
