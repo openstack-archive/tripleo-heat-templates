@@ -356,6 +356,7 @@ if hiera('step') >= 2 {
       ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
       resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
       clone_params    => 'ordered=true interleave=true',
+      meta_params     => 'notify=true',
       require         => Class['::rabbitmq'],
     }
 
