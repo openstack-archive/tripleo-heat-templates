@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # For each unique remote IP (specified via Heat) we check to
 # see if one of the locally configured networks matches and if so we
@@ -17,11 +18,13 @@ function ping_controller_ips() {
       in_network=$(python -c "import ipaddr; net=ipaddr.IPNetwork('$LOCAL_NETWORK'); addr=ipaddr.IPAddress('$REMOTE_IP'); print(addr in net)")
       if [[ $in_network == "True" ]]; then
         echo -n "Trying to ping $REMOTE_IP for local network $LOCAL_NETWORK..."
+        set +e
         if ! $ping -W 300 -c 1 $REMOTE_IP &> /dev/null; then
           echo "FAILURE"
           echo "$REMOTE_IP is not pingable. Local Network: $LOCAL_NETWORK" >&2
           exit 1
         fi
+        set -e
         echo "SUCCESS"
       fi
     done
@@ -34,6 +37,7 @@ function ping_controller_ips() {
 # multiple gateways.
 function ping_default_gateways() {
   DEFAULT_GW=$(ip r | grep ^default | cut -d " " -f 3)
+  set +e
   for GW in $DEFAULT_GW; do
     echo -n "Trying to ping default gateway ${GW}..."
     if ! ping -c 1 $GW &> /dev/null; then
@@ -42,6 +46,7 @@ function ping_default_gateways() {
       exit 1
     fi
   done
+  set -e
   echo "SUCCESS"
 }
 
