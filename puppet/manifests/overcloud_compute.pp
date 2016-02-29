@@ -120,6 +120,15 @@ elsif hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV
     cassandra_seeds   => $cassandra_node_ips
   }
 }
+elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+
+  include ::contrail::vrouter
+  # NOTE: it's not possible to use this class without a functional
+  # contrail controller up and running
+  #class {'::contrail::vrouter::provision_vrouter':
+  #  require => Class['contrail::vrouter'],
+  #}
+}
 else {
 
   include ::neutron::plugins::ml2

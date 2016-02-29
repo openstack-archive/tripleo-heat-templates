@@ -304,11 +304,13 @@ if hiera('step') >= 3 {
   include ::neutron::server
   include ::neutron::server::notifications
 
-  # If the value of core plugin is set to 'nuage',
-  # include nuage core plugin, and it does not
+  # If the value of core plugin is set to 'nuage' or 'opencontrail',
+  # include nuage or opencontrail core plugins, and it does not
   # need the l3, dhcp and metadata agents
   if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
+  } elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+    include ::neutron::plugins::opencontrail
   } else {
     include ::neutron::agents::l3
     include ::neutron::agents::dhcp
