@@ -46,7 +46,7 @@ while systemctl is-active pacemaker; do
     fi
 done
 
-yum update -y
+yum -y -q update
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
 crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
