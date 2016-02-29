@@ -15,6 +15,8 @@ cat > $UPGRADE_SCRIPT << ENDOFCAT
 # pin nova to kilo (messaging +-1) for the nova-compute service
 
 crudini  --set /etc/nova/nova.conf upgrade_levels compute $upgrade_level_nova_compute
+
+yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y update
 
 ENDOFCAT
