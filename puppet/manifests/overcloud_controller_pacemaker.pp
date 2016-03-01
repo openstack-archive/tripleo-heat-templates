@@ -649,6 +649,7 @@ if hiera('step') >= 3 {
     manage_service => false,
     enabled        => false,
   }
+  include ::neutron::server::notifications
 
   if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
