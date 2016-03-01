@@ -150,11 +150,11 @@ openstack-nova-scheduler"
     kill $(ps ax | grep -e "keepalived.*\.pid-vrrp" | awk '{print $1}') 2>/dev/null || :
     kill $(ps ax | grep -e "radvd.*\.pid\.radvd" | awk '{print $1}') 2>/dev/null || :
 else
-    echo "Excluding upgrading packages that are handled by config management tooling"
-    command_arguments="$command_arguments --skip-broken"
-    for exclude in $(cat /var/lib/tripleo/installed-packages/* | sort -u); do
-        command_arguments="$command_arguments --exclude $exclude"
-    done
+    echo "Upgrading openstack-puppet-modules"
+    yum -y update openstack-puppet-modules
+    echo "Upgrading other packages is handled by config management tooling"
+    echo -n "true" > $heat_outputs_path.update_managed_packages
+    exit 0
 fi
 
 command=${command:-update}
@@ -199,9 +199,6 @@ if [[ "$pacemaker_status" == "active" ]] ; then
     fi
 
     pcs status
-
-else
-    echo -n "true" > $heat_outputs_path.update_managed_packages
 fi
 
 echo "Finished yum_update.sh on server $deploy_server_id at `date`"
