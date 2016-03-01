@@ -506,9 +506,12 @@ MYSQL_HOST=localhost\n",
 if hiera('step') >= 3 {
 
   class { '::keystone':
-    sync_db        => $sync_db,
-    manage_service => false,
-    enabled        => false,
+    sync_db          => $sync_db,
+    manage_service   => false,
+    enabled          => false,
+    # TODO: when keystone resources will be managed by puppet-keystone
+    # for the overcloud, set enable_bootstrap to the default value (True).
+    enable_bootstrap => false,
   }
   include ::keystone::config
 
