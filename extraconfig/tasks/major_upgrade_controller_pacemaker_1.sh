@@ -30,11 +30,7 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
 fi
 
 # Swift isn't controled by pacemaker
-for S in openstack-swift-account-auditor openstack-swift-account-reaper openstack-swift-account-replicator openstack-swift-account \
-openstack-swift-container-auditor openstack-swift-container-replicator openstack-swift-container-updater openstack-swift-container \
-openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object openstack-swift-proxy; do
-    systemctl stop $S
-done
+systemctl_swift stop
 
 tstart=$(date +%s)
 while systemctl is-active pacemaker; do

@@ -37,3 +37,12 @@ function check_resource {
 function echo_error {
     echo "$@" | tee /dev/fd2
 }
+
+function systemctl_swift {
+    action=$1
+    for S in openstack-swift-account-auditor openstack-swift-account-reaper openstack-swift-account-replicator openstack-swift-account \
+             openstack-swift-container-auditor openstack-swift-container-replicator openstack-swift-container-updater openstack-swift-container \
+             openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object openstack-swift-proxy; do
+                systemctl $action $S
+    done
+}
