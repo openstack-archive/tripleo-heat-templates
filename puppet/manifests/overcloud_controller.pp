@@ -214,13 +214,17 @@ if hiera('step') >= 3 {
   $http_store = ['glance.store.http.Store']
   $glance_store = concat($http_store, $backend_store)
 
-  # TODO: notifications, scrubber, etc.
+  # TODO: scrubber and other additional optional features
   include ::glance
   class { '::glance::api':
     known_stores => $glance_store,
   }
   include ::glance::registry
   include join(['::glance::backend::', $glance_backend])
+  $rabbit_port = hiera('rabbitmq::port')
+  class { '::glance::notify::rabbitmq':
+    rabbit_hosts => suffix(hiera('rabbit_node_ips'), ":${rabbit_port}"),
+  }
 
   class { '::nova' :
     memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
@@ -368,6 +372,7 @@ if hiera('step') >= 3 {
   include ::cinder::glance
   include ::cinder::scheduler
   include ::cinder::volume
+  include ::cinder::ceilometer
   class { '::cinder::setup_test_volume':
     size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
   }
@@ -560,6 +565,9 @@ if hiera('step') >= 3 {
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
   include ::heat::engine
+  heat_config {
+    'DEFAULT/notification_driver': value => 'messaging';
+  }
 
   # Horizon
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
