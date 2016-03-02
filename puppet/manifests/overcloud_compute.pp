@@ -116,6 +116,14 @@ if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     zookeeper_servers => $zookeeper_node_ips,
     cassandra_seeds   => $cassandra_node_ips
   }
+} elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+
+  include ::contrail::vrouter
+  # NOTE: it's not possible to use this class without a functional
+  # contrail controller up and running
+  #class {'::contrail::vrouter::provision_vrouter':
+  #  require => Class['contrail::vrouter'],
+  #}
 } else {
   include ::neutron::plugins::ml2
   include ::neutron::agents::ml2::ovs
