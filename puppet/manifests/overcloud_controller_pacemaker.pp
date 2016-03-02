@@ -136,6 +136,11 @@ if hiera('step') >= 1 {
   $galera_nodes = downcase(hiera('galera_node_names', $::hostname))
   $galera_nodes_count = count(split($galera_nodes, ','))
 
+  # FIXME: due to https://bugzilla.redhat.com/show_bug.cgi?id=1298671 we
+  # set bind-address to a hostname instead of an ip address; to move Mysql
+  # from internal_api on another network we'll have to customize both
+  # MysqlNetwork and ControllerHostnameResolveNetwork in ServiceNetMap
+  $mysql_bind_host = hiera('mysql_bind_host')
   $mysqld_options = {
     'mysqld' => {
       'skip-name-resolve'             => '1',
@@ -145,7 +150,7 @@ if hiera('step') >= 1 {
       'innodb_locks_unsafe_for_binlog'=> '1',
       'query_cache_size'              => '0',
       'query_cache_type'              => '0',
-      'bind-address'                  => hiera('mysql_bind_host'),
+      'bind-address'                  => $::hostname,
       'max_connections'               => hiera('mysql_max_connections'),
       'open_files_limit'              => '-1',
       'wsrep_provider'                => '/usr/lib64/galera/libgalera_smm.so',
@@ -161,6 +166,7 @@ if hiera('step') >= 1 {
       'wsrep_drupal_282555_workaround'=> '0',
       'wsrep_causal_reads'            => '0',
       'wsrep_sst_method'              => 'rsync',
+      'wsrep_provider_options'        => "gmcast.listen_addr=tcp://[${mysql_bind_host}]:4567;",
     },
   }
 

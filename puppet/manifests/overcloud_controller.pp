@@ -85,11 +85,15 @@ if hiera('step') >= 2 {
     $mysql_config_file = '/etc/my.cnf.d/server.cnf'
   }
   # TODO Galara
+  # FIXME: due to https://bugzilla.redhat.com/show_bug.cgi?id=1298671 we
+  # set bind-address to a hostname instead of an ip address; to move Mysql
+  # from internal_api on another network we'll have to customize both
+  # MysqlNetwork and ControllerHostnameResolveNetwork in ServiceNetMap
   class { '::mysql::server':
     config_file             => $mysql_config_file,
     override_options        => {
       'mysqld' => {
-        'bind-address'     => hiera('mysql_bind_host'),
+        'bind-address'     => $::hostname,
         'max_connections'  => hiera('mysql_max_connections'),
         'open_files_limit' => '-1',
       },
