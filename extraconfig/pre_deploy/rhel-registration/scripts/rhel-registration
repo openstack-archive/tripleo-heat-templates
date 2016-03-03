@@ -13,6 +13,7 @@ fi
 
 opts=
 attach_opts=
+sat5_opts=
 repos="repos --enable rhel-7-server-rpms"
 satellite_repo="rhel-7-server-rh-common-rpms"
 if [ -n "${REG_AUTO_ATTACH:-}" ]; then
@@ -49,6 +50,7 @@ fi
 
 if [ -n "${REG_FORCE:-}" ]; then
     opts="$opts --force"
+    sat5_opts="$sat5_opts --force"
 fi
 
 if [ -n "${REG_SERVER_URL:-}" ]; then
@@ -57,6 +59,7 @@ fi
 
 if [ -n "${REG_ACTIVATION_KEY:-}" ]; then
     opts="$opts --activationkey=$REG_ACTIVATION_KEY"
+    sat5_opts="$sat5_opts --activationkey=$REG_ACTIVATION_KEY"
 
     if [ -z "${REG_ORG:-}" ]; then
         echo "WARNING: REG_ACTIVATION_KEY set without REG_ORG."
@@ -75,10 +78,12 @@ fi
 
 if [ -n "${REG_MACHINE_NAME:-}" ]; then
     opts="$opts --name $REG_MACHINE_NAME"
+    sat5_opts="$sat5_opts --profilename=$REG_MACHINE_NAME"
 fi
 
 if [ -n "${REG_ORG:-}" ]; then
     opts="$opts --org=$REG_ORG"
+    sat5_opts="$sat5_opts --systemorgid=$REG_ORG"
 fi
 
 if [ -n "${REG_REPOS:-}" ]; then
@@ -91,6 +96,20 @@ if [ -n "${REG_TYPE:-}" ]; then
     opts="$opts --type=$REG_TYPE"
 fi
 
+function detect_satellite_version {
+    ping_api=$REG_SAT_URL/katello/api/ping
+    if curl -k -s -D - -o /dev/null $ping_api | grep "200 OK"; then
+        echo Satellite 6 detected at $REG_SAT_URL
+        satellite_version=6
+    elif curl -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
+        echo Satellite 5 detected at $REG_SAT_URL
+        satellite_version=5
+    else
+        echo No Satellite detected at $REG_SAT_URL
+        exit 1
+    fi
+}
+
 case "${REG_METHOD:-}" in
     portal)
         subscription-manager register $opts
@@ -100,13 +119,21 @@ case "${REG_METHOD:-}" in
         subscription-manager $repos
         ;;
     satellite)
-        repos="$repos --enable ${satellite_repo}"
-        rpm -Uvh "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm" || true
-        subscription-manager register $opts
-        subscription-manager $repos
-        yum install -y katello-agent || true # needed for errata reporting to satellite6
-        katello-package-upload
-        subscription-manager repos --disable ${satellite_repo}
+        detect_satellite_version
+        if [ "satellite_version" = "6" ]; then
+            repos="$repos --enable ${satellite_repo}"
+            rpm -Uvh "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm" || true
+            subscription-manager register $opts
+            subscription-manager $repos
+            yum install -y katello-agent || true # needed for errata reporting to satellite6
+            katello-package-upload
+            subscription-manager repos --disable ${satellite_repo}
+        else
+            pushd /usr/share/rhn/
+            curl -k -O $REG_SAT_URL/pub/RHN-ORG-TRUSTED-SSL-CERT
+            popd
+            rhnreg_ks --serverUrl=$REG_SAT_URL/XMLRPC $sat5_opts
+        fi
         ;;
     disable)
         echo "Disabling RHEL registration"
