@@ -53,12 +53,14 @@ neutron-l3-agent
 neutron-metadata-agent
 neutron-openvswitch-agent
 neutron-server
-openstack-ceilometer-alarm-evaluator
-openstack-ceilometer-alarm-notifier
 openstack-ceilometer-api
 openstack-ceilometer-central
 openstack-ceilometer-collector
 openstack-ceilometer-notification
+openstack-aodh-api
+openstack-aodh-evaluator
+openstack-aodh-notifier
+openstack-aodh-listener
 openstack-cinder-api
 openstack-cinder-scheduler
 openstack-cinder-volume
@@ -107,6 +109,9 @@ openstack-nova-scheduler"
         pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-ceilometer-central-clone require-all=false
     fi
 
+    if ! pcs constraint order show | grep "promote redis-master then start openstack-aodh-evaluator-clone"; then
+        pcs -f $pacemaker_dumpfile constraint order promote redis-master then start openstack-aodh-evaluator-clone require-all=false
+    fi
     # ensure neutron constraints https://review.openstack.org/#/c/229466
     # remove ovs-cleanup after server and add openvswitch-agent instead
     if  pcs constraint order show  | grep "start neutron-server-clone then start neutron-ovs-cleanup-clone"; then
