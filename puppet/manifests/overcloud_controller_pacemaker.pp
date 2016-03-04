@@ -509,9 +509,7 @@ if hiera('step') >= 3 {
     sync_db          => $sync_db,
     manage_service   => false,
     enabled          => false,
-    # TODO: when keystone resources will be managed by puppet-keystone
-    # for the overcloud, set enable_bootstrap to the default value (True).
-    enable_bootstrap => false,
+    enable_bootstrap => $pacemaker_master,
   }
   include ::keystone::config
 
