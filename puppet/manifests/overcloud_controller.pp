@@ -230,11 +230,8 @@ if hiera('step') >= 3 {
     known_stores => $glance_store,
   }
   include ::glance::registry
+  include ::glance::notify::rabbitmq
   include join(['::glance::backend::', $glance_backend])
-  $rabbit_port = hiera('rabbitmq::port')
-  class { '::glance::notify::rabbitmq':
-    rabbit_hosts => suffix(hiera('rabbit_node_ips'), ":${rabbit_port}"),
-  }
 
   class { '::nova' :
     memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
