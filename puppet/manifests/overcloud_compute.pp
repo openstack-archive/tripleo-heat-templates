@@ -56,6 +56,7 @@ include ::nova::compute
 nova_config {
   'DEFAULT/my_ip':                     value => $ipaddress;
   'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
+  'DEFAULT/host':                      value => $fqdn;
 }
 
 $rbd_ephemeral_storage = hiera('nova::compute::rbd::ephemeral_storage', false)
@@ -146,6 +147,9 @@ else {
   }
 }
 
+neutron_config {
+  'DEFAULT/host': value => $fqdn;
+}
 
 include ::ceilometer
 include ::ceilometer::config
