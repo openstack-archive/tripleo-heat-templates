@@ -62,6 +62,12 @@ if hiera('step') >= 1 {
   }
 
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
+  $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
+  if $corosync_ipv6 {
+    $cluster_setup_extras = { '--ipv6' => '' }
+  } else {
+    $cluster_setup_extras = {}
+  }
   user { 'hacluster':
     ensure => present,
   } ->
@@ -69,8 +75,9 @@ if hiera('step') >= 1 {
     hacluster_pwd => hiera('hacluster_pwd'),
   } ->
   class { '::pacemaker::corosync':
-    cluster_members => $pacemaker_cluster_members,
-    setup_cluster   => $pacemaker_master,
+    cluster_members      => $pacemaker_cluster_members,
+    setup_cluster        => $pacemaker_master,
+    cluster_setup_extras => $cluster_setup_extras,
   }
   class { '::pacemaker::stonith':
     disable => !$enable_fencing,
