@@ -219,6 +219,7 @@ if hiera('step') >= 3 {
 
   # TODO: scrubber and other additional optional features
   include ::glance
+  include ::glance::config
   class { '::glance::api':
     known_stores => $glance_store,
   }
