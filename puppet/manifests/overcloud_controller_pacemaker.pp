@@ -747,6 +747,7 @@ if hiera('step') >= 3 {
   }
 
   include ::cinder
+  include ::cinder::config
   class { '::cinder::api':
     sync_db        => $sync_db,
     manage_service => false,
