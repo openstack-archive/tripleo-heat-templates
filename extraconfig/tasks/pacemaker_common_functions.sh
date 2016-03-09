@@ -39,10 +39,23 @@ function echo_error {
 }
 
 function systemctl_swift {
+    services=( openstack-swift-account-auditor openstack-swift-account-reaper openstack-swift-account-replicator openstack-swift-account \
+               openstack-swift-container-auditor openstack-swift-container-replicator openstack-swift-container-updater openstack-swift-container \
+               openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object openstack-swift-proxy )
     action=$1
-    for S in openstack-swift-account-auditor openstack-swift-account-reaper openstack-swift-account-replicator openstack-swift-account \
-             openstack-swift-container-auditor openstack-swift-container-replicator openstack-swift-container-updater openstack-swift-container \
-             openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object openstack-swift-proxy; do
-                systemctl $action $S
+    case $action in
+        stop)
+            services=$(systemctl | grep swift | grep running | awk '{print $1}')
+            ;;
+        start)
+            enable_swift_storage=$(hiera -c /etc/puppet/hiera.yaml 'enable_swift_storage')
+            if [[ $enable_swift_storage != "true" ]]; then
+                services=( openstack-swift-proxy )
+            fi
+            ;;
+        *)  services=() ;;  # for safetly, should never happen
+    esac
+    for S in ${services[@]}; do
+        systemctl $action $S
     done
 }
