@@ -100,12 +100,21 @@ if hiera('step') >= 1 {
   # avoid races where non-master nodes attempt to start without
   # config (eg. binding on 0.0.0.0)
   # The module ignores erlang_cookie if cluster_config is false
+  $rabbit_ipv6 = str2bool(hiera('rabbit_ipv6', false))
+  if $rabbit_ipv6 {
+      $rabbit_env = merge(hiera('rabbitmq_environment'), {
+        'RABBITMQ_SERVER_START_ARGS' => '"-proto_dist inet6_tcp"'
+      })
+  } else {
+    $rabbit_env = hiera('rabbitmq_environment')
+  }
+
   class { '::rabbitmq':
     service_manage          => false,
     tcp_keepalive           => false,
     config_kernel_variables => hiera('rabbitmq_kernel_variables'),
     config_variables        => hiera('rabbitmq_config_variables'),
-    environment_variables   => hiera('rabbitmq_environment'),
+    environment_variables   => $rabbit_env,
   } ->
   file { '/var/lib/rabbitmq/.erlang.cookie':
     ensure  => file,
