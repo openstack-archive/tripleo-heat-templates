@@ -44,7 +44,7 @@ if $cinder_enable_iscsi {
 
 $cinder_enabled_backends = any2array($cinder_iscsi_backend)
 class { '::cinder::backends' :
-  enabled_backends => $cinder_enabled_backends,
+  enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
 }
 
 $snmpd_user = hiera('snmpd_readonly_user_name')
