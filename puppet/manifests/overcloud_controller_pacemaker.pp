@@ -614,8 +614,15 @@ if hiera('step') >= 3 {
   include ::glance::notify::rabbitmq
   include join(['::glance::backend::', $glance_backend])
 
+  $nova_ipv6 = hiera('nova::use_ipv6', false)
+  if $nova_ipv6 {
+    $memcached_servers = suffix(hiera('memcache_node_ips_v6'), ':11211')
+  } else {
+    $memcached_servers = suffix(hiera('memcache_node_ips'), ':11211')
+  }
+
   class { '::nova' :
-    memcached_servers => suffix(hiera('memcache_node_ips'), ':11211'),
+    memcached_servers => $memcached_servers
   }
 
   include ::nova::config
