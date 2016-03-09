@@ -211,8 +211,14 @@ if hiera('step') >= 2 {
       }
 
       $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
+      if is_ipv6_address($control_vip) {
+        $control_vip_netmask = '64'
+      } else {
+        $control_vip_netmask = '32'
+      }
       pacemaker::resource::ip { 'control_vip':
-        ip_address => $control_vip,
+        ip_address   => $control_vip,
+        cidr_netmask => $control_vip_netmask,
       }
       pacemaker::constraint::base { 'control_vip-then-haproxy':
         constraint_type   => 'order',
@@ -233,9 +239,15 @@ if hiera('step') >= 2 {
       }
 
       $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
+      if is_ipv6_address($public_vip) {
+        $public_vip_netmask = '64'
+      } else {
+        $public_vip_netmask = '32'
+      }
       if $public_vip and $public_vip != $control_vip {
         pacemaker::resource::ip { 'public_vip':
-          ip_address => $public_vip,
+          ip_address   => $public_vip,
+          cidr_netmask => $public_vip_netmask,
         }
         pacemaker::constraint::base { 'public_vip-then-haproxy':
           constraint_type   => 'order',
@@ -257,9 +269,15 @@ if hiera('step') >= 2 {
       }
 
       $redis_vip = hiera('redis_vip')
+      if is_ipv6_address($redis_vip) {
+        $redis_vip_netmask = '64'
+      } else {
+        $redis_vip_netmask = '32'
+      }
       if $redis_vip and $redis_vip != $control_vip {
         pacemaker::resource::ip { 'redis_vip':
-          ip_address => $redis_vip,
+          ip_address   => $redis_vip,
+          cidr_netmask => $redis_vip_netmask,
         }
         pacemaker::constraint::base { 'redis_vip-then-haproxy':
           constraint_type   => 'order',
@@ -281,9 +299,15 @@ if hiera('step') >= 2 {
       }
 
       $internal_api_vip = hiera('tripleo::loadbalancer::internal_api_virtual_ip')
+      if is_ipv6_address($internal_api_vip) {
+        $internal_api_vip_netmask = '64'
+      } else {
+        $internal_api_vip_netmask = '32'
+      }
       if $internal_api_vip and $internal_api_vip != $control_vip {
         pacemaker::resource::ip { 'internal_api_vip':
-          ip_address => $internal_api_vip,
+          ip_address   => $internal_api_vip,
+          cidr_netmask => $internal_api_vip_netmask,
         }
         pacemaker::constraint::base { 'internal_api_vip-then-haproxy':
           constraint_type   => 'order',
@@ -305,9 +329,15 @@ if hiera('step') >= 2 {
       }
 
       $storage_vip = hiera('tripleo::loadbalancer::storage_virtual_ip')
+      if is_ipv6_address($storage_vip) {
+        $storage_vip_netmask = '64'
+      } else {
+        $storage_vip_netmask = '32'
+      }
       if $storage_vip and $storage_vip != $control_vip {
         pacemaker::resource::ip { 'storage_vip':
-          ip_address => $storage_vip,
+          ip_address   => $storage_vip,
+          cidr_netmask => $storage_vip_netmask,
         }
         pacemaker::constraint::base { 'storage_vip-then-haproxy':
           constraint_type   => 'order',
@@ -329,9 +359,15 @@ if hiera('step') >= 2 {
       }
 
       $storage_mgmt_vip = hiera('tripleo::loadbalancer::storage_mgmt_virtual_ip')
+      if is_ipv6_address($storage_mgmt_vip) {
+        $storage_mgmt_vip_netmask = '64'
+      } else {
+        $storage_mgmt_vip_netmask = '32'
+      }
       if $storage_mgmt_vip and $storage_mgmt_vip != $control_vip {
         pacemaker::resource::ip { 'storage_mgmt_vip':
-          ip_address => $storage_mgmt_vip,
+          ip_address   => $storage_mgmt_vip,
+          cidr_netmask => $storage_mgmt_vip_netmask,
         }
         pacemaker::constraint::base { 'storage_mgmt_vip-then-haproxy':
           constraint_type   => 'order',
