@@ -14,17 +14,18 @@ cat > $UPGRADE_SCRIPT << ENDOFCAT
 
 
 function systemctl_swift {
-    action=$1
+    action=\$1
     for S in openstack-swift-account-auditor openstack-swift-account-reaper openstack-swift-account-replicator openstack-swift-account \
              openstack-swift-container-auditor openstack-swift-container-replicator openstack-swift-container-updater openstack-swift-container \
-             openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object openstack-swift-proxy; do
-                systemctl $action $S
+             openstack-swift-object-auditor openstack-swift-object-replicator openstack-swift-object-updater openstack-swift-object; do
+                systemctl \$action \$S
     done
 }
 
 
 systemctl_swift stop
 
+yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y update
 
 systemctl_swift start
