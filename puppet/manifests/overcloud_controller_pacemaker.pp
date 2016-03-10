@@ -537,8 +537,15 @@ MYSQL_HOST=localhost\n",
   $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
 
   if $enable_ceph {
+    $mon_initial_members = downcase(hiera('ceph_mon_initial_members'))
+    if str2bool(hiera('ceph_ipv6', false)) {
+      $mon_host = hiera('ceph_mon_host_v6')
+    } else {
+      $mon_host = hiera('ceph_mon_host')
+    }
     class { '::ceph::profile::params':
-      mon_initial_members => downcase(hiera('ceph_mon_initial_members')),
+      mon_initial_members => $mon_initial_members,
+      mon_host            => $mon_host,
     }
     include ::ceph::conf
     include ::ceph::profile::mon
@@ -564,6 +571,14 @@ MYSQL_HOST=localhost\n",
   }
 
   if str2bool(hiera('enable_external_ceph', false)) {
+    if str2bool(hiera('ceph_ipv6', false)) {
+      $mon_host = hiera('ceph_mon_host_v6')
+    } else {
+      $mon_host = hiera('ceph_mon_host')
+    }
+    class { '::ceph::profile::params':
+      mon_host            => $mon_host,
+    }
     include ::ceph::conf
     include ::ceph::profile::client
   }
