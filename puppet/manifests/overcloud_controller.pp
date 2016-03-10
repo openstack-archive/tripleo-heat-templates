@@ -48,14 +48,24 @@ if hiera('step') >= 2 {
     include ::mongodb::globals
 
     include ::mongodb::server
-    $mongo_node_ips_with_port = suffix(hiera('mongo_node_ips'), ':27017')
+    # NOTE(gfidente): We need to pass the list of IPv6 addresses *with* port and
+    # without the brackets as 'members' argument for the 'mongodb_replset'
+    # resource.
+    if str2bool(hiera('mongodb::server::ipv6', false)) {
+      $mongo_node_ips_with_port_prefixed = prefix(hiera('mongo_node_ips'), '[')
+      $mongo_node_ips_with_port = suffix($mongo_node_ips_with_port_prefixed, ']:27017')
+      $mongo_node_ips_with_port_nobr = suffix(hiera('mongo_node_ips'), ':27017')
+    } else {
+      $mongo_node_ips_with_port = suffix(hiera('mongo_node_ips'), ':27017')
+      $mongo_node_ips_with_port_nobr = suffix(hiera('mongo_node_ips'), ':27017')
+    }
     $mongo_node_string = join($mongo_node_ips_with_port, ',')
 
     $mongodb_replset = hiera('mongodb::server::replset')
     $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
     if downcase(hiera('bootstrap_nodeid')) == $::hostname {
       mongodb_replset { $mongodb_replset :
-        members => $mongo_node_ips_with_port,
+        members => $mongo_node_ips_with_port_nobr,
       }
     }
   }
