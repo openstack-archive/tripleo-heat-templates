@@ -581,9 +581,6 @@ if hiera('step') >= 3 {
   include ::heat::api_cfn
   include ::heat::api_cloudwatch
   include ::heat::engine
-  heat_config {
-    'DEFAULT/notification_driver': value => 'messaging';
-  }
 
   # Horizon
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {

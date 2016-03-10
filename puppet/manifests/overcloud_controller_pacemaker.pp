@@ -1060,9 +1060,6 @@ if hiera('step') >= 3 {
     manage_service => false,
     enabled        => false,
   }
-  heat_config {
-    'DEFAULT/notification_driver': value => 'messaging';
-  }
 
   # httpd/apache and horizon
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
