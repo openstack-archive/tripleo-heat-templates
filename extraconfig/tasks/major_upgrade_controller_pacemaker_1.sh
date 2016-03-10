@@ -42,6 +42,7 @@ while systemctl is-active pacemaker; do
     fi
 done
 
+yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
