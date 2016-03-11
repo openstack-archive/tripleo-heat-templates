@@ -73,3 +73,22 @@ chmod 0640 /etc/systemd/system/heat-docker-agents.service
 # Disable NetworkManager and let the ifup/down scripts work properly.
 /usr/bin/systemctl disable NetworkManager
 /usr/bin/systemctl stop NetworkManager
+
+# Atomic's root partition & logical volume defaults to 3G.  In order to launch
+# larger VMs, we need to enlarge the root logical volume and scale down the
+# docker_pool logical volume. We are allocating 80% of the disk space for
+# vm data and the remaining 20% for docker images.
+ATOMIC_ROOT='/dev/mapper/atomicos-root'
+ROOT_DEVICE=`pvs -o vg_name,pv_name --no-headings | grep atomicos | awk '{ print $2}'`
+
+growpart $( echo "${ROOT_DEVICE}" | sed -r 's/([^0-9]*)([0-9]+)/\1 \2/' )
+pvresize "${ROOT_DEVICE}"
+lvresize -l +80%FREE "${ATOMIC_ROOT}"
+xfs_growfs "${ATOMIC_ROOT}"
+
+cat <<EOF > /etc/sysconfig/docker-storage-setup
+GROWPART=true
+AUTO_EXTEND_POOL=yes
+POOL_AUTOEXTEND_PERCENT=30
+POOL_AUTOEXTEND_THRESHOLD=70
+EOF
