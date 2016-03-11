@@ -17,8 +17,6 @@ parameters:
     type: string
   DockerLibvirtImage:
     type: string
-  DockerNeutronAgentImage:
-    type: string
   DockerOpenvswitchImage:
     type: string
   DockerOvsVswitchdImage:
@@ -33,17 +31,12 @@ parameters:
     default: "/etc/nova/nova.conf"
   NeutronOpenvswitchAgentConfig:
     type: string
-    default: "/etc/neutron/neutron.conf,/etc/neutron/plugins/ml2/ml2_conf.ini"
-  NeutronAgentConfig:
-    type: string
     default: "/etc/neutron/neutron.conf,/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini"
-  NeutronAgentPluginVolume:
+  NeutronOpenvswitchAgentPluginVolume:
     type: string
-    description: The neutron agent plugin to mount into the neutron-agents container
     default: "/var/lib/etc-data/neutron/plugins/ml2/openvswitch_agent.ini:/var/lib/kolla/config_files/ovs_neutron_plugin.ini:ro"
-  NeutronAgentOvsVolume:
+  NeutronOpenvswitchAgentOvsVolume:
     type: string
-    description: The neutron agent ovs agents to mount into the neutron-agents container
     default: " "
 
 resources:
@@ -99,7 +92,6 @@ resources:
       - name: libvirt_config
       - name: nova_config
       - name: neutron_openvswitch_agent_config
-      - name: neutron_agent_config
       config: |
         #!/bin/python
         import json
@@ -112,13 +104,11 @@ resources:
         libvirt_config = os.getenv('libvirt_config').split(',')
         nova_config = os.getenv('nova_config').split(',')
         neutron_openvswitch_agent_config = os.getenv('neutron_openvswitch_agent_config').split(',')
-        neutron_agent_config = os.getenv('neutron_agent_config').split(',')
 
         # Command, Config_files, Owner, Perms
         services = {'nova-libvirt': ['/usr/sbin/libvirtd', libvirt_config, 'root', libvirt_perms],
                     'nova-compute': ['/usr/bin/nova-compute', nova_config, 'nova', file_perms],
                     'neutron-openvswitch-agent': ['/usr/bin/neutron-openvswitch-agent', neutron_openvswitch_agent_config, 'neutron', file_perms],
-                    'neutron-agent': ['/usr/bin/neutron-openvswitch-agent', neutron_agent_config, 'neutron', file_perms],
                     'ovs-vswitchd': ['/usr/sbin/ovs-vswitchd unix:/run/openvswitch/db.sock -vconsole:emer -vsyslog:err -vfile:info --mlockall --log-file=/var/log/openvswitch/ovs-vswitchd.log'],
                     'ovsdb-server': ['/usr/sbin/ovsdb-server /etc/openvswitch/conf.db -vconsole:emer -vsyslog:err -vfile:info --remote=punix:/run/openvswitch/db.sock --log-file=/var/log/openvswitch/ovsdb-server.log']
                    }
@@ -171,7 +161,6 @@ resources:
         libvirt_config: {get_param: LibvirtConfig}
         nova_config: {get_param: NovaConfig}
         neutron_openvswitch_agent_config: {get_param: NeutronOpenvswitchAgentConfig}
-        neutron_agent_config: {get_param: NeutronAgentConfig}
 
   NovaComputeContainersDeploymentOVS:
     type: OS::Heat::StructuredDeployments
@@ -291,27 +280,7 @@ resources:
     properties:
       group: docker-compose
       config:
-        openvswitch:
-          image:
-            list_join:
-            - '/'
-            - [ {get_param: DockerNamespace}, {get_param: DockerOpenvswitchImage} ]
-          net: host
-          privileged: true
-          restart: always
-          volumes:
-           - /run:/run
-           - /lib/modules:/lib/modules:ro
-           - /var/lib/etc-data/json-config/neutron-openvswitch-agent.json:/var/lib/kolla/config_files/config.json
-           - /var/lib/etc-data/neutron/neutron.conf:/etc/kolla/neutron-openvswitch-agent/:ro
-           - /var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/var/lib/kolla/config_files/ml2_conf.ini:ro
-           - /var/lib/etc-data/neutron/neutron.conf:/var/lib/kolla/config_files/neutron.conf:ro
-          environment:
-           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-          volumes_from:
-           - computedata
-
-        neutronagent:
+        neutronovsagent:
           image:
             list_join:
             - '/'
@@ -326,10 +295,11 @@ resources:
               - list_join:
                  - ","
                  - [ "/run:/run", "/lib/modules:/lib/modules:ro",
-                     "/var/lib/etc-data/json-config/neutron-agent.json:/var/lib/kolla/config_files/config.json",
+                     "/var/lib/etc-data/json-config/neutron-openvswitch-agent.json:/var/lib/kolla/config_files/config.json",
                      "/var/lib/etc-data/neutron/neutron.conf:/var/lib/kolla/config_files/neutron.conf:ro",
-                     {get_param: NeutronAgentPluginVolume},
-                     {get_param: NeutronAgentOvsVolume} ]
+                     "/var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/var/lib/kolla/config_files/ml2_conf.ini:ro",
+                     {get_param: NeutronOpenvswitchAgentPluginVolume},
+                     {get_param: NeutronOpenvswitchAgentOvsVolume} ]
           environment:
            - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           volumes_from:
