@@ -32,6 +32,12 @@ parameters:
     description: The password for the ceilometer service account.
     type: string
     hidden: true
+  CeilometerMeterDispatcher:
+    default: 'database'
+    description: Dispatcher to process meter data
+    type: string
+    constraints:
+    - allowed_values: ['gnocchi', 'database']
   # This has to be an UUID so for now we generate it outside the template
   CephClusterFSID:
     default: ''
@@ -483,6 +489,21 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['swift', 'file', 'rbd']
+  GnocchiBackend:
+    default: file
+    description: The short name of the Gnocchi backend to use. Should be one
+      of swift, rbd or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
+  GnocchiIndexerBackend:
+    default: 'mysql'
+    description: The short name of the Gnocchi indexer backend to use.
+    type: string
+  GnocchiPassword:
+    description: The password for the gnocchi service account.
+    type: string
+    hidden: true
   HeatPassword:
     description: The password for the Heat service account, used by the Heat services.
     type: string
@@ -644,6 +665,7 @@ parameters:
       NeutronTenantNetwork: tenant
       CeilometerApiNetwork: internal_api
       AodhApiNetwork: internal_api
+      GnocchiApiNetwork: internal_api
       MongoDbNetwork: internal_api
       CinderApiNetwork: internal_api
       CinderIscsiNetwork: storage
@@ -854,6 +876,7 @@ resources:
       AodhApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
       CinderApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
       GlanceApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+      GnocchiApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
       HeatApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
       KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
       KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
@@ -885,6 +908,7 @@ resources:
           CeilometerBackend: {get_param: CeilometerBackend}
           CeilometerMeteringSecret: {get_param: CeilometerMeteringSecret}
           CeilometerPassword: {get_param: CeilometerPassword}
+          CeilometerMeterDispatcher: {get_param: CeilometerMeterDispatcher}
           CinderLVMLoopDeviceSize: {get_param: CinderLVMLoopDeviceSize}
           CinderNfsMountOptions: {get_param: CinderNfsMountOptions}
           CinderNfsServers: {get_param: CinderNfsServers}
@@ -911,6 +935,9 @@ resources:
           GlanceBackend: {get_param: GlanceBackend}
           GlanceNotifierStrategy: {get_param: GlanceNotifierStrategy}
           GlanceLogFile: {get_param: GlanceLogFile}
+          GnocchiPassword: {get_param: GnocchiPassword}
+          GnocchiBackend: {get_param: GnocchiBackend}
+          GnocchiIndexerBackend: {get_param: GnocchiIndexerBackend}
           HAProxySyslogAddress: {get_param: HAProxySyslogAddress}
           HeatPassword: {get_param: HeatPassword}
           HeatStackDomainAdminPassword: {get_param: HeatStackDomainAdminPassword}
@@ -991,6 +1018,7 @@ resources:
           EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
           CeilometerApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
           AodhApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
+          GnocchiApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
           CinderApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
           HeatApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
           HeatApiVirtualIPUri: {get_attr: [VipMap, net_ip_uri_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
@@ -1229,6 +1257,7 @@ resources:
       swift_proxy_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
       ceilometer_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
       aodh_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
+      gnocchi_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
       nova_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
       nova_metadata_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
       glance_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
@@ -1350,6 +1379,7 @@ resources:
         nova_metadata_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
         ceilometer_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
         aodh_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
+        gnocchi_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
         heat_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
         horizon_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
         redis_vip: {get_attr: [RedisVirtualIP, ip_address]}
@@ -1645,6 +1675,9 @@ outputs:
   GlanceInternalVip:
     description: VIP for Glance API internal endpoint
     value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+  GnocchiInternalVip:
+    description: VIP for Gnocchi API internal endpoint
+    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
   HeatInternalVip:
     description: VIP for Heat API internal endpoint
     value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}

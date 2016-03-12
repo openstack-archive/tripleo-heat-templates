@@ -24,6 +24,7 @@ Service <|
   tag == 'cinder-service' or
   tag == 'ceilometer-service' or
   tag == 'glance-service' or
+  tag == 'gnocchi-service' or
   tag == 'heat-service' or
   tag == 'keystone-service' or
   tag == 'neutron-service' or
@@ -543,6 +544,11 @@ MYSQL_HOST=localhost\n",
       }
     }
 
+    if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
+      class { '::gnocchi::db::mysql':
+        require => Exec['galera-ready'],
+      }
+    }
     class { '::sahara::db::mysql':
       require       => Exec['galera-ready'],
     }
@@ -1057,6 +1063,7 @@ if hiera('step') >= 4 {
     sync_db             => $sync_db,
   }
   include ::ceilometer::agent::auth
+  include ::ceilometer::dispatcher::gnocchi
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
@@ -1131,6 +1138,40 @@ if hiera('step') >= 4 {
     enabled        => false,
   }
   class { '::aodh::listener':
+    manage_service => false,
+    enabled        => false,
+  }
+
+  # Gnocchi
+  $gnocchi_database_connection = hiera('gnocchi_mysql_conn_string')
+  include ::gnocchi::client
+  if $sync_db {
+    include ::gnocchi::db::sync
+  }
+  include ::gnocchi::storage
+  $gnocchi_backend = downcase(hiera('gnocchi_backend', 'swift'))
+  case $gnocchi_backend {
+      'swift': { include ::gnocchi::storage::swift }
+      'file': { include ::gnocchi::storage::file }
+      'rbd': { include ::gnocchi::storage::ceph }
+      default: { fail('Unrecognized gnocchi_backend parameter.') }
+  }
+  class { '::gnocchi':
+    database_connection => $gnocchi_database_connection,
+  }
+  class { '::gnocchi::api' :
+    manage_service => false,
+    enabled        => false,
+    service_name   => 'httpd',
+  }
+  class { '::gnocchi::wsgi::apache' :
+    ssl => false,
+  }
+  class { '::gnocchi::metricd' :
+    manage_service => false,
+    enabled        => false,
+  }
+  class { '::gnocchi::statsd' :
     manage_service => false,
     enabled        => false,
   }
@@ -1779,6 +1820,30 @@ if hiera('step') >= 5 {
         require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                             Pacemaker::Resource::Service[$::mongodb::params::service_name]],
       }
+    }
+
+    # gnocchi
+    pacemaker::resource::service { $::gnocchi::params::metricd_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::gnocchi::params::statsd_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::constraint::base { 'gnocchi-metricd-then-gnocchi-statsd-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::gnocchi::params::metricd_service_name}-clone",
+      second_resource => "${::gnocchi::params::statsd_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
+                          Pacemaker::Resource::Service[$::gnocchi::params::statsd_service_name]],
+    }
+    pacemaker::constraint::colocation { 'gnocchi-statsd-with-metricd-colocation':
+      source  => "${::gnocchi::params::statsd_service_name}-clone",
+      target  => "${::gnocchi::params::metricd_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
+                  Pacemaker::Resource::Service[$::gnocchi::params::statsd_service_name]],
     }
 
     # Heat

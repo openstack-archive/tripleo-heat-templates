@@ -121,6 +121,9 @@ if hiera('step') >= 2 {
   include ::cinder::db::mysql
   include ::heat::db::mysql
   include ::sahara::db::mysql
+  if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
+    include ::gnocchi::db::mysql
+  }
   if downcase(hiera('ceilometer_backend')) == 'mysql' {
     include ::ceilometer::db::mysql
     include ::aodh::db::mysql
@@ -577,6 +580,7 @@ if hiera('step') >= 4 {
   include ::ceilometer::expirer
   include ::ceilometer::collector
   include ::ceilometer::agent::auth
+  include ::ceilometer::dispatcher::gnocchi
   class { '::ceilometer::db' :
     database_connection => $ceilometer_database_connection,
   }
@@ -631,6 +635,26 @@ if hiera('step') >= 4 {
   class { '::horizon':
     cache_server_ip => $horizon_memcached_servers,
     neutron_options => $neutron_options,
+  }
+
+  # Gnocchi
+  $gnocchi_database_connection = hiera('gnocchi_mysql_conn_string')
+  class { '::gnocchi':
+    database_connection => $gnocchi_database_connection,
+  }
+  include ::gnocchi::api
+  include ::gnocchi::wsgi::apache
+  include ::gnocchi::client
+  include ::gnocchi::db::sync
+  include ::gnocchi::storage
+  include ::gnocchi::metricd
+  include ::gnocchi::statsd
+  $gnocchi_backend = downcase(hiera('gnocchi_backend', 'swift'))
+  case $gnocchi_backend {
+      'swift': { include ::gnocchi::storage::swift }
+      'file': { include ::gnocchi::storage::file }
+      'rbd': { include ::gnocchi::storage::ceph }
+      default: { fail('Unrecognized gnocchi_backend parameter.') }
   }
 
   $snmpd_user = hiera('snmpd_readonly_user_name')

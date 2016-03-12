@@ -34,6 +34,12 @@ parameters:
     default: false
     description: Whether to store events in ceilometer.
     type: boolean
+  CeilometerMeterDispatcher:
+    default: 'database'
+    description: Dispatcher to process meter data
+    type: string
+    constraints:
+    - allowed_values: ['gnocchi', 'database']
   CinderApiVirtualIP:
     type: string
     default: ''
@@ -223,6 +229,24 @@ parameters:
       Mount options for Pacemaker mount used as Glance storage.
       Effective when GlanceFilePcmkManage is true.
     type: string
+  GnocchiBackend:
+    default: file
+    description: The short name of the Gnocchi backend to use. Should be one
+      of swift, rbd, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
+  GnocchiIndexerBackend:
+    default: 'mysql'
+    description: The short name of the Gnocchi indexer backend to use.
+    type: string
+  GnocchiApiVirtualIP:
+    type: string
+    default: ''
+  GnocchiPassword:
+    description: The password for the gnocchi service and db account.
+    type: string
+    hidden: true
   HAProxyStatsPassword:
     description: Password for HAProxy stats endpoint
     type: string
@@ -1098,6 +1122,10 @@ resources:
         ceilometer_password: {get_param: CeilometerPassword}
         ceilometer_store_events: {get_param: CeilometerStoreEvents}
         aodh_password: {get_param: AodhPassword}
+        ceilometer_meter_dispatcher: {get_param: CeilometerMeterDispatcher}
+        gnocchi_password: {get_param: GnocchiPassword}
+        gnocchi_backend: {get_param: GnocchiBackend}
+        gnocchi_indexer_backend: {get_param: GnocchiIndexerBackend}
         ceilometer_coordination_url:
           list_join:
             - ''
@@ -1114,6 +1142,15 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIPUri}
               - '/ceilometer'
+        gnocchi_dsn:
+          list_join:
+            - ''
+            - - 'mysql+pymysql://gnocchi:'
+              - {get_param: GnocchiPassword}
+              - '@'
+              - {get_param: MysqlVirtualIPUri}
+              - '/gnocchi'
+        gnocchi_internal_url: {get_param: [EndpointMap, GnocchiInternal, uri]}
         snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
         snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
         nova_enable_db_purge: {get_param: NovaEnableDBPurge}
@@ -1193,6 +1230,7 @@ resources:
         neutron_local_ip: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NeutronTenantNetwork]}]}
         ceilometer_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
         aodh_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
+        gnocchi_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
         nova_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
         nova_metadata_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
         horizon_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
@@ -1471,6 +1509,11 @@ resources:
                 ceilometer::agent::central::coordination_url: {get_input: ceilometer_coordination_url}
                 ceilometer::agent::notification::store_events: {get_input: ceilometer_store_events}
                 ceilometer::db::mysql::password: {get_input: ceilometer_password}
+                ceilometer::collector::meter_dispatcher: {get_input: ceilometer_meter_dispatcher}
+                ceilometer::dispatcher::gnocchi::url: {get_input: gnocchi_internal_url }
+                ceilometer::dispatcher::gnocchi::filter_project: 'service'
+                ceilometer::dispatcher::gnocchi::archive_policy: 'low'
+                ceilometer::dispatcher::gnocchi::resources_definition_file: 'gnocchi_resources.yaml'
                 snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
                 snmpd_readonly_user_password: {get_input: snmpd_readonly_user_password}
 
@@ -1491,6 +1534,22 @@ resources:
                 aodh::db::mysql::password: {get_input: aodh_password}
                 # for a migration path from ceilometer-alarm to aodh, we use the same database & coordination
                 aodh::evaluator::coordination_url: {get_input: ceilometer_coordination_url}
+
+                # Gnocchi
+                gnocchi_backend: {get_input: gnocchi_backend}
+                gnocchi_indexer_backend: {get_input: gnocchi_indexer_backend}
+                gnocchi_mysql_conn_string: {get_input: gnocchi_dsn}
+                gnocchi::debug: {get_input: debug}
+                gnocchi::wsgi::apache::ssl: false
+                gnocchi::wsgi::apache::bind_host: {get_input: gnocchi_api_network}
+                gnocchi::api::service_name: 'httpd'
+                gnocchi::api::host: {get_input: gnocchi_api_network}
+                gnocchi::api::keystone_password: {get_input: gnocchi_password}
+                gnocchi::api::keystone_auth_uri: {get_input: keystone_auth_uri}
+                gnocchi::api::keystone_identity_uri: {get_input: keystone_identity_uri}
+                gnocchi::db::mysql::password: {get_input: gnocchi_password}
+                gnocchi::storage::swift::swift_authurl: {get_input: keystone_auth_uri}
+                gnocchi::storage::swift::swift_key: {get_input: gnocchi_password}
 
                 # Nova
                 nova::rabbit_userid: {get_input: rabbit_username}
