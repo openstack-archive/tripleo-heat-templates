@@ -5,4 +5,4 @@
 set -eu
 
 yum -y install python-zaqarclient  # needed for os-collect-config
-yum -y update
+yum -y -q update
