@@ -94,31 +94,16 @@ class { '::nova::compute::libvirt' :
   vncserver_listen => $vncserver_listen,
 }
 
-# TUNNELLED mode provides a security enhancement when using shared storage but is not
-# supported when not using shared storage.
-# See https://bugzilla.redhat.com/show_bug.cgi?id=1301986#c12
-if $rbd_ephemeral_storage {
-  $block_migration_flag = 'VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_PEER2PEER, VIR_MIGRATE_LIVE, VIR_MIGRATE_TUNNELLED, VIR_MIGRATE_NON_SHARED_INC'
-  $live_migration_flag = 'VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_PEER2PEER, VIR_MIGRATE_LIVE, VIR_MIGRATE_TUNNELLED'
-} else {
-  $block_migration_flag = 'VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_PEER2PEER, VIR_MIGRATE_LIVE, VIR_MIGRATE_NON_SHARED_INC'
-  $live_migration_flag = 'VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_PEER2PEER, VIR_MIGRATE_LIVE'
-}
-
 nova_config {
   'DEFAULT/my_ip':                     value => $ipaddress;
   'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
   'DEFAULT/host':                      value => $fqdn;
-  # In future versions of Nova, the live/block migration flags will be deprecated [1].
-  # Tunnelling (encryption) will be handled via a single _new_ Nova
-  # config attribute 'live_migration_tunnelled'[2], thus
-  # avoiding users to have to supply libvirt flags.
+  # TUNNELLED mode provides a security enhancement when using shared storage but is not
+  # supported when not using shared storage.
+  # See https://bugzilla.redhat.com/show_bug.cgi?id=1301986#c12
   # In future versions of QEMU (2.6, mostly), Dan's native encryption
   # work will obsolete the need to use TUNNELLED transport mode.
-  # [1] https://review.openstack.org/#/c/263436/
-  # [2] https://review.openstack.org/#/c/263434/
-  'libvirt/block_migration_flag':      value => $block_migration_flag;
-  'libvirt/live_migration_flag':       value => $live_migration_flag;
+  'libvirt/live_migration_tunnelled':  value => $rbd_ephemeral_storage;
 }
 
 if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
