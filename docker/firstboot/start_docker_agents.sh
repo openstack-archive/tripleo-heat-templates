@@ -55,19 +55,6 @@ chmod 666 /dev/pts/ptmx
 HOSTNAME=$(hostname)
 echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
-# Another hack.. we need a different docker version
-# (should obviously be dropped once the atomic image contains docker 1.8.2)
-/usr/bin/systemctl stop docker.service
-/bin/curl -o /tmp/docker https://get.docker.com/builds/Linux/x86_64/docker-1.8.2
-/bin/mount -o remount,rw /usr
-/bin/rm /bin/docker
-/bin/cp /tmp/docker /bin/docker
-/bin/chmod 755 /bin/docker
-
-# enable and start docker
-/usr/bin/systemctl enable docker.service
-/usr/bin/systemctl restart --no-block docker.service
-
 # enable and start heat-docker-agents
 chmod 0640 /etc/systemd/system/heat-docker-agents.service
 /usr/bin/systemctl enable heat-docker-agents.service
