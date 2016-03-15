@@ -127,6 +127,7 @@ if hiera('step') >= 1 {
 
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
+    include ::mongodb::client
     class { '::mongodb::server' :
       service_manage => false,
     }

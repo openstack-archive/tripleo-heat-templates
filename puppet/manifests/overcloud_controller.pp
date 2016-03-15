@@ -46,7 +46,7 @@ if hiera('step') >= 2 {
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
-
+    include ::mongodb::client
     include ::mongodb::server
     # NOTE(gfidente): We need to pass the list of IPv6 addresses *with* port and
     # without the brackets as 'members' argument for the 'mongodb_replset'
