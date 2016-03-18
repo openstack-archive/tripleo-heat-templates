@@ -68,9 +68,6 @@ if hiera('step') >= 1 {
   } else {
     $cluster_setup_extras = {}
   }
-  user { 'hacluster':
-    ensure => present,
-  } ->
   class { '::pacemaker':
     hacluster_pwd => hiera('hacluster_pwd'),
   } ->
