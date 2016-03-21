@@ -48,6 +48,9 @@ fi
 /sbin/setenforce 0
 /sbin/modprobe ebtables
 
+# CentOS sets ptmx to 000. Withoutit being 666, we can't use Cinder volumes
+chmod 666 /dev/pts/ptmx
+
 # We need hostname -f to return in a centos container for the puppet hook
 HOSTNAME=$(hostname)
 echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
