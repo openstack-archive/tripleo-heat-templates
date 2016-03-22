@@ -210,7 +210,7 @@ if hiera('step') >= 2 {
 
 } #END STEP 2
 
-if hiera('step') >= 3 {
+if hiera('step') >= 4 {
 
   include ::keystone
   include ::keystone::config
@@ -673,9 +673,9 @@ if hiera('step') >= 3 {
 
   hiera_include('controller_classes')
 
-} #END STEP 3
+} #END STEP 4
 
-if hiera('step') >= 4 {
+if hiera('step') >= 5 {
   $keystone_enable_db_purge = hiera('keystone_enable_db_purge', true)
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
@@ -710,7 +710,7 @@ if hiera('step') >= 4 {
     }
   }
 
-} #END STEP 4
+} #END STEP 5
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
