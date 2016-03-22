@@ -1,0 +1,135 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Keystone service configured with Puppet
+
+parameters:
+  KeystoneCACertificate:
+    default: ''
+    description: Keystone self-signed certificate authority certificate.
+    type: string
+  KeystoneEnableDBPurge:
+    default: true
+    description: |
+        Whether to create cron job for purging soft deleted rows in Keystone database.
+    type: boolean
+  KeystoneSigningCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSigningKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  KeystoneSSLCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSSLCertificateKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  KeystoneNotificationDriver:
+    description: Comma-separated list of Oslo notification drivers used by Keystone
+    default: ['messaging']
+    type: comma_delimited_list
+  KeystoneNotificationFormat:
+    description: The Keystone notification format
+    default: 'basic'
+    type: string
+    constraints:
+      - allowed_values: [ 'basic', 'cadf' ]
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  KeystoneWorkers:
+    default: 0
+    description: Number of workers for Keystone service.
+    type: number
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MysqlVirtualIPUri:
+    type: string
+    default: ''
+  Debug:
+    type: string
+    default: ''
+  AdminEmail:
+    default: 'admin@example.com'
+    description: The email for the keystone admin account.
+    type: string
+    hidden: true
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+  AdminToken:
+    description: The keystone auth secret and db password.
+    type: string
+    hidden: true
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+
+outputs:
+  role_data:
+    description: Role data for the Keystone role.
+    value:
+      config_settings:
+        keystone_dsn: &keystone_dsn
+          list_join:
+            - ''
+            - - 'mysql+pymysql://keystone:'
+              - {get_param: AdminToken}
+              - '@'
+              - {get_param: MysqlVirtualIPUri}
+              - '/keystone'
+        keystone::database_connection: *keystone_dsn
+        keystone::admin_token: {get_param: AdminToken}
+        keystone::roles::admin::password: {get_param: AdminPassword}
+        keystone_ca_certificate: {get_param: KeystoneCACertificate}
+        keystone_signing_key: {get_param: KeystoneSigningKey}
+        keystone_signing_certificate: {get_param: KeystoneSigningCertificate}
+        keystone_ssl_certificate: {get_param: KeystoneSSLCertificate}
+        keystone_ssl_certificate_key: {get_param: KeystoneSSLCertificateKey}
+        keystone::debug: {get_param: Debug}
+        keystone::db::mysql::password: {get_param: AdminToken}
+        keystone::rabbit_userid: {get_param: RabbitUserName}
+        keystone::rabbit_password: {get_param: RabbitPassword}
+        keystone::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        keystone::rabbit_port: {get_param: RabbitClientPort}
+        keystone::notification_driver: {get_param: KeystoneNotificationDriver}
+        keystone::notification_format: {get_param: KeystoneNotificationFormat}
+        keystone::roles::admin::email: {get_param: AdminEmail}
+        keystone::roles::admin::password: {get_param: AdminPassword}
+        keystone::endpoint::public_url: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+        keystone::endpoint::internal_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        keystone::endpoint::admin_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+        keystone::endpoint::region: {get_param: KeystoneRegion}
+        keystone::admin_workers: {get_param: KeystoneWorkers}
+        keystone::public_workers: {get_param: KeystoneWorkers}
+        keystone_enable_db_purge: {get_param: KeystoneEnableDBPurge}
+        keystone::public_endpoint: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+      step_config: |
+        include ::tripleo::profile::base::keystone

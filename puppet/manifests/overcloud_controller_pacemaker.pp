@@ -606,44 +606,6 @@ MYSQL_HOST=localhost\n",
 
 if hiera('step') >= 4 {
 
-  class { '::keystone':
-    sync_db          => $sync_db,
-    manage_service   => false,
-    enabled          => false,
-    enable_bootstrap => $pacemaker_master,
-  }
-  include ::keystone::config
-
-  #TODO: need a cleanup-keystone-tokens.sh solution here
-
-  file { [ '/etc/keystone/ssl', '/etc/keystone/ssl/certs', '/etc/keystone/ssl/private' ]:
-    ensure  => 'directory',
-    owner   => 'keystone',
-    group   => 'keystone',
-    require => Package['keystone'],
-  }
-  file { '/etc/keystone/ssl/certs/signing_cert.pem':
-    content => hiera('keystone_signing_certificate'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/certs'],
-  }
-  file { '/etc/keystone/ssl/private/signing_key.pem':
-    content => hiera('keystone_signing_key'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/private'],
-  }
-  file { '/etc/keystone/ssl/certs/ca.pem':
-    content => hiera('keystone_ca_certificate'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/certs'],
-  }
-
   $glance_backend = downcase(hiera('glance_backend', 'swift'))
   case $glance_backend {
       'swift': { $backend_store = 'glance.store.swift.Store' }
@@ -1127,7 +1089,6 @@ if hiera('step') >= 4 {
     service_enable => false,
     # service_manage => false, # <-- not supported with horizon&apache mod_wsgi?
   }
-  include ::keystone::wsgi::apache
   include ::apache::mod::status
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     $_profile_support = 'cisco'
@@ -1189,14 +1150,10 @@ if hiera('step') >= 4 {
 } #END STEP 4
 
 if hiera('step') >= 5 {
-  $keystone_enable_db_purge = hiera('keystone_enable_db_purge', true)
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
   $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
 
-  if $keystone_enable_db_purge {
-    include ::keystone::cron::token_flush
-  }
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
   }
@@ -1209,18 +1166,6 @@ if hiera('step') >= 5 {
 
   if $pacemaker_master {
 
-    if $enable_load_balancer {
-      pacemaker::constraint::base { 'haproxy-then-keystone-constraint':
-        constraint_type => 'order',
-        first_resource  => 'haproxy-clone',
-        second_resource => 'openstack-core-clone',
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service['haproxy'],
-                            Pacemaker::Resource::Ocf['openstack-core']],
-      }
-    }
-
     pacemaker::constraint::base { 'openstack-core-then-httpd-constraint':
       constraint_type => 'order',
       first_resource  => 'openstack-core-clone',
@@ -1228,15 +1173,6 @@ if hiera('step') >= 5 {
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::apache::params::service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'rabbitmq-then-keystone-constraint':
-      constraint_type => 'order',
-      first_resource  => 'rabbitmq-clone',
-      second_resource => 'openstack-core-clone',
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Ocf['rabbitmq'],
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'memcached-then-openstack-core-constraint':
@@ -1962,30 +1898,6 @@ if hiera('step') >= 5 {
   }
 
 } #END STEP 5
-
-if hiera('step') >= 6 {
-
-  if $pacemaker_master {
-
-    class {'::keystone::roles::admin' :
-      require => Pacemaker::Resource::Service[$::apache::params::service_name],
-    } ->
-    class {'::keystone::endpoint' :
-      require => Pacemaker::Resource::Service[$::apache::params::service_name],
-    }
-    include ::heat::keystone::domain
-    Class['::keystone::roles::admin'] -> Class['::heat::keystone::domain']
-
-  } else {
-    # On non-master controller we don't need to create Keystone resources again
-    class { '::heat::keystone::domain':
-      manage_domain => false,
-      manage_user   => false,
-      manage_role   => false,
-    }
-  }
-
-} #END STEP 6
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller_pacemaker', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
