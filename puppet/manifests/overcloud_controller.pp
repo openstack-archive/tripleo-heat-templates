@@ -619,6 +619,7 @@ if hiera('step') >= 4 {
   include ::sahara::service::engine
 
   # Horizon
+  include ::apache::mod::remoteip
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     $_profile_support = 'cisco'
   } else {
