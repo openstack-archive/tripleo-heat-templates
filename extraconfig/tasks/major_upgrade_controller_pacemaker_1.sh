@@ -12,10 +12,8 @@ fi
 if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
     pcs resource disable httpd
     check_resource httpd stopped 1800
-    if pcs status | grep openstack-keystone; then
-        pcs resource disable openstack-keystone
-        check_resource openstack-keystone stopped 1800
-    fi
+    pcs resource disable openstack-core
+    check_resource openstack-core stopped 1800
     pcs resource disable redis
     check_resource redis stopped 600
     pcs resource disable mongod
