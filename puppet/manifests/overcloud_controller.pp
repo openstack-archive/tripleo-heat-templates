@@ -615,8 +615,15 @@ if hiera('step') >= 3 {
   }
   $neutron_options   = {'profile_support' => $_profile_support }
 
+  $memcached_ipv6 = hiera('memcached_ipv6', false)
+  if $memcached_ipv6 {
+    $horizon_memcached_servers = hiera('memcache_node_ips_v6', '[::1]')
+  } else {
+    $horizon_memcached_servers = hiera('memcache_node_ips', '127.0.0.1')
+  }
+
   class { '::horizon':
-    cache_server_ip => hiera('memcache_node_ips', '127.0.0.1'),
+    cache_server_ip => $horizon_memcached_servers,
     neutron_options => $neutron_options,
   }
 
