@@ -186,49 +186,6 @@ parameters:
     type: string
     constraints:
       - custom_constraint: nova.flavor
-  GlanceNotifierStrategy:
-    description: Strategy to use for Glance notification queue
-    type: string
-    default: noop
-  GlanceLogFile:
-    description: The filepath of the file to use for logging messages from Glance.
-    type: string
-    default: ''
-  GlancePassword:
-    description: The password for the glance service and db account, used by the glance services.
-    type: string
-    hidden: true
-  GlanceBackend:
-    default: swift
-    description: The short name of the Glance backend to use. Should be one
-      of swift, rbd, or file
-    type: string
-    constraints:
-    - allowed_values: ['swift', 'file', 'rbd']
-  GlanceFilePcmkDevice:
-    default: ''
-    description: >
-      An exported storage device that should be mounted by Pacemaker
-      as Glance storage. Effective when GlanceFilePcmkManage is true.
-    type: string
-  GlanceFilePcmkFstype:
-    default: 'nfs'
-    description: >
-      Filesystem type for Pacemaker mount used as Glance storage.
-      Effective when GlanceFilePcmkManage is true.
-    type: string
-  GlanceFilePcmkManage:
-    default: false
-    description: >
-      Whether to make Glance file backend a mount managed by Pacemaker.
-      Effective when GlanceBackend is 'file'.
-    type: boolean
-  GlanceFilePcmkOptions:
-    default: ''
-    description: >
-      Mount options for Pacemaker mount used as Glance storage.
-      Effective when GlanceFilePcmkManage is true.
-    type: string
   GnocchiBackend:
     default: file
     description: The short name of the Gnocchi backend to use. Should be one
@@ -258,10 +215,6 @@ parameters:
     default: /dev/log
     description: Syslog address where HAproxy will send its log
     type: string
-  GlanceWorkers:
-    default: 0
-    description: Number of workers for Glance service.
-    type: number
   HeatPassword:
     description: The password for the Heat service and db account, used by the Heat services.
     type: string
@@ -685,12 +638,6 @@ parameters:
   HeatApiVirtualIPUri:
     type: string
     default: ''
-  GlanceApiVirtualIP:
-    type: string
-    default: ''
-  GlanceRegistryVirtualIP:
-    type: string
-    default: ''
   MysqlVirtualIP:
     type: string
     default: ''
@@ -922,7 +869,6 @@ resources:
         bootstack_nodeid: {get_attr: [Controller, name]}
         ceilometer_workers: {get_param: CeilometerWorkers}
         cinder_workers: {get_param: CinderWorkers}
-        glance_workers: {get_param: GlanceWorkers}
         heat_workers: {get_param: HeatWorkers}
         nova_workers: {get_param: NovaWorkers}
         neutron_workers: {get_param: NeutronWorkers}
@@ -980,23 +926,6 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIPUri}
               - '/cinder'
-        glance_port: {get_param: [EndpointMap, GlanceInternal, port]}
-        glance_password: {get_param: GlancePassword}
-        glance_backend: {get_param: GlanceBackend}
-        glance_file_pcmk_device: {get_param: GlanceFilePcmkDevice}
-        glance_file_pcmk_fstype: {get_param: GlanceFilePcmkFstype}
-        glance_file_pcmk_manage: {get_param: GlanceFilePcmkManage}
-        glance_file_pcmk_options: {get_param: GlanceFilePcmkOptions}
-        glance_notifier_strategy: {get_param: GlanceNotifierStrategy}
-        glance_log_file: {get_param: GlanceLogFile}
-        glance_dsn:
-          list_join:
-            - ''
-            - - 'mysql+pymysql://glance:'
-              - {get_param: GlancePassword}
-              - '@'
-              - {get_param: MysqlVirtualIPUri}
-              - '/glance'
         heat_password: {get_param: HeatPassword}
         heat_stack_domain_admin_password: {get_param: HeatStackDomainAdminPassword}
         heat_dsn:
@@ -1220,7 +1149,6 @@ resources:
         glance_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
         glance_registry_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
         glance_api_servers: { get_param: [EndpointMap, GlanceInternal, uri]}
-        glance_registry_host: {get_param: GlanceRegistryVirtualIP}
         heat_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
         keystone_public_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
         keystone_admin_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
@@ -1350,38 +1278,8 @@ resources:
                 cinder::db::mysql::password: {get_input: cinder_password}
 
                 # Glance
-                glance::api::bind_port: {get_input: glance_port}
                 glance::api::bind_host: {get_input: glance_api_network}
-                glance::api::auth_uri: {get_input: keystone_auth_uri}
-                glance::api::identity_uri: {get_input: keystone_identity_uri}
-                glance::api::registry_host: {get_input: glance_registry_host}
-                glance::api::keystone_password: {get_input: glance_password}
-                glance::api::debug: {get_input: debug}
-                glance::api::workers: {get_input: glance_workers}
-                glance_notifier_strategy: {get_input: glance_notifier_strategy}
-                glance_log_file: {get_input: glance_log_file}
-                glance_log_file: {get_input: glance_log_file}
-                glance::api::database_connection: {get_input: glance_dsn}
-                glance::registry::keystone_password: {get_input: glance_password}
-                glance::registry::database_connection: {get_input: glance_dsn}
                 glance::registry::bind_host: {get_input: glance_registry_network}
-                glance::registry::auth_uri: {get_input: keystone_auth_uri}
-                glance::registry::identity_uri: {get_input: keystone_identity_uri}
-                glance::registry::debug: {get_input: debug}
-                glance::backend::swift::swift_store_auth_address: {get_input: keystone_auth_uri}
-                glance::registry::workers: {get_input: glance_workers}
-                glance::backend::swift::swift_store_user: service:glance
-                glance::backend::swift::swift_store_key: {get_input: glance_password}
-                glance_backend: {get_input: glance_backend}
-                glance::db::mysql::password: {get_input: glance_password}
-                glance_file_pcmk_device: {get_input: glance_file_pcmk_device}
-                glance_file_pcmk_fstype: {get_input: glance_file_pcmk_fstype}
-                glance_file_pcmk_manage: {get_input: glance_file_pcmk_manage}
-                glance_file_pcmk_options: {get_input: glance_file_pcmk_options}
-                glance::notify::rabbitmq::rabbit_userid: {get_input: rabbit_username}
-                glance::notify::rabbitmq::rabbit_password: {get_input: rabbit_password}
-                glance::notify::rabbitmq::rabbit_use_ssl: {get_input: rabbit_client_use_ssl}
-
                 # Heat
                 heat_stack_domain_admin_password: {get_input: heat_stack_domain_admin_password}
                 heat::engine::heat_watch_server_url: {get_input: heat.watch_server_url}

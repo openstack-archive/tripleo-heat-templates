@@ -215,26 +215,6 @@ if hiera('step') >= 2 {
 
 if hiera('step') >= 4 {
 
-  $glance_backend = downcase(hiera('glance_backend', 'swift'))
-  case $glance_backend {
-      'swift': { $backend_store = 'glance.store.swift.Store' }
-      'file': { $backend_store = 'glance.store.filesystem.Store' }
-      'rbd': { $backend_store = 'glance.store.rbd.Store' }
-      default: { fail('Unrecognized glance_backend parameter.') }
-  }
-  $http_store = ['glance.store.http.Store']
-  $glance_store = concat($http_store, $backend_store)
-
-  # TODO: scrubber and other additional optional features
-  include ::glance
-  include ::glance::config
-  class { '::glance::api':
-    known_stores => $glance_store,
-  }
-  include ::glance::registry
-  include ::glance::notify::rabbitmq
-  include join(['::glance::backend::', $glance_backend])
-
   $nova_ipv6 = hiera('nova::use_ipv6', false)
   if $nova_ipv6 {
     $memcached_servers = suffix(hiera('memcache_node_ips_v6'), ':11211')

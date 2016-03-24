@@ -1,0 +1,93 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Glance API service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MysqlVirtualIPUri:
+    type: string
+    default: ''
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  GlanceNotifierStrategy:
+    description: Strategy to use for Glance notification queue
+    type: string
+    default: noop
+  GlanceLogFile:
+    description: The filepath of the file to use for logging messages from Glance.
+    type: string
+    default: ''
+  GlancePassword:
+    description: The password for the glance service and db account, used by the glance services.
+    type: string
+    hidden: true
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
+  GlanceWorkers:
+    default: 0
+    description: Number of workers for Glance service.
+    type: number
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+
+outputs:
+  role_data:
+    description: Role data for the Glance API role.
+    value:
+      config_settings:
+        glance_dsn: &glance_dsn
+          list_join:
+            - ''
+            - - 'mysql+pymysql://glance:'
+              - {get_param: GlancePassword}
+              - '@'
+              - {get_param: MysqlVirtualIPUri}
+              - '/glance'
+        glance::api::bind_port: {get_param: [EndpointMap, GlanceInternal, port]}
+        glance::api::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        glance::api::identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+        glance::api::registry_host:
+          str_replace:
+            template: "'REGISTRY_HOST'"
+            params:
+              REGISTRY_HOST: {get_param: [EndpointMap, GlanceRegistryInternal, host]}
+        glance::api::keystone_password: {get_param: GlancePassword}
+        glance::api::debug: {get_param: Debug}
+        glance::api::workers: {get_param: GlanceWorkers}
+        glance_notifier_strategy: {get_param: GlanceNotifierStrategy}
+        glance_log_file: {get_param: GlanceLogFile}
+        glance::api::database_connection: *glance_dsn
+        glance::backend::swift::swift_store_auth_address: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        glance::backend::swift::swift_store_user: service:glance
+        glance::backend::swift::swift_store_key: {get_param: GlancePassword}
+        glance_backend: {get_param: GlanceBackend}
+        glance::db::mysql::password: {get_param: GlancePassword}
+        glance::notify::rabbitmq::rabbit_userid: {get_param: RabbitUserName}
+        glance::notify::rabbitmq::rabbit_password: {get_param: RabbitPassword}
+        glance::notify::rabbitmq::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+      step_config: |
+        include ::tripleo::profile::base::glance::api

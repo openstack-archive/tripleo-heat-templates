@@ -475,32 +475,6 @@ MYSQL_HOST=localhost\n",
 
 if hiera('step') >= 4 {
 
-  $glance_backend = downcase(hiera('glance_backend', 'swift'))
-  case $glance_backend {
-      'swift': { $backend_store = 'glance.store.swift.Store' }
-      'file': { $backend_store = 'glance.store.filesystem.Store' }
-      'rbd': { $backend_store = 'glance.store.rbd.Store' }
-      default: { fail('Unrecognized glance_backend parameter.') }
-  }
-  $http_store = ['glance.store.http.Store']
-  $glance_store = concat($http_store, $backend_store)
-
-  # TODO: notifications, scrubber, etc.
-  include ::glance
-  include ::glance::config
-  class { '::glance::api':
-    known_stores   => $glance_store,
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::glance::registry' :
-    sync_db        => $sync_db,
-    manage_service => false,
-    enabled        => false,
-  }
-  include ::glance::notify::rabbitmq
-  include join(['::glance::backend::', $glance_backend])
-
   $nova_ipv6 = hiera('nova::use_ipv6', false)
   if $nova_ipv6 {
     $memcached_servers = suffix(hiera('memcache_node_ips_v6'), ':11211')
@@ -1176,53 +1150,6 @@ if hiera('step') >= 5 {
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
                           Pacemaker::Resource::Service[$::sahara::params::engine_service_name]],
-    }
-
-    # Glance
-    if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
-      $secontext = 'context="system_u:object_r:glance_var_lib_t:s0"'
-      pacemaker::resource::filesystem { 'glance-fs':
-        device           => hiera('glance_file_pcmk_device'),
-        directory        => hiera('glance_file_pcmk_directory'),
-        fstype           => hiera('glance_file_pcmk_fstype'),
-        fsoptions        => join([$secontext, hiera('glance_file_pcmk_options', '')],','),
-        verify_on_create => true,
-        clone_params     => '',
-      }
-    }
-
-    pacemaker::resource::service { $::glance::params::registry_service_name :
-      clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Ocf['openstack-core'],
-    }
-    pacemaker::resource::service { $::glance::params::api_service_name :
-      clone_params => 'interleave=true',
-    }
-
-    pacemaker::constraint::base { 'keystone-then-glance-registry-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::glance::params::registry_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'glance-registry-then-glance-api-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::glance::params::registry_service_name}-clone",
-      second_resource => "${::glance::params::api_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
-                          Pacemaker::Resource::Service[$::glance::params::api_service_name]],
-    }
-    pacemaker::constraint::colocation { 'glance-api-with-glance-registry-colocation':
-      source  => "${::glance::params::api_service_name}-clone",
-      target  => "${::glance::params::registry_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::glance::params::registry_service_name],
-                  Pacemaker::Resource::Service[$::glance::params::api_service_name]],
     }
 
     if hiera('step') == 5 {
