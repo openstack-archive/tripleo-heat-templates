@@ -1131,6 +1131,32 @@ if hiera('step') >= 3 {
     neutron_options => $neutron_options,
   }
 
+  # Aodh
+  class { '::aodh' :
+    database_connection => $ceilometer_database_connection,
+  }
+  include ::aodh::config
+  include ::aodh::auth
+  include ::aodh::client
+  include ::aodh::wsgi::apache
+  class { '::aodh::api':
+    manage_service => false,
+    enabled        => false,
+    service_name   => 'httpd',
+  }
+  class { '::aodh::evaluator':
+    manage_service => false,
+    enabled        => false,
+  }
+  class { '::aodh::notifier':
+    manage_service => false,
+    enabled        => false,
+  }
+  class { '::aodh::listener':
+    manage_service => false,
+    enabled        => false,
+  }
+
   $snmpd_user = hiera('snmpd_readonly_user_name')
   snmp::snmpv3_user { $snmpd_user:
     authtype => 'MD5',
@@ -1621,7 +1647,7 @@ if hiera('step') >= 4 {
                   Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
     }
 
-    # Ceilometer
+    # Ceilometer and Aodh
     case downcase(hiera('ceilometer_backend')) {
       /mysql/: {
         pacemaker::resource::service { $::ceilometer::params::agent_central_service_name:
@@ -1654,8 +1680,10 @@ if hiera('step') >= 4 {
     # Fedora doesn't know `require-all` parameter for constraints yet
     if $::operatingsystem == 'Fedora' {
       $redis_ceilometer_constraint_params = undef
+      $redis_aodh_constraint_params = undef
     } else {
       $redis_ceilometer_constraint_params = 'require-all=false'
+      $redis_aodh_constraint_params = 'require-all=false'
     }
     pacemaker::constraint::base { 'redis-then-ceilometer-central-constraint':
       constraint_type   => 'order',
@@ -1666,6 +1694,16 @@ if hiera('step') >= 4 {
       constraint_params => $redis_ceilometer_constraint_params,
       require           => [Pacemaker::Resource::Ocf['redis'],
                             Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name]],
+    }
+    pacemaker::constraint::base { 'redis-then-aodh-evaluator-constraint':
+      constraint_type   => 'order',
+      first_resource    => 'redis-master',
+      second_resource   => "${::aodh::params::evaluator_service_name}-clone",
+      first_action      => 'promote',
+      second_action     => 'start',
+      constraint_params => $redis_aodh_constraint_params,
+      require           => [Pacemaker::Resource::Ocf['redis'],
+                            Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name]],
     }
     pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
       constraint_type => 'order',
@@ -1716,6 +1754,55 @@ if hiera('step') >= 4 {
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
                   Pacemaker::Resource::Ocf['delay']],
+    }
+    # Aodh
+    pacemaker::resource::service { $::aodh::params::evaluator_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::aodh::params::notifier_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::resource::service { $::aodh::params::listener_service_name :
+      clone_params => 'interleave=true',
+    }
+    pacemaker::constraint::base { 'aodh-delay-then-aodh-evaluator-constraint':
+      constraint_type => 'order',
+      first_resource  => 'delay-clone',
+      second_resource => "${::aodh::params::evaluator_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                          Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::colocation { 'aodh-evaluator-with-aodh-delay-colocation':
+      source  => "${::aodh::params::evaluator_service_name}-clone",
+      target  => 'delay-clone',
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                  Pacemaker::Resource::Ocf['delay']],
+    }
+    pacemaker::constraint::base { 'aodh-evaluator-then-aodh-notifier-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::aodh::params::evaluator_service_name}-clone",
+      second_resource => "${::aodh::params::notifier_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                          Pacemaker::Resource::Service[$::aodh::params::notifier_service_name]],
+    }
+    pacemaker::constraint::colocation { 'aodh-notifier-with-aodh-evaluator-colocation':
+      source  => "${::aodh::params::notifier_service_name}-clone",
+      target  => "${::aodh::params::evaluator_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                  Pacemaker::Resource::Service[$::aodh::params::notifier_service_name]],
+    }
+    pacemaker::constraint::colocation { 'aodh-listener-with-aodh-evaluator-colocation':
+      source  => "${::aodh::params::listener_service_name}-clone",
+      target  => "${::aodh::params::evaluator_service_name}-clone",
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                  Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
     }
     if downcase(hiera('ceilometer_backend')) == 'mongodb' {
       pacemaker::constraint::base { 'mongodb-then-ceilometer-central-constraint':
