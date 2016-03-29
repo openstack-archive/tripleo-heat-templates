@@ -13,8 +13,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-include ::tripleo::packages
-
 define add_devices(
   $swift_zones = '1'
 ){
@@ -91,6 +89,6 @@ class tripleo::ringbuilder (
   }
 }
 
-include ::tripleo::ringbuilder
-
-package_manifest{'/var/lib/tripleo/installed-packages/ringbuilder': ensure => present}
+if hiera('step') >= 3 {
+  include ::tripleo::ringbuilder
+}
