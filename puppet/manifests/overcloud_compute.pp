@@ -164,7 +164,19 @@ if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
   #class {'::contrail::vrouter::provision_vrouter':
   #  require => Class['contrail::vrouter'],
   #}
-} else {
+}
+else {
+
+  # NOTE: this code won't live in puppet-neutron until Neutron OVS agent
+  # can be gracefully restarted. See https://review.openstack.org/#/c/297211
+  # In the meantime, it's safe to restart the agent on each change in neutron.conf,
+  # because Puppet changes are supposed to be done during bootstrap and upgrades.
+  # Some resource managed by Neutron_config (like messaging and logging options) require
+  # a restart of OVS agent. This code does it.
+  # In Newton, OVS agent will be able to be restarted gracefully so we'll drop the code
+  # from here and fix it in puppet-neutron.
+  Neutron_config<||> ~> Service['neutron-ovs-agent-service']
+
   include ::neutron::plugins::ml2
   include ::neutron::agents::ml2::ovs
 
