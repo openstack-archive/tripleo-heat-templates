@@ -36,9 +36,3 @@ if [ "$pacemaker_status" = "active" -a \
     check_resource httpd started 800
 
 fi
-
-if [ "$pacemaker_status" = "active" ]; then
-    # TODO(marios): remove this once +bug/1561012
-    # need this on all controllers:
-    systemctl reload haproxy
-fi
