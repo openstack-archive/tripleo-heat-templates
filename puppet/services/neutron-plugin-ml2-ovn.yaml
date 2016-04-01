@@ -1,0 +1,79 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Neutron ML2/OVN plugin configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OVNDbHost:
+    description: IP address on which the OVN DB servers are listening
+    type: string
+  OVNNorthboundServerPort:
+    description: Port of the OVN Northbound DB server
+    type: number
+    default: 6641
+  OVNDbConnectionTimeout:
+    description: Timeout in seconds for the OVSDB connection transaction
+    type: number
+    default: 60
+  OVNVifType:
+    description: Type of VIF to be used for ports
+    type: string
+    default: ovs
+    constraints:
+      - allowed_values:
+          - ovs
+          - vhostuser
+  OVNNeutronSyncMode:
+    description: The synchronization mode of OVN with Neutron DB
+    type: string
+    default: log
+    constraints:
+      - allowed_values:
+          - log
+          - off
+          - repair
+  OVNQosDriver:
+    description: OVN notification driver for Neutron QOS service plugin
+    type: string
+    default: NULL
+
+resources:
+
+  NeutronMl2Base:
+    type: ./neutron-plugin-ml2.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Neutron ML2/OVN plugin.
+    value:
+      service_name: neutron_plugin_ml2_ovn
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronMl2Base, role_data, config_settings]
+          - ovn::northbound::port: {get_param: OVNNorthboundServerPort}
+            tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_db_host: {get_param: OVNDbHost}
+            neutron::plugins::ovn::ovsdb_connection_timeout: {get_param: OVNDbConnectionTimeout}
+            neutron::plugins::ovn::neutron_sync_mode: {get_param: OVNNeutronSyncMode}
+            neutron::plugins::ovn::ovn_l3_mode: true
+            neutron::plugins::ovn::vif_type: {get_param: OVNVifType}
+            neutron::server::qos_notification_drivers: {get_param: OVNQosDriver}
+      step_config: |
+        include ::tripleo::profile::base::neutron::plugins::ml2
