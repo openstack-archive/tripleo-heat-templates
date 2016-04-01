@@ -19,8 +19,9 @@ function check_resource {
       match_for_incomplete='Stopped'
   fi
 
+  nodes_local=$(pcs status  | grep ^Online | sed 's/.*\[ \(.*\) \]/\1/g' | sed 's/ /\|/g')
   if timeout -k 10 $timeout crm_resource --wait; then
-      node_states=$(pcs status --full | grep "$service" | grep -v Clone)
+      node_states=$(pcs status --full | grep "$service" | grep -v Clone | { egrep "$nodes_local" || true; } )
       if echo "$node_states" | grep -q "$match_for_incomplete"; then
           echo_error "ERROR: cluster finished transition but $service was not in $state state, exiting."
           exit 1
