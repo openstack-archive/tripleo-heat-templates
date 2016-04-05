@@ -20,9 +20,12 @@ function ping_controller_ips() {
         echo -n "Trying to ping $REMOTE_IP for local network $LOCAL_NETWORK..."
         set +e
         if ! $ping -W 300 -c 1 $REMOTE_IP &> /dev/null; then
-          echo "FAILURE"
-          echo "$REMOTE_IP is not pingable. Local Network: $LOCAL_NETWORK" >&2
-          exit 1
+          # If the first ping attempt fails, retry.
+          if ! $ping -W 300 -c 10 $REMOTE_IP &> /dev/null; then
+            echo "FAILURE"
+            echo "$REMOTE_IP is not pingable. Local Network: $LOCAL_NETWORK" >&2
+            exit 1
+          fi
         fi
         set -e
         echo "SUCCESS"
@@ -40,10 +43,13 @@ function ping_default_gateways() {
   set +e
   for GW in $DEFAULT_GW; do
     echo -n "Trying to ping default gateway ${GW}..."
-    if ! ping -c 1 $GW &> /dev/null; then
-      echo "FAILURE"
-      echo "$GW is not pingable."
-      exit 1
+    if ! $ping -c 1 $GW &> /dev/null; then
+      # If the first ping attempt fails, retry.
+      if ! $ping -c 10 $GW &> /dev/null; then
+        echo "FAILURE"
+        echo "$GW is not pingable."
+        exit 1
+      fi
     fi
   done
   set -e
