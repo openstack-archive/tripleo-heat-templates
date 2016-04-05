@@ -344,13 +344,21 @@ if hiera('step') >= 3 {
   include ::neutron::server
   include ::neutron::server::notifications
 
-  # If the value of core plugin is set to 'nuage' or 'opencontrail',
-  # include nuage or opencontrail core plugins, and it does not
-  # need the l3, dhcp and metadata agents
+  # If the value of core plugin is set to 'nuage' or'opencontrail' or 'plumgrid',
+  # include nuage or opencontrail or plumgrid core plugins
+  # else use the default value of 'ml2'
   if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   } elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
     include ::neutron::plugins::opencontrail
+  }
+  elsif hiera('neutron::core_plugin') == 'networking_plumgrid.neutron.plugins.plugin.NeutronPluginPLUMgridV2' {
+    class { '::neutron::plugins::plumgrid' :
+      connection                   => hiera('neutron::server::database_connection'),
+      controller_priv_host         => hiera('keystone_admin_api_vip'),
+      admin_password               => hiera('admin_password'),
+      metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
+    }
   } else {
     include ::neutron::agents::l3
     include ::neutron::agents::dhcp
