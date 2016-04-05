@@ -82,9 +82,9 @@ if hiera('step') >= 1 {
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
   if $corosync_ipv6 {
-    $cluster_setup_extras = { '--ipv6' => '' }
+    $cluster_setup_extras = { '--token' => hiera('corosync_token_timeout', 1000), '--ipv6' => '' }
   } else {
-    $cluster_setup_extras = {}
+    $cluster_setup_extras = { '--token' => hiera('corosync_token_timeout', 1000) }
   }
   class { '::pacemaker':
     hacluster_pwd => hiera('hacluster_pwd'),
