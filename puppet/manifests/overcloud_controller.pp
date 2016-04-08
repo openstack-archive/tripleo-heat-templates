@@ -305,7 +305,6 @@ if hiera('step') >= 4 {
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   } else {
-    include ::neutron::agents::metadata
 
     # If the value of core plugin is set to 'midonet',
     # skip all the ML2 configuration

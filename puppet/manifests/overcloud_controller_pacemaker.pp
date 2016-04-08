@@ -592,12 +592,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   }
-  if hiera('neutron::enable_metadata_agent',true) {
-    class { '::neutron::agents::metadata':
-      manage_service => false,
-      enabled        => false,
-    }
-  }
   include ::neutron::plugins::ml2
   class { '::neutron::agents::ml2::ovs':
     manage_service => false,
@@ -1128,11 +1122,6 @@ if hiera('step') >= 5 {
     }
     if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
       pacemaker::resource::service {'tomcat':
-        clone_params => 'interleave=true',
-      }
-    }
-    if hiera('neutron::enable_metadata_agent', true) {
-      pacemaker::resource::service { $::neutron::params::metadata_agent_service:
         clone_params => 'interleave=true',
       }
     }
