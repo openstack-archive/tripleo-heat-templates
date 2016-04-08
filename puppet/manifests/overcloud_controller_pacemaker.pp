@@ -592,12 +592,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   }
-  if hiera('neutron::enable_l3_agent',true) {
-    class { '::neutron::agents::l3' :
-      manage_service => false,
-      enabled        => false,
-    }
-  }
   if hiera('neutron::enable_metadata_agent',true) {
     class { '::neutron::agents::metadata':
       manage_service => false,
@@ -634,9 +628,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
   if 'bsn_ml2' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     include ::neutron::plugins::ml2::bigswitch::restproxy
     include ::neutron::agents::bigswitch
-  }
-  neutron_l3_agent_config {
-    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
   }
 
   include ::cinder
@@ -1128,12 +1119,6 @@ if hiera('step') >= 5 {
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
                           Pacemaker::Resource::Service[$::sahara::params::engine_service_name]],
-    }
-
-    if hiera('neutron::enable_l3_agent', true) {
-      pacemaker::resource::service { $::neutron::params::l3_agent_service:
-        clone_params => 'interleave=true',
-      }
     }
 
     if hiera('neutron::enable_ovs_agent', true) {

@@ -305,7 +305,6 @@ if hiera('step') >= 4 {
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   } else {
-    include ::neutron::agents::l3
     include ::neutron::agents::metadata
 
     # If the value of core plugin is set to 'midonet',
@@ -349,13 +348,9 @@ if hiera('step') >= 4 {
         include ::neutron::plugins::ml2::bigswitch::restproxy
         include ::neutron::agents::bigswitch
       }
-      neutron_l3_agent_config {
-        'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-      }
       Service['neutron-server'] -> Service['neutron-ovs-agent-service']
     }
 
-    Service['neutron-server'] -> Service['neutron-l3']
     Service['neutron-server'] -> Service['neutron-metadata']
   }
 
