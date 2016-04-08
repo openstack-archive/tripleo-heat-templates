@@ -306,16 +306,7 @@ if hiera('step') >= 4 {
     }
   } else {
     include ::neutron::agents::l3
-    include ::neutron::agents::dhcp
     include ::neutron::agents::metadata
-
-    file { '/etc/neutron/dnsmasq-neutron.conf':
-      content => hiera('neutron_dnsmasq_options'),
-      owner   => 'neutron',
-      group   => 'neutron',
-      notify  => Service['neutron-dhcp-service'],
-      require => Package['neutron'],
-    }
 
     # If the value of core plugin is set to 'midonet',
     # skip all the ML2 configuration
@@ -361,13 +352,9 @@ if hiera('step') >= 4 {
       neutron_l3_agent_config {
         'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
       }
-      neutron_dhcp_agent_config {
-        'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-      }
       Service['neutron-server'] -> Service['neutron-ovs-agent-service']
     }
 
-    Service['neutron-server'] -> Service['neutron-dhcp-service']
     Service['neutron-server'] -> Service['neutron-l3']
     Service['neutron-server'] -> Service['neutron-metadata']
   }
