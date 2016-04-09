@@ -654,17 +654,6 @@ if hiera('step') >= 4 {
   $http_store = ['glance.store.http.Store']
   $glance_store = concat($http_store, $backend_store)
 
-  if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
-    $secontext = 'context="system_u:object_r:glance_var_lib_t:s0"'
-    pacemaker::resource::filesystem { 'glance-fs':
-      device       => hiera('glance_file_pcmk_device'),
-      directory    => hiera('glance_file_pcmk_directory'),
-      fstype       => hiera('glance_file_pcmk_fstype'),
-      fsoptions    => join([$secontext, hiera('glance_file_pcmk_options', '')],','),
-      clone_params => '',
-    }
-  }
-
   # TODO: notifications, scrubber, etc.
   include ::glance
   include ::glance::config
@@ -1340,6 +1329,18 @@ if hiera('step') >= 5 {
     }
 
     # Glance
+    if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
+      $secontext = 'context="system_u:object_r:glance_var_lib_t:s0"'
+      pacemaker::resource::filesystem { 'glance-fs':
+        device           => hiera('glance_file_pcmk_device'),
+        directory        => hiera('glance_file_pcmk_directory'),
+        fstype           => hiera('glance_file_pcmk_fstype'),
+        fsoptions        => join([$secontext, hiera('glance_file_pcmk_options', '')],','),
+        verify_on_create => true,
+        clone_params     => '',
+      }
+    }
+
     pacemaker::resource::service { $::glance::params::registry_service_name :
       clone_params => 'interleave=true',
       require      => Pacemaker::Resource::Ocf['openstack-core'],
