@@ -212,42 +212,6 @@ if hiera('step') >= 2 {
 
 if hiera('step') >= 4 {
 
-  include ::keystone
-  include ::keystone::config
-  include ::keystone::roles::admin
-  include ::keystone::endpoint
-  include ::keystone::wsgi::apache
-
-  #TODO: need a cleanup-keystone-tokens.sh solution here
-
-  file { [ '/etc/keystone/ssl', '/etc/keystone/ssl/certs', '/etc/keystone/ssl/private' ]:
-    ensure  => 'directory',
-    owner   => 'keystone',
-    group   => 'keystone',
-    require => Package['keystone'],
-  }
-  file { '/etc/keystone/ssl/certs/signing_cert.pem':
-    content => hiera('keystone_signing_certificate'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/certs'],
-  }
-  file { '/etc/keystone/ssl/private/signing_key.pem':
-    content => hiera('keystone_signing_key'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/private'],
-  }
-  file { '/etc/keystone/ssl/certs/ca.pem':
-    content => hiera('keystone_ca_certificate'),
-    owner   => 'keystone',
-    group   => 'keystone',
-    notify  => Service['keystone'],
-    require => File['/etc/keystone/ssl/certs'],
-  }
-
   $glance_backend = downcase(hiera('glance_backend', 'swift'))
   case $glance_backend {
       'swift': { $backend_store = 'glance.store.swift.Store' }
@@ -684,14 +648,10 @@ if hiera('step') >= 4 {
 } #END STEP 4
 
 if hiera('step') >= 5 {
-  $keystone_enable_db_purge = hiera('keystone_enable_db_purge', true)
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
   $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
 
-  if $keystone_enable_db_purge {
-    include ::keystone::cron::token_flush
-  }
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
   }
@@ -703,7 +663,6 @@ if hiera('step') >= 5 {
   }
 
   if downcase(hiera('bootstrap_nodeid')) == $::hostname {
-    include ::keystone::roles::admin
     # Class ::heat::keystone::domain has to run on bootstrap node
     # because it creates DB entities via API calls.
     include ::heat::keystone::domain

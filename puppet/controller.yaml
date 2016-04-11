@@ -4,17 +4,8 @@ description: >
   OpenStack controller node configured by Puppet.
 
 parameters:
-  AdminEmail:
-    default: 'admin@example.com'
-    description: The email for the keystone admin account.
-    type: string
-    hidden: true
   AdminPassword:
     description: The password for the keystone admin account, used for monitoring, querying neutron etc.
-    type: string
-    hidden: true
-  AdminToken:
-    description: The keystone auth secret and db password.
     type: string
     hidden: true
   AodhApiVirtualIP:
@@ -295,43 +286,6 @@ parameters:
     type: string
     constraints:
       - custom_constraint: nova.keypair
-  KeystoneCACertificate:
-    default: ''
-    description: Keystone self-signed certificate authority certificate.
-    type: string
-  KeystoneEnableDBPurge:
-    default: true
-    description: |
-        Whether to create cron job for purging soft deleted rows in Keystone database.
-    type: boolean
-  KeystoneSigningCertificate:
-    default: ''
-    description: Keystone certificate for verifying token validity.
-    type: string
-  KeystoneSigningKey:
-    default: ''
-    description: Keystone key for signing tokens.
-    type: string
-    hidden: true
-  KeystoneSSLCertificate:
-    default: ''
-    description: Keystone certificate for verifying token validity.
-    type: string
-  KeystoneSSLCertificateKey:
-    default: ''
-    description: Keystone key for signing tokens.
-    type: string
-    hidden: true
-  KeystoneNotificationDriver:
-    description: Comma-separated list of Oslo notification drivers used by Keystone
-    default: ['messaging']
-    type: comma_delimited_list
-  KeystoneNotificationFormat:
-    description: The Keystone notification format
-    default: 'basic'
-    type: string
-    constraints:
-      - allowed_values: [ 'basic', 'cadf' ]
   KeystoneRegion:
     type: string
     default: 'regionOne'
@@ -348,10 +302,6 @@ parameters:
     default: false
     description: Whether IPtables rules should be purged before setting up the new ones.
     type: boolean
-  KeystoneWorkers:
-    default: 0
-    description: Number of workers for Keystone service.
-    type: number
   SaharaApiVirtualIP:
     type: string
     default: ''
@@ -723,12 +673,6 @@ parameters:
   MysqlVirtualIPUri:
     type: string
     default: ''
-  KeystoneAdminApiVirtualIP:
-    type: string
-    default: ''
-  KeystonePublicApiVirtualIP:
-    type: string
-    default: ''
   NeutronApiVirtualIP:
     type: string
     default: ''
@@ -956,7 +900,6 @@ resources:
         cinder_workers: {get_param: CinderWorkers}
         glance_workers: {get_param: GlanceWorkers}
         heat_workers: {get_param: HeatWorkers}
-        keystone_workers: {get_param: KeystoneWorkers}
         nova_workers: {get_param: NovaWorkers}
         neutron_workers: {get_param: NeutronWorkers}
         swift_workers: {get_param: SwiftWorkers}
@@ -988,9 +931,7 @@ resources:
         heat_enable_db_purge: {get_param: HeatEnableDBPurge}
         horizon_allowed_hosts: {get_param: HorizonAllowedHosts}
         horizon_secret: {get_param: HorizonSecret}
-        admin_email: {get_param: AdminEmail}
         admin_password: {get_param: AdminPassword}
-        admin_token: {get_param: AdminToken}
         neutron_public_interface_ip: {get_param: NeutronPublicInterfaceIP}
         debug: {get_param: Debug}
         cinder_enable_db_purge: {get_param: CinderEnableDBPurge}
@@ -1042,26 +983,8 @@ resources:
               - '@'
               - {get_param: MysqlVirtualIPUri}
               - '/heat'
-        keystone_ca_certificate: {get_param: KeystoneCACertificate}
-        keystone_signing_key: {get_param: KeystoneSigningKey}
-        keystone_signing_certificate: {get_param: KeystoneSigningCertificate}
-        keystone_ssl_certificate: {get_param: KeystoneSSLCertificate}
-        keystone_ssl_certificate_key: {get_param: KeystoneSSLCertificateKey}
-        keystone_notification_driver: {get_param: KeystoneNotificationDriver}
-        keystone_notification_format: {get_param: KeystoneNotificationFormat}
-        keystone_enable_db_purge: {get_param: KeystoneEnableDBPurge}
-        keystone_dsn:
-          list_join:
-            - ''
-            - - 'mysql+pymysql://keystone:'
-              - {get_param: AdminToken}
-              - '@'
-              - {get_param: MysqlVirtualIPUri}
-              - '/keystone'
         keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
         keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-        keystone_public_url: { get_param: [EndpointMap, KeystonePublic, uri_no_suffix] }
-        keystone_internal_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
         keystone_ec2_uri: { get_param: [EndpointMap, KeystoneEC2, uri] }
         enable_fencing: {get_param: EnableFencing}
         enable_galera: {get_param: EnableGalera}
@@ -1446,38 +1369,11 @@ resources:
                 heat::db::mysql::password: {get_input: heat_password}
                 heat_enable_db_purge: {get_input: heat_enable_db_purge}
                 heat::keystone::domain::domain_password: {get_input: heat_stack_domain_admin_password}
-
                 # Keystone
-                keystone::admin_token: {get_input: admin_token}
-                keystone::roles::admin::password: {get_input: admin_password}
-                keystone_ca_certificate: {get_input: keystone_ca_certificate}
-                keystone_signing_key: {get_input: keystone_signing_key}
-                keystone_signing_certificate: {get_input: keystone_signing_certificate}
-                keystone_ssl_certificate: {get_input: keystone_ssl_certificate}
-                keystone_ssl_certificate_key: {get_input: keystone_ssl_certificate_key}
-                keystone::database_connection: {get_input: keystone_dsn}
                 keystone::admin_bind_host: {get_input: keystone_admin_api_network}
                 keystone::public_bind_host: {get_input: keystone_public_api_network}
                 keystone::wsgi::apache::bind_host: {get_input: keystone_public_api_network}
                 keystone::wsgi::apache::admin_bind_host: {get_input: keystone_admin_api_network}
-                keystone::debug: {get_input: debug}
-                keystone::db::mysql::password: {get_input: admin_token}
-                keystone::rabbit_userid: {get_input: rabbit_username}
-                keystone::rabbit_password: {get_input: rabbit_password}
-                keystone::rabbit_use_ssl: {get_input: rabbit_client_use_ssl}
-                keystone::rabbit_port: {get_input: rabbit_client_port}
-                keystone::notification_driver: {get_input: keystone_notification_driver}
-                keystone::notification_format: {get_input: keystone_notification_format}
-                keystone::roles::admin::email: {get_input: admin_email}
-                keystone::roles::admin::password: {get_input: admin_password}
-                keystone::endpoint::public_url: {get_input: keystone_public_url}
-                keystone::endpoint::internal_url: {get_input: keystone_internal_url}
-                keystone::endpoint::admin_url: {get_input: keystone_identity_uri}
-                keystone::endpoint::region: {get_input: keystone_region}
-                keystone::admin_workers: {get_input: keystone_workers}
-                keystone::public_workers: {get_input: keystone_workers}
-                keystone_enable_db_purge: {get_input: keystone_enable_db_purge}
-                keystone::public_endpoint: {get_input: keystone_public_url}
                 # MongoDB
                 mongodb::server::bind_ip: {get_input: mongo_db_network}
                 mongodb::server::nojournal: {get_input: mongodb_no_journal}
