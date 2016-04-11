@@ -8,7 +8,7 @@ pacemaker_status=$(systemctl is-active pacemaker)
 # and we're updating the deployment (not creating).
 if [ "$pacemaker_status" = "active" -a \
      "$(hiera bootstrap_nodeid)" = "$(facter hostname)" -a \
-     "$(hiera update_identifier)" != "nil" ]; then
+     "$(hiera stack_action)" = "UPDATE" ]; then
 
     #ensure neutron constraints like
     #https://review.openstack.org/#/c/245093/
