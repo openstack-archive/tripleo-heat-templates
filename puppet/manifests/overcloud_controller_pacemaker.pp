@@ -1327,6 +1327,15 @@ if hiera('step') >= 5 {
       require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
+    pacemaker::constraint::base { 'sahara-api-then-sahara-engine-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::sahara::params::api_service_name}-clone",
+      second_resource => "${::sahara::params::engine_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
+                          Pacemaker::Resource::Service[$::sahara::params::engine_service_name]],
+    }
 
     # Glance
     if $glance_backend == 'file' and hiera('glance_file_pcmk_manage', false) {
@@ -1743,6 +1752,15 @@ if hiera('step') >= 5 {
       require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
+    pacemaker::constraint::base { 'keystone-then-ceilometer-notification-constraint':
+      constraint_type => 'order',
+      first_resource  => 'openstack-core-clone',
+      second_resource => "${::ceilometer::params::agent_notification_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
+                          Pacemaker::Resource::Ocf['openstack-core']],
+    }
     pacemaker::constraint::base { 'ceilometer-central-then-ceilometer-collector-constraint':
       constraint_type => 'order',
       first_resource  => "${::ceilometer::params::agent_central_service_name}-clone",
@@ -1826,6 +1844,15 @@ if hiera('step') >= 5 {
       require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
                   Pacemaker::Resource::Service[$::aodh::params::notifier_service_name]],
     }
+    pacemaker::constraint::base { 'aodh-evaluator-then-aodh-listener-constraint':
+      constraint_type => 'order',
+      first_resource  => "${::aodh::params::evaluator_service_name}-clone",
+      second_resource => "${::aodh::params::listener_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
+                          Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
+    }
     pacemaker::constraint::colocation { 'aodh-listener-with-aodh-evaluator-colocation':
       source  => "${::aodh::params::listener_service_name}-clone",
       target  => "${::aodh::params::evaluator_service_name}-clone",
@@ -1857,15 +1884,6 @@ if hiera('step') >= 5 {
     }
     pacemaker::resource::service { $::heat::params::engine_service_name :
       clone_params => 'interleave=true',
-    }
-    pacemaker::constraint::base { 'keystone-then-heat-api-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::heat::params::api_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'heat-api-then-heat-api-cfn-constraint':
       constraint_type => 'order',
