@@ -255,183 +255,46 @@ if hiera('step') >= 2 {
       }
 
       $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
-      if is_ipv6_address($control_vip) {
-        $control_vip_netmask = '64'
-      } else {
-        $control_vip_netmask = '32'
-      }
-      pacemaker::resource::ip { 'control_vip':
-        ip_address   => $control_vip,
-        cidr_netmask => $control_vip_netmask,
-      }
-      pacemaker::constraint::base { 'control_vip-then-haproxy':
-        constraint_type   => 'order',
-        first_resource    => "ip-${control_vip}",
-        second_resource   => 'haproxy-clone',
-        first_action      => 'start',
-        second_action     => 'start',
-        constraint_params => 'kind=Optional',
-        require           => [Pacemaker::Resource::Service['haproxy'],
-                              Pacemaker::Resource::Ip['control_vip']],
-      }
-      pacemaker::constraint::colocation { 'control_vip-with-haproxy':
-        source  => "ip-${control_vip}",
-        target  => 'haproxy-clone',
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Service['haproxy'],
-                    Pacemaker::Resource::Ip['control_vip']],
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_control_vip':
+        vip_name   => 'control',
+        ip_address => $control_vip,
       }
 
       $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
-      if is_ipv6_address($public_vip) {
-        $public_vip_netmask = '64'
-      } else {
-        $public_vip_netmask = '32'
-      }
-      if $public_vip and $public_vip != $control_vip {
-        pacemaker::resource::ip { 'public_vip':
-          ip_address   => $public_vip,
-          cidr_netmask => $public_vip_netmask,
-        }
-        pacemaker::constraint::base { 'public_vip-then-haproxy':
-          constraint_type   => 'order',
-          first_resource    => "ip-${public_vip}",
-          second_resource   => 'haproxy-clone',
-          first_action      => 'start',
-          second_action     => 'start',
-          constraint_params => 'kind=Optional',
-          require           => [Pacemaker::Resource::Service['haproxy'],
-                                Pacemaker::Resource::Ip['public_vip']],
-        }
-        pacemaker::constraint::colocation { 'public_vip-with-haproxy':
-          source  => "ip-${public_vip}",
-          target  => 'haproxy-clone',
-          score   => 'INFINITY',
-          require => [Pacemaker::Resource::Service['haproxy'],
-                      Pacemaker::Resource::Ip['public_vip']],
-        }
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_public_vip':
+        ensure     => $public_vip and $public_vip != $control_vip,
+        vip_name   => 'public',
+        ip_address => $public_vip,
       }
 
       $redis_vip = hiera('redis_vip')
-      if is_ipv6_address($redis_vip) {
-        $redis_vip_netmask = '64'
-      } else {
-        $redis_vip_netmask = '32'
-      }
-      if $redis_vip and $redis_vip != $control_vip {
-        pacemaker::resource::ip { 'redis_vip':
-          ip_address   => $redis_vip,
-          cidr_netmask => $redis_vip_netmask,
-        }
-        pacemaker::constraint::base { 'redis_vip-then-haproxy':
-          constraint_type   => 'order',
-          first_resource    => "ip-${redis_vip}",
-          second_resource   => 'haproxy-clone',
-          first_action      => 'start',
-          second_action     => 'start',
-          constraint_params => 'kind=Optional',
-          require           => [Pacemaker::Resource::Service['haproxy'],
-                                Pacemaker::Resource::Ip['redis_vip']],
-        }
-        pacemaker::constraint::colocation { 'redis_vip-with-haproxy':
-          source  => "ip-${redis_vip}",
-          target  => 'haproxy-clone',
-          score   => 'INFINITY',
-          require => [Pacemaker::Resource::Service['haproxy'],
-                      Pacemaker::Resource::Ip['redis_vip']],
-        }
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_redis_vip':
+        ensure     => $redis_vip and $redis_vip != $control_vip,
+        vip_name   => 'redis',
+        ip_address => $redis_vip,
       }
 
+
       $internal_api_vip = hiera('tripleo::loadbalancer::internal_api_virtual_ip')
-      if is_ipv6_address($internal_api_vip) {
-        $internal_api_vip_netmask = '64'
-      } else {
-        $internal_api_vip_netmask = '32'
-      }
-      if $internal_api_vip and $internal_api_vip != $control_vip {
-        pacemaker::resource::ip { 'internal_api_vip':
-          ip_address   => $internal_api_vip,
-          cidr_netmask => $internal_api_vip_netmask,
-        }
-        pacemaker::constraint::base { 'internal_api_vip-then-haproxy':
-          constraint_type   => 'order',
-          first_resource    => "ip-${internal_api_vip}",
-          second_resource   => 'haproxy-clone',
-          first_action      => 'start',
-          second_action     => 'start',
-          constraint_params => 'kind=Optional',
-          require           => [Pacemaker::Resource::Service['haproxy'],
-                                Pacemaker::Resource::Ip['internal_api_vip']],
-        }
-        pacemaker::constraint::colocation { 'internal_api_vip-with-haproxy':
-          source  => "ip-${internal_api_vip}",
-          target  => 'haproxy-clone',
-          score   => 'INFINITY',
-          require => [Pacemaker::Resource::Service['haproxy'],
-                      Pacemaker::Resource::Ip['internal_api_vip']],
-        }
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_internal_api_vip':
+        ensure     => $internal_api_vip and $internal_api_vip != $control_vip,
+        vip_name   => 'internal_api',
+        ip_address => $internal_api_vip,
       }
 
       $storage_vip = hiera('tripleo::loadbalancer::storage_virtual_ip')
-      if is_ipv6_address($storage_vip) {
-        $storage_vip_netmask = '64'
-      } else {
-        $storage_vip_netmask = '32'
-      }
-      if $storage_vip and $storage_vip != $control_vip {
-        pacemaker::resource::ip { 'storage_vip':
-          ip_address   => $storage_vip,
-          cidr_netmask => $storage_vip_netmask,
-        }
-        pacemaker::constraint::base { 'storage_vip-then-haproxy':
-          constraint_type   => 'order',
-          first_resource    => "ip-${storage_vip}",
-          second_resource   => 'haproxy-clone',
-          first_action      => 'start',
-          second_action     => 'start',
-          constraint_params => 'kind=Optional',
-          require           => [Pacemaker::Resource::Service['haproxy'],
-                                Pacemaker::Resource::Ip['storage_vip']],
-        }
-        pacemaker::constraint::colocation { 'storage_vip-with-haproxy':
-          source  => "ip-${storage_vip}",
-          target  => 'haproxy-clone',
-          score   => 'INFINITY',
-          require => [Pacemaker::Resource::Service['haproxy'],
-                      Pacemaker::Resource::Ip['storage_vip']],
-        }
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_storage_vip':
+        ensure     => $storage_vip and $storage_vip != $control_vip,
+        vip_name   => 'storage',
+        ip_address => $storage_vip,
       }
 
       $storage_mgmt_vip = hiera('tripleo::loadbalancer::storage_mgmt_virtual_ip')
-      if is_ipv6_address($storage_mgmt_vip) {
-        $storage_mgmt_vip_netmask = '64'
-      } else {
-        $storage_mgmt_vip_netmask = '32'
+      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_storage_mgmt_vip':
+        ensure     => $storage_mgmt_vip and $storage_mgmt_vip != $control_vip,
+        vip_name   => 'storage_mgmt',
+        ip_address => $storage_mgmt_vip,
       }
-      if $storage_mgmt_vip and $storage_mgmt_vip != $control_vip {
-        pacemaker::resource::ip { 'storage_mgmt_vip':
-          ip_address   => $storage_mgmt_vip,
-          cidr_netmask => $storage_mgmt_vip_netmask,
-        }
-        pacemaker::constraint::base { 'storage_mgmt_vip-then-haproxy':
-          constraint_type   => 'order',
-          first_resource    => "ip-${storage_mgmt_vip}",
-          second_resource   => 'haproxy-clone',
-          first_action      => 'start',
-          second_action     => 'start',
-          constraint_params => 'kind=Optional',
-          require           => [Pacemaker::Resource::Service['haproxy'],
-                                Pacemaker::Resource::Ip['storage_mgmt_vip']],
-        }
-        pacemaker::constraint::colocation { 'storage_mgmt_vip-with-haproxy':
-          source  => "ip-${storage_mgmt_vip}",
-          target  => 'haproxy-clone',
-          score   => 'INFINITY',
-          require => [Pacemaker::Resource::Service['haproxy'],
-                      Pacemaker::Resource::Ip['storage_mgmt_vip']],
-        }
-      }
-
     }
 
     pacemaker::resource::service { $::memcached::params::service_name :
