@@ -453,6 +453,7 @@ if hiera('step') >= 3 {
     $cinder_rbd_backend = 'tripleo_ceph'
 
     cinder::backend::rbd { $cinder_rbd_backend :
+      backend_host    => hiera('cinder::host'),
       rbd_pool        => hiera('cinder_rbd_pool_name'),
       rbd_user        => hiera('ceph_client_user_name'),
       rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
