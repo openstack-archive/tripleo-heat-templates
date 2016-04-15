@@ -164,8 +164,20 @@ if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
   #class {'::contrail::vrouter::provision_vrouter':
   #  require => Class['contrail::vrouter'],
   #}
-}
-else {
+} elsif hiera('neutron::core_plugin') == 'networking_plumgrid.neutron.plugins.plugin.NeutronPluginPLUMgridV2' {
+  # forward all ipv4 traffic
+  # this is required for the vms to pass through the gateways public interface
+  sysctl::value { 'net.ipv4.ip_forward': value => '1' }
+
+  # ifc_ctl_pp needs to be invoked by root as part of the vif.py when a VM is powered on
+  file { '/etc/sudoers.d/ifc_ctl_sudoers':
+    ensure  => file,
+    owner   => root,
+    group   => root,
+    mode    => '0440',
+    content => "nova ALL=(root) NOPASSWD: /opt/pg/bin/ifc_ctl_pp *\n",
+  }
+} else {
 
   # NOTE: this code won't live in puppet-neutron until Neutron OVS agent
   # can be gracefully restarted. See https://review.openstack.org/#/c/297211
