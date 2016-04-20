@@ -23,7 +23,7 @@ update_identifier=${update_identifier//[^a-zA-Z0-9-_]/}
 
 # seconds to wait for this node to rejoin the cluster after update
 cluster_start_timeout=600
-galera_sync_timeout=360
+galera_sync_timeout=1800
 cluster_settle_timeout=1800
 
 timestamp_file="$timestamp_dir/$update_identifier"
