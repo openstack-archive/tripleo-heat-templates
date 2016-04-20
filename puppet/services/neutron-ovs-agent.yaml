@@ -1,0 +1,71 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Neutron OVS agent configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronEnableTunnelling:
+    type: string
+    default: "True"
+  NeutronEnableL2Pop:
+    type: string
+    description: >
+        Enable/disable the L2 population feature in the Neutron agents.
+    default: "False"
+  NeutronBridgeMappings:
+    description: >
+      The OVS logical->physical bridge mappings to use. See the Neutron
+      documentation for details. Defaults to mapping br-ex - the external
+      bridge on hosts - to a physical name 'datacentre' which can be used
+      to create provider networks (and we use this for the default floating
+      network) - if changing this either use different post-install network
+      scripts or be sure to keep 'datacentre' as a mapping network name.
+    type: comma_delimited_list
+    default: "datacentre:br-ex"
+  NeutronTunnelTypes:
+    default: 'vxlan'
+    description: |
+        The tunnel types for the Neutron tenant network.
+    type: comma_delimited_list
+  NeutronAgentExtensions:
+    default: "qos"
+    description: |
+        Comma-separated list of extensions enabled for the Neutron agents.
+    type: comma_delimited_list
+
+resources:
+
+  NeutronBase:
+    type: ./neutron-base.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Neutron OVS agent service.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+            neutron::agents::ml2::ovs::enable_tunneling: {get_param: NeutronEnableTunnelling}
+            neutron::agents::ml2::ovs::l2_population: {get_param: NeutronEnableL2Pop}
+            neutron::agents::ml2::ovs::bridge_mappings:
+              str_replace:
+                template: MAPPINGS
+                params:
+                  MAPPINGS: {get_param: NeutronBridgeMappings}
+            neutron::agents::ml2::ovs::tunnel_types:
+              str_replace:
+                template: TYPES
+                params:
+                  TYPES: {get_param: NeutronTunnelTypes}
+            neutron::agents::ml2::ovs::extensions:
+              str_replace:
+                template: AGENT_EXTENSIONS
+                params:
+                  AGENT_EXTENSIONS: {get_param: NeutronAgentExtensions}
+      step_config: |
+        include ::tripleo::profile::base::neutron::ovs
