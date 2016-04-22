@@ -934,6 +934,7 @@ if hiera('step') >= 4 {
     service_enable => false,
     # service_manage => false, # <-- not supported with horizon&apache mod_wsgi?
   }
+  include ::apache::mod::remoteip
   include ::apache::mod::status
   if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
     $_profile_support = 'cisco'
