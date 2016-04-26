@@ -473,7 +473,7 @@ MYSQL_HOST=localhost\n",
 
 } #END STEP 2
 
-if hiera('step') >= 4 {
+if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
 
   $nova_ipv6 = hiera('nova::use_ipv6', false)
   if $nova_ipv6 {
