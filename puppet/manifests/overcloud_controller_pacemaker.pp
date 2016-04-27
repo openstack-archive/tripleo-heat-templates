@@ -59,10 +59,6 @@ if hiera('step') >= 1 {
 
   include ::timezone
 
-  if count(hiera('ntp::servers')) > 0 {
-    include ::ntp
-  }
-
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
   if $corosync_ipv6 {
