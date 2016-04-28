@@ -23,10 +23,8 @@ Service <|
   tag == 'aodh-service' or
   tag == 'cinder-service' or
   tag == 'ceilometer-service' or
-  tag == 'glance-service' or
   tag == 'gnocchi-service' or
   tag == 'heat-service' or
-  tag == 'keystone-service' or
   tag == 'neutron-service' or
   tag == 'nova-service' or
   tag == 'sahara-service'
