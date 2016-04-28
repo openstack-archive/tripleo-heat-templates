@@ -21,7 +21,6 @@ Pcmk_resource <| |> {
 # TODO(jistr): use pcs resource provider instead of just no-ops
 Service <|
   tag == 'aodh-service' or
-  tag == 'cinder-service' or
   tag == 'ceilometer-service' or
   tag == 'gnocchi-service' or
   tag == 'neutron-service' or
@@ -297,9 +296,6 @@ if hiera('step') >= 2 {
     class { '::neutron::db::mysql':
       require => Exec['galera-ready'],
     }
-    class { '::cinder::db::mysql':
-      require => Exec['galera-ready'],
-    }
 
     if downcase(hiera('ceilometer_backend')) == 'mysql' {
       class { '::ceilometer::db::mysql':
@@ -533,150 +529,13 @@ MYSQL_HOST=localhost\n",
     include ::neutron::agents::bigswitch
   }
 
-  include ::cinder
-  include ::cinder::config
-  class { '::cinder::api':
-    sync_db        => $sync_db,
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::cinder::scheduler' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::cinder::volume' :
-    manage_service => false,
-    enabled        => false,
-  }
-  include ::cinder::glance
-  include ::cinder::ceilometer
-  class { '::cinder::setup_test_volume':
-    size => join([hiera('cinder_lvm_loop_device_size'), 'M']),
-  }
-
-  $cinder_enable_iscsi = hiera('cinder_enable_iscsi_backend', true)
-  if $cinder_enable_iscsi {
-    $cinder_iscsi_backend = 'tripleo_iscsi'
-
-    cinder::backend::iscsi { $cinder_iscsi_backend :
-      iscsi_ip_address => hiera('cinder_iscsi_ip_address'),
-      iscsi_helper     => hiera('cinder_iscsi_helper'),
-    }
-  }
-
   if $enable_ceph {
-
     $ceph_pools = hiera('ceph_pools')
     ceph::pool { $ceph_pools :
       pg_num  => hiera('ceph::profile::params::osd_pool_default_pg_num'),
       pgp_num => hiera('ceph::profile::params::osd_pool_default_pgp_num'),
       size    => hiera('ceph::profile::params::osd_pool_default_size'),
     }
-
-    $cinder_pool_requires = [Ceph::Pool[hiera('cinder_rbd_pool_name')]]
-
-  } else {
-    $cinder_pool_requires = []
-  }
-
-  if hiera('cinder_enable_rbd_backend', false) {
-    $cinder_rbd_backend = 'tripleo_ceph'
-
-    cinder::backend::rbd { $cinder_rbd_backend :
-      backend_host    => hiera('cinder::host'),
-      rbd_pool        => hiera('cinder_rbd_pool_name'),
-      rbd_user        => hiera('ceph_client_user_name'),
-      rbd_secret_uuid => hiera('ceph::profile::params::fsid'),
-      require         => $cinder_pool_requires,
-    }
-  }
-
-  if hiera('cinder_enable_eqlx_backend', false) {
-    $cinder_eqlx_backend = hiera('cinder::backend::eqlx::volume_backend_name')
-
-    cinder::backend::eqlx { $cinder_eqlx_backend :
-      volume_backend_name => hiera('cinder::backend::eqlx::volume_backend_name', undef),
-      san_ip              => hiera('cinder::backend::eqlx::san_ip', undef),
-      san_login           => hiera('cinder::backend::eqlx::san_login', undef),
-      san_password        => hiera('cinder::backend::eqlx::san_password', undef),
-      san_thin_provision  => hiera('cinder::backend::eqlx::san_thin_provision', undef),
-      eqlx_group_name     => hiera('cinder::backend::eqlx::eqlx_group_name', undef),
-      eqlx_pool           => hiera('cinder::backend::eqlx::eqlx_pool', undef),
-      eqlx_use_chap       => hiera('cinder::backend::eqlx::eqlx_use_chap', undef),
-      eqlx_chap_login     => hiera('cinder::backend::eqlx::eqlx_chap_login', undef),
-      eqlx_chap_password  => hiera('cinder::backend::eqlx::eqlx_san_password', undef),
-    }
-  }
-
-  if hiera('cinder_enable_dellsc_backend', false) {
-    $cinder_dellsc_backend = hiera('cinder::backend::dellsc_iscsi::volume_backend_name')
-
-    cinder::backend::dellsc_iscsi{ $cinder_dellsc_backend :
-      volume_backend_name   => hiera('cinder::backend::dellsc_iscsi::volume_backend_name', undef),
-      san_ip                => hiera('cinder::backend::dellsc_iscsi::san_ip', undef),
-      san_login             => hiera('cinder::backend::dellsc_iscsi::san_login', undef),
-      san_password          => hiera('cinder::backend::dellsc_iscsi::san_password', undef),
-      dell_sc_ssn           => hiera('cinder::backend::dellsc_iscsi::dell_sc_ssn', undef),
-      iscsi_ip_address      => hiera('cinder::backend::dellsc_iscsi::iscsi_ip_address', undef),
-      iscsi_port            => hiera('cinder::backend::dellsc_iscsi::iscsi_port', undef),
-      dell_sc_api_port      => hiera('cinder::backend::dellsc_iscsi::dell_sc_api_port', undef),
-      dell_sc_server_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_server_folder', undef),
-      dell_sc_volume_folder => hiera('cinder::backend::dellsc_iscsi::dell_sc_volume_folder', undef),
-    }
-  }
-
-  if hiera('cinder_enable_netapp_backend', false) {
-    $cinder_netapp_backend = hiera('cinder::backend::netapp::title')
-
-    if hiera('cinder::backend::netapp::nfs_shares', undef) {
-      $cinder_netapp_nfs_shares = split(hiera('cinder::backend::netapp::nfs_shares', undef), ',')
-    }
-
-    cinder::backend::netapp { $cinder_netapp_backend :
-      netapp_login                 => hiera('cinder::backend::netapp::netapp_login', undef),
-      netapp_password              => hiera('cinder::backend::netapp::netapp_password', undef),
-      netapp_server_hostname       => hiera('cinder::backend::netapp::netapp_server_hostname', undef),
-      netapp_server_port           => hiera('cinder::backend::netapp::netapp_server_port', undef),
-      netapp_size_multiplier       => hiera('cinder::backend::netapp::netapp_size_multiplier', undef),
-      netapp_storage_family        => hiera('cinder::backend::netapp::netapp_storage_family', undef),
-      netapp_storage_protocol      => hiera('cinder::backend::netapp::netapp_storage_protocol', undef),
-      netapp_transport_type        => hiera('cinder::backend::netapp::netapp_transport_type', undef),
-      netapp_vfiler                => hiera('cinder::backend::netapp::netapp_vfiler', undef),
-      netapp_volume_list           => hiera('cinder::backend::netapp::netapp_volume_list', undef),
-      netapp_vserver               => hiera('cinder::backend::netapp::netapp_vserver', undef),
-      netapp_partner_backend_name  => hiera('cinder::backend::netapp::netapp_partner_backend_name', undef),
-      nfs_shares                   => $cinder_netapp_nfs_shares,
-      nfs_shares_config            => hiera('cinder::backend::netapp::nfs_shares_config', undef),
-      netapp_copyoffload_tool_path => hiera('cinder::backend::netapp::netapp_copyoffload_tool_path', undef),
-      netapp_controller_ips        => hiera('cinder::backend::netapp::netapp_controller_ips', undef),
-      netapp_sa_password           => hiera('cinder::backend::netapp::netapp_sa_password', undef),
-      netapp_storage_pools         => hiera('cinder::backend::netapp::netapp_storage_pools', undef),
-      netapp_eseries_host_type     => hiera('cinder::backend::netapp::netapp_eseries_host_type', undef),
-      netapp_webservice_path       => hiera('cinder::backend::netapp::netapp_webservice_path', undef),
-    }
-  }
-
-  if hiera('cinder_enable_nfs_backend', false) {
-    $cinder_nfs_backend = 'tripleo_nfs'
-
-    if str2bool($::selinux) {
-      selboolean { 'virt_use_nfs':
-        value      => on,
-        persistent => true,
-      } -> Package['nfs-utils']
-    }
-
-    package { 'nfs-utils': } ->
-    cinder::backend::nfs { $cinder_nfs_backend:
-      nfs_servers       => hiera('cinder_nfs_servers'),
-      nfs_mount_options => hiera('cinder_nfs_mount_options',''),
-      nfs_shares_config => '/etc/cinder/shares-nfs.conf',
-    }
-  }
-
-  $cinder_enabled_backends = delete_undef_values([$cinder_iscsi_backend, $cinder_rbd_backend, $cinder_eqlx_backend, $cinder_dellsc_backend, $cinder_netapp_backend, $cinder_nfs_backend])
-  class { '::cinder::backends' :
-    enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
   }
 
   # swift storage
@@ -873,13 +732,9 @@ password=\"${mysql_root_password}\"",
   }
 
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
-  $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
 
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
-  }
-  if $cinder_enable_db_purge {
-    include ::cinder::cron::db_purge
   }
 
   if $pacemaker_master {
@@ -901,58 +756,6 @@ password=\"${mysql_root_password}\"",
       second_action   => 'start',
       require         => [Pacemaker::Resource::Ocf['galera'],
                           Pacemaker::Resource::Ocf['openstack-core']],
-    }
-
-    # Cinder
-    pacemaker::resource::service { $::cinder::params::api_service :
-      clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Ocf['openstack-core'],
-    }
-    pacemaker::resource::service { $::cinder::params::scheduler_service :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::cinder::params::volume_service : }
-
-    pacemaker::constraint::base { 'keystone-then-cinder-api-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::cinder::params::api_service}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Ocf['openstack-core'],
-                          Pacemaker::Resource::Service[$::cinder::params::api_service]],
-    }
-    pacemaker::constraint::base { 'cinder-api-then-cinder-scheduler-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::cinder::params::api_service}-clone",
-      second_resource => "${::cinder::params::scheduler_service}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::cinder::params::api_service],
-                          Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
-    }
-    pacemaker::constraint::colocation { 'cinder-scheduler-with-cinder-api-colocation':
-      source  => "${::cinder::params::scheduler_service}-clone",
-      target  => "${::cinder::params::api_service}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::cinder::params::api_service],
-                  Pacemaker::Resource::Service[$::cinder::params::scheduler_service]],
-    }
-    pacemaker::constraint::base { 'cinder-scheduler-then-cinder-volume-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::cinder::params::scheduler_service}-clone",
-      second_resource => $::cinder::params::volume_service,
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
-                          Pacemaker::Resource::Service[$::cinder::params::volume_service]],
-    }
-    pacemaker::constraint::colocation { 'cinder-volume-with-cinder-scheduler-colocation':
-      source  => $::cinder::params::volume_service,
-      target  => "${::cinder::params::scheduler_service}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
-                  Pacemaker::Resource::Service[$::cinder::params::volume_service]],
     }
 
     if hiera('neutron::enable_ovs_agent', true) {

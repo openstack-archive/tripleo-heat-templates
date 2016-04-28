@@ -70,7 +70,7 @@ if hiera('step') >= 4 {
     include ::ceph::profile::client
 
     $client_keys = hiera('ceph::profile::params::client_keys')
-    $client_user = join(['client.', hiera('ceph_client_user_name')])
+    $client_user = join(['client.', hiera('tripleo::profile::base::cinder::volume::rbd::cinder_rbd_user_name')])
     class { '::nova::compute::rbd':
       libvirt_rbd_secret_key => $client_keys[$client_user]['secret'],
     }

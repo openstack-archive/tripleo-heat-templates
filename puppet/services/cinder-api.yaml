@@ -1,0 +1,42 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Cinder API service configured with Puppet
+
+parameters:
+  CinderEnableDBPurge:
+    default: true
+    description: |
+      Whether to create cron job for purging soft deleted rows in Cinder database.
+    type: boolean
+  CinderPassword:
+    description: The password for the cinder service account, used by cinder-api.
+    type: string
+    hidden: true
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  CinderBase:
+    type: ./cinder-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Cinder API role.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [CinderBase, role_data, config_settings]
+          - cinder::api::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            cinder::api::identity_uri: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            cinder::api::keystone_password: {get_param: CinderPassword}
+            cinder::glance::glance_api_servers: {get_param: [EndpointMap, GlanceInternal, uri]}
+            tripleo::profile::base::cinder::cinder_enable_db_purge: {get_param: CinderEnableDBPurge}
+      step_config: |
+        include ::tripleo::profile::base::cinder::api
