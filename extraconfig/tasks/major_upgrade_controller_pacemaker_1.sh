@@ -26,6 +26,12 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
     check_resource memcached stopped 600
     pcs resource disable galera
     check_resource galera stopped 600
+    # Disable all VIPs before stopping the cluster, so that pcs doesn't use one as a source address:
+    #   https://bugzilla.redhat.com/show_bug.cgi?id=1330688
+    for vip in $(pcs resource show | grep ocf::heartbeat:IPaddr2 | grep Started | awk '{ print $1 }'); do
+      pcs resource disable $vip
+      check_resource $vip stopped 60
+    done
     pcs cluster stop --all
 fi
 
