@@ -114,35 +114,6 @@ if hiera('step') >= 1 {
     op_params => 'start timeout=200s stop timeout=200s',
   }
 
-  # Only configure RabbitMQ in this step, don't start it yet to
-  # avoid races where non-master nodes attempt to start without
-  # config (eg. binding on 0.0.0.0)
-  # The module ignores erlang_cookie if cluster_config is false
-  $rabbit_ipv6 = str2bool(hiera('rabbit_ipv6', false))
-  if $rabbit_ipv6 {
-      $rabbit_env = merge(hiera('rabbitmq_environment'), {
-        'RABBITMQ_SERVER_START_ARGS' => '"-proto_dist inet6_tcp"'
-      })
-  } else {
-    $rabbit_env = hiera('rabbitmq_environment')
-  }
-
-  class { '::rabbitmq':
-    service_manage          => false,
-    tcp_keepalive           => false,
-    config_kernel_variables => hiera('rabbitmq_kernel_variables'),
-    config_variables        => hiera('rabbitmq_config_variables'),
-    environment_variables   => $rabbit_env,
-  } ->
-  file { '/var/lib/rabbitmq/.erlang.cookie':
-    ensure  => file,
-    owner   => 'rabbitmq',
-    group   => 'rabbitmq',
-    mode    => '0400',
-    content => hiera('rabbitmq::erlang_cookie'),
-    replace => true,
-  }
-
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     include ::mongodb::globals
     include ::mongodb::client
@@ -302,14 +273,6 @@ if hiera('step') >= 2 {
     pacemaker::resource::service { $::memcached::params::service_name :
       clone_params => 'interleave=true',
       require      => Class['::memcached'],
-    }
-
-    pacemaker::resource::ocf { 'rabbitmq':
-      ocf_agent_name  => 'heartbeat:rabbitmq-cluster',
-      resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
-      clone_params    => 'ordered=true interleave=true',
-      meta_params     => 'notify=true',
-      require         => Class['::rabbitmq'],
     }
 
     if downcase(hiera('ceilometer_backend')) == 'mongodb' {

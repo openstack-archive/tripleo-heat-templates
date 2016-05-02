@@ -127,36 +127,6 @@ if hiera('step') >= 2 {
     include ::aodh::db::mysql
   }
 
-  $rabbit_nodes = hiera('rabbit_node_ips')
-  if count($rabbit_nodes) > 1 {
-
-    $rabbit_ipv6 = str2bool(hiera('rabbit_ipv6', false))
-    if $rabbit_ipv6 {
-      $rabbit_env = merge(hiera('rabbitmq_environment'), {
-        'RABBITMQ_SERVER_START_ARGS' => '"-proto_dist inet6_tcp"'
-      })
-    } else {
-      $rabbit_env = hiera('rabbitmq_environment')
-    }
-
-    class { '::rabbitmq':
-      config_cluster          => true,
-      cluster_nodes           => $rabbit_nodes,
-      tcp_keepalive           => false,
-      config_kernel_variables => hiera('rabbitmq_kernel_variables'),
-      config_variables        => hiera('rabbitmq_config_variables'),
-      environment_variables   => $rabbit_env,
-    }
-    rabbitmq_policy { 'ha-all@/':
-      pattern    => '^(?!amq\.).*',
-      definition => {
-        'ha-mode' => 'all',
-      },
-    }
-  } else {
-    include ::rabbitmq
-  }
-
   # pre-install swift here so we can build rings
   include ::swift
 
