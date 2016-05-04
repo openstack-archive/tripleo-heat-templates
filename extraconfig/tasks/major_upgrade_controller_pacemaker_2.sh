@@ -24,6 +24,11 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
         exit 1
     fi
 
+    for vip in $(pcs resource show | grep ocf::heartbeat:IPaddr2 | grep Stopped | awk '{ print $1 }'); do
+      pcs resource enable $vip
+      check_resource $vip started 60
+    done
+
     pcs resource enable galera
     check_resource galera started 600
     pcs resource enable mongod
