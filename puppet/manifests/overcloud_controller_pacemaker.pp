@@ -66,18 +66,6 @@ if hiera('step') >= 1 {
     include ::ntp
   }
 
-  $controller_node_ips = split(hiera('controller_node_ips'), ',')
-  $controller_node_names = split(downcase(hiera('controller_node_names')), ',')
-  if $enable_load_balancer {
-    class { '::tripleo::loadbalancer' :
-      controller_hosts       => $controller_node_ips,
-      controller_hosts_names => $controller_node_names,
-      manage_vip             => false,
-      mysql_clustercheck     => true,
-      haproxy_service_manage => false,
-    }
-  }
-
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
   if $corosync_ipv6 {
@@ -210,64 +198,12 @@ if hiera('step') >= 2 {
 
   if $pacemaker_master {
 
-    if $enable_load_balancer {
+    include ::pacemaker::resource_defaults
 
-      include ::pacemaker::resource_defaults
-
-      # Create an openstack-core dummy resource. See RHBZ 1290121
-      pacemaker::resource::ocf { 'openstack-core':
-        ocf_agent_name => 'heartbeat:Dummy',
-        clone_params   => true,
-      }
-      # FIXME: we should not have to access tripleo::loadbalancer class
-      # parameters here to configure pacemaker VIPs. The configuration
-      # of pacemaker VIPs could move into puppet-tripleo or we should
-      # make use of less specific hiera parameters here for the settings.
-      pacemaker::resource::service { 'haproxy':
-        clone_params => true,
-      }
-
-      $control_vip = hiera('tripleo::loadbalancer::controller_virtual_ip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_control_vip':
-        vip_name   => 'control',
-        ip_address => $control_vip,
-      }
-
-      $public_vip = hiera('tripleo::loadbalancer::public_virtual_ip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_public_vip':
-        ensure     => $public_vip and $public_vip != $control_vip,
-        vip_name   => 'public',
-        ip_address => $public_vip,
-      }
-
-      $redis_vip = hiera('redis_vip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_redis_vip':
-        ensure     => $redis_vip and $redis_vip != $control_vip,
-        vip_name   => 'redis',
-        ip_address => $redis_vip,
-      }
-
-
-      $internal_api_vip = hiera('tripleo::loadbalancer::internal_api_virtual_ip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_internal_api_vip':
-        ensure     => $internal_api_vip and $internal_api_vip != $control_vip,
-        vip_name   => 'internal_api',
-        ip_address => $internal_api_vip,
-      }
-
-      $storage_vip = hiera('tripleo::loadbalancer::storage_virtual_ip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_storage_vip':
-        ensure     => $storage_vip and $storage_vip != $control_vip,
-        vip_name   => 'storage',
-        ip_address => $storage_vip,
-      }
-
-      $storage_mgmt_vip = hiera('tripleo::loadbalancer::storage_mgmt_virtual_ip')
-      tripleo::pacemaker::haproxy_with_vip { 'haproxy_and_storage_mgmt_vip':
-        ensure     => $storage_mgmt_vip and $storage_mgmt_vip != $control_vip,
-        vip_name   => 'storage_mgmt',
-        ip_address => $storage_mgmt_vip,
-      }
+    # Create an openstack-core dummy resource. See RHBZ 1290121
+    pacemaker::resource::ocf { 'openstack-core':
+      ocf_agent_name => 'heartbeat:Dummy',
+      clone_params   => true,
     }
 
     pacemaker::resource::service { $::memcached::params::service_name :
