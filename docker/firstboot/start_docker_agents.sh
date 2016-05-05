@@ -23,7 +23,7 @@ Restart=on-failure
 ExecStartPre=-/usr/bin/docker kill heat-agents
 ExecStartPre=-/usr/bin/docker rm heat-agents
 ExecStartPre=/usr/bin/docker pull $agent_image
-ExecStart=/usr/bin/docker run --name heat-agents --privileged --net=host -v /var/lib/etc-data:/var/lib/etc-data -v /run:/run -v /etc:/host/etc -v /usr/bin/atomic:/usr/bin/atomic -v /var/lib/dhclient:/var/lib/dhclient -v /var/lib/cloud:/var/lib/cloud -v /var/lib/heat-cfntools:/var/lib/heat-cfntools --entrypoint=/usr/bin/os-collect-config $agent_image
+ExecStart=/usr/bin/docker run --name heat-agents --privileged --net=host -v /var/lib/etc-data:/var/lib/etc-data -v /run:/run -v /etc:/host/etc -v /usr/bin/atomic:/usr/bin/atomic -v /var/lib/dhclient:/var/lib/dhclient -v /var/lib/cloud:/var/lib/cloud -v /var/lib/heat-cfntools:/var/lib/heat-cfntools -v /usr/bin/docker:/usr/bin/docker --entrypoint=/usr/bin/os-collect-config $agent_image
 ExecStop=/usr/bin/docker stop heat-agents
 
 [Install]
