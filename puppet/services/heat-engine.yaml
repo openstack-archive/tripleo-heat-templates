@@ -1,0 +1,62 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Openstack Heat Engine service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MysqlVirtualIPUri:
+    type: string
+    default: ''
+  HeatEnableDBPurge:
+    type: boolean
+    default: true
+    description: |
+        Whether to create cron job for purging soft deleted rows in the Heat database.
+  HeatWorkers:
+    default: 0
+    description: Number of workers for Heat service.
+    type: number
+  HeatPassword:
+    description: The password for the Heat service and db account, used by the Heat services.
+    type: string
+    hidden: true
+  HeatStackDomainAdminPassword:
+    description: Password for heat_stack_domain_admin user.
+    type: string
+    hidden: true
+
+resources:
+  HeatBase:
+    type: ./heat-base.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Heat Engine role.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [HeatBase, role_data, config_settings]
+          - heat::engine::num_engine_workers: {get_param: HeatWorkers}
+            tripleo::profile::base::heat::manage_db_purge: {get_param: HeatEnableDBPurge}
+            heat_dsn: &heat_dsn
+              list_join:
+                - ''
+                - - 'mysql+pymysql://heat:'
+                  - {get_param: HeatPassword}
+                  - '@'
+                  - {get_param: MysqlVirtualIPUri}
+                  - '/heat'
+            heat::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            heat::keystone_ec2_uri: {get_param: [EndpointMap, KeystoneEC2, uri]}
+            heat::identity_uri: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            heat::keystone_password: {get_param: HeatPassword}
+            heat::database_connection: *heat_dsn
+            heat::db::mysql::password: {get_param: HeatPassword}
+            heat::keystone::domain::domain_password: {get_param: HeatStackDomainAdminPassword}
+      step_config: |
+        include ::tripleo::profile::base::heat::engine
