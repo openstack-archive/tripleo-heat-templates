@@ -113,8 +113,6 @@ if hiera('step') >= 2 {
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
-  include ::keystone::db::mysql
-  include ::glance::db::mysql
   include ::nova::db::mysql
   include ::nova::db::mysql_api
   include ::neutron::db::mysql

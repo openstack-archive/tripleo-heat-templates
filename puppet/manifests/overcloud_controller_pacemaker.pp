@@ -377,12 +377,6 @@ MYSQL_HOST=localhost\n",
 
   # Create all the database schemas
   if $sync_db {
-    class { '::keystone::db::mysql':
-      require => Exec['galera-ready'],
-    }
-    class { '::glance::db::mysql':
-      require => Exec['galera-ready'],
-    }
     class { '::nova::db::mysql':
       require => Exec['galera-ready'],
     }
