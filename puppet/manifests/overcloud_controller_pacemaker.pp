@@ -46,7 +46,7 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $sync_db = false
 }
 
-$enable_fencing = str2bool(hiera('enable_fencing', false)) and hiera('step') >= 6
+$enable_fencing = str2bool(hiera('enable_fencing', false)) and hiera('step') >= 5
 $enable_load_balancer = hiera('enable_load_balancer', true)
 
 # When to start and enable services which haven't been Pacemakerized
@@ -99,6 +99,10 @@ if hiera('step') >= 1 {
   if $enable_fencing {
     include ::tripleo::fencing
 
+    # enable stonith after all Pacemaker resources have been created
+    Pcmk_resource<||> -> Class['tripleo::fencing']
+    Pcmk_constraint<||> -> Class['tripleo::fencing']
+    Exec <| tag == 'pacemaker_constraint' |> -> Class['tripleo::fencing']
     # enable stonith after all fencing devices have been created
     Class['tripleo::fencing'] -> Class['pacemaker::stonith']
   }
