@@ -10,7 +10,7 @@ function ping_retry() {
     PING_CMD=ping6
   fi
   until [ $COUNT -ge $TIMES ]; do
-    if $PING_CMD -W 300 -c 1 $IP_ADDR &> /dev/null; then
+    if $PING_CMD -w 300 -c 1 $IP_ADDR &> /dev/null; then
       echo "Ping to $IP_ADDR succeeded."
       return 0
     fi
