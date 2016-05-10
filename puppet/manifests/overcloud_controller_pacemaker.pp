@@ -349,6 +349,16 @@ if hiera('step') >= 2 {
     }
 
   }
+  $mysql_root_password = hiera('mysql::server::root_password')
+  $mysql_clustercheck_password = hiera('mysql_clustercheck_password')
+  # This step is to create a sysconfig clustercheck file with the root user and empty password
+  # on the first install only (because later on the clustercheck db user will be used)
+  # We are using exec and not file in order to not have duplicate definition errors in puppet
+  # when we later set the the file to contain the clustercheck data
+  exec { 'create-root-sysconfig-clustercheck':
+    command => "/bin/echo 'MYSQL_USERNAME=root\nMYSQL_PASSWORD=\'\'\nMYSQL_HOST=localhost\n' > /etc/sysconfig/clustercheck",
+    unless  => '/bin/test -e /etc/sysconfig/clustercheck && grep -q clustercheck /etc/sysconfig/clustercheck',
+  }
 
   exec { 'galera-ready' :
     command     => '/usr/bin/clustercheck >/dev/null',
@@ -356,14 +366,7 @@ if hiera('step') >= 2 {
     tries       => 180,
     try_sleep   => 10,
     environment => ['AVAILABLE_WHEN_READONLY=0'],
-    require     => File['/etc/sysconfig/clustercheck'],
-  }
-
-  file { '/etc/sysconfig/clustercheck' :
-    ensure  => file,
-    content => "MYSQL_USERNAME=root\n
-MYSQL_PASSWORD=''\n
-MYSQL_HOST=localhost\n",
+    require     => Exec['create-root-sysconfig-clustercheck'],
   }
 
   xinetd::service { 'galera-monitor' :
@@ -376,7 +379,24 @@ MYSQL_HOST=localhost\n",
     service_type   => 'UNLISTED',
     user           => 'root',
     group          => 'root',
-    require        => File['/etc/sysconfig/clustercheck'],
+    require        => Exec['create-root-sysconfig-clustercheck'],
+  }
+  # We add a clustercheck db user and we will switch /etc/sysconfig/clustercheck
+  # to it in a later step. We do this only on one node as it will replicate on
+  # the other members. We also make sure that the permissions are the minimum necessary
+  if $pacemaker_master {
+    mysql_user { 'clustercheck@localhost':
+      ensure        => 'present',
+      password_hash => mysql_password($mysql_clustercheck_password),
+      require       => Exec['galera-ready'],
+    }
+    mysql_grant { 'clustercheck@localhost/*.*':
+      ensure     => 'present',
+      options    => ['GRANT'],
+      privileges => ['PROCESS'],
+      table      => '*.*',
+      user       => 'clustercheck@localhost',
+    }
   }
 
   # Create all the database schemas
@@ -470,6 +490,17 @@ MYSQL_HOST=localhost\n",
 } #END STEP 2
 
 if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
+  # At this stage we are guaranteed that the clustercheck db user exists
+  # so we switch the resource agent to use it.
+  file { '/etc/sysconfig/clustercheck' :
+    ensure  => file,
+    mode    => '0600',
+    owner   => 'root',
+    group   => 'root',
+    content => "MYSQL_USERNAME=clustercheck\n
+MYSQL_PASSWORD='${mysql_clustercheck_password}'\n
+MYSQL_HOST=localhost\n",
+  }
 
   $nova_ipv6 = hiera('nova::use_ipv6', false)
   if $nova_ipv6 {
@@ -1007,6 +1038,29 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
 } #END STEP 4
 
 if hiera('step') >= 5 {
+  # We now make sure that the root db password is set to a random one
+  # At first installation /root/.my.cnf will be empty and we connect without a root
+  # password. On second runs or updates /root/.my.cnf will already be populated
+  # with proper credentials. This step happens on every node because this sql
+  # statement does not automatically replicate across nodes.
+  exec { 'galera-set-root-password':
+    command => "/bin/touch /root/.my.cnf && /bin/echo \"UPDATE mysql.user SET Password = PASSWORD('${mysql_root_password}') WHERE user = 'root'; flush privileges;\" | /bin/mysql --defaults-extra-file=/root/.my.cnf -u root",
+  }
+  file { '/root/.my.cnf' :
+    ensure  => file,
+    mode    => '0600',
+    owner   => 'root',
+    group   => 'root',
+    content => "[client]
+user=root
+password=\"${mysql_root_password}\"
+
+[mysql]
+user=root
+password=\"${mysql_root_password}\"",
+    require => Exec['galera-set-root-password'],
+  }
+
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
   $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
