@@ -100,11 +100,7 @@ if hiera('step') >= 1 {
   }
 
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-    include ::mongodb::globals
-    include ::mongodb::client
-    class { '::mongodb::server' :
-      service_manage => false,
-    }
+    include ::mongodb::params
   }
 
   # Galera
@@ -166,6 +162,7 @@ if hiera('step') >= 1 {
 
 if hiera('step') >= 2 {
 
+
   # NOTE(gfidente): the following vars are needed on all nodes so they
   # need to stay out of pacemaker_master conditional.
   # The addresses mangling will hopefully go away when we'll be able to
@@ -190,24 +187,6 @@ if hiera('step') >= 2 {
     pacemaker::resource::ocf { 'openstack-core':
       ocf_agent_name => 'heartbeat:Dummy',
       clone_params   => true,
-    }
-
-    if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-      pacemaker::resource::service { $::mongodb::params::service_name :
-        op_params    => 'start timeout=370s stop timeout=200s',
-        clone_params => true,
-        require      => Class['::mongodb::server'],
-      }
-      # NOTE (spredzy) : The replset can only be run
-      # once all the nodes have joined the cluster.
-      mongodb_conn_validator { $mongo_node_ips_with_port :
-        timeout => '600',
-        require => Pacemaker::Resource::Service[$::mongodb::params::service_name],
-        before  => Mongodb_replset[$mongodb_replset],
-      }
-      mongodb_replset { $mongodb_replset :
-        members => $mongo_node_ips_with_port_nobr,
-      }
     }
 
     pacemaker::resource::ocf { 'galera' :
