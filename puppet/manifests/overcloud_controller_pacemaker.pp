@@ -278,9 +278,6 @@ if hiera('step') >= 2 {
     class { '::nova::db::mysql_api':
       require => Exec['galera-ready'],
     }
-    class { '::neutron::db::mysql':
-      require => Exec['galera-ready'],
-    }
 
     if downcase(hiera('ceilometer_backend')) == 'mysql' {
       class { '::ceilometer::db::mysql':
@@ -451,12 +448,6 @@ MYSQL_HOST=localhost\n",
   }
 
   include ::neutron::config
-  class { '::neutron::server' :
-    sync_db        => $sync_db,
-    manage_service => false,
-    enabled        => false,
-  }
-  include ::neutron::server::notifications
   if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   }
