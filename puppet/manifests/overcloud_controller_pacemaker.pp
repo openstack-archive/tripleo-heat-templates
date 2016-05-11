@@ -592,19 +592,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   }
-  if hiera('neutron::enable_dhcp_agent',true) {
-    class { '::neutron::agents::dhcp' :
-      manage_service => false,
-      enabled        => false,
-    }
-    file { '/etc/neutron/dnsmasq-neutron.conf':
-      content => hiera('neutron_dnsmasq_options'),
-      owner   => 'neutron',
-      group   => 'neutron',
-      notify  => Service['neutron-dhcp-service'],
-      require => Package['neutron'],
-    }
-  }
   if hiera('neutron::enable_l3_agent',true) {
     class { '::neutron::agents::l3' :
       manage_service => false,
@@ -650,12 +637,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
   }
   neutron_l3_agent_config {
     'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-  }
-  neutron_dhcp_agent_config {
-    'DEFAULT/ovs_use_veth': value => hiera('neutron_ovs_use_veth', false);
-  }
-  neutron_config {
-    'DEFAULT/notification_driver': value => 'messaging';
   }
 
   include ::cinder
@@ -1149,43 +1130,12 @@ if hiera('step') >= 5 {
                           Pacemaker::Resource::Service[$::sahara::params::engine_service_name]],
     }
 
-    if hiera('step') == 5 {
-      # Neutron
-      # NOTE(gfidente): Neutron will try to populate the database with some data
-      # as soon as neutron-server is started; to avoid races we want to make this
-      # happen only on one node, before normal Pacemaker initialization
-      # https://bugzilla.redhat.com/show_bug.cgi?id=1233061
-      # NOTE(emilien): we need to run this Exec only at Step 4 otherwise this exec
-      # will try to start the service while it's already started by Pacemaker
-      # It would result to a deployment failure since systemd would return 1 to Puppet
-      # and the overcloud would fail to deploy (6 would be returned).
-      # This conditional prevents from a race condition during the deployment.
-      # https://bugzilla.redhat.com/show_bug.cgi?id=1290582
-      exec { 'neutron-server-systemd-start-sleep' :
-        command => 'systemctl start neutron-server && /usr/bin/sleep 5',
-        path    => '/usr/bin',
-        unless  => '/sbin/pcs resource show neutron-server',
-      } ->
-      pacemaker::resource::service { $::neutron::params::server_service:
-        clone_params => 'interleave=true',
-        require      => Pacemaker::Resource::Ocf['openstack-core']
-      }
-    } else {
-      pacemaker::resource::service { $::neutron::params::server_service:
-        clone_params => 'interleave=true',
-        require      => Pacemaker::Resource::Ocf['openstack-core']
-      }
-    }
     if hiera('neutron::enable_l3_agent', true) {
       pacemaker::resource::service { $::neutron::params::l3_agent_service:
         clone_params => 'interleave=true',
       }
     }
-    if hiera('neutron::enable_dhcp_agent', true) {
-      pacemaker::resource::service { $::neutron::params::dhcp_agent_service:
-        clone_params => 'interleave=true',
-      }
-    }
+
     if hiera('neutron::enable_ovs_agent', true) {
       pacemaker::resource::service { $::neutron::params::ovs_agent_service:
         clone_params => 'interleave=true',
@@ -1243,81 +1193,6 @@ if hiera('step') >= 5 {
         score   => 'INFINITY',
         require => [Pacemaker::Resource::Ocf['neutron-netns-cleanup'],
                     Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
-      }
-    }
-    pacemaker::constraint::base { 'keystone-to-neutron-server-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::neutron::params::server_service}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Ocf['openstack-core'],
-                          Pacemaker::Resource::Service[$::neutron::params::server_service]],
-    }
-    if hiera('neutron::enable_ovs_agent',true) {
-      pacemaker::constraint::base { 'neutron-openvswitch-agent-to-dhcp-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::ovs_agent_service}-clone",
-        second_resource => "${::neutron::params::dhcp_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service],
-                            Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
-      }
-    }
-    if hiera('neutron::enable_dhcp_agent',true) and hiera('neutron::enable_ovs_agent',true) {
-      pacemaker::constraint::base { 'neutron-server-to-openvswitch-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::server_service}-clone",
-        second_resource => "${::neutron::params::ovs_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::server_service],
-                            Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
-    }
-
-      pacemaker::constraint::colocation { 'neutron-openvswitch-agent-to-dhcp-agent-colocation':
-        source  => "${::neutron::params::dhcp_agent_service}-clone",
-        target  => "${::neutron::params::ovs_agent_service}-clone",
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service],
-                    Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
-      }
-    }
-    if hiera('neutron::enable_dhcp_agent',true) and hiera('neutron::enable_l3_agent',true) {
-      pacemaker::constraint::base { 'neutron-dhcp-agent-to-l3-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::dhcp_agent_service}-clone",
-        second_resource => "${::neutron::params::l3_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
-                            Pacemaker::Resource::Service[$::neutron::params::l3_agent_service]]
-      }
-      pacemaker::constraint::colocation { 'neutron-dhcp-agent-to-l3-agent-colocation':
-        source  => "${::neutron::params::l3_agent_service}-clone",
-        target  => "${::neutron::params::dhcp_agent_service}-clone",
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
-                    Pacemaker::Resource::Service[$::neutron::params::l3_agent_service]]
-      }
-    }
-    if hiera('neutron::enable_l3_agent',true) and hiera('neutron::enable_metadata_agent',true) {
-      pacemaker::constraint::base { 'neutron-l3-agent-to-metadata-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::l3_agent_service}-clone",
-        second_resource => "${::neutron::params::metadata_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::l3_agent_service],
-                            Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]]
-      }
-      pacemaker::constraint::colocation { 'neutron-l3-agent-to-metadata-agent-colocation':
-        source  => "${::neutron::params::metadata_agent_service}-clone",
-        target  => "${::neutron::params::l3_agent_service}-clone",
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Service[$::neutron::params::l3_agent_service],
-                    Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]]
       }
     }
     if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
