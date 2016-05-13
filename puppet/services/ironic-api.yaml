@@ -1,0 +1,43 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Ironic API configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  IronicPassword:
+    description: The password for the Ironic service and db account, used by the Ironic services
+    type: string
+    hidden: true
+
+resources:
+  IronicBase:
+    type: ./ironic-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Ironic API role.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [IronicBase, role_data, config_settings]
+          # NOTE(dtantsur): the my_ip parameter is heavily overloaded in
+          # ironic. It's used as a default value for e.g. TFTP server IP,
+          # glance and neutron endpoints, virtual console IP. We override
+          # the TFTP server IP in ironic-conductor.yaml as it should not be
+          # the VIP, but rather a real IP of the controller.
+          - ironic::my_ip: {get_param: [EndpointMap, MysqlInternal, host]}
+            ironic::api::admin_password: {get_param: IronicPassword}
+            ironic::keystone::auth::public_url: {get_param: [EndpointMap, IronicPublic, uri]}
+            ironic::keystone::auth::internal_url: {get_param: [EndpointMap, IronicInternal, uri]}
+            ironic::keystone::auth::admin_url: {get_param: [EndpointMap, IronicAdmin, uri]}
+            ironic::keystone::auth::password: {get_param: IronicPassword }
+
+      step_config: |
+        include ::tripleo::profile::base::ironic::api
