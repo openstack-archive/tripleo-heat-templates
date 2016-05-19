@@ -1,0 +1,41 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Sahara Engine service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  SaharaPassword:
+    default: unset
+    description: The password for the sahara service account, used by sahara-api.
+    type: string
+    hidden: true
+
+resources:
+  SaharaBase:
+    type: ./sahara-base.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Sahara Engine role.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [SaharaBase, role_data, config_settings]
+          - sahara_dsn: &sahara_dsn
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlVirtual, protocol]}
+                  - '://sahara:'
+                  - {get_param: SaharaPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlVirtual, host]}
+                  - '/sahara'
+            sahara::database_connection: *sahara_dsn
+            sahara::db::mysql::password: {get_param: SaharaPassword}
+      step_config: |
+        include ::tripleo::profile::base::sahara::engine

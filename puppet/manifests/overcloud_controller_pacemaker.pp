@@ -25,8 +25,7 @@ Service <|
   tag == 'ceilometer-service' or
   tag == 'gnocchi-service' or
   tag == 'neutron-service' or
-  tag == 'nova-service' or
-  tag == 'sahara-service'
+  tag == 'nova-service'
 |> {
   hasrestart => true,
   restart    => '/bin/true',
@@ -312,9 +311,6 @@ if hiera('step') >= 2 {
       class { '::gnocchi::db::mysql':
         require => Exec['galera-ready'],
       }
-    }
-    class { '::sahara::db::mysql':
-      require       => Exec['galera-ready'],
     }
   }
 
@@ -683,18 +679,6 @@ MYSQL_HOST=localhost\n",
     enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
   }
 
-  class { '::sahara':
-    sync_db => $sync_db,
-  }
-  class { '::sahara::service::api':
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::sahara::service::engine':
-    manage_service => false,
-    enabled        => false,
-  }
-
   # swift storage
   if str2bool(hiera('enable_swift_storage', true)) {
     class {'::swift::storage::all':
@@ -969,33 +953,6 @@ password=\"${mysql_root_password}\"",
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::cinder::params::scheduler_service],
                   Pacemaker::Resource::Service[$::cinder::params::volume_service]],
-    }
-
-    # Sahara
-    pacemaker::resource::service { $::sahara::params::api_service_name :
-      clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Ocf['openstack-core'],
-    }
-    pacemaker::resource::service { $::sahara::params::engine_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::constraint::base { 'keystone-then-sahara-api-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::sahara::params::api_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'sahara-api-then-sahara-engine-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::sahara::params::api_service_name}-clone",
-      second_resource => "${::sahara::params::engine_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::sahara::params::api_service_name],
-                          Pacemaker::Resource::Service[$::sahara::params::engine_service_name]],
     }
 
     if hiera('neutron::enable_ovs_agent', true) {

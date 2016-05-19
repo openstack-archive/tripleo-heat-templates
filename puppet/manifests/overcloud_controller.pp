@@ -108,7 +108,6 @@ if hiera('step') >= 2 {
   include ::nova::db::mysql_api
   include ::neutron::db::mysql
   include ::cinder::db::mysql
-  include ::sahara::db::mysql
   if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
     include ::gnocchi::db::mysql
   }
@@ -503,11 +502,6 @@ if hiera('step') >= 4 {
   include ::aodh::notifier
   include ::aodh::listener
   include ::aodh::client
-
-  # Sahara
-  include ::sahara
-  include ::sahara::service::api
-  include ::sahara::service::engine
 
   # Horizon
   include ::apache::mod::remoteip
