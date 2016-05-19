@@ -43,9 +43,6 @@ if hiera('step') >= 2 {
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
-  if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
-    include ::gnocchi::db::mysql
-  }
   include ::aodh::db::mysql
 
 } #END STEP 2
@@ -76,26 +73,6 @@ if hiera('step') >= 4 {
   include ::aodh::notifier
   include ::aodh::listener
   include ::aodh::client
-
-  # Gnocchi
-  $gnocchi_database_connection = hiera('gnocchi_mysql_conn_string')
-  class { '::gnocchi':
-    database_connection => $gnocchi_database_connection,
-  }
-  include ::gnocchi::api
-  include ::gnocchi::wsgi::apache
-  include ::gnocchi::client
-  include ::gnocchi::db::sync
-  include ::gnocchi::storage
-  include ::gnocchi::metricd
-  include ::gnocchi::statsd
-  $gnocchi_backend = downcase(hiera('gnocchi_backend', 'swift'))
-  case $gnocchi_backend {
-      'swift': { include ::gnocchi::storage::swift }
-      'file': { include ::gnocchi::storage::file }
-      'rbd': { include ::gnocchi::storage::ceph }
-      default: { fail('Unrecognized gnocchi_backend parameter.') }
-  }
 
   hiera_include('controller_classes')
 

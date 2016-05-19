@@ -208,12 +208,6 @@ if hiera('step') >= 2 {
       user       => 'clustercheck@localhost',
     }
 
-    if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
-      class { '::gnocchi::db::mysql':
-        require => Exec['galera-ready'],
-      }
-    }
-
     class { '::aodh::db::mysql':
         require => Exec['galera-ready'],
     }
@@ -291,40 +285,6 @@ MYSQL_HOST=localhost\n",
     enabled        => false,
   }
   class { '::aodh::listener':
-    manage_service => false,
-    enabled        => false,
-  }
-
-  # Gnocchi
-  $gnocchi_database_connection = hiera('gnocchi_mysql_conn_string')
-  include ::gnocchi::client
-  if $sync_db {
-    include ::gnocchi::db::sync
-  }
-  include ::gnocchi::storage
-  $gnocchi_backend = downcase(hiera('gnocchi_backend', 'swift'))
-  case $gnocchi_backend {
-      'swift': { include ::gnocchi::storage::swift }
-      'file': { include ::gnocchi::storage::file }
-      'rbd': { include ::gnocchi::storage::ceph }
-      default: { fail('Unrecognized gnocchi_backend parameter.') }
-  }
-  class { '::gnocchi':
-    database_connection => $gnocchi_database_connection,
-  }
-  class { '::gnocchi::api' :
-    manage_service => false,
-    enabled        => false,
-    service_name   => 'httpd',
-  }
-  class { '::gnocchi::wsgi::apache' :
-    ssl => false,
-  }
-  class { '::gnocchi::metricd' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::gnocchi::statsd' :
     manage_service => false,
     enabled        => false,
   }
@@ -524,30 +484,6 @@ password=\"${mysql_root_password}\"",
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
                   Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
-    }
-
-    # gnocchi
-    pacemaker::resource::service { $::gnocchi::params::metricd_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::gnocchi::params::statsd_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::constraint::base { 'gnocchi-metricd-then-gnocchi-statsd-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::gnocchi::params::metricd_service_name}-clone",
-      second_resource => "${::gnocchi::params::statsd_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
-                          Pacemaker::Resource::Service[$::gnocchi::params::statsd_service_name]],
-    }
-    pacemaker::constraint::colocation { 'gnocchi-statsd-with-metricd-colocation':
-      source  => "${::gnocchi::params::statsd_service_name}-clone",
-      target  => "${::gnocchi::params::metricd_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
-                  Pacemaker::Resource::Service[$::gnocchi::params::statsd_service_name]],
     }
 
     # Horizon and Keystone
