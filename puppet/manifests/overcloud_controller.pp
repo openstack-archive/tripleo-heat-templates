@@ -452,7 +452,6 @@ if hiera('step') >= 4 {
   }
 
   # swift proxy
-  include ::memcached
   include ::swift::proxy
   include ::swift::proxy::proxy_logging
   include ::swift::proxy::healthcheck

@@ -110,11 +110,6 @@ if hiera('step') >= 1 {
     }
   }
 
-  # Memcached
-  class {'::memcached' :
-    service_manage => false,
-  }
-
   # Redis
   class { '::redis' :
     service_manage => false,
@@ -204,11 +199,6 @@ if hiera('step') >= 2 {
     pacemaker::resource::ocf { 'openstack-core':
       ocf_agent_name => 'heartbeat:Dummy',
       clone_params   => true,
-    }
-
-    pacemaker::resource::service { $::memcached::params::service_name :
-      clone_params => 'interleave=true',
-      require      => Class['::memcached'],
     }
 
     if downcase(hiera('ceilometer_backend')) == 'mongodb' {
@@ -968,15 +958,6 @@ password=\"${mysql_root_password}\"",
       first_action    => 'start',
       second_action   => 'start',
       require         => [Pacemaker::Resource::Service[$::apache::params::service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'memcached-then-openstack-core-constraint':
-      constraint_type => 'order',
-      first_resource  => 'memcached-clone',
-      second_resource => 'openstack-core-clone',
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service['memcached'],
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
     pacemaker::constraint::base { 'galera-then-openstack-core-constraint':
