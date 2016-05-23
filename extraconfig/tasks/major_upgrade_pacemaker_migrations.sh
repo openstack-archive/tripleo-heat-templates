@@ -13,6 +13,42 @@
 # been already applied, it should be possible to call the function
 # again without damaging the deployment or failing the upgrade.
 
+function add_missing_openstack_core_constraints {
+    # The CIBs are saved under /root as they might contain sensitive data
+    CIB="/root/migration.cib"
+    CIB_BACKUP="/root/backup.cib"
+    CIB_PUSH_NEEDED=n
+
+    rm -f "$CIB" "$CIB_BACKUP" || /bin/true
+    pcs cluster cib "$CIB"
+    cp "$CIB" "$CIB_BACKUP"
+
+    if ! pcs -f "$CIB" constraint --full | grep 'start openstack-sahara-api-clone then start openstack-sahara-engine-clone'; then
+        pcs -f "$CIB" constraint order start openstack-sahara-api-clone then start openstack-sahara-engine-clone
+        CIB_PUSH_NEEDED=y
+    fi
+
+    if ! pcs -f "$CIB" constraint --full | grep 'start openstack-core-clone then start openstack-ceilometer-notification-clone'; then
+        pcs -f "$CIB" constraint order start openstack-core-clone then start openstack-ceilometer-notification-clone
+        CIB_PUSH_NEEDED=y
+    fi
+
+    if ! pcs -f "$CIB" constraint --full | grep 'start openstack-aodh-evaluator-clone then start openstack-aodh-listener-clone'; then
+        pcs -f "$CIB" constraint order start openstack-aodh-evaluator-clone then start openstack-aodh-listener-clone
+        CIB_PUSH_NEEDED=y
+    fi
+
+    if pcs -f "$CIB" constraint --full | grep 'start openstack-core-clone then start openstack-heat-api-clone'; then
+        CID=$(pcs -f "$CIB" constraint --full | grep 'start openstack-core-clone then start openstack-heat-api-clone' | sed -e 's/.*id\://g' -e 's/)//g')
+        pcs -f "$CIB" constraint remove $CID
+        CIB_PUSH_NEEDED=y
+    fi
+
+    if [ "$CIB_PUSH_NEEDED" = 'y' ]; then
+        pcs cluster cib-push "$CIB"
+    fi
+}
+
 function remove_ceilometer_alarm {
     if pcs status | grep openstack-ceilometer-alarm; then
         # Disable pacemaker resources for ceilometer-alarms
