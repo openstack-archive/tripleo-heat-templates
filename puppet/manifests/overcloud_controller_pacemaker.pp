@@ -698,22 +698,6 @@ MYSQL_HOST=localhost\n",
     enabled        => false,
   }
 
-  # swift proxy
-  class { '::swift::proxy' :
-    manage_service => $non_pcmk_start,
-    enabled        => $non_pcmk_start,
-  }
-  include ::swift::proxy::proxy_logging
-  include ::swift::proxy::healthcheck
-  include ::swift::proxy::cache
-  include ::swift::proxy::keystone
-  include ::swift::proxy::authtoken
-  include ::swift::proxy::staticweb
-  include ::swift::proxy::ratelimit
-  include ::swift::proxy::catch_errors
-  include ::swift::proxy::tempurl
-  include ::swift::proxy::formpost
-
   # swift storage
   if str2bool(hiera('enable_swift_storage', true)) {
     class {'::swift::storage::all':
