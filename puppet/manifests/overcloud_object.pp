@@ -16,42 +16,46 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-create_resources(kmod::load, hiera('kernel_modules'), {})
-create_resources(sysctl::value, hiera('sysctl_settings'), {})
-Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
+if hiera('step') >= 1 {
+  create_resources(kmod::load, hiera('kernel_modules'), {})
+  create_resources(sysctl::value, hiera('sysctl_settings'), {})
+  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
 
-if count(hiera('ntp::servers')) > 0 {
-  include ::ntp
-}
+  include ::timezone
 
-include ::timezone
-
-include ::swift
-class { '::swift::storage::all':
-  mount_check => str2bool(hiera('swift_mount_check')),
-}
-if(!defined(File['/srv/node'])) {
-  file { '/srv/node':
-    ensure  => directory,
-    owner   => 'swift',
-    group   => 'swift',
-    require => Package['openstack-swift'],
+  if count(hiera('ntp::servers')) > 0 {
+    include ::ntp
   }
 }
 
-$swift_components = ['account', 'container', 'object']
-swift::storage::filter::recon { $swift_components : }
-swift::storage::filter::healthcheck { $swift_components : }
+if hiera('step') >= 4 {
+  class { '::swift::storage::all':
+    mount_check => str2bool(hiera('swift_mount_check')),
+  }
+  if(!defined(File['/srv/node'])) {
+    file { '/srv/node':
+      ensure  => directory,
+      owner   => 'swift',
+      group   => 'swift',
+      require => Package['openstack-swift'],
+    }
+  }
 
-$snmpd_user = hiera('snmpd_readonly_user_name')
-snmp::snmpv3_user { $snmpd_user:
-  authtype => 'MD5',
-  authpass => hiera('snmpd_readonly_user_password'),
-}
-class { '::snmp':
-  agentaddress => ['udp:161','udp6:[::1]:161'],
-  snmpd_config => [ join(['createUser ', hiera('snmpd_readonly_user_name'), ' MD5 "', hiera('snmpd_readonly_user_password'), '"']), join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
+  $swift_components = ['account', 'container', 'object']
+  swift::storage::filter::recon { $swift_components : }
+  swift::storage::filter::healthcheck { $swift_components : }
+
+  $snmpd_user = hiera('snmpd_readonly_user_name')
+  snmp::snmpv3_user { $snmpd_user:
+    authtype => 'MD5',
+    authpass => hiera('snmpd_readonly_user_password'),
+  }
+  class { '::snmp':
+    agentaddress => ['udp:161','udp6:[::1]:161'],
+    snmpd_config => [ join(['createUser ', hiera('snmpd_readonly_user_name'), ' MD5 "', hiera('snmpd_readonly_user_password'), '"']), join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
+  }
+
+  hiera_include('object_classes')
 }
 
-hiera_include('object_classes')
 package_manifest{'/var/lib/tripleo/installed-packages/overcloud_object': ensure => present}

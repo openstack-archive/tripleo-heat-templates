@@ -318,9 +318,6 @@ if hiera('step') >= 2 {
     }
   }
 
-  # pre-install swift here so we can build rings
-  include ::swift
-
   # Ceph
   $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
 

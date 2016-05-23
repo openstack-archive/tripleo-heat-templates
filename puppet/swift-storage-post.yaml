@@ -31,27 +31,6 @@ resources:
       group: puppet
       options:
         enable_debug: {get_param: ConfigDebug}
-      outputs:
-      - name: result
-      config:
-        get_file: manifests/overcloud_object.pp
-
-  StorageDeployment_Step1:
-    type: OS::Heat::StructuredDeployments
-    depends_on: StorageArtifactsDeploy
-    properties:
-      name: StorageDeployment_Step1
-      servers:  {get_param: servers}
-      config: {get_resource: StoragePuppetConfig}
-      input_values:
-        update_identifier: {get_param: NodeConfigIdentifiers}
-
-  StorageRingbuilderPuppetConfig:
-    type: OS::Heat::SoftwareConfig
-    properties:
-      group: puppet
-      options:
-        enable_debug: {get_param: ConfigDebug}
         enable_hiera: True
         enable_facter: False
       inputs:
@@ -59,23 +38,48 @@ resources:
       outputs:
       - name: result
       config:
-        get_file: manifests/ringbuilder.pp
+        list_join:
+        - ''
+        - - get_file: manifests/overcloud_object.pp
+          - get_file: manifests/ringbuilder.pp
 
   StorageRingbuilderDeployment_Step2:
     type: OS::Heat::StructuredDeployments
-    depends_on: StorageDeployment_Step1
+    depends_on: StorageArtifactsDeploy
     properties:
       name: StorageRingbuilderDeployment_Step2
       servers:  {get_param: servers}
-      config: {get_resource: StorageRingbuilderPuppetConfig}
+      config: {get_resource: StoragePuppetConfig}
       input_values:
-        step: 3 # Note ringbuilder.pp expects >=3
+        step: 2
+        update_identifier: {get_param: NodeConfigIdentifiers}
+
+  StorageRingbuilderDeployment_Step3:
+    type: OS::Heat::StructuredDeployments
+    depends_on: StorageRingbuilderDeployment_Step2
+    properties:
+      name: StorageRingbuilderDeployment_Step3
+      servers:  {get_param: servers}
+      config: {get_resource: StoragePuppetConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: NodeConfigIdentifiers}
+
+  StorageDeployment_Step4:
+    type: OS::Heat::StructuredDeployments
+    depends_on: StorageRingbuilderDeployment_Step3
+    properties:
+      name: StorageDeployment_Step4
+      servers:  {get_param: servers}
+      config: {get_resource: StoragePuppetConfig}
+      input_values:
+        step: 4
         update_identifier: {get_param: NodeConfigIdentifiers}
 
   # Note, this should come last, so use depends_on to ensure
   # this is created after any other resources.
   ExtraConfig:
-    depends_on: StorageRingbuilderDeployment_Step2
+    depends_on: StorageDeployment_Step4
     type: OS::TripleO::NodeExtraConfigPost
     properties:
         servers: {get_param: servers}

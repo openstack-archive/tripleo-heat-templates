@@ -89,6 +89,11 @@ class tripleo::ringbuilder (
   }
 }
 
+if hiera('step') >= 2 {
+  # pre-install swift here so we can build rings
+  include ::swift
+}
+
 if hiera('step') >= 3 {
   include ::tripleo::ringbuilder
 }

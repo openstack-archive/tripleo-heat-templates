@@ -117,9 +117,6 @@ if hiera('step') >= 2 {
     include ::aodh::db::mysql
   }
 
-  # pre-install swift here so we can build rings
-  include ::swift
-
   $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
 
   if $enable_ceph {
