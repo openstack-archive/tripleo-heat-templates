@@ -13,7 +13,10 @@ parameters:
   NodeConfigIdentifiers:
      type: json
      description: Value which changes if the node configuration may need to be re-applied
-
+  StepConfig:
+     type: string
+     description: Config manifests that will be used to step through the deployment.
+     default: ''
 
 resources:
 
@@ -34,25 +37,55 @@ resources:
       group: puppet
       options:
         enable_debug: {get_param: ConfigDebug}
+        enable_hiera: True
+        enable_facter: False
+      inputs:
+      - name: step
       outputs:
       - name: result
       config:
-        get_file: manifests/overcloud_compute.pp
+        list_join:
+        - ''
+        - - get_file: manifests/overcloud_compute.pp
+          - {get_param: StepConfig}
 
-  ComputePuppetDeployment:
+  ComputeServicesBaseDeployment_Step2:
     type: OS::Heat::StructuredDeployments
-    depends_on: ComputeArtifactsDeploy
+    depends_on: [ComputeArtifactsDeploy]
     properties:
-      name: ComputePuppetDeployment
+      name: ComputeServicesBaseDeployment_Step2
       servers:  {get_param: servers}
       config: {get_resource: ComputePuppetConfig}
       input_values:
+        step: 2
+        update_identifier: {get_param: NodeConfigIdentifiers}
+
+  ComputeOvercloudServicesDeployment_Step3:
+    type: OS::Heat::StructuredDeployments
+    depends_on: ComputeServicesBaseDeployment_Step2
+    properties:
+      name: ComputeOvercloudServicesDeployment_Step3
+      servers:  {get_param: servers}
+      config: {get_resource: ComputePuppetConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: NodeConfigIdentifiers}
+
+  ComputeOvercloudServicesDeployment_Step4:
+    type: OS::Heat::StructuredDeployments
+    depends_on: ComputeOvercloudServicesDeployment_Step3
+    properties:
+      name: ComputeOvercloudServicesDeployment_Step4
+      servers:  {get_param: servers}
+      config: {get_resource: ComputePuppetConfig}
+      input_values:
+        step: 4
         update_identifier: {get_param: NodeConfigIdentifiers}
 
   # Note, this should come last, so use depends_on to ensure
   # this is created after any other resources.
   ExtraConfig:
-    depends_on: ComputePuppetDeployment
+    depends_on: ComputeOvercloudServicesDeployment_Step4
     type: OS::TripleO::NodeExtraConfigPost
     properties:
         servers: {get_param: servers}
