@@ -50,26 +50,43 @@ function add_missing_openstack_core_constraints {
 }
 
 function remove_ceilometer_alarm {
-    if pcs status | grep openstack-ceilometer-alarm; then
-        # Disable pacemaker resources for ceilometer-alarms
-        pcs resource disable openstack-ceilometer-alarm-evaluator
-        check_resource openstack-ceilometer-alarm-evaluator stopped 600
-        pcs resource delete openstack-ceilometer-alarm-evaluator
-        pcs resource disable openstack-ceilometer-alarm-notifier
-        check_resource openstack-ceilometer-alarm-notifier stopped 600
-        pcs resource delete openstack-ceilometer-alarm-notifier
+    if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+        if pcs status | grep openstack-ceilometer-alarm; then
+            # Disable pacemaker resources for ceilometer-alarms
+            pcs resource disable openstack-ceilometer-alarm-evaluator
+            check_resource openstack-ceilometer-alarm-evaluator stopped 600
+            pcs resource delete openstack-ceilometer-alarm-evaluator
+            pcs resource disable openstack-ceilometer-alarm-notifier
+            check_resource openstack-ceilometer-alarm-notifier stopped 600
+            pcs resource delete openstack-ceilometer-alarm-notifier
+        fi
 
         # remove constraints
-        pcs constraint remove ceilometer-delay-then-ceilometer-alarm-evaluator-constraint
-        pcs constraint remove ceilometer-alarm-evaluator-with-ceilometer-delay-colocation
-        pcs constraint remove ceilometer-alarm-evaluator-then-ceilometer-alarm-notifier-constraint
-        pcs constraint remove ceilometer-alarm-notifier-with-ceilometer-alarm-evaluator-colocation
-        pcs constraint remove ceilometer-alarm-notifier-then-ceilometer-notification-constraint
-        pcs constraint remove ceilometer-notification-with-ceilometer-alarm-notifier-colocation
+        if  pcs constraint order show  | grep "start delay-clone then start openstack-ceilometer-alarm-evaluator-clone"; then
+            pcs constraint remove order-delay-clone-openstack-ceilometer-alarm-evaluator-clone-mandatory
+        fi
 
+        if  pcs constraint order show  | grep "start openstack-ceilometer-alarm-notifier-clone then start openstack-ceilometer-notification-clone"; then
+            pcs constraint remove order-openstack-ceilometer-alarm-notifier-clone-openstack-ceilometer-notification-clone-mandatory
+        fi
+
+        if  pcs constraint order show  | grep "start openstack-ceilometer-alarm-evaluator-clone then start openstack-ceilometer-alarm-notifier-clone"; then
+            pcs constraint remove order-openstack-ceilometer-alarm-evaluator-clone-openstack-ceilometer-alarm-notifier-clone-mandatory
+        fi
+
+        if  pcs constraint colocation show  | grep "openstack-ceilometer-notification-clone with openstack-ceilometer-alarm-notifier-clone"; then
+            pcs constraint remove colocation-openstack-ceilometer-notification-clone-openstack-ceilometer-alarm-notifier-clone-INFINITY
+        fi
+
+        if  pcs constraint colocation show  | grep "openstack-ceilometer-alarm-notifier-clone with openstack-ceilometer-alarm-evaluator-clone"; then
+            pcs constraint remove colocation-openstack-ceilometer-alarm-notifier-clone-openstack-ceilometer-alarm-evaluator-clone-INFINITY
+        fi
+
+        if  pcs constraint colocation show  | grep "openstack-ceilometer-alarm-evaluator-clone with delay-clone"; then
+            pcs constraint remove colocation-openstack-ceilometer-alarm-evaluator-clone-delay-clone-INFINITY
+        fi
     fi
 
     # uninstall openstack-ceilometer-alarm package
     yum -y remove openstack-ceilometer-alarm
-
 }
