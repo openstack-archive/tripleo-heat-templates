@@ -48,3 +48,7 @@ are re-asserted when applying latter ones.
    5) Service activation (Pacemaker)
 
    6) Fencing (Pacemaker)
+
+Note: Not all roles currently support all steps:
+
+  * ObjectStorage role only supports steps 2, 3 and 4
