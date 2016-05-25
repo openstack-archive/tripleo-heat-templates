@@ -16,41 +16,46 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-create_resources(kmod::load, hiera('kernel_modules'), {})
-create_resources(sysctl::value, hiera('sysctl_settings'), {})
-Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
+if hiera('step') >= 1 {
 
-if count(hiera('ntp::servers')) > 0 {
-  include ::ntp
+  create_resources(kmod::load, hiera('kernel_modules'), {})
+  create_resources(sysctl::value, hiera('sysctl_settings'), {})
+  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
+
+  include ::timezone
+
+  if count(hiera('ntp::servers')) > 0 {
+    include ::ntp
+  }
 }
 
-include ::timezone
+if hiera('step') >= 3 {
+  if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
+    exec { 'set selinux to permissive on boot':
+      command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
+      onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
+      path    => ['/usr/bin', '/usr/sbin'],
+    }
 
-if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
-  exec { 'set selinux to permissive on boot':
-    command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
-    onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-    path    => ['/usr/bin', '/usr/sbin'],
+    exec { 'set selinux to permissive':
+      command => 'setenforce 0',
+      onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
+      path    => ['/usr/bin', '/usr/sbin'],
+    } -> Class['ceph::profile::osd']
   }
 
-  exec { 'set selinux to permissive':
-    command => 'setenforce 0',
-    onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-    path    => ['/usr/bin', '/usr/sbin'],
-  } -> Class['ceph::profile::osd']
-}
+  if str2bool(hiera('ceph_ipv6', false)) {
+    $mon_host = hiera('ceph_mon_host_v6')
+  } else {
+    $mon_host = hiera('ceph_mon_host')
+  }
+  class { '::ceph::profile::params':
+    mon_host            => $mon_host,
+  }
+  include ::ceph::conf
+  include ::ceph::profile::client
+  include ::ceph::profile::osd
 
-if str2bool(hiera('ceph_ipv6', false)) {
-  $mon_host = hiera('ceph_mon_host_v6')
-} else {
-  $mon_host = hiera('ceph_mon_host')
+  hiera_include('ceph_classes')
+  package_manifest{'/var/lib/tripleo/installed-packages/overcloud_ceph': ensure => present}
 }
-class { '::ceph::profile::params':
-  mon_host            => $mon_host,
-}
-include ::ceph::conf
-include ::ceph::profile::client
-include ::ceph::profile::osd
-
-hiera_include('ceph_classes')
-package_manifest{'/var/lib/tripleo/installed-packages/overcloud_ceph': ensure => present}
