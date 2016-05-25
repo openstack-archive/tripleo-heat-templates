@@ -38,16 +38,10 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
 
     pcs resource disable httpd
     check_resource httpd stopped 1800
-    pcs resource disable openstack-core
-    check_resource openstack-core stopped 1800
     pcs resource disable redis
     check_resource redis stopped 600
-    pcs resource disable mongod
-    check_resource mongod stopped 600
     pcs resource disable rabbitmq
     check_resource rabbitmq stopped 600
-    pcs resource disable memcached
-    check_resource memcached stopped 600
     pcs resource disable galera
     check_resource galera stopped 600
     # Disable all VIPs before stopping the cluster, so that pcs doesn't use one as a source address:
@@ -58,6 +52,15 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
     done
     pcs cluster stop --all
 fi
+
+stop_or_disable_service mongod
+check_resource mongod stopped 600
+stop_or_disable_service memcached
+check_resource memcached stopped 600
+
+
+
+
 
 # Swift isn't controled by pacemaker
 systemctl_swift stop
@@ -142,11 +145,3 @@ fi
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
 crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284047
-# Change-Id: Ib3f6c12ff5471e1f017f28b16b1e6496a4a4b435
-crudini  --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend rabbit
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284058
-# Ifd1861e3df46fad0e44ff9b5cbd58711bbc87c97 Swift Ceilometer middleware no longer exists
-crudini --set /etc/swift/proxy-server.conf pipeline:main pipeline "catch_errors healthcheck cache ratelimit tempurl formpost authtoken keystone staticweb proxy-logging proxy-server"
-# LP: 1615035, required only for M/N upgrade.
-crudini --set /etc/nova/nova.conf DEFAULT scheduler_host_manager host_manager

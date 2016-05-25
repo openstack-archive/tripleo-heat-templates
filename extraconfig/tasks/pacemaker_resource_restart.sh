@@ -2,12 +2,9 @@
 
 set -eux
 
-pacemaker_status=$(systemctl is-active pacemaker)
-
 # Run if pacemaker is running, we're the bootstrap node,
 # and we're updating the deployment (not creating).
-if [ "$pacemaker_status" = "active" -a \
-     "$(hiera bootstrap_nodeid)" = "$(facter hostname)" ]; then
+if [[ -n $(pcmk_running) && -n $(is_bootstrap_node) ]]; then
 
     TIMEOUT=600
     SERVICES_TO_RESTART="$(ls /var/lib/tripleo/pacemaker-restarts)"
@@ -25,5 +22,4 @@ if [ "$pacemaker_status" = "active" -a \
         pcs resource restart --wait=$TIMEOUT $service
         rm -f /var/lib/tripleo/pacemaker-restarts/$service
     done
-
 fi
