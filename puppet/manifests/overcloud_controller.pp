@@ -108,7 +108,6 @@ if hiera('step') >= 2 {
   include ::nova::db::mysql_api
   include ::neutron::db::mysql
   include ::cinder::db::mysql
-  include ::heat::db::mysql
   include ::sahara::db::mysql
   if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
     include ::gnocchi::db::mysql
@@ -522,16 +521,6 @@ if hiera('step') >= 4 {
   include ::aodh::listener
   include ::aodh::client
 
-  # Heat
-  class { '::heat' :
-    notification_driver => 'messaging',
-  }
-  include ::heat::config
-  include ::heat::api
-  include ::heat::api_cfn
-  include ::heat::api_cloudwatch
-  include ::heat::engine
-
   # Sahara
   include ::sahara
   include ::sahara::service::api
@@ -595,7 +584,6 @@ if hiera('step') >= 4 {
 if hiera('step') >= 5 {
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
-  $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
 
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
@@ -603,25 +591,6 @@ if hiera('step') >= 5 {
   if $cinder_enable_db_purge {
     include ::cinder::cron::db_purge
   }
-  if $heat_enable_db_purge {
-    include ::heat::cron::purge_deleted
-  }
-
-  if downcase(hiera('bootstrap_nodeid')) == $::hostname {
-    # Class ::heat::keystone::domain has to run on bootstrap node
-    # because it creates DB entities via API calls.
-    include ::heat::keystone::domain
-
-    Class['::keystone::roles::admin'] -> Class['::heat::keystone::domain']
-  } else {
-    # On non-bootstrap node we don't need to create Keystone resources again
-    class { '::heat::keystone::domain':
-      manage_domain => false,
-      manage_user   => false,
-      manage_role   => false,
-    }
-  }
-
 } #END STEP 5
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])

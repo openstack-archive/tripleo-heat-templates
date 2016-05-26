@@ -24,7 +24,6 @@ Service <|
   tag == 'cinder-service' or
   tag == 'ceilometer-service' or
   tag == 'gnocchi-service' or
-  tag == 'heat-service' or
   tag == 'neutron-service' or
   tag == 'nova-service' or
   tag == 'sahara-service'
@@ -300,9 +299,6 @@ if hiera('step') >= 2 {
       require => Exec['galera-ready'],
     }
     class { '::cinder::db::mysql':
-      require => Exec['galera-ready'],
-    }
-    class { '::heat::db::mysql':
       require => Exec['galera-ready'],
     }
 
@@ -787,29 +783,6 @@ MYSQL_HOST=localhost\n",
 
   Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
-  # Heat
-  include ::heat::config
-  class { '::heat' :
-    sync_db             => $sync_db,
-    notification_driver => 'messaging',
-  }
-  class { '::heat::api' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::heat::api_cfn' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::heat::api_cloudwatch' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::heat::engine' :
-    manage_service => false,
-    enabled        => false,
-  }
-
   # httpd/apache and horizon
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
   class { '::apache' :
@@ -937,16 +910,12 @@ password=\"${mysql_root_password}\"",
 
   $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
   $cinder_enable_db_purge = hiera('cinder_enable_db_purge', true)
-  $heat_enable_db_purge = hiera('heat_enable_db_purge', true)
 
   if $nova_enable_db_purge {
     include ::nova::cron::archive_deleted_rows
   }
   if $cinder_enable_db_purge {
     include ::cinder::cron::db_purge
-  }
-  if $heat_enable_db_purge {
-    include ::heat::cron::purge_deleted
   }
 
   if $pacemaker_master {
@@ -1442,77 +1411,6 @@ password=\"${mysql_root_password}\"",
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
                   Pacemaker::Resource::Service[$::gnocchi::params::statsd_service_name]],
-    }
-
-    # Heat
-    pacemaker::resource::service { $::heat::params::api_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::heat::params::api_cloudwatch_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::heat::params::api_cfn_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::heat::params::engine_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::constraint::base { 'heat-api-then-heat-api-cfn-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::heat::params::api_service_name}-clone",
-      second_resource => "${::heat::params::api_cfn_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
-                          Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
-    }
-    pacemaker::constraint::colocation { 'heat-api-cfn-with-heat-api-colocation':
-      source  => "${::heat::params::api_cfn_service_name}-clone",
-      target  => "${::heat::params::api_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::api_service_name]],
-    }
-    pacemaker::constraint::base { 'heat-api-cfn-then-heat-api-cloudwatch-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::heat::params::api_cfn_service_name}-clone",
-      second_resource => "${::heat::params::api_cloudwatch_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
-                          Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name]],
-    }
-    pacemaker::constraint::colocation { 'heat-api-cloudwatch-with-heat-api-cfn-colocation':
-      source  => "${::heat::params::api_cloudwatch_service_name}-clone",
-      target  => "${::heat::params::api_cfn_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_cfn_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name]],
-    }
-    pacemaker::constraint::base { 'heat-api-cloudwatch-then-heat-engine-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::heat::params::api_cloudwatch_service_name}-clone",
-      second_resource => "${::heat::params::engine_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
-                          Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
-    }
-    pacemaker::constraint::colocation { 'heat-engine-with-heat-api-cloudwatch-colocation':
-      source  => "${::heat::params::engine_service_name}-clone",
-      target  => "${::heat::params::api_cloudwatch_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::heat::params::api_cloudwatch_service_name],
-                  Pacemaker::Resource::Service[$::heat::params::engine_service_name]],
-    }
-    pacemaker::constraint::base { 'ceilometer-notification-then-heat-api-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::ceilometer::params::agent_notification_service_name}-clone",
-      second_resource => "${::heat::params::api_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::heat::params::api_service_name],
-                          Pacemaker::Resource::Service[$::ceilometer::params::agent_notification_service_name]],
     }
 
     # Horizon and Keystone
