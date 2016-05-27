@@ -315,7 +315,6 @@ if hiera('step') >= 4 {
 
   include ::cinder
   include ::cinder::config
-  include ::tripleo::ssl::cinder_config
   include ::cinder::api
   include ::cinder::glance
   include ::cinder::scheduler
