@@ -54,5 +54,7 @@ if hiera('step') >= 3 {
   include ::ceph::profile::osd
 
   hiera_include('ceph_classes')
-  package_manifest{'/var/lib/tripleo/installed-packages/overcloud_ceph': ensure => present}
 }
+
+$package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_ceph', hiera('step')])
+package_manifest{$package_manifest_name: ensure => present}

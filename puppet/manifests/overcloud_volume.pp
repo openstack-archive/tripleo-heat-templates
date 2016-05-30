@@ -16,46 +16,55 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-create_resources(kmod::load, hiera('kernel_modules'), {})
-create_resources(sysctl::value, hiera('sysctl_settings'), {})
-Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
+if hiera('step') >= 1 {
 
-if count(hiera('ntp::servers')) > 0 {
-  include ::ntp
-}
+  create_resources(kmod::load, hiera('kernel_modules'), {})
+  create_resources(sysctl::value, hiera('sysctl_settings'), {})
+  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
 
-include ::timezone
+  include ::timezone
 
-include ::cinder
-include ::cinder::config
-include ::cinder::glance
-include ::cinder::volume
-include ::cinder::setup_test_volume
-
-$cinder_enable_iscsi = hiera('cinder_enable_iscsi_backend', true)
-if $cinder_enable_iscsi {
-  $cinder_iscsi_backend = 'tripleo_iscsi'
-
-  cinder::backend::iscsi { $cinder_iscsi_backend :
-    iscsi_ip_address => hiera('cinder_iscsi_ip_address'),
-    iscsi_helper     => hiera('cinder_iscsi_helper'),
+  if count(hiera('ntp::servers')) > 0 {
+    include ::ntp
   }
+
 }
 
-$cinder_enabled_backends = any2array($cinder_iscsi_backend)
-class { '::cinder::backends' :
-  enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
+if hiera('step') >= 4 {
+
+  include ::cinder
+  include ::cinder::config
+  include ::cinder::glance
+  include ::cinder::volume
+  include ::cinder::setup_test_volume
+
+  $cinder_enable_iscsi = hiera('cinder_enable_iscsi_backend', true)
+  if $cinder_enable_iscsi {
+    $cinder_iscsi_backend = 'tripleo_iscsi'
+
+    cinder::backend::iscsi { $cinder_iscsi_backend :
+      iscsi_ip_address => hiera('cinder_iscsi_ip_address'),
+      iscsi_helper     => hiera('cinder_iscsi_helper'),
+    }
+  }
+
+  $cinder_enabled_backends = any2array($cinder_iscsi_backend)
+  class { '::cinder::backends' :
+    enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
+  }
+
+  $snmpd_user = hiera('snmpd_readonly_user_name')
+  snmp::snmpv3_user { $snmpd_user:
+    authtype => 'MD5',
+    authpass => hiera('snmpd_readonly_user_password'),
+  }
+  class { '::snmp':
+    agentaddress => ['udp:161','udp6:[::1]:161'],
+    snmpd_config => [ join(['createUser ', hiera('snmpd_readonly_user_name'), ' MD5 "', hiera('snmpd_readonly_user_password'), '"']), join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
+  }
+
+  hiera_include('volume_classes')
 }
 
-$snmpd_user = hiera('snmpd_readonly_user_name')
-snmp::snmpv3_user { $snmpd_user:
-  authtype => 'MD5',
-  authpass => hiera('snmpd_readonly_user_password'),
-}
-class { '::snmp':
-  agentaddress => ['udp:161','udp6:[::1]:161'],
-  snmpd_config => [ join(['createUser ', hiera('snmpd_readonly_user_name'), ' MD5 "', hiera('snmpd_readonly_user_password'), '"']), join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
-}
-
-hiera_include('volume_classes')
-package_manifest{'/var/lib/tripleo/installed-packages/overcloud_volume': ensure => present}
+$package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_volume', hiera('step')])
+package_manifest{$package_manifest_name: ensure => present}

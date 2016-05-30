@@ -39,4 +39,5 @@ if hiera('step') >= 4 {
   hiera_include('object_classes')
 }
 
-package_manifest{'/var/lib/tripleo/installed-packages/overcloud_object': ensure => present}
+$package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_object', hiera('step')])
+package_manifest{$package_manifest_name: ensure => present}

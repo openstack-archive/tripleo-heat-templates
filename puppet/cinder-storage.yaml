@@ -4,29 +4,6 @@ parameters:
   Image:
     default: overcloud-cinder-volume
     type: string
-  CinderEnableIscsiBackend:
-    default: true
-    description: Whether to enable or not the Iscsi backend for Cinder
-    type: boolean
-  CinderISCSIHelper:
-    default: lioadm
-    description: The iSCSI helper to use with cinder.
-    type: string
-  CinderLVMLoopDeviceSize:
-    default: 10280
-    description: The size of the loopback file used by the cinder LVM driver.
-    type: number
-  CinderPassword:
-    description: The password for the cinder service and db account, used by cinder-api.
-    type: string
-    hidden: true
-  Debug:
-    default: ''
-    description: Set to True to enable debugging on all services.
-    type: string
-  VirtualIP: # deprecated. Use per service VIPs instead.
-    default: ''
-    type: string
   ExtraConfig:
     default: {}
     description: |
@@ -50,22 +27,6 @@ parameters:
     default: default
     description: Name of an existing Nova key pair to enable SSH access to the instances
     type: string
-  RabbitPassword:
-    type: string
-    hidden: true
-  RabbitUserName:
-    default: 'guest'
-    type: string
-  RabbitClientUseSSL:
-    default: false
-    description: >
-        Rabbit client subscriber parameter to specify
-        an SSL connection to the RabbitMQ host.
-    type: string
-  RabbitClientPort:
-    default: 5672
-    description: Set rabbit subscriber port, change this if using SSL
-    type: number
   SnmpdReadonlyUserName:
     default: ro_snmp_user
     description: The user name for SNMPd with readonly rights running on all Overcloud nodes
@@ -100,18 +61,10 @@ parameters:
     description: Mapping of service_name -> network name. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
   TimeZone:
     default: 'UTC'
     description: The timezone to be set on Cinder nodes.
     type: string
-  GlanceApiVirtualIP:
-    type: string
-    default: ''
   NetworkDeploymentActions:
     type: comma_delimited_list
     description: >
@@ -143,7 +96,9 @@ parameters:
   NodeIndex:
     type: number
     default: 0
-
+  ServiceConfigSettings:
+    type: json
+    default: {}
 
 resources:
   BlockStorage:
@@ -277,35 +232,13 @@ resources:
       server: {get_resource: BlockStorage}
       config: {get_resource: BlockStorageConfig}
       input_values:
-        debug: {get_param: Debug}
-        cinder_dsn:
-          list_join:
-            - ''
-            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
-              - '://cinder:'
-              - {get_param: CinderPassword}
-              - '@'
-              - {get_param: [EndpointMap, MysqlInternal, host]}
-              - '/cinder'
         snmpd_readonly_user_name: {get_param: SnmpdReadonlyUserName}
         snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
-        cinder_lvm_loop_device_size:
-          str_replace:
-            template: sizeM
-            params:
-              size: {get_param: CinderLVMLoopDeviceSize}
-        cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
-        cinder_iscsi_helper: {get_param: CinderISCSIHelper}
         cinder_iscsi_ip_address:
           str_replace:
             template: "'IP'"
             params:
               IP: {get_attr: [NetIpMap, net_ip_uri_map, {get_param: [ServiceNetMap, CinderIscsiNetwork]}]}
-        glance_api_servers: {get_param: [EndpointMap, GlanceInternal, uri]}
-        rabbit_username: {get_param: RabbitUserName}
-        rabbit_password: {get_param: RabbitPassword}
-        rabbit_client_use_ssl: {get_param: RabbitClientUseSSL}
-        rabbit_client_port: {get_param: RabbitClientPort}
         ntp_servers: {get_param: NtpServer}
         timezone: {get_param: TimeZone}
         enable_package_install: {get_param: EnablePackageInstall}
@@ -323,6 +256,7 @@ resources:
             - heat_config_%{::deploy_config_name}
             - volume_extraconfig
             - extraconfig
+            - service_configs
             - volume
             - all_nodes # provided by allNodesConfig
             - '"%{::osfamily}"'
@@ -330,6 +264,8 @@ resources:
             - network
           merge_behavior: deeper
           datafiles:
+            service_configs:
+              mapped_data: {get_param: ServiceConfigSettings}
             common:
               raw_data: {get_file: hieradata/common.yaml}
             network:
@@ -345,17 +281,7 @@ resources:
               raw_data: {get_file: hieradata/volume.yaml}
               mapped_data:
                 # Cinder
-                cinder::debug: {get_input: debug}
-                cinder::setup_test_volume::size: {get_input: cinder_lvm_loop_device_size}
-                cinder_iscsi_helper: {get_input: cinder_iscsi_helper}
-                cinder::database_connection: {get_input: cinder_dsn}
-                cinder::rabbit_userid: {get_input: rabbit_username}
-                cinder::rabbit_password: {get_input: rabbit_password}
-                cinder::rabbit_use_ssl: {get_input: rabbit_client_use_ssl}
-                cinder::rabbit_port: {get_input: rabbit_client_port}
-                cinder_enable_iscsi_backend: {get_input: cinder_enable_iscsi_backend}
-                cinder_iscsi_ip_address: {get_input: cinder_iscsi_ip_address}
-                cinder::glance::glance_api_servers: {get_input: glance_api_servers}
+                tripleo::profile::base::cinder::volume::iscsi::cinder_iscsi_ip_address: {get_input: cinder_iscsi_ip_address}
                 ntp::servers: {get_input: ntp_servers}
                 timezone::timezone: {get_input: timezone}
                 tripleo::packages::enable_install: {get_input: enable_package_install}
