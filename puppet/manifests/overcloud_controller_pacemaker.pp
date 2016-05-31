@@ -494,7 +494,7 @@ MYSQL_HOST=localhost\n",
     class {'::neutron::plugins::midonet':
       midonet_api_ip    => hiera('public_virtual_ip'),
       keystone_tenant   => hiera('neutron::server::auth_tenant'),
-      keystone_password => hiera('neutron::server::auth_password')
+      keystone_password => hiera('neutron::server::password')
     }
   }
   if hiera('neutron::core_plugin') == 'networking_plumgrid.neutron.plugins.plugin.NeutronPluginPLUMgridV2' {
