@@ -19,8 +19,8 @@ target to do this::
           ``tripleo-heat-templates`` project.
 
 If a new sample environment is needed, it should be added to the
-``sample-env-generator/sample-environments.yaml`` file.  The existing
-entries in the file can be used as examples, and a more detailed
+appropriate file in the ``sample-env-generator/`` directory.  The existing
+entries in the files can be used as examples, and a more detailed
 explanation of the different available keys is below:
 
 - **name**: the output file will be this name + .yaml, in the

@@ -165,24 +165,32 @@ def _generate_environment(input_env, parent_env=None):
         _generate_environment(e, env)
 
 
-def generate_environments(config_file):
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
-    for env in config['environments']:
-        _generate_environment(env)
+def generate_environments(config_path):
+    if os.path.isdir(config_path):
+        config_files = os.listdir(config_path)
+        config_files = [os.path.join(config_path, i) for i in config_files
+                        if os.path.splitext(i)[1] == '.yaml']
+    else:
+        config_files = [config_path]
+    for config_file in config_files:
+        print('Reading environment definitions from %s' % config_file)
+        with open(config_file) as f:
+            config = yaml.safe_load(f)
+        for env in config['environments']:
+            _generate_environment(env)
 
 
 def usage(exit_code=1):
-    print('Usage: %s <filename.yaml>' % sys.argv[0])
+    print('Usage: %s [<filename.yaml> | <directory>]' % sys.argv[0])
     sys.exit(exit_code)
 
 
 def main():
     try:
-        config_file = sys.argv[1]
+        config_path = sys.argv[1]
     except IndexError:
         usage()
-    generate_environments(config_file)
+    generate_environments(config_path)
 
 
 if __name__ == '__main__':
