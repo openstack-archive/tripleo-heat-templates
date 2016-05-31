@@ -198,10 +198,6 @@ if hiera('step') >= 4 {
     }
   }
 
-  neutron_config {
-    'DEFAULT/host': value => $fqdn;
-  }
-
   include ::ceilometer
   include ::ceilometer::config
   include ::ceilometer::agent::compute
