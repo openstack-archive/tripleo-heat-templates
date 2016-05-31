@@ -458,8 +458,8 @@ MYSQL_HOST=localhost\n",
 
     class {'::tripleo::network::midonet::api':
       zookeeper_servers    => $zookeeper_node_ips,
-      vip                  => hiera('tripleo::loadbalancer::public_virtual_ip'),
-      keystone_ip          => hiera('tripleo::loadbalancer::public_virtual_ip'),
+      vip                  => hiera('public_virtual_ip'),
+      keystone_ip          => hiera('public_virtual_ip'),
       keystone_admin_token => hiera('keystone::admin_token'),
       # TODO: create a 'bind' hiera key for api
       bind_address         => hiera('neutron::bind_host'),
@@ -492,7 +492,7 @@ MYSQL_HOST=localhost\n",
   }
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
     class {'::neutron::plugins::midonet':
-      midonet_api_ip    => hiera('tripleo::loadbalancer::public_virtual_ip'),
+      midonet_api_ip    => hiera('public_virtual_ip'),
       keystone_tenant   => hiera('neutron::server::auth_tenant'),
       keystone_password => hiera('neutron::server::auth_password')
     }
