@@ -1,0 +1,52 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Openstack Mistral API service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MistralWorkers:
+    default: 1
+    description: The number of workers for the mistral-api.
+    type: number
+
+resources:
+  MistralBase:
+    type: ./mistral-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Mistral API role.
+    value:
+      service_name: mistral_api
+      config_settings:
+        map_merge:
+          - get_attr: [MistralBase, role_data, config_settings]
+          - mistral::api::api_workers: {get_param: MistralWorkers}
+            mistral::api::bind_host: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            tripleo.mistral_api.firewall_rules:
+              '133 mistral':
+                dport:
+                  - 8989
+                  - 13989
+      service_config_settings:
+        get_attr: [MistralBase, role_data, service_config_settings]
+      step_config: |
+        include ::tripleo::profile::base::mistral::api
