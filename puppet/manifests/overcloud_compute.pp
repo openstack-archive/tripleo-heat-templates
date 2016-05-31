@@ -108,7 +108,6 @@ if hiera('step') >= 4 {
   nova_config {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
-    'DEFAULT/host': value => $fqdn;
   }
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
