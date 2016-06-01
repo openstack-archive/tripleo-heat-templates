@@ -109,12 +109,6 @@ if hiera('step') >= 4 {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
     'DEFAULT/host': value => $fqdn;
-    # TUNNELLED mode provides a security enhancement when using shared storage but is not
-    # supported when not using shared storage.
-    # See https://bugzilla.redhat.com/show_bug.cgi?id=1301986#c12
-    # In future versions of QEMU (2.6, mostly), Dan's native encryption
-    # work will obsolete the need to use TUNNELLED transport mode.
-    'libvirt/live_migration_tunnelled': value => $rbd_ephemeral_storage;
   }
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
