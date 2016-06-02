@@ -38,34 +38,10 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['gnocchi', 'database']
-  # This has to be an UUID so for now we generate it outside the template
-  CephClusterFSID:
-    default: ''
-    type: string
-    description: The Ceph cluster FSID. Must be a UUID.
-  CephMonKey:
-    default: ''
-    description: The Ceph monitors key. Can be created with ceph-authtool --gen-print-key.
-    type: string
-    hidden: true
-  CephAdminKey:
-    default: ''
-    description: The Ceph admin client key. Can be created with ceph-authtool --gen-print-key.
-    type: string
-    hidden: true
   CinderEnableNfsBackend:
     default: false
     description: Whether to enable or not the NFS backend for Cinder
     type: boolean
-  CephClientKey:
-    default: ''
-    description: The Ceph client key. Can be created with ceph-authtool --gen-print-key. Currently only used for external Ceph deployments to create the openstack user keyring.
-    type: string
-    hidden: true
-  CephExternalMonHost:
-    default: ''
-    type: string
-    description: List of externally managed Ceph Mon Host IPs. Only used for external Ceph deployments.
   CinderEnableRbdBackend:
     default: false
     description: Whether to enable or not the Rbd backend for Cinder
@@ -308,10 +284,6 @@ parameters:
     default: true
     description: Whether to use Galera instead of regular MariaDB.
     type: boolean
-  ControllerEnableCephStorage:
-    default: false
-    description: Whether to deploy Ceph Storage (OSD) on the Controller
-    type: boolean
   ControllerSchedulerHints:
     type: json
     description: Optional scheduler hints to pass to nova
@@ -527,6 +499,8 @@ parameters:
 
   ControllerServices:
     default:
+      - OS::TripleO::Services::CephMon
+      - OS::TripleO::Services::CephExternal
       - OS::TripleO::Services::CinderApi
       - OS::TripleO::Services::CinderScheduler
       - OS::TripleO::Services::CinderVolume
@@ -566,6 +540,8 @@ parameters:
 
   ComputeServices:
     default:
+      - OS::TripleO::Services::CephClient
+      - OS::TripleO::Services::CephExternal
       - OS::TripleO::Services::Timezone
       - OS::TripleO::Services::Ntp
       - OS::TripleO::Services::Snmp
@@ -670,6 +646,7 @@ parameters:
     default: {}
   CephStorageServices:
     default:
+      - OS::TripleO::Services::CephOSD
       - OS::TripleO::Services::Ntp
       - OS::TripleO::Services::Timezone
     description: A list of service resources (configured in the Heat
@@ -824,7 +801,6 @@ resources:
           ManageFirewall: {get_param: ManageFirewall}
           PurgeFirewallRules: {get_param: PurgeFirewallRules}
           EnableGalera: {get_param: EnableGalera}
-          EnableCephStorage: {get_param: ControllerEnableCephStorage}
           ExtraConfig: {get_param: ExtraConfig}
           FencingConfig: {get_param: FencingConfig}
           Flavor: {get_param: OvercloudControlFlavor}
@@ -1105,6 +1081,8 @@ resources:
       keystone_admin_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
       sahara_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, SaharaApiNetwork]}]}
       ironic_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, IronicApiNetwork]}]}
+      ceph_mon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CephPublicNetwork]}]}
+      ceph_mon_node_names: {get_attr: [Controller, hostname]}
       DeployIdentifier: {get_param: DeployIdentifier}
       UpdateIdentifier: {get_param: UpdateIdentifier}
 
@@ -1289,15 +1267,6 @@ resources:
 
   CephClusterConfig:
     type: OS::TripleO::CephClusterConfig::SoftwareConfig
-    properties:
-      ceph_storage_count: {get_param: CephStorageCount}
-      ceph_fsid: {get_param: CephClusterFSID}
-      ceph_mon_key: {get_param: CephMonKey}
-      ceph_admin_key: {get_param: CephAdminKey}
-      ceph_client_key: {get_param: CephClientKey}
-      ceph_external_mon_ips: {get_param: CephExternalMonHost}
-      ceph_mon_names: {get_attr: [Controller, hostname]}
-      ceph_mon_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CephPublicNetwork]}]}
 
   ControllerAllNodesDeployment:
     type: OS::Heat::StructuredDeployments

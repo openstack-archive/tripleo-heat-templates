@@ -32,21 +32,6 @@ if hiera('step') >= 4 {
     ensure => present,
   }
 
-  $rbd_ephemeral_storage = hiera('nova::compute::rbd::ephemeral_storage', false)
-  $rbd_persistent_storage = hiera('rbd_persistent_storage', false)
-  if $rbd_ephemeral_storage or $rbd_persistent_storage {
-    if str2bool(hiera('ceph_ipv6', false)) {
-      $mon_host = hiera('ceph_mon_host_v6')
-    } else {
-      $mon_host = hiera('ceph_mon_host')
-    }
-    class { '::ceph::profile::params':
-      mon_host            => $mon_host,
-    }
-    include ::ceph::conf
-    include ::ceph::profile::client
-  }
-
   nova_config {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';

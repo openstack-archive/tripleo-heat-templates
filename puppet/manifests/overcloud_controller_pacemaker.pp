@@ -262,57 +262,6 @@ if hiera('step') >= 2 {
       }
   }
 
-  # Ceph
-  $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
-
-  if $enable_ceph {
-    $mon_initial_members = downcase(hiera('ceph_mon_initial_members'))
-    if str2bool(hiera('ceph_ipv6', false)) {
-      $mon_host = hiera('ceph_mon_host_v6')
-    } else {
-      $mon_host = hiera('ceph_mon_host')
-    }
-    class { '::ceph::profile::params':
-      mon_initial_members => $mon_initial_members,
-      mon_host            => $mon_host,
-    }
-    include ::ceph::conf
-    include ::ceph::profile::mon
-  }
-
-  if str2bool(hiera('enable_ceph_storage', false)) {
-    if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
-      exec { 'set selinux to permissive on boot':
-        command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
-        onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-        path    => ['/usr/bin', '/usr/sbin'],
-      }
-
-      exec { 'set selinux to permissive':
-        command => 'setenforce 0',
-        onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-        path    => ['/usr/bin', '/usr/sbin'],
-      } -> Class['ceph::profile::osd']
-    }
-
-    include ::ceph::conf
-    include ::ceph::profile::osd
-  }
-
-  if str2bool(hiera('enable_external_ceph', false)) {
-    if str2bool(hiera('ceph_ipv6', false)) {
-      $mon_host = hiera('ceph_mon_host_v6')
-    } else {
-      $mon_host = hiera('ceph_mon_host')
-    }
-    class { '::ceph::profile::params':
-      mon_host            => $mon_host,
-    }
-    include ::ceph::conf
-    include ::ceph::profile::client
-  }
-
-
 } #END STEP 2
 
 if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
@@ -395,15 +344,6 @@ MYSQL_HOST=localhost\n",
       midonet_api_ip    => hiera('public_virtual_ip'),
       keystone_tenant   => hiera('neutron::server::auth_tenant'),
       keystone_password => hiera('neutron::server::password')
-    }
-  }
-
-  if $enable_ceph {
-    $ceph_pools = hiera('ceph_pools')
-    ceph::pool { $ceph_pools :
-      pg_num  => hiera('ceph::profile::params::osd_pool_default_pg_num'),
-      pgp_num => hiera('ceph::profile::params::osd_pool_default_pgp_num'),
-      size    => hiera('ceph::profile::params::osd_pool_default_size'),
     }
   }
 

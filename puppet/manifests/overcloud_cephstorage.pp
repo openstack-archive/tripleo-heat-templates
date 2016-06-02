@@ -24,33 +24,7 @@ if hiera('step') >= 1 {
 
 }
 
-if hiera('step') >= 3 {
-  if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
-    exec { 'set selinux to permissive on boot':
-      command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
-      onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
-      path    => ['/usr/bin', '/usr/sbin'],
-    }
-
-    exec { 'set selinux to permissive':
-      command => 'setenforce 0',
-      onlyif  => "which setenforce && getenforce | grep -i 'enforcing'",
-      path    => ['/usr/bin', '/usr/sbin'],
-    } -> Class['ceph::profile::osd']
-  }
-
-  if str2bool(hiera('ceph_ipv6', false)) {
-    $mon_host = hiera('ceph_mon_host_v6')
-  } else {
-    $mon_host = hiera('ceph_mon_host')
-  }
-  class { '::ceph::profile::params':
-    mon_host            => $mon_host,
-  }
-  include ::ceph::conf
-  include ::ceph::profile::client
-  include ::ceph::profile::osd
-
+if hiera('step') >= 4 {
   hiera_include('ceph_classes')
 }
 

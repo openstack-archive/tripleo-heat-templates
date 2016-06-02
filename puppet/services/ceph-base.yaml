@@ -1,0 +1,94 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Ceph base service. Shared by all Ceph services.
+
+parameters:
+  CephAdminKey:
+    default: ''
+    description: The Ceph admin client key. Can be created with ceph-authtool --gen-print-key.
+    type: string
+    hidden: true
+  CephClientKey:
+    default: ''
+    description: The Ceph client key. Can be created with ceph-authtool --gen-print-key. Currently only used for external Ceph deployments to create the openstack user keyring.
+    type: string
+    hidden: true
+  CephClientUserName:
+    default: openstack
+    type: string
+  CephClusterFSID:
+    default: ''
+    type: string
+    description: The Ceph cluster FSID. Must be a UUID.
+  CephIPv6:
+    default: False
+    type: boolean
+  CinderRbdPoolName:
+    default: volumes
+    type: string
+  CinderBackupRbdPoolName:
+    default: backups
+    type: string
+  GlanceRbdPoolName:
+    default: images
+    type: string
+  GnocchiRbdPoolName:
+    default: metrics
+    type: string
+  NovaRbdPoolName:
+    default: vms
+    type: string
+  # DEPRECATED options for compatibility with overcloud.yaml
+  # This should be removed and manipulation of the ControllerServices list
+  # used instead, but we need client support for that first
+  ControllerEnableCephStorage:
+    default: false
+    description: Whether to deploy Ceph Storage (OSD) on the Controller
+    type: boolean
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - ControllerEnableCephStorage
+
+outputs:
+  role_data:
+    description: Role data for the Ceph base service.
+    value:
+      config_settings:
+        tripleo::profile::base::ceph::ceph_ipv6: {get_param: CephIPv6}
+        tripleo::profile::base::ceph::enable_ceph_storage: {get_param: ControllerEnableCephStorage}
+        ceph::profile::params::fsid: {get_param: CephClusterFSID}
+        ceph::profile::params::client_keys:
+          str_replace:
+            template: "{
+              client.admin: {
+                secret: 'ADMIN_KEY',
+                mode: '0600',
+                cap_mon: 'allow *',
+                cap_osd: 'allow *',
+                cap_mds: 'allow *'
+              },
+              client.bootstrap-osd: {
+                secret: 'ADMIN_KEY',
+                keyring_path: '/var/lib/ceph/bootstrap-osd/ceph.keyring',
+                cap_mon: 'allow profile bootstrap-osd'
+              },
+              client.CLIENT_USER: {
+                secret: 'CLIENT_KEY',
+                mode: '0644',
+                cap_mon: 'allow r',
+                cap_osd: 'allow class-read object_prefix rbd_children, allow rwx pool=CINDER_POOL, allow rwx pool=CINDERBACKUP_POOL, allow rwx pool=NOVA_POOL, allow rwx pool=GLANCE_POOL, allow rwx pool=GNOCCHI_POOL'
+              }
+            }"
+            params:
+              CLIENT_USER: {get_param: CephClientUserName}
+              CLIENT_KEY: {get_param: CephClientKey}
+              ADMIN_KEY: {get_param: CephAdminKey}
+              NOVA_POOL: {get_param: NovaRbdPoolName}
+              CINDER_POOL: {get_param: CinderRbdPoolName}
+              CINDERBACKUP_POOL: {get_param: CinderBackupRbdPoolName}
+              GLANCE_POOL: {get_param: GlanceRbdPoolName}
+              GNOCCHI_POOL: {get_param: GnocchiRbdPoolName}
