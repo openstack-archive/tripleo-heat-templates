@@ -107,12 +107,6 @@ if hiera('step') >= 1 {
     }
   }
 
-  # Redis
-  class { '::redis' :
-    service_manage => false,
-    notify_service => false,
-  }
-
   # Galera
   if str2bool(hiera('enable_galera', true)) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
@@ -225,15 +219,6 @@ if hiera('step') >= 2 {
       require         => Class['::mysql::server'],
       before          => Exec['galera-ready'],
     }
-
-    pacemaker::resource::ocf { 'redis':
-      ocf_agent_name  => 'heartbeat:redis',
-      master_params   => '',
-      meta_params     => 'notify=true ordered=true interleave=true',
-      resource_params => 'wait_last_known_master=true',
-      require         => Class['::redis'],
-    }
-
   }
   $mysql_root_password = hiera('mysql::server::root_password')
   $mysql_clustercheck_password = hiera('mysql_clustercheck_password')
