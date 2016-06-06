@@ -358,11 +358,6 @@ MYSQL_HOST=localhost\n",
     manage_service => false,
     enabled        => false,
   }
-  include ::nova::scheduler::filter
-  class { '::nova::scheduler' :
-    manage_service => false,
-    enabled        => false,
-  }
   include ::nova::network::neutron
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
@@ -714,9 +709,6 @@ password=\"${mysql_root_password}\"",
       require      => Pacemaker::Resource::Ocf['openstack-core'],
     }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::nova::params::scheduler_service_name :
       clone_params => 'interleave=true',
     }
 

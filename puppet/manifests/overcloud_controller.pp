@@ -154,8 +154,6 @@ if hiera('step') >= 4 {
   include ::nova::consoleauth
   include ::nova::network::neutron
   include ::nova::vncproxy
-  include ::nova::scheduler
-  include ::nova::scheduler::filter
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
