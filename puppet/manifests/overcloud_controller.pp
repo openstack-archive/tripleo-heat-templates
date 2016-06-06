@@ -151,7 +151,6 @@ if hiera('step') >= 4 {
     memcached_servers => $memcached_servers
   }
   include ::nova::config
-  include ::nova::consoleauth
   include ::nova::network::neutron
   include ::nova::vncproxy
 

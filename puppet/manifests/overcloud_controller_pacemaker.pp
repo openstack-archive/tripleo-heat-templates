@@ -350,10 +350,6 @@ MYSQL_HOST=localhost\n",
 
   include ::nova::config
 
-  class { '::nova::consoleauth' :
-    manage_service => false,
-    enabled        => false,
-  }
   class { '::nova::vncproxy' :
     manage_service => false,
     enabled        => false,
@@ -704,10 +700,6 @@ password=\"${mysql_root_password}\"",
     }
 
     # Nova
-    pacemaker::resource::service { $::nova::params::consoleauth_service_name :
-      clone_params => 'interleave=true',
-      require      => Pacemaker::Resource::Ocf['openstack-core'],
-    }
     pacemaker::resource::service { $::nova::params::vncproxy_service_name :
       clone_params => 'interleave=true',
     }
