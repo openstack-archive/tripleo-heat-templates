@@ -161,7 +161,6 @@ if hiera('step') >= 4 {
   }
   include ::nova::config
   include ::nova::api
-  include ::nova::cert
   include ::nova::consoleauth
   include ::nova::network::neutron
   include ::nova::vncproxy

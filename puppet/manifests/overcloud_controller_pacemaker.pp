@@ -380,10 +380,6 @@ MYSQL_HOST=localhost\n",
     manage_service => false,
     enabled        => false,
   }
-  class { '::nova::cert' :
-    manage_service => false,
-    enabled        => false,
-  }
   class { '::nova::consoleauth' :
     manage_service => false,
     enabled        => false,
