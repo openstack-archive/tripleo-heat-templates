@@ -349,11 +349,6 @@ MYSQL_HOST=localhost\n",
   }
 
   include ::nova::config
-
-  class { '::nova::vncproxy' :
-    manage_service => false,
-    enabled        => false,
-  }
   include ::nova::network::neutron
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
@@ -700,10 +695,6 @@ password=\"${mysql_root_password}\"",
     }
 
     # Nova
-    pacemaker::resource::service { $::nova::params::vncproxy_service_name :
-      clone_params => 'interleave=true',
-    }
-
     pacemaker::constraint::base { 'keystone-then-nova-consoleauth-constraint':
       constraint_type => 'order',
       first_resource  => 'openstack-core-clone',

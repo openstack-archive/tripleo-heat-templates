@@ -152,7 +152,6 @@ if hiera('step') >= 4 {
   }
   include ::nova::config
   include ::nova::network::neutron
-  include ::nova::vncproxy
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
