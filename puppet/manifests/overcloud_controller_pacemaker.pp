@@ -251,13 +251,6 @@ if hiera('step') >= 2 {
 
   # Create all the database schemas
   if $sync_db {
-    class { '::nova::db::mysql':
-      require => Exec['galera-ready'],
-    }
-    class { '::nova::db::mysql_api':
-      require => Exec['galera-ready'],
-    }
-
     if downcase(hiera('ceilometer_backend')) == 'mysql' {
       class { '::ceilometer::db::mysql':
         require => Exec['galera-ready'],
