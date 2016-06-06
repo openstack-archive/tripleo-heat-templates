@@ -24,19 +24,6 @@ if hiera('step') >= 2 {
 } #END STEP 2
 
 if hiera('step') >= 4 {
-
-  $nova_ipv6 = hiera('nova::use_ipv6', false)
-  if $nova_ipv6 {
-    $memcached_servers = suffix(hiera('memcache_node_ips_v6'), ':11211')
-  } else {
-    $memcached_servers = suffix(hiera('memcache_node_ips'), ':11211')
-  }
-
-  class { '::nova' :
-    memcached_servers => $memcached_servers
-  }
-  include ::nova::config
-
   # Aodh
   class { '::aodh' :
     database_connection => hiera('aodh_mysql_conn_string'),
