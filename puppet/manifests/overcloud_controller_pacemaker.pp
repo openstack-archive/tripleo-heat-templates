@@ -1079,6 +1079,7 @@ MYSQL_HOST=localhost\n",
   include ::swift::proxy::catch_errors
   include ::swift::proxy::tempurl
   include ::swift::proxy::formpost
+  include ::swift::proxy::bulk
 
   # swift storage
   if str2bool(hiera('enable_swift_storage', true)) {
