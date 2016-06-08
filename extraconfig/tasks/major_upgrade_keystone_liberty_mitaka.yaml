@@ -1,0 +1,73 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Software-config for keystone configuration under httpd during upgrades
+
+parameters:
+  controller_servers:
+    type: json
+  compute_servers:
+    type: json
+  blockstorage_servers:
+    type: json
+  objectstorage_servers:
+    type: json
+  cephstorage_servers:
+    type: json
+  input_values:
+    type: json
+    description: input values for the software deployments
+resources:
+  KeystoneLibertyMitakaPreUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      config:
+        get_file: liberty_to_mitaka_keystone_upgrade.pp
+    type: OS::Heat::SoftwareConfig
+
+  KeystoneLibertyMitakaUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+          - ''
+          - - "#!/bin/bash\n\n"
+            - get_file: pacemaker_common_functions.sh
+            - get_file: major_upgrade_pacemaker_migrations.sh
+            - "liberty_to_mitaka_keystone\n"
+            - "add_missing_openstack_core_constraints\n\n"
+
+  KeystoneLibertyMitakaPostUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+          - ''
+          - - "#!/bin/bash\nset -e\n"
+            - "/usr/bin/systemctl reload httpd"
+
+  KeystoneLibertyMitakaPreUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      name: KeystoneLibertyMitakaPreUpgradeDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: KeystoneLibertyMitakaPreUpgradeConfig}
+
+  KeystoneLibertyMitakaUpgradeConfigDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: KeystoneLibertyMitakaPreUpgradeDeployment
+    properties:
+      name: KeystoneLibertyMitakaUpgradeConfigDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: KeystoneLibertyMitakaUpgradeConfig}
+
+  KeystoneLibertyMitakaPostUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: KeystoneLibertyMitakaUpgradeConfigDeployment
+    properties:
+      name: KeystoneLibertyMitakaPostUpgradeDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: KeystoneLibertyMitakaPostUpgradeConfig}
