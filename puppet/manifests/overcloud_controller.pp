@@ -202,12 +202,10 @@ if hiera('step') >= 4 {
 
   }
 
-  # If the value of core plugin is set to 'nuage' or'opencontrail'
-  # include nuage or opencontrail core plugins
+  # If the value of core plugin is set to 'opencontrail'
+  # include opencontrail core plugins
   # else use the default value of 'ml2'
-  if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
-    include ::neutron::plugins::nuage
-  } elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+  if hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
     include ::neutron::plugins::opencontrail
   } else {
 

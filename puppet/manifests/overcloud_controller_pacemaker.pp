@@ -400,9 +400,6 @@ MYSQL_HOST=localhost\n",
 
   }
 
-  if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
-    include ::neutron::plugins::nuage
-  }
   if  hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
     include ::neutron::plugins::opencontrail
   }
