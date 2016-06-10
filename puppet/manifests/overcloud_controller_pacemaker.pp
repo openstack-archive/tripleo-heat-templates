@@ -433,17 +433,14 @@ MYSQL_HOST=localhost\n",
     }
 
     # Configure Neutron
+    # TODO: when doing the composable midonet plugin, don't forget to
+    # set service_plugins to an empty array in Hiera.
     class {'::neutron':
       service_plugins => []
     }
 
   }
-  else {
-    # Neutron class definitions
-    include ::neutron
-  }
 
-  include ::neutron::config
   if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   }

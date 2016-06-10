@@ -207,18 +207,13 @@ if hiera('step') >= 4 {
     }
 
     # TODO: find a way to get an empty list from hiera
+    # TODO: when doing the composable midonet plugin, don't forget to
+    # set service_plugins to an empty array in Hiera.
     class {'::neutron':
       service_plugins => []
     }
 
   }
-  else {
-
-    # ML2 plugin
-    include ::neutron
-  }
-
-  include ::neutron::config
 
   # If the value of core plugin is set to 'nuage' or'opencontrail' or 'plumgrid',
   # include nuage or opencontrail or plumgrid core plugins
