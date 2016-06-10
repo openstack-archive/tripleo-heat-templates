@@ -246,42 +246,10 @@ if hiera('step') >= 4 {
         keystone_tenant   => hiera('neutron::server::auth_tenant'),
         keystone_password => hiera('neutron::server::password')
       }
-    } else {
-
-      include ::neutron::plugins::ml2
-      include ::neutron::agents::ml2::ovs
-
-      if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-        include ::neutron::plugins::ml2::cisco::nexus1000v
-
-        class { '::neutron::agents::n1kv_vem':
-          n1kv_source  => hiera('n1kv_vem_source', undef),
-          n1kv_version => hiera('n1kv_vem_version', undef),
-        }
-
-        class { '::n1k_vsm':
-          n1kv_source       => hiera('n1kv_vsm_source', undef),
-          n1kv_version      => hiera('n1kv_vsm_version', undef),
-          pacemaker_control => false,
-        }
-      }
-
-      if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-        include ::neutron::plugins::ml2::cisco::ucsm
-      }
-      if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-        include ::neutron::plugins::ml2::cisco::nexus
-        include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
-      }
-
-      if 'bsn_ml2' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-        include ::neutron::plugins::ml2::bigswitch::restproxy
-        include ::neutron::agents::bigswitch
-      }
-      Service['neutron-server'] -> Service['neutron-ovs-agent-service']
     }
 
     Service['neutron-server'] -> Service['neutron-metadata']
+
   }
 
   if $enable_ceph {

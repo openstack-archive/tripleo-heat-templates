@@ -465,37 +465,6 @@ MYSQL_HOST=localhost\n",
       metadata_proxy_shared_secret => hiera('nova::api::neutron_metadata_proxy_shared_secret'),
     }
   }
-  include ::neutron::plugins::ml2
-  class { '::neutron::agents::ml2::ovs':
-    manage_service => false,
-    enabled        => false,
-  }
-
-  if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::ucsm
-  }
-  if 'cisco_nexus' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::nexus
-    include ::neutron::plugins::ml2::cisco::type_nexus_vxlan
-  }
-  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    include ::neutron::plugins::ml2::cisco::nexus1000v
-
-    class { '::neutron::agents::n1kv_vem':
-      n1kv_source  => hiera('n1kv_vem_source', undef),
-      n1kv_version => hiera('n1kv_vem_version', undef),
-    }
-
-    class { '::n1k_vsm':
-      n1kv_source  => hiera('n1kv_vsm_source', undef),
-      n1kv_version => hiera('n1kv_vsm_version', undef),
-    }
-  }
-
-  if 'bsn_ml2' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    include ::neutron::plugins::ml2::bigswitch::restproxy
-    include ::neutron::agents::bigswitch
-  }
 
   if $enable_ceph {
     $ceph_pools = hiera('ceph_pools')
@@ -726,58 +695,9 @@ password=\"${mysql_root_password}\"",
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
 
-    if hiera('neutron::enable_ovs_agent', true) {
-      pacemaker::resource::service { $::neutron::params::ovs_agent_service:
-        clone_params => 'interleave=true',
-      }
-    }
     if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
       pacemaker::resource::service {'tomcat':
         clone_params => 'interleave=true',
-      }
-    }
-    if hiera('neutron::enable_ovs_agent', true) {
-      pacemaker::resource::ocf { $::neutron::params::ovs_cleanup_service:
-        ocf_agent_name => 'neutron:OVSCleanup',
-        clone_params   => 'interleave=true',
-      }
-      pacemaker::resource::ocf { 'neutron-netns-cleanup':
-        ocf_agent_name => 'neutron:NetnsCleanup',
-        clone_params   => 'interleave=true',
-      }
-
-      # neutron - one chain ovs-cleanup-->netns-cleanup-->ovs-agent
-      pacemaker::constraint::base { 'neutron-ovs-cleanup-to-netns-cleanup-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::ovs_cleanup_service}-clone",
-        second_resource => 'neutron-netns-cleanup-clone',
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Ocf[$::neutron::params::ovs_cleanup_service],
-                            Pacemaker::Resource::Ocf['neutron-netns-cleanup']],
-      }
-      pacemaker::constraint::colocation { 'neutron-ovs-cleanup-to-netns-cleanup-colocation':
-        source  => 'neutron-netns-cleanup-clone',
-        target  => "${::neutron::params::ovs_cleanup_service}-clone",
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Ocf[$::neutron::params::ovs_cleanup_service],
-                    Pacemaker::Resource::Ocf['neutron-netns-cleanup']],
-      }
-      pacemaker::constraint::base { 'neutron-netns-cleanup-to-openvswitch-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => 'neutron-netns-cleanup-clone',
-        second_resource => "${::neutron::params::ovs_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Ocf['neutron-netns-cleanup'],
-                            Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
-      }
-      pacemaker::constraint::colocation { 'neutron-netns-cleanup-to-openvswitch-agent-colocation':
-        source  => "${::neutron::params::ovs_agent_service}-clone",
-        target  => 'neutron-netns-cleanup-clone',
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Ocf['neutron-netns-cleanup'],
-                    Pacemaker::Resource::Service[$::neutron::params::ovs_agent_service]],
       }
     }
     if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
