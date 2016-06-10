@@ -51,10 +51,6 @@ if hiera('step') >= 4 {
     ensure => present,
   }
 
-  include ::nova
-  include ::nova::config
-  include ::nova::compute
-
   $rbd_ephemeral_storage = hiera('nova::compute::rbd::ephemeral_storage', false)
   $rbd_persistent_storage = hiera('rbd_persistent_storage', false)
   if $rbd_ephemeral_storage or $rbd_persistent_storage {
