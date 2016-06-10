@@ -1,0 +1,70 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Neutron Server configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronWorkers:
+    default: 0
+    description: Number of workers for Neutron service.
+    type: number
+  NeutronPassword:
+    description: The password for the neutron service and db account, used by neutron agents.
+    type: string
+    hidden: true
+  NeutronAllowL3AgentFailover:
+    default: 'True'
+    description: Allow automatic l3-agent failover
+    type: string
+  NeutronL3HA:
+    default: 'False'
+    description: Whether to enable l3-agent HA
+    type: string
+  NovaPassword:
+    description: The password for the nova service and db account, used by nova-api.
+    type: string
+    hidden: true
+
+resources:
+
+  NeutronBase:
+    type: ./neutron-base.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Neutron Server agent service.
+    value:
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+            neutron_dsn: &neutron_dsn
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://neutron:'
+                  - {get_param: NeutronPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/ovs_neutron?charset=utf8'
+            neutron::server::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            neutron::server::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            neutron::server::identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+            neutron::server::database_connection: *neutron_dsn
+            neutron::server::api_workers: {get_param: NeutronWorkers}
+            neutron::server::allow_automatic_l3agent_failover: {get_param: NeutronAllowL3AgentFailover}
+            neutron::server::l3_ha: {get_param: NeutronL3HA}
+            neutron::server::auth_password: {get_param: NeutronPassword}
+
+            neutron::server::notifications::nova_url: { get_param: [ EndpointMap, NovaInternal, uri ] }
+            neutron::server::notifications::auth_url: { get_param: [ EndpointMap, KeystoneV3Admin, uri ] }
+            neutron::server::notifications::tenant_name: 'service'
+            neutron::server::notifications::project_name: 'service'
+            neutron::server::notifications::password: {get_param: NovaPassword}
+            neutron::db::mysql::password: {get_param: NeutronPassword}
+      step_config: |
+        include tripleo::profile::base::neutron::server

@@ -87,7 +87,6 @@ if hiera('step') >= 2 {
   # Create all the database schemas
   include ::nova::db::mysql
   include ::nova::db::mysql_api
-  include ::neutron::db::mysql
   if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
     include ::gnocchi::db::mysql
   }
@@ -220,8 +219,6 @@ if hiera('step') >= 4 {
   }
 
   include ::neutron::config
-  include ::neutron::server
-  include ::neutron::server::notifications
 
   # If the value of core plugin is set to 'nuage' or'opencontrail' or 'plumgrid',
   # include nuage or opencontrail or plumgrid core plugins
