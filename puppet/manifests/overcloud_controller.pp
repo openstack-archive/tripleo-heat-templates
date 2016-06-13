@@ -84,8 +84,8 @@ if hiera('step') >= 2 {
   }
   if downcase(hiera('ceilometer_backend')) == 'mysql' {
     include ::ceilometer::db::mysql
-    include ::aodh::db::mysql
   }
+  include ::aodh::db::mysql
 
   $enable_ceph = hiera('ceph_storage_count', 0) > 0 or hiera('enable_ceph_storage', false)
 
@@ -280,11 +280,9 @@ if hiera('step') >= 4 {
 
   # Aodh
   class { '::aodh' :
-    database_connection => $ceilometer_database_connection,
+    database_connection => hiera('aodh_mysql_conn_string'),
   }
   include ::aodh::db::sync
-  # To manage the upgrade:
-  Exec['ceilometer-dbsync'] -> Exec['aodh-db-sync']
   include ::aodh::auth
   include ::aodh::api
   include ::aodh::wsgi::apache
