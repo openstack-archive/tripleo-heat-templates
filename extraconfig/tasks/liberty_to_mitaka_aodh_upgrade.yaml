@@ -1,0 +1,69 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Software-config for performing aodh upgrades
+
+parameters:
+  controller_servers:
+    type: json
+  compute_servers:
+    type: json
+  blockstorage_servers:
+    type: json
+  objectstorage_servers:
+    type: json
+  cephstorage_servers:
+    type: json
+  input_values:
+    type: json
+    description: input values for the software deployments
+resources:
+
+  AodhPreUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+          - ''
+          - - "#!/bin/bash\n\n"
+            - get_file: pacemaker_common_functions.sh
+            - get_file: major_upgrade_pacemaker_migrations.sh
+            - "remove_ceilometer_alarm\n\n"
+
+  AodhUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      config:
+        get_file: liberty_to_mitaka_aodh_upgrade_1.pp
+
+  AodhPostUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      config:
+        get_file: liberty_to_mitaka_aodh_upgrade_2.pp
+
+  AodhPreUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      name: AodhPreUpgradeDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: AodhPreUpgradeConfig}
+
+  AodhUpgradeConfigDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: AodhPreUpgradeDeployment
+    properties:
+      name: AodhUpgradeConfigDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: AodhUpgradeConfig}
+
+  AodhPostUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: AodhUpgradeConfigDeployment
+    properties:
+      name: AodhPostUpgradeDeployment
+      servers: {get_param: controller_servers}
+      config: {get_resource: AodhPostUpgradeConfig}
