@@ -84,6 +84,15 @@ class { '::aodh::listener':
   enabled        => false,
 }
 
+# It seems that restarting httpd via pcs at this stage can break
+# because at least in liberty it seems httpd is often started
+# via puppet and not via pacemaker and this confuses restarts
+exec {'restart-httpd-for-aodh-l-m-upgrade':
+  command => '/usr/bin/systemctl reload httpd',
+  require => [Class['::apache'],
+              Class['::aodh::api']],
+}
+
 if $pacemaker_master {
 
   pacemaker::resource::service { $::aodh::params::evaluator_service_name :
@@ -98,6 +107,20 @@ if $pacemaker_master {
     clone_params => 'interleave=true',
     require      => Class['::aodh::listener'],
   }
+
+  # Do no explicitely require on Pacemaker::Resource::Ocf['redis'] because
+  # the resource already exists at this stage and we do not want to include
+  # all the redis puppet manifests to reinstate it as it is already there
+  pacemaker::constraint::base { 'redis-then-aodh-evaluator-constraint':
+    constraint_type   => 'order',
+    first_resource    => 'redis-master',
+    second_resource   => "${::aodh::params::evaluator_service_name}-clone",
+    first_action      => 'promote',
+    second_action     => 'start',
+    constraint_params => $redis_aodh_constraint_params,
+    require           => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name]],
+  }
+
   pacemaker::constraint::base { 'aodh-evaluator-then-aodh-notifier-constraint':
     constraint_type => 'order',
     first_resource  => "${::aodh::params::evaluator_service_name}-clone",
@@ -129,8 +152,5 @@ if $pacemaker_master {
     score   => 'INFINITY',
     require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
                 Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
-  }
-  exec {'restart-httpd-for-aodh-l-m-upgrade':
-    command => '/usr/sbin/pcs resource restart httpd-clone --wait=300',
   }
 }
