@@ -151,7 +151,6 @@ if hiera('step') >= 4 {
     memcached_servers => $memcached_servers
   }
   include ::nova::config
-  include ::nova::network::neutron
 
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
