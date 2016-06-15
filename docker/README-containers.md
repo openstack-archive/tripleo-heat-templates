@@ -20,6 +20,9 @@ glance image-create --name atomic-image --file Fedora-Cloud-Atomic-22-20150521.x
 You can use the tripleo.sh script up until the point of running the Overcloud.
 https://github.com/openstack/tripleo-common/blob/master/scripts/tripleo.sh
 
+You will want to set up the runtime puppet script delivery system described here:
+http://hardysteven.blogspot.ca/2016/08/tripleo-deploy-artifacts-and-puppet.html
+
 Create the Overcloud:
 ```
 $ openstack overcloud deploy --templates=tripleo-heat-templates -e tripleo-heat-templates/environments/docker.yaml -e tripleo-heat-templates/environments/docker-network.yaml --libvirt-type=qemu

@@ -1,0 +1,73 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Utility stack to convert an array of services into a set of combined
+  role configs.
+
+parameters:
+  Services:
+    default: []
+    description: |
+        List nested stack service templates.
+    type: comma_delimited_list
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  DefaultPasswords:
+    default: {}
+    description: Mapping of service -> default password. Used to help
+                 pass top level passwords managed by Heat into services.
+    type: json
+
+resources:
+
+  PuppetServices:
+    type: ../../puppet/services/services.yaml
+    properties:
+      Services: {get_param: Services}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      EndpointMap: {get_param: EndpointMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+  ServiceChain:
+    type: OS::Heat::ResourceChain
+    properties:
+      resources: {get_param: Services}
+      concurrent: true
+      resource_properties:
+        ServiceNetMap: {get_param: ServiceNetMap}
+        EndpointMap: {get_param: EndpointMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Combined Role data for this set of services.
+    value:
+      service_names:
+        {get_attr: [PuppetServices, role_data, service_names]}
+      monitoring_subscriptions:
+        {get_attr: [PuppetServices, role_data, monitoring_subscriptions]}
+      logging_sources:
+        {get_attr: [PuppetServices, role_data, logging_sources]}
+      logging_groups:
+        {get_attr: [PuppetServices, role_data, logging_groups]}
+      service_config_settings:
+        {get_attr: [PuppetServices, role_data, service_config_settings]}
+      config_settings:
+        {get_attr: [PuppetServices, role_data, config_settings]}
+      global_config_settings:
+        {get_attr: [PuppetServices, role_data, global_config_settings]}
+      step_config:
+        {get_attr: [PuppetServices, role_data, step_config]}
+      puppet_tags: {list_join: [",", {get_attr: [ServiceChain, role_data, puppet_tags]}]}
+      docker_config:
+        step_1: {map_merge: {get_attr: [ServiceChain, role_data, docker_config, step_1]}}
+        step_2: {map_merge: {get_attr: [ServiceChain, role_data, docker_config, step_2]}}

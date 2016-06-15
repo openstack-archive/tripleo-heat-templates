@@ -1,0 +1,308 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Post-deploy configuration steps via puppet for all roles,
+  as defined in ../roles_data.yaml
+
+parameters:
+  servers:
+    type: json
+    description: Mapping of Role name e.g Controller to a list of servers
+
+  role_data:
+    type: json
+    description: Mapping of Role name e.g Controller to the per-role data
+
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
+
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+
+  DockerOpenvswitchDBImage:
+    description: image
+    default: 'centos-binary-openvswitch-db-server'
+    type: string
+
+  DockerOvsVswitchdImage:
+    description: image
+    default: 'centos-binary-openvswitch-vswitchd'
+    type: string
+
+  LibvirtConfig:
+    type: string
+    default: "/etc/libvirt/libvirtd.conf"
+
+  NovaConfig:
+    type: string
+    default: "/etc/nova/nova.conf,/etc/nova/rootwrap.conf"
+
+  NeutronOpenvswitchAgentConfig:
+    type: string
+    default: "/etc/neutron/neutron.conf,/etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini"
+
+resources:
+
+{% for role in roles %}
+  # Post deployment steps for all roles
+  # A single config is re-applied with an incrementing step number
+  # {{role.name}} Role steps
+  {{role.name}}ArtifactsConfig:
+    type: ../puppet/deploy-artifacts.yaml
+
+  {{role.name}}ArtifactsDeploy:
+    type: OS::Heat::StructuredDeploymentGroup
+    properties:
+      servers:  {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}ArtifactsConfig}
+
+  {{role.name}}PreConfig:
+    type: OS::TripleO::Tasks::{{role.name}}PreConfig
+    properties:
+      servers: {get_param: [servers, {{role.name}}]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Config:
+    type: OS::TripleO::{{role.name}}Config
+    properties:
+      StepConfig: {get_param: [role_data, {{role.name}}, step_config]}
+  {% if role.name.lower() == 'compute' %}
+      PuppetTags: {get_param: [role_data, {{role.name}}, puppet_tags]}
+  {% endif %}
+
+  # Step through a series of configuration steps
+  {{role.name}}Deployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
+    properties:
+      name: {{role.name}}Deployment_Step1
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step1
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step2
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step2
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step3
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step3
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step4
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step4
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step5
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}PostConfig:
+    type: OS::TripleO::Tasks::{{role.name}}PostConfig
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step5
+  {% endfor %}
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  {{role.name}}ExtraConfigPost:
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}PostConfig
+  {% endfor %}
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, {{role.name}}]}
+
+  {% if role.name.lower() == 'compute' %}
+  CopyEtcConfig:
+    type: OS::Heat::SoftwareConfig
+    depends_on: {{role.name}}PostConfig
+    properties:
+      group: script
+      outputs:
+        - name: result
+      config: {get_file: ../docker/copy-etc.sh}
+
+  CopyEtcDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      name: CopyEtcDeployment
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: CopyEtcConfig}
+
+  CopyJsonConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: libvirt_config
+      - name: nova_config
+      - name: neutron_openvswitch_agent_config
+      config: {get_file: ../docker/copy-json.py}
+
+  CopyJsonDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: CopyEtcDeployment
+    properties:
+      name: CopyJsonDeployment
+      config: {get_resource: CopyJsonConfig}
+      servers: {get_param: [servers, {{role.name}}]}
+      input_values:
+        libvirt_config: {get_param: LibvirtConfig}
+        nova_config: {get_param: NovaConfig}
+        neutron_openvswitch_agent_config: {get_param: NeutronOpenvswitchAgentConfig}
+
+  NovaComputeContainersDeploymentOVS:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: CopyJsonDeployment
+    properties:
+      name: NovaComputeContainersDeploymentOVS
+      config: {get_resource: NovaComputeContainersConfigOVS}
+      servers: {get_param: [servers, {{role.name}}]}
+
+  NovaComputeContainersConfigOVS:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: docker-cmd
+      config:
+        openvswitchdb:
+          image:
+            list_join:
+              - '/'
+              - [ {get_param: DockerNamespace}, {get_param: DockerOpenvswitchDBImage} ]
+          net: host
+          restart: always
+          volumes:
+            - /var/lib/etc-data/json-config/ovsdb-server.json:/var/lib/kolla/config_files/config.json
+            - /etc/localtime:/etc/localtime:ro
+            - /run:/run
+            - logs:/var/log/kolla/
+            - openvswitch_db:/var/lib/openvswitch/
+          environment:
+            - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+
+        ovsvswitchd:
+          image:
+            list_join:
+              - '/'
+              - [ {get_param: DockerNamespace}, {get_param: DockerOvsVswitchdImage} ]
+          net: host
+          privileged: true
+          restart: always
+          volumes:
+            - /var/lib/etc-data/json-config/ovs-vswitchd.json:/var/lib/kolla/config_files/config.json
+            - /etc/localtime:/etc/localtime:ro
+            - /lib/modules:/lib/modules:ro
+            - /run:/run
+            - logs:/var/log/kolla/
+          environment:
+            - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+
+  NovaComputeContainersDeploymentNetconfig:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: NovaComputeContainersDeploymentOVS
+    properties:
+      name: NovaComputeContainersDeploymentNetconfig
+      config: {get_resource: NovaComputeContainersConfigNetconfig}
+      servers: {get_param: [servers, {{role.name}}]}
+
+  # We run os-net-config here because we depend on the ovs containers to be up
+  # and running before we configure the network.  This allows explicit timing
+  # of the network configuration.
+  NovaComputeContainersConfigNetconfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      outputs:
+      - name: result
+      config: |
+        #!/bin/bash
+        /usr/local/bin/run-os-net-config
+
+  {{role.name}}ContainersConfig_Step1:
+    type: OS::Heat::StructuredConfig
+    depends_on: CopyJsonDeployment
+    properties:
+      group: docker-cmd
+      config:
+        {get_param: [role_data, {{role.name}}, docker_config, step_1]}
+
+  {{role.name}}ContainersConfig_Step2:
+    type: OS::Heat::StructuredConfig
+    depends_on: CopyJsonDeployment
+    properties:
+      group: docker-cmd
+      config:
+        {get_param: [role_data, {{role.name}}, docker_config, step_2]}
+
+  {{role.name}}ContainersDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy, NovaComputeContainersDeploymentNetconfig]
+    properties:
+      name: {{role.name}}ContainersDeployment_Step1
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}ContainersConfig_Step1}
+
+  {{role.name}}ContainersDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: {{role.name}}ContainersDeployment_Step1
+    properties:
+      name: {{role.name}}ContainersDeployment_Step2
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}ContainersConfig_Step2}
+  {% endif %}
+{% endfor %}
