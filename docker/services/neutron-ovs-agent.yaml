@@ -1,0 +1,75 @@
+heat_template_version: 2015-04-30
+
+description: >
+  OpenStack Neutron openvswitch service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerOpenvswitchImage:
+    description: image
+    default: 'centos-binary-neutron-openvswitch-agent'
+    type: string
+  NeutronOpenvswitchAgentPluginVolume:
+    type: string
+    default: "/var/lib/etc-data/neutron/plugins/ml2/openvswitch_agent.ini:/var/lib/kolla/config_files/ovs_neutron_plugin.ini:ro"
+  NeutronOpenvswitchAgentOvsVolume:
+    type: string
+    default: " "
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  NeutronOvsAgentBase:
+    type: ../../puppet/services/neutron-ovs-agent.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for Neutron openvswitch service
+    value:
+      config_settings: {get_attr: [NeutronOvsAgentBase, role_data, config_settings]}
+      step_config: {get_attr: [NeutronOvsAgentBase, role_data, step_config]}
+      puppet_tags: neutron_config,neutron_agent_ovs,neutron_plugin_ml2
+      docker_config:
+        step_1:
+          neutronovsagent:
+            image:
+              list_join:
+              - '/'
+              - [ {get_param: DockerNamespace}, {get_param: DockerOpenvswitchImage} ]
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            volumes:
+              - /var/lib/etc-data/json-config/neutron-openvswitch-agent.json:/var/lib/kolla/config_files/config.json
+              - /var/lib/etc-data/neutron/neutron.conf:/var/lib/kolla/config_files/neutron.conf:ro
+              - /var/lib/etc-data/neutron/plugins/ml2/ml2_conf.ini:/var/lib/kolla/config_files/ml2_conf.ini:ro
+              - {get_param: NeutronOpenvswitchAgentPluginVolume}
+              - {get_param: NeutronOpenvswitchAgentOvsVolume}
+              - /etc/localtime:/etc/localtime:ro
+              - /lib/modules:/lib/modules:ro
+              - /run:/run
+              - logs:/var/log/kolla/
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_2: {}
