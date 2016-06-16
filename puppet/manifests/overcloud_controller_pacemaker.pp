@@ -696,6 +696,13 @@ password=\"${mysql_root_password}\"",
       require         => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
                           Pacemaker::Resource::Ocf['openstack-core']],
     }
+    pacemaker::constraint::colocation { 'nova-consoleauth-with-openstack-core':
+      source  => "${::nova::params::consoleauth_service_name}-clone",
+      target  => 'openstack-core-clone',
+      score   => 'INFINITY',
+      require => [Pacemaker::Resource::Service[$::nova::params::consoleauth_service_name],
+                  Pacemaker::Resource::Ocf['openstack-core']],
+    }
     pacemaker::constraint::base { 'nova-consoleauth-then-nova-vncproxy-constraint':
       constraint_type => 'order',
       first_resource  => "${::nova::params::consoleauth_service_name}-clone",
