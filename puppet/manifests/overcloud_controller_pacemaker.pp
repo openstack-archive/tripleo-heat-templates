@@ -1171,6 +1171,15 @@ MYSQL_HOST=localhost\n",
     manage_service => false,
     enabled        => false,
   }
+  # Domain resources will be created at step5 on the pacemaker_master
+  # So we configure heat.conf at step3 and 4 but actually create the domain later.
+  if hiera('step') == 3 or hiera('step') == 4 {
+    class { '::heat::keystone::domain':
+      manage_domain => false,
+      manage_user   => false,
+      manage_role   => false,
+    }
+  }
 
   # httpd/apache and horizon
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
