@@ -23,11 +23,6 @@ if hiera('step') >= 4 {
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
   }
 
-  include ::ceilometer
-  include ::ceilometer::config
-  include ::ceilometer::agent::compute
-  include ::ceilometer::agent::auth
-
   hiera_include('compute_classes')
 }
 
