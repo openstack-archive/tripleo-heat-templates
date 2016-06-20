@@ -28,8 +28,6 @@ if hiera('step') >= 1 {
 
 if hiera('step') >= 2 {
 
-  include ::timezone
-
   # MongoDB
   if downcase(hiera('ceilometer_backend')) == 'mongodb' {
     # NOTE(gfidente): We need to pass the list of IPv6 addresses *with* port and
