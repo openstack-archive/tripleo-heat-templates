@@ -28,10 +28,6 @@ if hiera('step') >= 1 {
 
 if hiera('step') >= 2 {
 
-  if count(hiera('ntp::servers')) > 0 {
-    include ::ntp
-  }
-
   include ::timezone
 
   # MongoDB
