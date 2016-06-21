@@ -77,8 +77,6 @@ if hiera('step') >= 2 {
 
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
-  include ::nova::db::mysql
-  include ::nova::db::mysql_api
   if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
     include ::gnocchi::db::mysql
   }
