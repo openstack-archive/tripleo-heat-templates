@@ -269,6 +269,10 @@ if hiera('step') >= 2 {
         require => Exec['galera-ready'],
       }
     }
+
+    class { '::aodh::db::mysql':
+        require => Exec['galera-ready'],
+      }
   }
 
   # Ceph
@@ -517,7 +521,7 @@ MYSQL_HOST=localhost\n",
 
   # Aodh
   class { '::aodh' :
-    database_connection => $ceilometer_database_connection,
+    database_connection => hiera('aodh_mysql_conn_string'),
   }
   include ::aodh::config
   include ::aodh::auth
