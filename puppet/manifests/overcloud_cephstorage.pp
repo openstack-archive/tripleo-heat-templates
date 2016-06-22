@@ -23,10 +23,7 @@ if hiera('step') >= 1 {
   Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
 
   include ::timezone
-
-  if count(hiera('ntp::servers')) > 0 {
-    include ::ntp
-  }
+  
 }
 
 if hiera('step') >= 3 {
