@@ -23,9 +23,6 @@ if hiera('step') >= 1 {
 
   include ::timezone
 
-  if count(hiera('ntp::servers')) > 0 {
-    include ::ntp
-  }
 }
 
 if hiera('step') >= 4 {
