@@ -425,8 +425,19 @@ parameters:
     type: comma_delimited_list
     default: "datacentre:br-ex"
   NeutronDnsmasqOptions:
-    default: 'dhcp-option-force=26,1400'
-    description: Dnsmasq options for neutron-dhcp-agent. The default value here forces MTU to be set to 1400 to account for the gre tunnel overhead.
+    description: >
+      Allows configuration options to be passed to the dnsmasq instances used
+      by the Neutron DHCP agent. For Mitaka and later releases, providing MTU
+      overrides through the NeutronDnsmasqOptions is not recommended as Neutron
+      will provide MTU values to guests based on the tenant network they are
+      connected to and automatically consider tenant network overhead in this
+      value (e.g. GRE and VXLAN overhead). However, if required the MTU can be
+      forced with values like the following,"dhcp-option-force=26,1360" and
+      "dhcp-option-force=26,%MTU%". The latter requires that NeutronTenantMtu
+      be configured and will replace the '%MTU%' substring with its value. This
+      NOT recommended if tenant networks with packet overhead are used as the
+      guest VM's MTU will be larger than usable MTU on it's tenant netowrk.
+    default: ''
     type: string
   NeutronEnableDHCPAgent:
     description: Knob to enable/disable DHCP Agent
@@ -553,13 +564,17 @@ parameters:
     type: string
   NeutronTenantMtu:
     description: >
-      The default MTU for tenant networks. For VXLAN/GRE tunneling, this should
-      be at least 50 bytes smaller than the MTU on the physical network. This
-      value will be used to set the MTU on the virtual Ethernet device.
-      This number is related to the value of NeutronDnsmasqOptions, since that
-      will determine the MTU that is assigned to the VM host through DHCP.
-    default: 1400
-    type: number
+      This value sets Neutron's path_mtu configuration option. For Mitaka and
+      later releases, if left empty or set to 0, Neutron will use the value
+      defined for global_physnet_mtu as the maximum MTU for tenant network
+      traffic (which currently defaults to 1500). Neutron also automatically
+      adjusts the MTU used for guests for tenant network types that add
+      overhead (e.g. GRE and VXLAN). The defaults are recommended unless the
+      impact of non-default values are well understood. Note also that this may
+      impact the behavior of NeutronDnsmasqOptions if it is set to a
+      non-default value.
+    default: ''
+    type: string
   NeutronTunnelTypes:
     default: 'vxlan'
     description: |
@@ -1182,7 +1197,11 @@ resources:
               AGENT_EXTENSIONS: {get_param: NeutronAgentExtensions}
         neutron_password: {get_param: NeutronPassword}
         neutron_tenant_mtu: {get_param: NeutronTenantMtu}
-        neutron_dnsmasq_options: {get_param: NeutronDnsmasqOptions}
+        neutron_dnsmasq_options:
+          str_replace:
+            template: {get_param: NeutronDnsmasqOptions}
+            params:
+              '%MTU%': {get_param: NeutronTenantMtu}
         neutron_dsn:
           list_join:
             - ''
@@ -1544,7 +1563,7 @@ resources:
                 neutron::server::database_connection: {get_input: neutron_dsn}
                 neutron::server::api_workers: {get_input: neutron_workers}
                 neutron::agents::l3::external_network_bridge: {get_input: neutron_external_network_bridge}
-                neutron::network_device_mtu: {get_input: neutron_tenant_mtu}
+                neutron::plugins::ml2::path_mtu: {get_input: neutron_tenant_mtu}
                 neutron::agents::ml2::ovs::enable_tunneling: {get_input: neutron_enable_tunneling}
                 neutron::agents::ml2::ovs::l2_population: {get_input: neutron_enable_l2pop}
                 neutron::agents::dhcp::enable_isolated_metadata: {get_input: neutron_enable_isolated_metadata}
@@ -1673,7 +1692,6 @@ resources:
                 nova::api::osapi_compute_workers: {get_input: nova_workers}
                 nova::api::ec2_workers: {get_input: nova_workers}
                 nova::api::metadata_workers: {get_input: nova_workers}
-                nova::compute::network_device_mtu: {get_input: neutron_tenant_mtu}
                 nova::database_connection: {get_input: nova_dsn}
                 nova::api_database_connection: {get_input: nova_api_dsn}
                 nova::glance_api_servers: {get_input: glance_api_servers}

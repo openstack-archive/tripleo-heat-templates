@@ -849,7 +849,7 @@ MYSQL_HOST=localhost\n",
       enabled        => false,
     }
     file { '/etc/neutron/dnsmasq-neutron.conf':
-      content => hiera('neutron_dnsmasq_options'),
+      content => hiera('neutron_dnsmasq_options', ''),
       owner   => 'neutron',
       group   => 'neutron',
       notify  => Service['neutron-dhcp-service'],

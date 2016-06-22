@@ -380,8 +380,12 @@ if hiera('step') >= 3 {
     include ::neutron::agents::dhcp
     include ::neutron::agents::metadata
 
+    $dnsmasq_options = hiera('neutron_dnsmasq_options', '')
+
+    # We need to create the dnsmasq-neutron.conf file regardless of
+    # whether there are configured options or the dhcp agent will fail.
     file { '/etc/neutron/dnsmasq-neutron.conf':
-      content => hiera('neutron_dnsmasq_options'),
+      content => $dnsmasq_options,
       owner   => 'neutron',
       group   => 'neutron',
       notify  => Service['neutron-dhcp-service'],
