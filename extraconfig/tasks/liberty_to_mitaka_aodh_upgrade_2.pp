@@ -111,6 +111,12 @@ if $pacemaker_master {
   # Do no explicitely require on Pacemaker::Resource::Ocf['redis'] because
   # the resource already exists at this stage and we do not want to include
   # all the redis puppet manifests to reinstate it as it is already there
+  # Fedora doesn't know `require-all` parameter for constraints yet
+  if $::operatingsystem == 'Fedora' {
+    $redis_aodh_constraint_params = undef
+  } else {
+    $redis_aodh_constraint_params = 'require-all=false'
+  }
   pacemaker::constraint::base { 'redis-then-aodh-evaluator-constraint':
     constraint_type   => 'order',
     first_resource    => 'redis-master',
