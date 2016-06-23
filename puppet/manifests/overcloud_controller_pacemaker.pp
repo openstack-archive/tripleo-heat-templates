@@ -281,63 +281,6 @@ MYSQL_HOST=localhost\n",
 
   include ::nova::config
 
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-
-    # TODO(devvesa) provide non-controller ips for these services
-    $zookeeper_node_ips = hiera('neutron_api_node_ips')
-    $cassandra_node_ips = hiera('neutron_api_node_ips')
-
-    # Run zookeeper in the controller if configured
-    if hiera('enable_zookeeper_on_controller') {
-      class {'::tripleo::cluster::zookeeper':
-        zookeeper_server_ips => $zookeeper_node_ips,
-        # TODO: create a 'bind' hiera key for zookeeper
-        zookeeper_client_ip  => hiera('neutron::bind_host'),
-        zookeeper_hostnames  => split(hiera('controller_node_names'), ',')
-      }
-    }
-
-    # Run cassandra in the controller if configured
-    if hiera('enable_cassandra_on_controller') {
-      class {'::tripleo::cluster::cassandra':
-        cassandra_servers => $cassandra_node_ips,
-        # TODO: create a 'bind' hiera key for cassandra
-        cassandra_ip      => hiera('neutron::bind_host'),
-      }
-    }
-
-    class {'::tripleo::network::midonet::agent':
-      zookeeper_servers => $zookeeper_node_ips,
-      cassandra_seeds   => $cassandra_node_ips
-    }
-
-    class {'::tripleo::network::midonet::api':
-      zookeeper_servers    => $zookeeper_node_ips,
-      vip                  => hiera('public_virtual_ip'),
-      keystone_ip          => hiera('public_virtual_ip'),
-      keystone_admin_token => hiera('keystone::admin_token'),
-      # TODO: create a 'bind' hiera key for api
-      bind_address         => hiera('neutron::bind_host'),
-      admin_password       => hiera('admin_password')
-    }
-
-    # Configure Neutron
-    # TODO: when doing the composable midonet plugin, don't forget to
-    # set service_plugins to an empty array in Hiera.
-    class {'::neutron':
-      service_plugins => []
-    }
-
-  }
-
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-    class {'::neutron::plugins::midonet':
-      midonet_api_ip    => hiera('public_virtual_ip'),
-      keystone_tenant   => hiera('neutron::server::auth_tenant'),
-      keystone_password => hiera('neutron::server::password')
-    }
-  }
-
   # Ceilometer
   case downcase(hiera('ceilometer_backend')) {
     /mysql/: {
@@ -517,49 +460,6 @@ password=\"${mysql_root_password}\"",
       second_action   => 'start',
       require         => [Pacemaker::Resource::Ocf['galera'],
                           Pacemaker::Resource::Ocf['openstack-core']],
-    }
-
-    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-      pacemaker::resource::service {'tomcat':
-        clone_params => 'interleave=true',
-      }
-    }
-    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-      #midonet-chain chain keystone-->neutron-server-->dhcp-->metadata->tomcat
-      pacemaker::constraint::base { 'neutron-server-to-dhcp-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::server_service}-clone",
-        second_resource => "${::neutron::params::dhcp_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::server_service],
-                            Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
-      }
-      pacemaker::constraint::base { 'neutron-dhcp-agent-to-metadata-agent-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::dhcp_agent_service}-clone",
-        second_resource => "${::neutron::params::metadata_agent_service}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
-                            Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
-      }
-      pacemaker::constraint::base { 'neutron-metadata-agent-to-tomcat-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::neutron::params::metadata_agent_service}-clone",
-        second_resource => 'tomcat-clone',
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service],
-                            Pacemaker::Resource::Service['tomcat']],
-      }
-      pacemaker::constraint::colocation { 'neutron-dhcp-agent-to-metadata-agent-colocation':
-        source  => "${::neutron::params::metadata_agent_service}-clone",
-        target  => "${::neutron::params::dhcp_agent_service}-clone",
-        score   => 'INFINITY',
-        require => [Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service],
-                    Pacemaker::Resource::Service[$::neutron::params::metadata_agent_service]],
-      }
     }
 
     # Nova

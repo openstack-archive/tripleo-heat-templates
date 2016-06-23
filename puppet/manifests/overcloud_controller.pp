@@ -87,66 +87,6 @@ if hiera('step') >= 4 {
   }
   include ::nova::config
 
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-
-    # TODO(devvesa) provide non-controller ips for these services
-    $zookeeper_node_ips = hiera('neutron_api_node_ips')
-    $cassandra_node_ips = hiera('neutron_api_node_ips')
-
-    # Run zookeeper in the controller if configured
-    if hiera('enable_zookeeper_on_controller') {
-      class {'::tripleo::cluster::zookeeper':
-        zookeeper_server_ips => $zookeeper_node_ips,
-        # TODO: create a 'bind' hiera key for zookeeper
-        zookeeper_client_ip  => hiera('neutron::bind_host'),
-        zookeeper_hostnames  => hiera('controller_node_names')
-      }
-    }
-
-    # Run cassandra in the controller if configured
-    if hiera('enable_cassandra_on_controller') {
-      class {'::tripleo::cluster::cassandra':
-        cassandra_servers => $cassandra_node_ips,
-        # TODO: create a 'bind' hiera key for cassandra
-        cassandra_ip      => hiera('neutron::bind_host'),
-      }
-    }
-
-    class {'::tripleo::network::midonet::agent':
-      zookeeper_servers => $zookeeper_node_ips,
-      cassandra_seeds   => $cassandra_node_ips
-    }
-
-    class {'::tripleo::network::midonet::api':
-      zookeeper_servers    => $zookeeper_node_ips,
-      vip                  => hiera('public_virtual_ip'),
-      keystone_ip          => hiera('public_virtual_ip'),
-      keystone_admin_token => hiera('keystone::admin_token'),
-      # TODO: create a 'bind' hiera key for api
-      bind_address         => hiera('neutron::bind_host'),
-      admin_password       => hiera('admin_password')
-    }
-
-    # TODO: find a way to get an empty list from hiera
-    # TODO: when doing the composable midonet plugin, don't forget to
-    # set service_plugins to an empty array in Hiera.
-    class {'::neutron':
-      service_plugins => []
-    }
-
-  }
-
-  # If the value of core plugin is set to 'midonet',
-  # skip all the ML2 configuration
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-
-    class {'::neutron::plugins::midonet':
-      midonet_api_ip    => hiera('public_virtual_ip'),
-      keystone_tenant   => hiera('neutron::server::auth_tenant'),
-      keystone_password => hiera('neutron::server::password')
-    }
-  }
-
   # Ceilometer
   $ceilometer_backend = downcase(hiera('ceilometer_backend'))
   case $ceilometer_backend {
