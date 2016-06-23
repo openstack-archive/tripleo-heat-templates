@@ -4,9 +4,10 @@ group :development, :test do
   gem 'puppetlabs_spec_helper', :require => false
 
   gem 'puppet-lint', '~> 1.1'
-  gem 'puppet-lint-absolute_classname-check'
   gem 'puppet-lint-absolute_template_path'
   gem 'puppet-lint-trailing_newline-check'
+  # https://github.com/voxpupuli/puppet-lint-absolute_classname-check/issues/6
+  gem 'puppet-lint-absolute_classname-check', '0.1.3', :require => 'false'
 
   # Puppet 4.x related lint checks
   gem 'puppet-lint-unquoted_string-check'
