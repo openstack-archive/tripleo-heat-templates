@@ -16,29 +16,8 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-if hiera('step') >= 2 {
-  # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
-  # Create all the database schemas
-  include ::aodh::db::mysql
-
-} #END STEP 2
-
 if hiera('step') >= 4 {
-  # Aodh
-  class { '::aodh' :
-    database_connection => hiera('aodh_mysql_conn_string'),
-  }
-  include ::aodh::db::sync
-  include ::aodh::auth
-  include ::aodh::api
-  include ::aodh::wsgi::apache
-  include ::aodh::evaluator
-  include ::aodh::notifier
-  include ::aodh::listener
-  include ::aodh::client
-
   hiera_include('controller_classes')
-
 } #END STEP 4
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])

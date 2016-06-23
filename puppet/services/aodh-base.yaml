@@ -1,0 +1,94 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Aodh service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  AodhPassword:
+    description: The password for the aodh services.
+    type: string
+    hidden: true
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+outputs:
+  role_data:
+    description: Role data for the Aodh role.
+    value:
+      service_name: aodh_base
+      config_settings:
+        aodh::evaluator::coordination_url:
+          list_join:
+            - ''
+            - - 'redis://:'
+              - {get_param: RedisPassword}
+              - '@'
+              - "%{hiera('redis_vip')}"
+              - ':6379/'
+        aodh::db::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://aodh:'
+              - {get_param: AodhPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/aodh'
+        aodh::debug: {get_param: Debug}
+        aodh::auth::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        aodh::rabbit_userid: {get_param: RabbitUserName}
+        aodh::rabbit_password: {get_param: RabbitPassword}
+        aodh::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        aodh::rabbit_port: {get_param: RabbitClientPort}
+        aodh::api::keystone_password: {get_param: AodhPassword}
+        aodh::api::keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        aodh::api::keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+        aodh::auth::auth_password: {get_param: AodhPassword}
+        aodh::keystone::auth::public_url: {get_param: [EndpointMap, AodhPublic, uri]}
+        aodh::keystone::auth::internal_url: {get_param: [EndpointMap, AodhInternal, uri]}
+        aodh::keystone::auth::admin_url: {get_param: [EndpointMap, AodhAdmin, uri]}
+        aodh::keystone::auth::password: {get_param: AodhPassword}
+        aodh::keystone::auth::region: {get_param: KeystoneRegion}
+        aodh::keystone::auth::tenant: 'service'
+        aodh::db::mysql::user: aodh
+        aodh::db::mysql::password: {get_param: AodhPassword}
+        aodh::db::mysql::host: {get_param: [EndpointMap, MysqlNoBracketsInternal, host]}
+        aodh::db::mysql::dbname: aodh
+        aodh::db::mysql::allowed_hosts:
+          - '%'
+          - "%{hiera('mysql_bind_host')}"
+        aodh::auth::auth_region: 'regionOne'
+        aodh::auth::auth_tenant_name: 'service'
