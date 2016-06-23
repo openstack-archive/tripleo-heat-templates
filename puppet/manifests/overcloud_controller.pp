@@ -195,26 +195,15 @@ if hiera('step') >= 4 {
 
   }
 
-  # If the value of core plugin is set to 'opencontrail'
-  # include opencontrail core plugins
-  # else use the default value of 'ml2'
-  if hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
-    include ::neutron::plugins::opencontrail
-  } else {
+  # If the value of core plugin is set to 'midonet',
+  # skip all the ML2 configuration
+  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
-    # If the value of core plugin is set to 'midonet',
-    # skip all the ML2 configuration
-    if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-
-      class {'::neutron::plugins::midonet':
-        midonet_api_ip    => hiera('public_virtual_ip'),
-        keystone_tenant   => hiera('neutron::server::auth_tenant'),
-        keystone_password => hiera('neutron::server::password')
-      }
+    class {'::neutron::plugins::midonet':
+      midonet_api_ip    => hiera('public_virtual_ip'),
+      keystone_tenant   => hiera('neutron::server::auth_tenant'),
+      keystone_password => hiera('neutron::server::password')
     }
-
-    Service['neutron-server'] -> Service['neutron-metadata']
-
   }
 
   if $enable_ceph {
