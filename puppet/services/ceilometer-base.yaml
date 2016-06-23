@@ -1,0 +1,105 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Ceilometer service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CeilometerBackend:
+    default: 'mongodb'
+    description: The ceilometer backend type.
+    type: string
+  CeilometerMeteringSecret:
+    description: Secret shared by the ceilometer services.
+    type: string
+    hidden: true
+  CeilometerPassword:
+    description: The password for the ceilometer service account.
+    type: string
+    hidden: true
+  CeilometerMeterDispatcher:
+    default: 'gnocchi'
+    description: Dispatcher to process meter data
+    type: string
+    constraints:
+    - allowed_values: ['gnocchi', 'database']
+  CeilometerWorkers:
+    default: 0
+    description: Number of workers for Ceilometer service.
+    type: number
+  CeilometerStoreEvents:
+    default: false
+    description: Whether to store events in ceilometer.
+    type: boolean
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+
+outputs:
+  role_data:
+    description: Role data for the Ceilometer role.
+    value:
+      config_settings:
+        ceilometer::db::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+            - - '://ceilometer:'
+              - {get_param: CeilometerPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/ceilometer'
+        ceilometer_backend: {get_param: CeilometerBackend}
+        ceilometer::metering_secret: {get_param: CeilometerMeteringSecret}
+        # we include db_sync class in puppet-tripleo
+        ceilometer::db::sync_db: false
+        ceilometer::api::keystone_password: {get_param: CeilometerPassword}
+        ceilometer::api::keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        ceilometer::api::keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+        ceilometer::agent::auth::auth_password: {get_param: CeilometerPassword}
+        ceilometer::agent::auth::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+        ceilometer::agent::notification::store_events: {get_param: CeilometerStoreEvents}
+        ceilometer::db::mysql::password: {get_param: CeilometerPassword}
+        ceilometer::collector::meter_dispatcher: {get_param: CeilometerMeterDispatcher}
+        ceilometer::dispatcher::gnocchi::url: {get_param: [EndpointMap, GnocchiInternal, uri]}
+        ceilometer::dispatcher::gnocchi::filter_project: 'service'
+        ceilometer::dispatcher::gnocchi::archive_policy: 'low'
+        ceilometer::dispatcher::gnocchi::resources_definition_file: 'gnocchi_resources.yaml'
+        ceilometer::keystone::auth::public_url: {get_param: [EndpointMap, CeilometerPublic, uri]}
+        ceilometer::keystone::auth::internal_url: {get_param: [EndpointMap, CeilometerInternal, uri]}
+        ceilometer::keystone::auth::admin_url: {get_param: [EndpointMap, CeilometerAdmin, uri]}
+        ceilometer::keystone::auth::password: {get_param: CeilometerPassword}
+        ceilometer::keystone::auth::region: {get_param: KeystoneRegion}
+        ceilometer::rabbit_userid: {get_param: RabbitUserName}
+        ceilometer::rabbit_password: {get_param: RabbitPassword}
+        ceilometer::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        ceilometer::rabbit_port: {get_param: RabbitClientPort}
+        ceilometer::db::mysql::user: ceilometer
+        ceilometer::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host]}
+        ceilometer::db::mysql::dbname: ceilometer
+        ceilometer::db::mysql::allowed_hosts:
+          - '%'
+          - "%{hiera('mysql_bind_host')}"
