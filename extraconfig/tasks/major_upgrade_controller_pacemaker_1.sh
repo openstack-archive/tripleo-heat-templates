@@ -9,6 +9,14 @@ if pcs status 2>&1 | grep -E '(cluster is not currently running)|(OFFLINE:)'; th
     exit 1
 fi
 
+
+# We want to disable fencing during the cluster --stop as it might fence
+# nodes where a service fails to stop, which could be fatal during an upgrade
+# procedure. So we remember the stonith state. If it was enabled we reenable it
+# at the end of this script
+STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk '{ print $2 }')
+pcs property set stonith-enabled=false
+
 if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
     pcs resource disable httpd
     check_resource httpd stopped 1800
@@ -48,6 +56,12 @@ done
 
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
+
+
+# Let's reset the stonith back to true if it was true, before starting the cluster
+if [ $STONITH_STATE == "true" ]; then
+    pcs -f /var/lib/pacemaker/cib/cib.xml property set stonith-enabled=true
+fi
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
 crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
