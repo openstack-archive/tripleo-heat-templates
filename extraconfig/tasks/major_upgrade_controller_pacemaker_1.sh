@@ -51,9 +51,5 @@ yum -y -q update
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
 crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284047
-# Change-Id: Ib3f6c12ff5471e1f017f28b16b1e6496a4a4b435
-crudini  --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend rabbit
-# https://bugzilla.redhat.com/show_bug.cgi?id=1284058
-# Ifd1861e3df46fad0e44ff9b5cbd58711bbc87c97 Swift Ceilometer middleware no longer exists
-crudini --set /etc/swift/proxy-server.conf pipeline:main pipeline "catch_errors healthcheck cache ratelimit tempurl formpost authtoken keystone staticweb proxy-logging proxy-server"
+# L->M upgrades moved the paste file from /usr/share/keystone to /etc/keystone. Keystone won't run without this
+crudini --set /etc/keystone/keystone.conf paste_deploy config_file /etc/keystone/keystone-paste.ini
