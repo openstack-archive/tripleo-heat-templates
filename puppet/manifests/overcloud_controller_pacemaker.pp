@@ -409,36 +409,6 @@ MYSQL_HOST=localhost\n",
     }
   }
 
-  # swift storage
-  if str2bool(hiera('enable_swift_storage', true)) {
-    class {'::swift::storage::all':
-      mount_check => str2bool(hiera('swift_mount_check')),
-    }
-    class {'::swift::storage::account':
-      manage_service => $non_pcmk_start,
-      enabled        => $non_pcmk_start,
-    }
-    class {'::swift::storage::container':
-      manage_service => $non_pcmk_start,
-      enabled        => $non_pcmk_start,
-    }
-    class {'::swift::storage::object':
-      manage_service => $non_pcmk_start,
-      enabled        => $non_pcmk_start,
-    }
-    if(!defined(File['/srv/node'])) {
-      file { '/srv/node':
-        ensure  => directory,
-        owner   => 'swift',
-        group   => 'swift',
-        require => Package['openstack-swift'],
-      }
-    }
-    $swift_components = ['account', 'container', 'object']
-    swift::storage::filter::recon { $swift_components : }
-    swift::storage::filter::healthcheck { $swift_components : }
-  }
-
   # Ceilometer
   case downcase(hiera('ceilometer_backend')) {
     /mysql/: {

@@ -26,22 +26,6 @@ if hiera('step') >= 1 {
 }
 
 if hiera('step') >= 4 {
-  class { '::swift::storage::all':
-    mount_check => str2bool(hiera('swift_mount_check')),
-  }
-  if(!defined(File['/srv/node'])) {
-    file { '/srv/node':
-      ensure  => directory,
-      owner   => 'swift',
-      group   => 'swift',
-      require => Package['openstack-swift'],
-    }
-  }
-
-  $swift_components = ['account', 'container', 'object']
-  swift::storage::filter::recon { $swift_components : }
-  swift::storage::filter::healthcheck { $swift_components : }
-
   $snmpd_user = hiera('snmpd_readonly_user_name')
   snmp::snmpv3_user { $snmpd_user:
     authtype => 'MD5',
