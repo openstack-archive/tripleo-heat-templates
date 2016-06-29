@@ -77,27 +77,6 @@ if hiera('step') >= 4 {
   include ::aodh::listener
   include ::aodh::client
 
-  # Horizon
-  include ::apache::mod::remoteip
-  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    $_profile_support = 'cisco'
-  } else {
-    $_profile_support = 'None'
-  }
-  $neutron_options   = merge({'profile_support' => $_profile_support },hiera('horizon::neutron_options',undef))
-
-  $memcached_ipv6 = hiera('memcached_ipv6', false)
-  if $memcached_ipv6 {
-    $horizon_memcached_servers = hiera('memcache_node_ips_v6', '[::1]')
-  } else {
-    $horizon_memcached_servers = hiera('memcache_node_ips', '127.0.0.1')
-  }
-
-  class { '::horizon':
-    cache_server_ip => $horizon_memcached_servers,
-    neutron_options => $neutron_options,
-  }
-
   # Gnocchi
   $gnocchi_database_connection = hiera('gnocchi_mysql_conn_string')
   class { '::gnocchi':

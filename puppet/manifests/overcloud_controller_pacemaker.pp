@@ -269,33 +269,6 @@ MYSQL_HOST=localhost\n",
 
   include ::nova::config
 
-  # httpd/apache and horizon
-  # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
-  class { '::apache' :
-    service_enable => false,
-    # service_manage => false, # <-- not supported with horizon&apache mod_wsgi?
-  }
-  include ::apache::mod::remoteip
-  include ::apache::mod::status
-  if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-    $_profile_support = 'cisco'
-  } else {
-    $_profile_support = 'None'
-  }
-  $neutron_options   = merge({'profile_support' => $_profile_support },hiera('horizon::neutron_options',undef))
-
-  $memcached_ipv6 = hiera('memcached_ipv6', false)
-  if $memcached_ipv6 {
-    $horizon_memcached_servers = hiera('memcache_node_ips_v6', '[::1]')
-  } else {
-    $horizon_memcached_servers = hiera('memcache_node_ips', '127.0.0.1')
-  }
-
-  class { '::horizon':
-    cache_server_ip => $horizon_memcached_servers,
-    neutron_options => $neutron_options,
-  }
-
   # Aodh
   class { '::aodh' :
     database_connection => hiera('aodh_mysql_conn_string'),
