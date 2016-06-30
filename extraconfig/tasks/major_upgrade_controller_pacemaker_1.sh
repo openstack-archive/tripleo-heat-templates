@@ -2,7 +2,7 @@
 
 set -eu
 
-cluster_sync_timeout=600
+cluster_sync_timeout=1800
 
 if pcs status 2>&1 | grep -E '(cluster is not currently running)|(OFFLINE:)'; then
     echo_error "ERROR: upgrade cannot start with some cluster nodes being offline"
