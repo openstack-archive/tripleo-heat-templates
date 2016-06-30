@@ -4,6 +4,11 @@ description: >
   OpenStack Sahara base service. Shared for all Sahara services.
 
 parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   RabbitPassword:
     description: The password for RabbitMQ
     type: string
@@ -22,6 +27,10 @@ parameters:
     default: 5672
     description: Set rabbit subscriber port, change this if using SSL
     type: number
+  SaharaPassword:
+    description: The password for the sahara service account, used by sahara-api.
+    type: string
+    hidden: true
   Debug:
     type: string
     default: ''
@@ -33,11 +42,30 @@ outputs:
     value:
       service_name: sahara_base
       config_settings:
+        sahara::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://sahara:'
+              - {get_param: SaharaPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/sahara'
+        sahara::db::mysql::password: {get_param: SaharaPassword}
+        sahara::db::mysql::user: sahara
+        sahara::db::mysql::host: {get_param: [EndpointMap, MysqlNoBracketsInternal, host]}
+        sahara::db::mysql::dbname: sahara
+        sahara::db::mysql::allowed_hosts:
+          - '%'
+          - "%{hiera('mysql_bind_host')}"
         sahara::rabbit_password: {get_param: RabbitPassword}
         sahara::rabbit_user: {get_param: RabbitUserName}
         sahara::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
         sahara::rabbit_port: {get_param: RabbitClientPort}
         sahara::debug: {get_param: Debug}
+        sahara::admin_password: {get_param: SaharaPassword}
+        sahara::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        sahara::identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
         sahara::use_neutron: true
         sahara::plugins:
           - cdh
