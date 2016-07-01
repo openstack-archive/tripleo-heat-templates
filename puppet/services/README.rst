@@ -31,6 +31,8 @@ are re-asserted when applying latter ones.
 
  * config_settings: Custom hiera settings for this service.
 
+ * global_config_settings: Additional hiera settings distributed to all roles.
+
  * step_config: A puppet manifest that is used to step through the deployment
    sequence. Each sequence is given a "step" (via hiera('step') that provides
    information for when puppet classes should activate themselves.
