@@ -22,19 +22,6 @@ Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
 
 if hiera('step') >= 4 {
 
-  file { ['/etc/libvirt/qemu/networks/autostart/default.xml',
-    '/etc/libvirt/qemu/networks/default.xml']:
-    ensure => absent,
-    before => Service['libvirt'],
-  }
-  # in case libvirt has been already running before the Puppet run, make
-  # sure the default network is destroyed
-  exec { 'libvirt-default-net-destroy':
-    command => '/usr/bin/virsh net-destroy default',
-    onlyif  => '/usr/bin/virsh net-info default | /bin/grep -i "^active:\s*yes"',
-    before  => Service['libvirt'],
-  }
-
   # When utilising images for deployment, we need to reset the iSCSI initiator name to make it unique
   exec { 'reset-iscsi-initiator-name':
     command => '/bin/echo InitiatorName=$(/usr/sbin/iscsi-iname) > /etc/iscsi/initiatorname.iscsi',
@@ -58,12 +45,6 @@ if hiera('step') >= 4 {
     }
     include ::ceph::conf
     include ::ceph::profile::client
-
-    $client_keys = hiera('ceph::profile::params::client_keys')
-    $client_user = join(['client.', hiera('tripleo::profile::base::cinder::volume::rbd::cinder_rbd_user_name')])
-    class { '::nova::compute::rbd':
-      libvirt_rbd_secret_key => $client_keys[$client_user]['secret'],
-    }
   }
 
   if hiera('cinder_enable_nfs_backend', false) {
@@ -77,24 +58,7 @@ if hiera('step') >= 4 {
     package { 'nfs-utils': } -> Service['nova-compute']
   }
 
-  if str2bool(hiera('nova::use_ipv6', false)) {
-    $vncserver_listen = '::0'
-  } else {
-    $vncserver_listen = '0.0.0.0'
-  }
-
-  if $rbd_ephemeral_storage {
-    class { '::nova::compute::libvirt':
-      libvirt_disk_cachemodes => ['network=writeback'],
-      libvirt_hw_disk_discard => 'unmap',
-      vncserver_listen        => $vncserver_listen,
-    }
-  } else {
-    class { '::nova::compute::libvirt' :
-      vncserver_listen => $vncserver_listen,
-    }
-  }
-
+  # TODO(emilien): figure if we *really* need those 2 parameters:
   nova_config {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
@@ -106,7 +70,7 @@ if hiera('step') >= 4 {
       content => hiera('midonet_libvirt_qemu_data')
     }
   }
-  include ::nova::network::neutron
+
   include ::neutron
   include ::neutron::config
 
