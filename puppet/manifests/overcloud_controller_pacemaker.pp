@@ -53,10 +53,6 @@ $non_pcmk_start = hiera('step') >= 5
 
 if hiera('step') >= 1 {
 
-  create_resources(kmod::load, hiera('kernel_modules'), {})
-  create_resources(sysctl::value, hiera('sysctl_settings'), {})
-  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
-
   $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
   $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
   if $corosync_ipv6 {

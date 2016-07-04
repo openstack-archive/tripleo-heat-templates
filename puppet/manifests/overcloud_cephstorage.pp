@@ -16,14 +16,6 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-if hiera('step') >= 1 {
-
-  create_resources(kmod::load, hiera('kernel_modules'), {})
-  create_resources(sysctl::value, hiera('sysctl_settings'), {})
-  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
-
-}
-
 if hiera('step') >= 4 {
   hiera_include('ceph_classes')
 }
