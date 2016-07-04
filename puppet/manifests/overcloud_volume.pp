@@ -47,16 +47,6 @@ if hiera('step') >= 4 {
     enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
   }
 
-  $snmpd_user = hiera('snmpd_readonly_user_name')
-  snmp::snmpv3_user { $snmpd_user:
-    authtype => 'MD5',
-    authpass => hiera('snmpd_readonly_user_password'),
-  }
-  class { '::snmp':
-    agentaddress => ['udp:161','udp6:[::1]:161'],
-    snmpd_config => [ join(['createUser ', hiera('snmpd_readonly_user_name'), ' MD5 "', hiera('snmpd_readonly_user_password'), '"']), join(['rouser ', hiera('snmpd_readonly_user_name')]), 'proc  cron', 'includeAllDisks  10%', 'master agentx', 'trapsink localhost public', 'iquerySecName internalUser', 'rouser internalUser', 'defaultMonitors yes', 'linkUpDownNotifications yes' ],
-  }
-
   hiera_include('volume_classes')
 }
 
