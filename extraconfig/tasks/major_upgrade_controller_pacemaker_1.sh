@@ -54,6 +54,10 @@ while systemctl is-active pacemaker; do
     fi
 done
 
+# install sahara and gnocchi packages
+# https://bugs.launchpad.net/tripleo/+bug/1597674
+yum -y install openstack-gnocchi-api openstack-gnocchi-indexer-sqlalchemy openstack-gnocchi-carbonara openstack-gnocchi-statsd openstack-gnocchi-metricd openstack-sahara openstack-sahara-api openstack-sahara-engine
+
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
 
