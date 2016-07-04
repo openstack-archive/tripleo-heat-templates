@@ -47,18 +47,6 @@ if hiera('step') >= 4 {
     include ::ceph::profile::client
   }
 
-  if hiera('cinder_enable_nfs_backend', false) {
-    if str2bool($::selinux) {
-      selboolean { 'virt_use_nfs':
-        value      => on,
-        persistent => true,
-      } -> Package['nfs-utils']
-    }
-
-    package { 'nfs-utils': } -> Service['nova-compute']
-  }
-
-  # TODO(emilien): figure if we *really* need those 2 parameters:
   nova_config {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
