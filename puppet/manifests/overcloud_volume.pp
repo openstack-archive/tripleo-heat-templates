@@ -25,28 +25,6 @@ if hiera('step') >= 1 {
 }
 
 if hiera('step') >= 4 {
-
-  include ::cinder
-  include ::cinder::config
-  include ::cinder::glance
-  include ::cinder::volume
-  include ::cinder::setup_test_volume
-
-  $cinder_enable_iscsi = hiera('cinder_enable_iscsi_backend', true)
-  if $cinder_enable_iscsi {
-    $cinder_iscsi_backend = 'tripleo_iscsi'
-
-    cinder::backend::iscsi { $cinder_iscsi_backend :
-      iscsi_ip_address => hiera('cinder_iscsi_ip_address'),
-      iscsi_helper     => hiera('cinder_iscsi_helper'),
-    }
-  }
-
-  $cinder_enabled_backends = any2array($cinder_iscsi_backend)
-  class { '::cinder::backends' :
-    enabled_backends => union($cinder_enabled_backends, hiera('cinder_user_enabled_backends')),
-  }
-
   hiera_include('volume_classes')
 }
 
