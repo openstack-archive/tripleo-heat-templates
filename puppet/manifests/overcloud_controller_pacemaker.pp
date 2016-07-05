@@ -22,9 +22,7 @@ Pcmk_resource <| |> {
 Service <|
   tag == 'aodh-service' or
   tag == 'ceilometer-service' or
-  tag == 'gnocchi-service' or
-  tag == 'neutron-service' or
-  tag == 'nova-service'
+  tag == 'gnocchi-service'
 |> {
   hasrestart => true,
   restart    => '/bin/true',
