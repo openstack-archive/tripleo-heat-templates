@@ -18,14 +18,6 @@ include ::tripleo::firewall
 
 $enable_load_balancer = hiera('enable_load_balancer', true)
 
-if hiera('step') >= 1 {
-
-  create_resources(kmod::load, hiera('kernel_modules'), {})
-  create_resources(sysctl::value, hiera('sysctl_settings'), {})
-  Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
-
-}
-
 if hiera('step') >= 2 {
 
   # MongoDB

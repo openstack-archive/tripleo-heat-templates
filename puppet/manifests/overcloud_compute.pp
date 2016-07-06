@@ -16,10 +16,6 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-create_resources(kmod::load, hiera('kernel_modules'), { })
-create_resources(sysctl::value, hiera('sysctl_settings'), { })
-Exec <| tag == 'kmod::load' |>  -> Sysctl <| |>
-
 if hiera('step') >= 4 {
 
   # When utilising images for deployment, we need to reset the iSCSI initiator name to make it unique
