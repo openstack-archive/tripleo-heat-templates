@@ -33,16 +33,6 @@ if hiera('step') >= 4 {
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
   }
 
-  if hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
-
-    include ::contrail::vrouter
-    # NOTE: it's not possible to use this class without a functional
-    # contrail controller up and running
-    #class {'::contrail::vrouter::provision_vrouter':
-    #  require => Class['contrail::vrouter'],
-    #}
-  }
-
   include ::ceilometer
   include ::ceilometer::config
   include ::ceilometer::agent::compute
