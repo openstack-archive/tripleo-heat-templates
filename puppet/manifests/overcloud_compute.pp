@@ -40,23 +40,10 @@ if hiera('step') >= 4 {
     }
   }
 
-  # If the value of core plugin is set to 'nuage',
-  # include nuage agent,
   # If the value of core plugin is set to 'midonet',
   # include midonet agent,
   # else use the default value of 'ml2'
-  if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
-    include ::nuage::vrs
-    include ::nova::compute::neutron
-
-    class { '::nuage::metadataagent':
-      nova_os_tenant_name => hiera('nova::api::admin_tenant_name'),
-      nova_os_password    => hiera('nova_password'),
-      nova_metadata_ip    => hiera('nova_metadata_node_ips'),
-      nova_auth_ip        => hiera('keystone_public_api_virtual_ip'),
-    }
-  }
-  elsif hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
+  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
     # TODO(devvesa) provide non-controller ips for these services
     $zookeeper_node_ips = hiera('neutron_api_node_ips')
