@@ -25,17 +25,24 @@ function liberty_to_mitaka_keystone {
     fi
     # Only run this on the bootstrap node
     if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+        # LP #1599798
+        # We first create openstack-core and wait for it to be started, so that
+        # when we change the constraints the resource won't be stopped so no spurious restarts
+        # will take place
+        pcs resource create openstack-core ocf:heartbeat:Dummy --clone  interleave=true
+        check_resource openstack-core started 600
+
+        # We unmanage the httpd resource to make sure that pacemaker won't race
+        # with the keystone deletion/stopping during the CIB transaction that
+        # will take place later
+        pcs resource unmanage httpd-clone
         CIB="/root/liberty-cib.xml"
         CIB_BACKUP="/root/liberty-cib-orig.xml"
         rm -f $CIB $CIB_BACKUP || /bin/true
 
         pcs cluster cib $CIB
-
         cp -f $CIB $CIB_BACKUP || /bin/true
         PCS="pcs -f $CIB"
-
-        # Create dummy resource
-        $PCS resource create openstack-core ocf:heartbeat:Dummy --clone interleave=true
 
         # change all constraints from keystone to dummy
         CONSTR="$($PCS config | grep keystone | grep start | grep then)"
@@ -53,16 +60,31 @@ function liberty_to_mitaka_keystone {
                 $PCS constraint remove $CID
             done;
         }
-        # We push the CIB after removing the keystone resource as we want
-        # to be sure that the httpd resource is untouched. Otherwise we risk
-        # httpd being restarted before keystone is stopped which would give
-        # us a conflicting listening port, because during this step httpd already
-        # has the keystone wsgi configuration but was not restarted
-        $PCS resource delete openstack-keystone-clone
         pcs cluster cib-push $CIB
+        # We make sure there are no outstanding transactions before removing
+        # and stopping keystone
+        timeout -k 10 600 crm_resource --wait
+        pcs resource delete openstack-keystone-clone
 
+        # Let's be 100% sure that the keystone resource is stopped and gone before
+        # we remanage the httpd resource later below. We cannot reuse check_resource
+        # as the resource might not exist already in which case the function would fail
+        tstart=$(date +%s)
+        while pcs status | grep -q keystone-clone; do
+            sleep 5
+            tnow=$(date +%s)
+            if (( tnow-tstart > 600)) ; then
+                echo_error "ERROR: keystone failed to stop during migration"
+                exit 1
+            fi
+        done
         # make sure httpd (which provides keystone now) are started after dummy
         pcs constraint order start openstack-core-clone then httpd-clone
+
+        # We re-manage the httpd resource now and make sure it is fully started
+        # so that a subsequent reload will not fail
+        pcs resource manage httpd-clone
+        check_resource httpd started 1800
     fi
 }
 
