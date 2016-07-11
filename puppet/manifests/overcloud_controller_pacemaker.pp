@@ -21,7 +21,6 @@ Pcmk_resource <| |> {
 # TODO(jistr): use pcs resource provider instead of just no-ops
 Service <|
   tag == 'aodh-service' or
-  tag == 'ceilometer-service' or
   tag == 'gnocchi-service'
 |> {
   hasrestart => true,
@@ -85,10 +84,6 @@ if hiera('step') >= 1 {
   # need to add it to every resource which redefines op params
   Pacemaker::Resource::Service {
     op_params => 'start timeout=200s stop timeout=200s',
-  }
-
-  if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-    include ::mongodb::params
   }
 
   # Galera
@@ -213,13 +208,6 @@ if hiera('step') >= 2 {
       user       => 'clustercheck@localhost',
     }
 
-    # Create all the database schemas
-    if downcase(hiera('ceilometer_backend')) == 'mysql' {
-      class { '::ceilometer::db::mysql':
-        require => Exec['galera-ready'],
-      }
-    }
-
     if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
       class { '::gnocchi::db::mysql':
         require => Exec['galera-ready'],
@@ -280,44 +268,6 @@ MYSQL_HOST=localhost\n",
   }
 
   include ::nova::config
-
-  # Ceilometer
-  case downcase(hiera('ceilometer_backend')) {
-    /mysql/: {
-      $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
-    }
-    default: {
-      $mongo_node_string = join($mongo_node_ips_with_port, ',')
-      $ceilometer_database_connection = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
-    }
-  }
-  include ::ceilometer
-  include ::ceilometer::config
-  class { '::ceilometer::api' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::ceilometer::agent::notification' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::ceilometer::agent::central' :
-    manage_service => false,
-    enabled        => false,
-  }
-  class { '::ceilometer::collector' :
-    manage_service => false,
-    enabled        => false,
-  }
-  include ::ceilometer::expirer
-  class { '::ceilometer::db' :
-    database_connection => $ceilometer_database_connection,
-    sync_db             => $sync_db,
-  }
-  include ::ceilometer::agent::auth
-  include ::ceilometer::dispatcher::gnocchi
-
-  Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
   # httpd/apache and horizon
   # NOTE(gfidente): server-status can be consumed by the pacemaker resource agent
@@ -544,48 +494,11 @@ password=\"${mysql_root_password}\"",
                   Pacemaker::Resource::Service[$::nova::params::conductor_service_name]],
     }
 
-    # Ceilometer and Aodh
-    case downcase(hiera('ceilometer_backend')) {
-      /mysql/: {
-        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name:
-          clone_params => 'interleave=true',
-          require      => Pacemaker::Resource::Ocf['openstack-core'],
-        }
-      }
-      default: {
-        pacemaker::resource::service { $::ceilometer::params::agent_central_service_name:
-          clone_params => 'interleave=true',
-          require      => [Pacemaker::Resource::Ocf['openstack-core'],
-                          Pacemaker::Resource::Service[$::mongodb::params::service_name]],
-        }
-      }
-    }
-    pacemaker::resource::service { $::ceilometer::params::collector_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::ceilometer::params::api_service_name :
-      clone_params => 'interleave=true',
-    }
-    pacemaker::resource::service { $::ceilometer::params::agent_notification_service_name :
-      clone_params => 'interleave=true',
-    }
     # Fedora doesn't know `require-all` parameter for constraints yet
     if $::operatingsystem == 'Fedora' {
-      $redis_ceilometer_constraint_params = undef
       $redis_aodh_constraint_params = undef
     } else {
-      $redis_ceilometer_constraint_params = 'require-all=false'
       $redis_aodh_constraint_params = 'require-all=false'
-    }
-    pacemaker::constraint::base { 'redis-then-ceilometer-central-constraint':
-      constraint_type   => 'order',
-      first_resource    => 'redis-master',
-      second_resource   => "${::ceilometer::params::agent_central_service_name}-clone",
-      first_action      => 'promote',
-      second_action     => 'start',
-      constraint_params => $redis_ceilometer_constraint_params,
-      require           => [Pacemaker::Resource::Ocf['redis'],
-                            Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name]],
     }
     pacemaker::constraint::base { 'redis-then-aodh-evaluator-constraint':
       constraint_type   => 'order',
@@ -596,49 +509,6 @@ password=\"${mysql_root_password}\"",
       constraint_params => $redis_aodh_constraint_params,
       require           => [Pacemaker::Resource::Ocf['redis'],
                             Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name]],
-    }
-    pacemaker::constraint::base { 'keystone-then-ceilometer-central-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'keystone-then-ceilometer-notification-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::ceilometer::params::agent_notification_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-    pacemaker::constraint::base { 'ceilometer-central-then-ceilometer-collector-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::ceilometer::params::agent_central_service_name}-clone",
-      second_resource => "${::ceilometer::params::collector_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                          Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name]],
-    }
-    pacemaker::constraint::base { 'ceilometer-collector-then-ceilometer-api-constraint':
-      constraint_type => 'order',
-      first_resource  => "${::ceilometer::params::collector_service_name}-clone",
-      second_resource => "${::ceilometer::params::api_service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name],
-                          Pacemaker::Resource::Service[$::ceilometer::params::api_service_name]],
-    }
-    pacemaker::constraint::colocation { 'ceilometer-api-with-ceilometer-collector-colocation':
-      source  => "${::ceilometer::params::api_service_name}-clone",
-      target  => "${::ceilometer::params::collector_service_name}-clone",
-      score   => 'INFINITY',
-      require => [Pacemaker::Resource::Service[$::ceilometer::params::api_service_name],
-                  Pacemaker::Resource::Service[$::ceilometer::params::collector_service_name]],
     }
     # Aodh
     pacemaker::resource::service { $::aodh::params::evaluator_service_name :
@@ -681,17 +551,6 @@ password=\"${mysql_root_password}\"",
       score   => 'INFINITY',
       require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
                   Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
-    }
-    if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-      pacemaker::constraint::base { 'mongodb-then-ceilometer-central-constraint':
-        constraint_type => 'order',
-        first_resource  => "${::mongodb::params::service_name}-clone",
-        second_resource => "${::ceilometer::params::agent_central_service_name}-clone",
-        first_action    => 'start',
-        second_action   => 'start',
-        require         => [Pacemaker::Resource::Service[$::ceilometer::params::agent_central_service_name],
-                            Pacemaker::Resource::Service[$::mongodb::params::service_name]],
-      }
     }
 
     # gnocchi

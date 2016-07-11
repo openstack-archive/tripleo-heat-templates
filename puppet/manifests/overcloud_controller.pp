@@ -19,26 +19,6 @@ include ::tripleo::firewall
 $enable_load_balancer = hiera('enable_load_balancer', true)
 
 if hiera('step') >= 2 {
-
-  # MongoDB
-  if downcase(hiera('ceilometer_backend')) == 'mongodb' {
-    # NOTE(gfidente): We need to pass the list of IPv6 addresses *with* port and
-    # without the brackets as 'members' argument for the 'mongodb_replset'
-    # resource.
-    if str2bool(hiera('mongodb::server::ipv6', false)) {
-      $mongo_node_ips_with_port_prefixed = prefix(hiera('mongo_node_ips'), '[')
-      $mongo_node_ips_with_port = suffix($mongo_node_ips_with_port_prefixed, ']:27017')
-      $mongo_node_ips_with_port_nobr = suffix(hiera('mongo_node_ips'), ':27017')
-    } else {
-      $mongo_node_ips_with_port = suffix(hiera('mongo_node_ips'), ':27017')
-      $mongo_node_ips_with_port_nobr = suffix(hiera('mongo_node_ips'), ':27017')
-    }
-    $mongo_node_string = join($mongo_node_ips_with_port, ',')
-
-    $mongodb_replset = hiera('mongodb::server::replset')
-    $ceilometer_mongodb_conn_string = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
-  }
-
   if str2bool(hiera('enable_galera', true)) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
   } else {
@@ -66,9 +46,6 @@ if hiera('step') >= 2 {
   if downcase(hiera('gnocchi_indexer_backend')) == 'mysql' {
     include ::gnocchi::db::mysql
   }
-  if downcase(hiera('ceilometer_backend')) == 'mysql' {
-    include ::ceilometer::db::mysql
-  }
   include ::aodh::db::mysql
 
 } #END STEP 2
@@ -86,31 +63,6 @@ if hiera('step') >= 4 {
     memcached_servers => $memcached_servers
   }
   include ::nova::config
-
-  # Ceilometer
-  $ceilometer_backend = downcase(hiera('ceilometer_backend'))
-  case $ceilometer_backend {
-    /mysql/ : {
-      $ceilometer_database_connection = hiera('ceilometer_mysql_conn_string')
-    }
-    default : {
-      $ceilometer_database_connection = $ceilometer_mongodb_conn_string
-    }
-  }
-  include ::ceilometer
-  include ::ceilometer::config
-  include ::ceilometer::api
-  include ::ceilometer::agent::notification
-  include ::ceilometer::agent::central
-  include ::ceilometer::expirer
-  include ::ceilometer::collector
-  include ::ceilometer::agent::auth
-  include ::ceilometer::dispatcher::gnocchi
-  class { '::ceilometer::db' :
-    database_connection => $ceilometer_database_connection,
-  }
-
-  Cron <| title == 'ceilometer-expirer' |> { command => "sleep $((\$(od -A n -t d -N 3 /dev/urandom) % 86400)) && ${::ceilometer::params::expirer_command}" }
 
   # Aodh
   class { '::aodh' :
