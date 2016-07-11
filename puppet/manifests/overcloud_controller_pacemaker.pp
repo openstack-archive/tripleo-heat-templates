@@ -13,11 +13,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-Pcmk_resource <| |> {
-  tries     => 10,
-  try_sleep => 3,
-}
-
 # TODO(jistr): use pcs resource provider instead of just no-ops
 Service <|
   tag == 'aodh-service' or
@@ -40,52 +35,7 @@ if $::hostname == downcase(hiera('bootstrap_nodeid')) {
   $sync_db = false
 }
 
-$enable_fencing = str2bool(hiera('enable_fencing', false)) and hiera('step') >= 5
-$enable_load_balancer = hiera('enable_load_balancer', true)
-
-# When to start and enable services which haven't been Pacemakerized
-# FIXME: remove when we start all OpenStack services using Pacemaker
-# (occurrences of this variable will be gradually replaced with false)
-$non_pcmk_start = hiera('step') >= 5
-
 if hiera('step') >= 1 {
-
-  $pacemaker_cluster_members = downcase(regsubst(hiera('controller_node_names'), ',', ' ', 'G'))
-  $corosync_ipv6 = str2bool(hiera('corosync_ipv6', false))
-  if $corosync_ipv6 {
-    $cluster_setup_extras = { '--token' => hiera('corosync_token_timeout', 1000), '--ipv6' => '' }
-  } else {
-    $cluster_setup_extras = { '--token' => hiera('corosync_token_timeout', 1000) }
-  }
-  class { '::pacemaker':
-    hacluster_pwd => hiera('hacluster_pwd'),
-  } ->
-  class { '::pacemaker::corosync':
-    cluster_members      => $pacemaker_cluster_members,
-    setup_cluster        => $pacemaker_master,
-    cluster_setup_extras => $cluster_setup_extras,
-  }
-  class { '::pacemaker::stonith':
-    disable => !$enable_fencing,
-  }
-  if $enable_fencing {
-    include ::tripleo::fencing
-
-    # enable stonith after all Pacemaker resources have been created
-    Pcmk_resource<||> -> Class['tripleo::fencing']
-    Pcmk_constraint<||> -> Class['tripleo::fencing']
-    Exec <| tag == 'pacemaker_constraint' |> -> Class['tripleo::fencing']
-    # enable stonith after all fencing devices have been created
-    Class['tripleo::fencing'] -> Class['pacemaker::stonith']
-  }
-
-  # FIXME(gfidente): sets 200secs as default start timeout op
-  # param; until we can use pcmk global defaults we'll still
-  # need to add it to every resource which redefines op params
-  Pacemaker::Resource::Service {
-    op_params => 'start timeout=200s stop timeout=200s',
-  }
-
   # Galera
   if str2bool(hiera('enable_galera', true)) {
     $mysql_config_file = '/etc/my.cnf.d/galera.cnf'
@@ -163,15 +113,6 @@ if hiera('step') >= 2 {
   $mongodb_replset = hiera('mongodb::server::replset')
 
   if $pacemaker_master {
-
-    include ::pacemaker::resource_defaults
-
-    # Create an openstack-core dummy resource. See RHBZ 1290121
-    pacemaker::resource::ocf { 'openstack-core':
-      ocf_agent_name => 'heartbeat:Dummy',
-      clone_params   => true,
-    }
-
     pacemaker::resource::ocf { 'galera' :
       ocf_agent_name  => 'heartbeat:galera',
       op_params       => 'promote timeout=300s on-fail=block',
