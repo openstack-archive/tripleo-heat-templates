@@ -33,28 +33,7 @@ if hiera('step') >= 4 {
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
   }
 
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-    file { '/etc/libvirt/qemu.conf':
-      ensure  => present,
-      content => hiera('midonet_libvirt_qemu_data')
-    }
-  }
-
-  # If the value of core plugin is set to 'midonet',
-  # include midonet agent,
-  # else use the default value of 'ml2'
-  if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
-
-    # TODO(devvesa) provide non-controller ips for these services
-    $zookeeper_node_ips = hiera('neutron_api_node_ips')
-    $cassandra_node_ips = hiera('neutron_api_node_ips')
-
-    class { '::tripleo::network::midonet::agent':
-      zookeeper_servers => $zookeeper_node_ips,
-      cassandra_seeds   => $cassandra_node_ips
-    }
-  }
-  elsif hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
+  if hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
 
     include ::contrail::vrouter
     # NOTE: it's not possible to use this class without a functional
