@@ -18,16 +18,6 @@ include ::tripleo::firewall
 
 if hiera('step') >= 4 {
 
-  # When utilising images for deployment, we need to reset the iSCSI initiator name to make it unique
-  exec { 'reset-iscsi-initiator-name':
-    command => '/bin/echo InitiatorName=$(/usr/sbin/iscsi-iname) > /etc/iscsi/initiatorname.iscsi',
-    onlyif  => '/usr/bin/test ! -f /etc/iscsi/.initiator_reset',
-  }->
-
-  file { '/etc/iscsi/.initiator_reset':
-    ensure => present,
-  }
-
   nova_config {
     'DEFAULT/my_ip': value => $ipaddress;
     'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
