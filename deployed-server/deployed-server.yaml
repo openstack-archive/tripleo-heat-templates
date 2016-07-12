@@ -1,0 +1,122 @@
+heat_template_version: 2014-10-16
+parameters:
+  image:
+    type: string
+    default: unused
+  flavor:
+    type: string
+    default: unused
+  key_name:
+    type: string
+    default: unused
+  security_groups:
+    type: json
+    default: []
+  # Require this so we can validate the parent passes the
+  # correct value
+  user_data_format:
+    type: string
+  user_data:
+    type: string
+    default: ''
+  name:
+    type: string
+    default: ''
+  image_update_policy:
+    type: string
+    default: ''
+  networks:
+    type: comma_delimited_list
+    default: ''
+  metadata:
+    type: json
+    default: {}
+  software_config_transport:
+    default: POLL_SERVER_CFN
+    type: string
+  scheduler_hints:
+    type: json
+    description: Optional scheduler hints to pass to nova
+    default: {}
+
+resources:
+  # We just need something which returns a unique ID, but we can't
+  # use RandomString because RefId returns the value, not the physical
+  # resource ID, SoftwareConfig should work as it returns a UUID
+  deployed-server:
+    type: OS::TripleO::DeployedServerConfig
+    properties:
+      user_data_format: SOFTWARE_CONFIG
+
+  InstanceIdConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: os-apply-config
+      config:
+        instance-id: {get_attr: [deployed-server, "OS::stack_id"]}
+
+  InstanceIdDeployment:
+    type: OS::Heat::StructuredDeployment
+    properties:
+      config: {get_resource: InstanceIdConfig}
+      server: {get_resource: deployed-server}
+
+  HostsEntryConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+          #!/bin/bash
+          set -eux
+          mkdir -p $heat_outputs_path
+          host=$(hostnamectl --static)
+          echo -n "$host "  > $heat_outputs_path.hosts_entry
+          host_ip=$(python -c "import socket; print socket.gethostbyname(\"$host\")")
+          echo -n "$host_ip " >> $heat_outputs_path.hosts_entry
+          echo >> $heat_outputs_path.hosts_entry
+          cat $heat_outputs_path.hosts_entry
+          echo -n $host_ip > $heat_outputs_path.ip_address
+          cat $heat_outputs_path.ip_address
+          echo -n $host > $heat_outputs_path.hostname
+          cat $heat_outputs_path.hostname
+      outputs:
+        - name: hosts_entry
+          description: hosts_entry
+        - name: ip_address
+          description: ip_address
+        - name: hostname
+          description: hostname
+
+  HostsEntryDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      config: {get_resource: HostsEntryConfig}
+      server: {get_resource: deployed-server}
+
+  ControlPlanePort:
+    type: OS::Neutron::Port
+    properties:
+      network: ctlplane
+      name:
+        list_join:
+          - '-'
+          - - {get_attr: [HostsEntryDeployment, hostname]}
+            - ctlplane
+            - port
+      replacement_policy: AUTO
+
+outputs:
+  # FIXME(shardy) this is needed because TemplateResource returns an
+  # ARN not a UUID, which overflows the Deployment server_id column..
+  OS::stack_id:
+    value: {get_attr: [deployed-server, "OS::stack_id"]}
+  networks:
+    value:
+      ctlplane:
+        - {get_attr: [ControlPlanePort, fixed_ips, 0, ip_address]}
+  name:
+   value: {get_attr: [HostsEntryDeployment, hostname]}
+  hosts_entry:
+   value: {get_attr: [HostsEntryDeployment, hosts_entry]}
+  ip_address:
+    value: {get_attr: [HostsEntryDeployment, ip_address]}
