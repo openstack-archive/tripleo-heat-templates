@@ -1,0 +1,42 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Nova Compute service configured with Puppet and using Ironic
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  IronicPassword:
+    description: The password for the Ironic service and db account, used by the Ironic services
+    type: string
+    hidden: true
+
+resources:
+  NovaBase:
+    type: ./nova-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Nova Compute service with Ironic.
+    value:
+      service_name: nova_ironic
+      config_settings:
+        map_merge:
+          - get_attr: [NovaBase, role_data, config_settings]
+          - nova::compute::force_config_drive: true
+            nova::compute::reserved_host_memory: '0'
+            nova::compute::vnc_enabled: false
+            nova::ironic::common::admin_password: {get_param: IronicPassword}
+            nova::ironic::common::admin_tenant_name: 'service'
+            nova::ironic::common::admin_url: {get_param: [EndpointMap, KeystoneAdmin, uri]}
+            nova::ironic::common::admin_username: 'ironic'
+            nova::ironic::common::api_endpoint: {get_param: [EndpointMap, IronicInternal, uri]}
+            nova::network::neutron::dhcp_domain: ''
+            nova::scheduler::filter::scheduler_host_manager: 'ironic_host_manager'
+      step_config: |
+        include tripleo::profile::base::nova::compute::ironic
