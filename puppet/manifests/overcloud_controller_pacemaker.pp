@@ -242,7 +242,7 @@ if hiera('step') >= 2 {
     # Create an openstack-core dummy resource. See RHBZ 1290121
     pacemaker::resource::ocf { 'openstack-core':
       ocf_agent_name => 'heartbeat:Dummy',
-      clone_params   => true,
+      clone_params   => 'interleave=true',
     }
 
     if $enable_load_balancer {
