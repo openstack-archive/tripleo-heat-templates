@@ -17,12 +17,6 @@ include ::tripleo::packages
 include ::tripleo::firewall
 
 if hiera('step') >= 4 {
-
-  nova_config {
-    'DEFAULT/my_ip': value => $ipaddress;
-    'DEFAULT/linuxnet_interface_driver': value => 'nova.network.linux_net.LinuxOVSInterfaceDriver';
-  }
-
   hiera_include('compute_classes')
 }
 
