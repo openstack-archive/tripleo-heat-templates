@@ -87,11 +87,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
 } #END STEP 4
 
 if hiera('step') >= 5 {
-  $nova_enable_db_purge = hiera('nova_enable_db_purge', true)
-  if $nova_enable_db_purge {
-    include ::nova::cron::archive_deleted_rows
-  }
-
   if $pacemaker_master {
 
     pacemaker::constraint::base { 'openstack-core-then-httpd-constraint':
