@@ -15,8 +15,7 @@
 
 # TODO(jistr): use pcs resource provider instead of just no-ops
 Service <|
-  tag == 'aodh-service' or
-  tag == 'gnocchi-service'
+  tag == 'aodh-service'
 |> {
   hasrestart => true,
   restart    => '/bin/true',
