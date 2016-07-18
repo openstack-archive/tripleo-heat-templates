@@ -16,8 +16,6 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-$enable_load_balancer = hiera('enable_load_balancer', true)
-
 if hiera('step') >= 2 {
   # FIXME: this should only occur on the bootstrap host (ditto for db syncs)
   # Create all the database schemas
