@@ -1,0 +1,73 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Neutron OVS DPDK configured with Puppet for Compute Role
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronDpdkCoreList:
+    default: ""
+    description: List of cores to be used for DPDK Poll Mode Driver
+    type: string
+  NeutronDpdkMemoryChannels:
+    default: ""
+    description: Number of memory channels to be used for DPDK
+    type: string
+  NeutronDpdkSocketMemory:
+    default: ""
+    description: Memory allocated for each socket
+    type: string
+  NeutronDpdkDriverType:
+    default: "vfio-pci"
+    description: DPDK Driver type
+    type: string
+  # below parameters has to be set in neutron agent only for compute nodes.
+  # as of now there is no other usecase for these parameters except dpdk.
+  # should be moved to compute only ovs agent in case of any other usecases.
+  NeutronDatapathType:
+    default: ""
+    description: Datapath type for ovs bridges
+    type: string
+  NeutronVhostuserSocketDir:
+    default: ""
+    description: The vhost-user socket directory for OVS
+    type: string
+
+resources:
+
+  NeutronOvsAgent:
+    type: ./neutron-ovs-agent.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Neutron OVS DPDK Agent service.
+    value:
+      service_name: neutron_ovs_dpdk_agent
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronOvsAgent, role_data, config_settings]
+            neutron::agents::ml2::ovs::enable_dpdk: true
+            neutron::agents::ml2::ovs::datapath_type: {get_param: NeutronDatapathType}
+            neutron::agents::ml2::ovs::vhostuser_socket_dir: {get_param: NeutronVhostuserSocketDir}
+            vswitch::dpdk::core_list: {get_param: NeutronDpdkCoreList}
+            vswitch::dpdk::memory_channels: {get_param: NeutronDpdkMemoryChannels}
+            vswitch::dpdk::socket_mem: {get_param: NeutronDpdkSocketMemory}
+            vswitch::dpdk::driver_type: {get_param: NeutronDpdkDriverType}
+      step_config: {get_attr: [NeutronOvsAgent, role_data, step_config]}
