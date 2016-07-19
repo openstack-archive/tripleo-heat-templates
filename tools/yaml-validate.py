@@ -21,23 +21,49 @@ def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
 
+
+def validate_service(filename, tpl):
+    if 'outputs' in tpl and 'role_data' in tpl['outputs']:
+        if 'value' not in tpl['outputs']['role_data']:
+            print('ERROR: invalid role_data for filename: %s'
+                  % filename)
+            return 1
+        role_data = tpl['outputs']['role_data']['value']
+        if 'service_name' not in role_data:
+            print('ERROR: service_name is required in role_data for %s.'
+                  % filename)
+            return 1
+        if (role_data['service_name'] !=
+                os.path.basename(filename).split('.')[0]):
+            print('ERROR: service_name should match file name for service: %s.'
+                  % filename)
+            return 1
+    return 0
+
+
 def validate(filename):
     print('Validating %s' % filename)
+    retval = 0
     try:
         tpl = yaml.load(open(filename).read())
+
+        if (filename.startswith('./puppet/services/') and
+                filename != './puppet/services/services.yaml'):
+            retval = validate_service(filename, tpl)
+
     except Exception:
         print(traceback.format_exc())
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
     for p in tpl.get('parameters', {}):
         str_p = '\'%s\'' % p
-        in_resources =  str_p in str(tpl.get('resources', {}))
-        in_outputs =  str_p in str(tpl.get('outputs', {}))
+        in_resources = str_p in str(tpl.get('resources', {}))
+        in_outputs = str_p in str(tpl.get('outputs', {}))
         if not in_resources and not in_outputs:
             print('Warning: parameter %s in template %s appears to be unused'
                   % (p, filename))
 
-    return 0
+    return retval
 
 if len(sys.argv) < 2:
     exit_usage()
