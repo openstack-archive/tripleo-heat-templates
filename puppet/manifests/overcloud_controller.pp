@@ -291,6 +291,10 @@ if hiera('step') >= 3 {
   include ::nova::scheduler
   include ::nova::scheduler::filter
 
+  nova_config {
+    'DEFAULT/host':                      value => $fqdn;
+  }
+
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
     # TODO(devvesa) provide non-controller ips for these services
@@ -346,6 +350,10 @@ if hiera('step') >= 3 {
   include ::neutron::config
   include ::neutron::server
   include ::neutron::server::notifications
+
+  neutron_config {
+    'DEFAULT/host': value => $fqdn;
+  }
 
   # If the value of core plugin is set to 'nuage' or'opencontrail' or 'plumgrid',
   # include nuage or opencontrail or plumgrid core plugins

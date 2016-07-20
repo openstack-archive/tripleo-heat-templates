@@ -760,6 +760,10 @@ MYSQL_HOST=localhost\n",
   }
   include ::nova::network::neutron
 
+  nova_config {
+    'DEFAULT/host':                      value => $fqdn;
+  }
+
   if hiera('neutron::core_plugin') == 'midonet.neutron.plugin_v1.MidonetPluginV2' {
 
     # TODO(devvesa) provide non-controller ips for these services
@@ -903,6 +907,7 @@ MYSQL_HOST=localhost\n",
   }
   neutron_config {
     'DEFAULT/notification_driver': value => 'messaging';
+    'DEFAULT/host': value => $fqdn;
   }
 
   include ::cinder
