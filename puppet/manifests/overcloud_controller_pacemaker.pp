@@ -484,46 +484,21 @@ if hiera('step') >= 2 {
       require         => Class['::redis'],
     }
 
-  }
-  $mysql_root_password = hiera('mysql::server::root_password')
-  $mysql_clustercheck_password = hiera('mysql_clustercheck_password')
-  # This step is to create a sysconfig clustercheck file with the root user and empty password
-  # on the first install only (because later on the clustercheck db user will be used)
-  # We are using exec and not file in order to not have duplicate definition errors in puppet
-  # when we later set the the file to contain the clustercheck data
-  exec { 'create-root-sysconfig-clustercheck':
-    command => "/bin/echo 'MYSQL_USERNAME=root\nMYSQL_PASSWORD=\'\'\nMYSQL_HOST=localhost\n' > /etc/sysconfig/clustercheck",
-    unless  => '/bin/test -e /etc/sysconfig/clustercheck && grep -q clustercheck /etc/sysconfig/clustercheck',
-  }
+    exec { 'galera-ready' :
+      command     => '/usr/bin/clustercheck >/dev/null',
+      timeout     => 30,
+      tries       => 180,
+      try_sleep   => 10,
+      environment => ['AVAILABLE_WHEN_READONLY=0'],
+      require     => Exec['create-root-sysconfig-clustercheck'],
+    }
 
-  exec { 'galera-ready' :
-    command     => '/usr/bin/clustercheck >/dev/null',
-    timeout     => 30,
-    tries       => 180,
-    try_sleep   => 10,
-    environment => ['AVAILABLE_WHEN_READONLY=0'],
-    require     => Exec['create-root-sysconfig-clustercheck'],
-  }
-
-  xinetd::service { 'galera-monitor' :
-    port           => '9200',
-    server         => '/usr/bin/clustercheck',
-    per_source     => 'UNLIMITED',
-    log_on_success => '',
-    log_on_failure => 'HOST',
-    flags          => 'REUSE',
-    service_type   => 'UNLISTED',
-    user           => 'root',
-    group          => 'root',
-    require        => Exec['create-root-sysconfig-clustercheck'],
-  }
-  # We add a clustercheck db user and we will switch /etc/sysconfig/clustercheck
-  # to it in a later step. We do this only on one node as it will replicate on
-  # the other members. We also make sure that the permissions are the minimum necessary
-  if $pacemaker_master {
+    # We add a clustercheck db user and we will switch /etc/sysconfig/clustercheck
+    # to it in a later step. We do this only on one node as it will replicate on
+    # the other members. We also make sure that the permissions are the minimum necessary
     mysql_user { 'clustercheck@localhost':
       ensure        => 'present',
-      password_hash => mysql_password($mysql_clustercheck_password),
+      password_hash => mysql_password(hiera('mysql_clustercheck_password')),
       require       => Exec['galera-ready'],
     }
     mysql_grant { 'clustercheck@localhost/*.*':
@@ -533,10 +508,8 @@ if hiera('step') >= 2 {
       table      => '*.*',
       user       => 'clustercheck@localhost',
     }
-  }
 
-  # Create all the database schemas
-  if $sync_db {
+    # Create all the database schemas
     class { '::keystone::db::mysql':
       require => Exec['galera-ready'],
     }
@@ -573,6 +546,27 @@ if hiera('step') >= 2 {
     class { '::sahara::db::mysql':
       require       => Exec['galera-ready'],
     }
+  }
+  # This step is to create a sysconfig clustercheck file with the root user and empty password
+  # on the first install only (because later on the clustercheck db user will be used)
+  # We are using exec and not file in order to not have duplicate definition errors in puppet
+  # when we later set the the file to contain the clustercheck data
+  exec { 'create-root-sysconfig-clustercheck':
+    command => "/bin/echo 'MYSQL_USERNAME=root\nMYSQL_PASSWORD=\'\'\nMYSQL_HOST=localhost\n' > /etc/sysconfig/clustercheck",
+    unless  => '/bin/test -e /etc/sysconfig/clustercheck && grep -q clustercheck /etc/sysconfig/clustercheck',
+  }
+
+  xinetd::service { 'galera-monitor' :
+    port           => '9200',
+    server         => '/usr/bin/clustercheck',
+    per_source     => 'UNLIMITED',
+    log_on_success => '',
+    log_on_failure => 'HOST',
+    flags          => 'REUSE',
+    service_type   => 'UNLISTED',
+    user           => 'root',
+    group          => 'root',
+    require        => Exec['create-root-sysconfig-clustercheck'],
   }
 
   # pre-install swift here so we can build rings
@@ -634,6 +628,7 @@ if hiera('step') >= 2 {
 if hiera('step') >= 3 {
   # At this stage we are guaranteed that the clustercheck db user exists
   # so we switch the resource agent to use it.
+  $mysql_clustercheck_password = hiera('mysql_clustercheck_password')
   file { '/etc/sysconfig/clustercheck' :
     ensure  => file,
     mode    => '0600',
@@ -2094,6 +2089,7 @@ if hiera('step') >= 5 {
   # password. On second runs or updates /root/.my.cnf will already be populated
   # with proper credentials. This step happens on every node because this sql
   # statement does not automatically replicate across nodes.
+  $mysql_root_password = hiera('mysql::server::root_password')
   exec { 'galera-set-root-password':
     command => "/bin/touch /root/.my.cnf && /bin/echo \"UPDATE mysql.user SET Password = PASSWORD('${mysql_root_password}') WHERE user = 'root'; flush privileges;\" | /bin/mysql --defaults-extra-file=/root/.my.cnf -u root",
   }
