@@ -237,15 +237,16 @@ if hiera('step') >= 2 {
 
   if $pacemaker_master {
 
+    include ::pacemaker::resource_defaults
+
+    # Create an openstack-core dummy resource. See RHBZ 1290121
+    pacemaker::resource::ocf { 'openstack-core':
+      ocf_agent_name => 'heartbeat:Dummy',
+      clone_params   => true,
+    }
+
     if $enable_load_balancer {
 
-      include ::pacemaker::resource_defaults
-
-      # Create an openstack-core dummy resource. See RHBZ 1290121
-      pacemaker::resource::ocf { 'openstack-core':
-        ocf_agent_name => 'heartbeat:Dummy',
-        clone_params   => true,
-      }
       # FIXME: we should not have to access tripleo::loadbalancer class
       # parameters here to configure pacemaker VIPs. The configuration
       # of pacemaker VIPs could move into puppet-tripleo or we should
