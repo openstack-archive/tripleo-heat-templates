@@ -245,14 +245,10 @@ if hiera('step') >= 5 {
                   Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
     }
 
-    # Horizon and Keystone
-    pacemaker::resource::service { $::apache::params::service_name:
-      clone_params     => 'interleave=true',
-      verify_on_create => true,
-      require          => [File['/etc/keystone/ssl/certs/ca.pem'],
-      File['/etc/keystone/ssl/private/signing_key.pem'],
-      File['/etc/keystone/ssl/certs/signing_cert.pem']],
-    }
+    # The next step is to include this class in puppet-tripleo profiles directly.
+    # We couldn't do it directly in puppet-tripleo, otherwise CI would have break because
+    # of Puppet duplicated resource.
+    include ::tripleo::profile::pacemaker::apache
 
     #VSM
     if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
