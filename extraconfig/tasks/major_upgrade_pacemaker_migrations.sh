@@ -35,7 +35,7 @@ function liberty_to_mitaka_keystone {
         PCS="pcs -f $CIB"
 
         # Create dummy resource
-        $PCS resource create openstack-core ocf:heartbeat:Dummy --clone
+        $PCS resource create openstack-core ocf:heartbeat:Dummy --clone interleave=true
 
         # change all constraints from keystone to dummy
         CONSTR="$($PCS config | grep keystone | grep start | grep then)"
