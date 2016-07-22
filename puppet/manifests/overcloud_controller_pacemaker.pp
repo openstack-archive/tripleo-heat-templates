@@ -1494,7 +1494,7 @@ password=\"${mysql_root_password}\"",
                     Pacemaker::Resource::Service[$::neutron::params::dhcp_agent_service]],
       }
     }
-    if hiera('neutron::enable_dhcp_agent',true) and hiera('l3_agent_service',true) {
+    if hiera('neutron::enable_dhcp_agent',true) and hiera('neutron::enable_l3_agent',true) {
       pacemaker::constraint::base { 'neutron-dhcp-agent-to-l3-agent-constraint':
         constraint_type => 'order',
         first_resource  => "${::neutron::params::dhcp_agent_service}-clone",
