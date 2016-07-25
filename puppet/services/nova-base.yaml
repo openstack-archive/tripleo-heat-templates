@@ -4,6 +4,15 @@ description: >
   OpenStack Nova base service. Shared for all Nova services.
 
 parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NovaPassword:
+    description: The password for the nova service and db account, used by nova-api.
+    type: string
+    hidden: true
   RabbitPassword:
     description: The password for RabbitMQ
     type: string
@@ -37,4 +46,36 @@ outputs:
         nova::rabbit_user: {get_param: RabbitUserName}
         nova::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
         nova::rabbit_port: {get_param: RabbitClientPort}
+        nova::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://nova:'
+              - {get_param: NovaPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/nova'
+        nova::api_database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://nova_api:'
+              - {get_param: NovaPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/nova_api'
+        nova::db::mysql::password: {get_input: nova_password}
+        nova::db::mysql::user: nova
+        nova::db::mysql::host: {get_param: [EndpointMap, MysqlNoBracketsInternal, host]}
+        nova::db::mysql::dbname: nova
+        nova::db::mysql::allowed_hosts:
+          - '%'
+          - "%{hiera('mysql_bind_host')}"
+        nova::db::mysql_api::password: {get_input: nova_password}
+        nova::db::mysql_api::user: nova_api
+        nova::db::mysql_api::host: {get_param: [EndpointMap, MysqlNoBracketsInternal, host]}
+        nova::db::mysql_api::dbname: nova_api
+        nova::db::mysql_api::allowed_hosts:
+          - '%'
+          - "%{hiera('mysql_bind_host')}"
         nova::debug: {get_param: Debug}
