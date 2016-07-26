@@ -10,7 +10,7 @@ BLOCKSTORAGE_HOSTS=${BLOCKSTORAGE_HOSTS:-""}
 OBJECTSTORAGE_HOSTS=${OBJECTSTORAGE_HOSTS:-""}
 CEPHSTORAGE_HOSTS=${CEPHSTORAGE_HOSTS:-""}
 SUBNODES_SSH_KEY=${SUBNODES_SSH_KEY:-"~/.ssh/id_rsa"}
-SSH_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=Verbose -o PasswordAuthentication=no -o ConnectionAttempts=32"
+SSH_OPTIONS="-tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=Verbose -o PasswordAuthentication=no -o ConnectionAttempts=32"
 
 read -a Controller_hosts_a <<< $CONTROLLER_HOSTS
 read -a Compute_hosts_a <<< $COMPUTE_HOSTS
