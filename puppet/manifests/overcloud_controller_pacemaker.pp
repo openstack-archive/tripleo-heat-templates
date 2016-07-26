@@ -1957,6 +1957,15 @@ if hiera('step') >= 4 {
     pacemaker::resource::service { $::gnocchi::params::statsd_service_name :
       clone_params => 'interleave=true',
     }
+    pacemaker::constraint::base { 'keystone-then-gnocchi-metricd-constraint':
+      constraint_type => 'order',
+      first_resource  => 'openstack-core-clone',
+      second_resource => "${::gnocchi::params::metricd_service_name}-clone",
+      first_action    => 'start',
+      second_action   => 'start',
+      require         => [Pacemaker::Resource::Service[$::gnocchi::params::metricd_service_name],
+                          Pacemaker::Resource::Ocf['openstack-core']],
+    }
     pacemaker::constraint::base { 'gnocchi-metricd-then-gnocchi-statsd-constraint':
       constraint_type => 'order',
       first_resource  => "${::gnocchi::params::metricd_service_name}-clone",
