@@ -34,6 +34,25 @@ DOCKER_PULL_PID=$!
 
 mkdir -p /var/lib/etc-data/json-config #FIXME: this should be a docker data container
 
+# NOTE(flaper87): Heat Agent required mounts
+AGENT_COMMAND_MOUNTS="-v /var/lib/etc-data:/var/lib/etc-data \
+                      -v /run:/run \
+                      -v /etc:/host/etc \
+                      -v /usr/bin/atomic:/usr/bin/atomic \
+                      -v /var/lib/dhclient:/var/lib/dhclient \
+                      -v /var/lib/cloud:/var/lib/cloud \
+                      -v /var/lib/heat-cfntools:/var/lib/heat-cfntools \
+                      -v /etc/sysconfig/docker:/etc/sysconfig/docker \
+                      -v /usr/lib64/libseccomp.so.2:/usr/lib64/libseccomp.so.2"
+
+
+# NOTE(flaper87): Some of these commands may not be present depending on the
+# atomic version.
+for docker_cmd in docker docker-current docker-latest; do
+    if [ -f "/usr/bin/$docker_cmd" ]; then
+        AGENT_COMMAND_MOUNTS+=" -v /usr/bin/$docker_cmd:/usr/bin/$docker_cmd"
+    fi
+done
 
 # heat-docker-agents service
 cat <<EOF > /etc/systemd/system/heat-docker-agents.service
@@ -48,7 +67,9 @@ User=root
 Restart=on-failure
 ExecStartPre=-/usr/bin/docker kill heat-agents
 ExecStartPre=-/usr/bin/docker rm heat-agents
-ExecStart=/usr/bin/docker run --name heat-agents --privileged --net=host -v /var/lib/etc-data:/var/lib/etc-data -v /run:/run -v /etc:/host/etc -v /usr/bin/atomic:/usr/bin/atomic -v /var/lib/dhclient:/var/lib/dhclient -v /var/lib/cloud:/var/lib/cloud -v /var/lib/heat-cfntools:/var/lib/heat-cfntools -v /usr/bin/docker:/usr/bin/docker --entrypoint=/usr/bin/os-collect-config $agent_image
+ExecStart=/usr/bin/docker run --name heat-agents --privileged --net=host \
+    $AGENT_COMMAND_MOUNTS \
+    --entrypoint=/usr/bin/os-collect-config $agent_image
 ExecStop=/usr/bin/docker stop heat-agents
 
 [Install]
