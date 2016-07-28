@@ -33,8 +33,9 @@ def validate_service(filename, tpl):
             print('ERROR: service_name is required in role_data for %s.'
                   % filename)
             return 1
+        # service_name must match the filename, but with an underscore
         if (role_data['service_name'] !=
-                os.path.basename(filename).split('.')[0]):
+                os.path.basename(filename).split('.')[0].replace("-", "_")):
             print('ERROR: service_name should match file name for service: %s.'
                   % filename)
             return 1
