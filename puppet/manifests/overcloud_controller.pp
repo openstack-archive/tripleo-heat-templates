@@ -279,7 +279,12 @@ if hiera('step') >= 3 {
   }
 
   class { '::nova' :
-    memcached_servers => $memcached_servers
+    memcached_servers => $memcached_servers,
+  }
+  class { '::nova::cache' :
+    backend          => 'oslo_cache.memcache_pool',
+    enabled          => true,
+    memcache_servers => $memcached_servers,
   }
   include ::nova::config
   include ::nova::api

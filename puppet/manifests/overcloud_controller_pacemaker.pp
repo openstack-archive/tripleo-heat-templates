@@ -722,9 +722,13 @@ MYSQL_HOST=localhost\n",
   }
 
   class { '::nova' :
-    memcached_servers => $memcached_servers
+    memcached_servers => $memcached_servers,
   }
-
+  class { '::nova::cache' :
+    backend          => 'oslo_cache.memcache_pool',
+    enabled          => true,
+    memcache_servers => $memcached_servers,
+  }
   include ::nova::config
 
   class { '::nova::api' :
