@@ -89,16 +89,6 @@ if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
 if hiera('step') >= 5 {
   if $pacemaker_master {
 
-    pacemaker::constraint::base { 'openstack-core-then-httpd-constraint':
-      constraint_type => 'order',
-      first_resource  => 'openstack-core-clone',
-      second_resource => "${::apache::params::service_name}-clone",
-      first_action    => 'start',
-      second_action   => 'start',
-      require         => [Pacemaker::Resource::Service[$::apache::params::service_name],
-                          Pacemaker::Resource::Ocf['openstack-core']],
-    }
-
     # Fedora doesn't know `require-all` parameter for constraints yet
     if $::operatingsystem == 'Fedora' {
       $redis_aodh_constraint_params = undef
@@ -157,32 +147,6 @@ if hiera('step') >= 5 {
       require => [Pacemaker::Resource::Service[$::aodh::params::evaluator_service_name],
                   Pacemaker::Resource::Service[$::aodh::params::listener_service_name]],
     }
-
-    #VSM
-    if 'cisco_n1kv' in hiera('neutron::plugins::ml2::mechanism_drivers') {
-      pacemaker::resource::ocf { 'vsm-p' :
-        ocf_agent_name  => 'heartbeat:VirtualDomain',
-        resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_primary_deploy.xml',
-        require         => Class['n1k_vsm'],
-        meta_params     => 'resource-stickiness=INFINITY',
-      }
-      if str2bool(hiera('n1k_vsm::pacemaker_control', true)) {
-        pacemaker::resource::ocf { 'vsm-s' :
-          ocf_agent_name  => 'heartbeat:VirtualDomain',
-          resource_params => 'force_stop=true config=/var/spool/cisco/vsm/vsm_secondary_deploy.xml',
-          require         => Class['n1k_vsm'],
-          meta_params     => 'resource-stickiness=INFINITY',
-        }
-        pacemaker::constraint::colocation { 'vsm-colocation-contraint':
-          source  => 'vsm-p',
-          target  => 'vsm-s',
-          score   => '-INFINITY',
-          require => [Pacemaker::Resource::Ocf['vsm-p'],
-                      Pacemaker::Resource::Ocf['vsm-s']],
-        }
-      }
-    }
-
   }
 
 } #END STEP 5
