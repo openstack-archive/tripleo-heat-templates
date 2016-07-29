@@ -1,4 +1,4 @@
-heat_template_version: 2015-04-30
+heat_template_version: 2016-10-14
 
 parameters:
   ControlPlaneIpList:
@@ -22,6 +22,12 @@ parameters:
   ManagementIpList:
     default: []
     type: comma_delimited_list
+  EnabledServices:
+    default: []
+    type: comma_delimited_list
+  ServiceNetMap:
+    default: {}
+    type: json
 
 outputs:
   net_ip_map:
@@ -36,3 +42,32 @@ outputs:
       storage_mgmt: {get_param: StorageMgmtIpList}
       tenant: {get_param: TenantIpList}
       management: {get_param: ManagementIpList}
+  service_ips:
+    description: >
+      Map of enabled services to a list of their IP addresses
+    value:
+      yaql:
+        # This filters any entries where the value hasn't been substituted for
+        # a list, e.g it's still $service_network.  This happens when there is
+        # no network defined for the service in the ServiceNetMap, which is OK
+        # as not all services have to be bound to a network, so we filter them
+        expression: dict($.data.map.items().where(not isString($[1])))
+        data:
+          map:
+            map_replace:
+              - map_replace:
+                  - map_merge:
+                      repeat:
+                        template:
+                          SERVICE_node_ips: SERVICE_network
+                        for_each:
+                          SERVICE: {get_param: EnabledServices}
+                  - values: {get_param: ServiceNetMap}
+              - values:
+                  ctlplane: {get_param: ControlPlaneIpList}
+                  external: {get_param: ExternalIpList}
+                  internal_api: {get_param: InternalApiIpList}
+                  storage: {get_param: StorageIpList}
+                  storage_mgmt: {get_param: StorageMgmtIpList}
+                  tenant: {get_param: TenantIpList}
+                  management: {get_param: ManagementIpList}
