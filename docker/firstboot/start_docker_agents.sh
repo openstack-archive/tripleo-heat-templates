@@ -1,13 +1,37 @@
 #!/bin/bash
 set -eux
 
-# firstboot isn't split out by role yet so we handle it this way
-if ! hostname | grep compute &>/dev/null; then
- echo "Exiting. This script is only for the compute role."
- exit 0
+/sbin/setenforce 0
+/sbin/modprobe ebtables
+
+# CentOS sets ptmx to 000. Withoutit being 666, we can't use Cinder volumes
+chmod 666 /dev/pts/ptmx
+
+# We need hostname -f to return in a centos container for the puppet hook
+HOSTNAME=$(hostname)
+echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
+
+# update docker for local insecure registry(optional)
+# Note: This is different for different docker versions
+# For older docker versions < 1.4.x use commented line
+#echo "OPTIONS='--insecure-registry $docker_registry'" >> /etc/sysconfig/docker
+#echo "ADD_REGISTRY='--registry-mirror $docker_registry'" >> /etc/sysconfig/docker
+
+# Local docker registry 1.8
+if [ $docker_namespace_is_registry ]; then
+    /usr/bin/systemctl stop docker.service
+    # if namespace is used with local registry, trim all namespacing
+    trim_var=$docker_registry
+    registry_host="${trim_var%%/*}"
+    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry[ ]'/INSECURE_REGISTRY='--insecure-registry $registry_host'/g" /etc/sysconfig/docker
+    /usr/bin/systemctl start --no-block docker.service
 fi
 
+/usr/bin/docker pull $agent_image &
+DOCKER_PULL_PID=$!
+
 mkdir -p /var/lib/etc-data/json-config #FIXME: this should be a docker data container
+
 
 # heat-docker-agents service
 cat <<EOF > /etc/systemd/system/heat-docker-agents.service
@@ -22,7 +46,6 @@ User=root
 Restart=on-failure
 ExecStartPre=-/usr/bin/docker kill heat-agents
 ExecStartPre=-/usr/bin/docker rm heat-agents
-ExecStartPre=/usr/bin/docker pull $agent_image
 ExecStart=/usr/bin/docker run --name heat-agents --privileged --net=host -v /var/lib/etc-data:/var/lib/etc-data -v /run:/run -v /etc:/host/etc -v /usr/bin/atomic:/usr/bin/atomic -v /var/lib/dhclient:/var/lib/dhclient -v /var/lib/cloud:/var/lib/cloud -v /var/lib/heat-cfntools:/var/lib/heat-cfntools -v /usr/bin/docker:/usr/bin/docker --entrypoint=/usr/bin/os-collect-config $agent_image
 ExecStop=/usr/bin/docker stop heat-agents
 
@@ -30,30 +53,6 @@ ExecStop=/usr/bin/docker stop heat-agents
 WantedBy=multi-user.target
 
 EOF
-
-# update docker for local insecure registry(optional)
-# Note: This is different for different docker versions
-# For older docker versions < 1.4.x use commented line
-#echo "OPTIONS='--insecure-registry $docker_registry'" >> /etc/sysconfig/docker
-#echo "ADD_REGISTRY='--registry-mirror $docker_registry'" >> /etc/sysconfig/docker
-
-# Local docker registry 1.8
-if [ $docker_namespace_is_registry ]; then
-    # if namespace is used with local registry, trim all namespacing
-    trim_var=$docker_registry
-    registry_host="${trim_var%%/*}"
-    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry'/INSECURE_REGISTRY='--insecure-registry $registry_host'/g" /etc/sysconfig/docker
-fi
-
-/sbin/setenforce 0
-/sbin/modprobe ebtables
-
-# CentOS sets ptmx to 000. Withoutit being 666, we can't use Cinder volumes
-chmod 666 /dev/pts/ptmx
-
-# We need hostname -f to return in a centos container for the puppet hook
-HOSTNAME=$(hostname)
-echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 
 # enable and start heat-docker-agents
 chmod 0640 /etc/systemd/system/heat-docker-agents.service
@@ -82,3 +81,5 @@ AUTO_EXTEND_POOL=yes
 POOL_AUTOEXTEND_PERCENT=30
 POOL_AUTOEXTEND_THRESHOLD=70
 EOF
+
+wait $DOCKER_PULL_PID
