@@ -1,0 +1,57 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Manila-scheduler service configured with Puppet
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NovaPassword:
+    type: string
+    description: The password for the nova service and db account, used by nova-api.
+    hidden: true
+  NeutronPassword:
+    description: The password for the neutron service and db account, used by neutron agents.
+    type: string
+    hidden: true
+  ManilaPassword:
+    description: The password for the manila service account.
+    type: string
+    hidden: true
+
+resources:
+  ManilaBase:
+    type: ./manila-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Manila-scheduler role.
+    value:
+      service_name: manila_scheduler
+      config_settings:
+        map_merge:
+          - get_attr: [ManilaBase, role_data, config_settings]
+          - manila::compute::nova::nova_admin_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::compute::nova::nova_admin_password: {get_param: NovaPassword}
+            manila::compute::nova::nova_admin_tenant_name: 'service'
+            manila::db::mysql::password: {get_param: ManilaPassword}
+            manila::network::neutron::neutron_url: {get_param: [EndpointMap, NeutronInternal, uri]}
+            manila::network::neutron::neutron_admin_auth_url: {get_param: [EndpointMap, NeutronAdmin, uri]}
+            manila::network::neutron::neutron_admin_password: {get_param: NeutronPassword}
+            manila::sql_connection:
+                list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://manila:'
+                  - {get_param: ManilaPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/manila'
+      step_config: |
+        include ::tripleo::profile::base::manila::scheduler
+
