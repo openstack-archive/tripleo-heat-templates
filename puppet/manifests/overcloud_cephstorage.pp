@@ -17,7 +17,7 @@ include ::tripleo::packages
 include ::tripleo::firewall
 
 if hiera('step') >= 4 {
-  hiera_include('ceph_classes')
+  hiera_include('ceph_classes', [])
 }
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_ceph', hiera('step')])

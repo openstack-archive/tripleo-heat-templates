@@ -17,7 +17,7 @@ include ::tripleo::packages
 include ::tripleo::firewall
 
 if hiera('step') >= 4 {
-  hiera_include('object_classes')
+  hiera_include('object_classes', [])
 }
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_object', hiera('step')])

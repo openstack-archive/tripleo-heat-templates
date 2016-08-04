@@ -17,8 +17,8 @@ include ::tripleo::packages
 include ::tripleo::firewall
 
 if hiera('step') >= 4 {
-  hiera_include('controller_classes')
-} #END STEP 4
+  hiera_include('controller_classes', [])
+}
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
