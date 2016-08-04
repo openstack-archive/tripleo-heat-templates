@@ -180,7 +180,7 @@ if hiera('step') >= 2 {
   }
 
   if str2bool(hiera('enable_ceph_storage', false)) {
-    if str2bool(hiera('ceph_osd_selinux_permissive', true)) {
+    if str2bool(hiera('ceph_osd_selinux_permissive', false)) {
       exec { 'set selinux to permissive on boot':
         command => "sed -ie 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config",
         onlyif  => "test -f /etc/selinux/config && ! grep '^SELINUX=permissive' /etc/selinux/config",
