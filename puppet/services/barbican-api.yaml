@@ -1,0 +1,127 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Barbican API service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  BarbicanPassword:
+    description: The password for the barbican service account.
+    type: string
+    hidden: true
+  BarbicanWorkers:
+    description: Set the number of workers for barbican::wsgi::apache
+    default: '"%{::processorcount}"'
+    type: string
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+
+resources:
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Barbican API role.
+    value:
+      service_name: barbican_api
+      config_settings:
+        map_merge:
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - barbican::keystone::authtoken::password: {get_param: BarbicanPassword}
+            barbican::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            barbican::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            barbican::keystone::authtoken::project_name: 'service'
+            barbican::api::host_href: {get_param: [EndpointMap, BarbicanPublic, uri]}
+            barbican::api::db_auto_create: false
+            barbican::api::enabled_certificate_plugins: ['simple_certificate']
+            barbican::api::logging::debug: {get_param: Debug}
+            barbican::api::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+            barbican::api::rabbit_userid: {get_param: RabbitUserName}
+            barbican::api::rabbit_password: {get_param: RabbitPassword}
+            barbican::api::rabbit_port: {get_param: RabbitClientPort}
+            barbican::api::rabbit_heartbeat_timeout_threshold: 60
+            barbican::api::service_name: 'httpd'
+            barbican::wsgi::apache::bind_host: {get_param: [ServiceNetMap, BarbicanApiNetwork]}
+            barbican::wsgi::apache::ssl: false
+            barbican::wsgi::apache::workers: {get_param: BarbicanWorkers}
+            barbican::wsgi::apache::servername:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, BarbicanApiNetwork]}
+            barbican::db::database_connection:
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://barbican:'
+                  - {get_param: BarbicanPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/barbican'
+            tripleo.barbican_api.firewall_rules:
+              '117 barbican':
+                dport:
+                  - 9311
+                  - 13311
+      step_config: |
+        include ::tripleo::profile::base::barbican::api
+      service_config_settings:
+        mysql:
+          barbican::db::mysql::password: {get_param: BarbicanPassword}
+          barbican::db::mysql::user: barbican
+          barbican::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          barbican::db::mysql::dbname: barbican
+          barbican::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
+        keystone:
+          barbican::keystone::auth::public_url: {get_param: [EndpointMap, BarbicanPublic, uri]}
+          barbican::keystone::auth::internal_url: {get_param: [EndpointMap, BarbicanInternal, uri]}
+          barbican::keystone::auth::admin_url: {get_param: [EndpointMap, BarbicanAdmin, uri]}
+          barbican::keystone::auth::password: {get_param: BarbicanPassword}
+          barbican::keystone::auth::region: {get_param: KeystoneRegion}
+          barbican::keystone::auth::tenant: 'service'
