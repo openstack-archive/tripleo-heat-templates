@@ -1,0 +1,92 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Mapping of service_name_network -> network name
+
+parameters:
+  ServiceNetMap:
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    default: {}
+    type: json
+
+  ServiceNetMapDefaults:
+    default:
+      NeutronTenantNetwork: tenant
+      CeilometerApiNetwork: internal_api
+      AodhApiNetwork: internal_api
+      GnocchiApiNetwork: internal_api
+      MongodbNetwork: internal_api
+      CinderApiNetwork: internal_api
+      CinderIscsiNetwork: storage
+      GlanceApiNetwork: storage
+      GlanceRegistryNetwork: internal_api
+      IronicApiNetwork: internal_api
+      KeystoneAdminApiNetwork: ctlplane # allows undercloud to config endpoints
+      KeystonePublicApiNetwork: internal_api
+      ManilaApiNetwork: internal_api
+      NeutronApiNetwork: internal_api
+      HeatApiNetwork: internal_api
+      NovaApiNetwork: internal_api
+      NovaMetadataNetwork: internal_api
+      NovaVncProxyNetwork: internal_api
+      SwiftMgmtNetwork: storage_mgmt
+      SwiftProxyNetwork: storage
+      SaharaApiNetwork: internal_api
+      HorizonNetwork: internal_api
+      MemcachedNetwork: internal_api
+      RabbitmqNetwork: internal_api
+      RedisNetwork: internal_api
+      MysqlNetwork: internal_api
+      CephClusterNetwork: storage_mgmt
+      CephPublicNetwork: storage
+      ControllerHostnameResolveNetwork: internal_api
+      ComputeHostnameResolveNetwork: internal_api
+      BlockStorageHostnameResolveNetwork: internal_api
+      ObjectStorageHostnameResolveNetwork: internal_api
+      CephStorageHostnameResolveNetwork: storage
+      PublicNetwork: external
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+  # We define mappings to work around names that break when doing the
+  # CamelCase to snake_case conversion to align with service_names
+  ServiceNetMapDeprecatedMapping:
+    default:
+      MongoDbNetwork: MongodbNetwork
+      RabbitMqNetwork: RabbitmqNetwork
+    description: Mapping older deprecated service names, intended for
+                 internal use only, this will be removed in future.
+    type: json
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - ServiceNetMapDeprecatedMapping
+
+outputs:
+  service_net_map:
+    value:
+      map_merge:
+        - {get_param: ServiceNetMapDefaults}
+        - map_replace:
+           - {get_param: ServiceNetMap}
+           - keys: {get_param: ServiceNetMapDeprecatedMapping}
+
+  service_net_map_lower:
+    value:
+      # This does a conversion from CamelCase to snake_case,
+      # e.g HeatApiNetwork becomes heat_api_network so it
+      # matches the service names.
+      yaql:
+        expression: dict($.data.map.items().select([ regex(`([a-z0-9])([A-Z])`).replace($[0], '\\1_\\2').toLower(), $[1]]))
+        data:
+          map:
+            map_merge:
+              - {get_param: ServiceNetMapDefaults}
+              - map_replace:
+                 - {get_param: ServiceNetMap}
+                 - keys: {get_param: ServiceNetMapDeprecatedMapping}
