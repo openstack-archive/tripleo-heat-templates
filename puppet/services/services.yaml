@@ -39,6 +39,9 @@ resources:
         EndpointMap: {get_param: EndpointMap}
         DefaultPasswords: {get_param: DefaultPasswords}
 
+  LoggingConfiguration:
+    type: OS::TripleO::LoggingConfiguration
+
 outputs:
   role_data:
     description: Combined Role data for this set of services.
@@ -53,6 +56,42 @@ outputs:
         yaql:
           expression: list($.data.subscriptions.where($ != null))
           data: {subscriptions: {get_attr: [ServiceChain, role_data, monitoring_subscription]}}
+      logging_sources:
+        # Transform the individual logging_source configuration from
+        # each service in the chain into a global list, adding some
+        # default configuration at the same time.
+        yaql:
+          expression: >
+            let(
+            default_format => $.data.default_format,
+            pos_file_path => $.data.pos_file_path,
+            sources => $.data.sources.flatten()
+            ) ->
+            $sources.where($ != null).select({
+            'type' => 'tail',
+            'tag' => $.tag,
+            'path' => $.path,
+            'format' => $.get('format', $default_format),
+            'pos_file' => $.get('pos_file', $pos_file_path + '/' + $.tag + '.pos')
+            })
+          data:
+            sources:
+              - {get_attr: [LoggingConfiguration, LoggingDefaultSources]}
+              - {get_attr: [ServiceChain, role_data, logging_source]}
+              - {get_attr: [LoggingConfiguration, LoggingExtraSources]}
+            default_format: {get_attr: [LoggingConfiguration, LoggingDefaultFormat]}
+            pos_file_path: {get_attr: [LoggingConfiguration, LoggingPosFilePath]}
+      logging_groups:
+        # Build a list of unique groups to which we should add the
+        # fluentd user.
+        yaql:
+          expression: >
+            set($.data.groups.flatten()).where($)
+          data:
+            groups:
+              - [{get_attr: [LoggingConfiguration, LoggingDefaultGroups]}]
+              - {get_attr: [ServiceChain, role_data, logging_groups]}
+              - [{get_attr: [LoggingConfiguration, LoggingExtraGroups]}]
       config_settings: {map_merge: {get_attr: [ServiceChain, role_data, config_settings]}}
       global_config_settings:
         map_merge:
