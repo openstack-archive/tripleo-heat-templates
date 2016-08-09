@@ -16,17 +16,9 @@
 include ::tripleo::packages
 include ::tripleo::firewall
 
-if $::hostname == downcase(hiera('bootstrap_nodeid')) {
-  $pacemaker_master = true
-  $sync_db = true
-} else {
-  $pacemaker_master = false
-  $sync_db = false
+if hiera('step') >= 4 {
+  hiera_include('controller_classes', [])
 }
-
-if hiera('step') >= 4 or ( hiera('step') >= 3 and $sync_db ) {
-  hiera_include('controller_classes')
-} #END STEP 4
 
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller_pacemaker', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
