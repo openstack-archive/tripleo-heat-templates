@@ -39,6 +39,13 @@ def validate_service(filename, tpl):
             print('ERROR: service_name should match file name for service: %s.'
                   % filename)
             return 1
+    if 'parameters' in tpl:
+        required_params = ['EndpointMap', 'ServiceNetMap']
+        for param in required_params:
+            if param not in tpl['parameters']:
+                print('ERROR: parameter %s is required for %s.'
+                      % (param, filename))
+                return 1
     return 0
 
 
