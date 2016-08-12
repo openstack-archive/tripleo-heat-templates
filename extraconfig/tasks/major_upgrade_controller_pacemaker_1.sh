@@ -173,17 +173,19 @@ wsrep_on = ON
 wsrep_cluster_address = gcomm://localhost
 EOF
 
-if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
-    if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
-        # Scripts run via heat have no HOME variable set and this confuses
-        # mysqladmin
-        export HOME=/root
-        mkdir /var/lib/mysql || /bin/true
-        chown mysql:mysql /var/lib/mysql
-        chmod 0755 /var/lib/mysql
-        restorecon -R /var/lib/mysql/
-        mysql_install_db --datadir=/var/lib/mysql --user=mysql
-        chown -R mysql:mysql /var/lib/mysql/
+if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
+    # Scripts run via heat have no HOME variable set and this confuses
+    # mysqladmin
+    export HOME=/root
+
+    mkdir /var/lib/mysql || /bin/true
+    chown mysql:mysql /var/lib/mysql
+    chmod 0755 /var/lib/mysql
+    restorecon -R /var/lib/mysql/
+    mysql_install_db --datadir=/var/lib/mysql --user=mysql
+    chown -R mysql:mysql /var/lib/mysql/
+
+    if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
         mysqld_safe --wsrep-new-cluster &
         # We have a populated /root/.my.cnf with root/password here so
         # we need to temporarily rename it because the newly created
@@ -200,6 +202,9 @@ fi
 
 # If we reached here without error we can safely blow away the origin
 # mysql dir from every controller
+
+# TODO: What if the upgrade fails on the bootstrap node, but not on
+# this controller.  Data may be lost.
 if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
     rm -r $MYSQL_TEMP_UPGRADE_BACKUP_DIR
 fi
