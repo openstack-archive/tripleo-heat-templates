@@ -10,29 +10,12 @@ if [ "$pacemaker_status" = "active" -a \
      "$(hiera bootstrap_nodeid)" = "$(facter hostname)" -a \
      "$(hiera stack_action)" = "UPDATE" ]; then
 
-    #ensure neutron constraints like
-    #https://review.openstack.org/#/c/245093/
-    if  pcs constraint order show  | grep "start neutron-server-clone then start neutron-ovs-cleanup-clone"; then
-        pcs constraint remove order-neutron-server-clone-neutron-ovs-cleanup-clone-mandatory
-    fi
-
-    pcs resource disable httpd
-    check_resource httpd stopped 300
-    pcs resource disable openstack-core
-    check_resource openstack-core stopped 1800
-
-    if pcs status | grep haproxy-clone; then
-        pcs resource restart haproxy-clone
-    fi
-    pcs resource restart redis-master
-    pcs resource restart mongod-clone
-    pcs resource restart rabbitmq-clone
-    pcs resource restart memcached-clone
-    pcs resource restart galera-master
-
-    pcs resource enable openstack-core
-    check_resource openstack-core started 1800
-    pcs resource enable httpd
-    check_resource httpd started 800
-
+    PCMK_RESOURCES="haproxy-clone redis-master rabbitmq-clone galera-master openstack-cinder-volume openstack-cinder-backup"
+    # Ten minutes of timeout to restart each resource, given there are no constraints should be enough
+    TIMEOUT=600
+    for resource in $PCMK_RESOURCES; do
+      if pcs status | grep $resource; then
+        pcs resource restart --wait=$TIMEOUT $resource
+      fi
+    done
 fi
