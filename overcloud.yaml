@@ -106,45 +106,6 @@ parameters:
     default: nic1
     description: What interface to add to the HypervisorNeutronPhysicalBridge.
     type: string
-  ServiceNetMap:
-    default:
-      NeutronTenantNetwork: tenant
-      CeilometerApiNetwork: internal_api
-      AodhApiNetwork: internal_api
-      GnocchiApiNetwork: internal_api
-      MongoDbNetwork: internal_api
-      CinderApiNetwork: internal_api
-      CinderIscsiNetwork: storage
-      GlanceApiNetwork: storage
-      GlanceRegistryNetwork: internal_api
-      IronicApiNetwork: internal_api
-      KeystoneAdminApiNetwork: ctlplane # allows undercloud to config endpoints
-      KeystonePublicApiNetwork: internal_api
-      ManilaApiNetwork: internal_api
-      NeutronApiNetwork: internal_api
-      HeatApiNetwork: internal_api
-      NovaApiNetwork: internal_api
-      NovaMetadataNetwork: internal_api
-      NovaVncProxyNetwork: internal_api
-      SwiftMgmtNetwork: storage_mgmt
-      SwiftProxyNetwork: storage
-      SaharaApiNetwork: internal_api
-      HorizonNetwork: internal_api
-      MemcachedNetwork: internal_api
-      RabbitMqNetwork: internal_api
-      RedisNetwork: internal_api
-      MysqlNetwork: internal_api
-      CephClusterNetwork: storage_mgmt
-      CephPublicNetwork: storage
-      ControllerHostnameResolveNetwork: internal_api
-      ComputeHostnameResolveNetwork: internal_api
-      BlockStorageHostnameResolveNetwork: internal_api
-      ObjectStorageHostnameResolveNetwork: internal_api
-      CephStorageHostnameResolveNetwork: storage
-      PublicNetwork: external
-    description: Mapping of service_name -> network name. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
 
   ControllerServices:
     default:
@@ -393,12 +354,15 @@ resources:
     properties:
       length: 10
 
+  ServiceNetMap:
+    type: OS::TripleO::ServiceNetMap
+
   EndpointMap:
     type: OS::TripleO::EndpointMap
     properties:
       CloudName: {get_param: CloudName}
       NetIpMap: {get_attr: [VipMap, net_ip_map]}
-      ServiceNetMap: {get_param: ServiceNetMap}
+      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
 
   ControllerServiceChain:
     type: OS::TripleO::Services
@@ -425,9 +389,9 @@ resources:
           RabbitCookie: {get_attr: [RabbitCookie, value]}
           RedisVirtualIP: {get_attr: [RedisVirtualIP, ip_address]}
           RedisVirtualIPUri: {get_attr: [RedisVirtualIP, ip_address_uri]}
-          ServiceNetMap: {get_param: ServiceNetMap}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
           EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
-          MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
+          MysqlVirtualIP: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MysqlNetwork]}]}
           Hostname:
             str_replace:
               template: {get_param: ControllerHostnameFormat}
@@ -454,16 +418,16 @@ resources:
         type: OS::TripleO::Compute
         properties:
           CloudDomain: {get_param: CloudDomain}
-          GlanceHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
-          KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
-          KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+          GlanceHost: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceApiNetwork]}]}
+          KeystoneAdminApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystoneAdminApiNetwork]}]}
+          KeystonePublicApiVirtualIP: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystonePublicApiNetwork]}]}
           NeutronPhysicalBridge: {get_param: HypervisorNeutronPhysicalBridge}
           NeutronPublicInterface: {get_param: HypervisorNeutronPublicInterface}
           # L3 HA and Failover is not relevant for Computes, should be removed
-          NovaApiHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+          NovaApiHost: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaApiNetwork]}]}
           NovaPublicIP: {get_attr: [VipMap, net_ip_map, external]}
-          RabbitHost: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
-          ServiceNetMap: {get_param: ServiceNetMap}
+          RabbitHost: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, RabbitMqNetwork]}]}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
           EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
           Hostname:
             str_replace:
@@ -495,7 +459,7 @@ resources:
               template: {get_param: BlockStorageHostnameFormat}
               params:
                 '%stackname%': {get_param: 'OS::stack_name'}
-          ServiceNetMap: {get_param: ServiceNetMap}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
           ExtraConfig: {get_param: ExtraConfig}
           BlockStorageExtraConfig: {get_param: BlockStorageExtraConfig}
           CloudDomain: {get_param: CloudDomain}
@@ -521,7 +485,7 @@ resources:
         properties:
           HashSuffix: {get_param: SwiftHashSuffix}
           UpdateIdentifier: {get_param: UpdateIdentifier}
-          ServiceNetMap: {get_param: ServiceNetMap}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
           Hostname:
             str_replace:
               template: {get_param: ObjectStorageHostnameFormat}
@@ -550,7 +514,7 @@ resources:
       resource_def:
         type: OS::TripleO::CephStorage
         properties:
-          ServiceNetMap: {get_param: ServiceNetMap}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
           UpdateIdentifier: {get_param: UpdateIdentifier}
           Hostname:
             str_replace:
@@ -597,29 +561,29 @@ resources:
             - {get_attr: [CephStorage, hosts_entry]}
       controller_ips: {get_attr: [Controller, ip_address]}
       controller_names: {get_attr: [Controller, hostname]}
-      rabbit_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
-      mongo_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MongoDbNetwork]}]}
-      redis_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
-      memcache_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MemcachedNetwork]}]}
-      mysql_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
-      horizon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
-      heat_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
-      swift_proxy_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
-      ceilometer_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
-      aodh_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
-      gnocchi_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
-      nova_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
-      nova_metadata_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
-      glance_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
-      glance_registry_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
-      cinder_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
-      manila_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, ManilaApiNetwork]}]}
-      neutron_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
-      keystone_public_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
-      keystone_admin_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
-      sahara_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, SaharaApiNetwork]}]}
-      ironic_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, IronicApiNetwork]}]}
-      ceph_mon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_param: [ServiceNetMap, CephPublicNetwork]}]}
+      rabbit_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, RabbitmqNetwork]}]}
+      mongo_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MongodbNetwork]}]}
+      redis_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, RedisNetwork]}]}
+      memcache_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MemcachedNetwork]}]}
+      mysql_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MysqlNetwork]}]}
+      horizon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, HorizonNetwork]}]}
+      heat_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, HeatApiNetwork]}]}
+      swift_proxy_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SwiftProxyNetwork]}]}
+      ceilometer_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CeilometerApiNetwork]}]}
+      aodh_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, AodhApiNetwork]}]}
+      gnocchi_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GnocchiApiNetwork]}]}
+      nova_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaApiNetwork]}]}
+      nova_metadata_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaMetadataNetwork]}]}
+      glance_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceApiNetwork]}]}
+      glance_registry_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceRegistryNetwork]}]}
+      cinder_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CinderApiNetwork]}]}
+      manila_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, ManilaApiNetwork]}]}
+      neutron_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NeutronApiNetwork]}]}
+      keystone_public_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystonePublicApiNetwork]}]}
+      keystone_admin_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystoneAdminApiNetwork]}]}
+      sahara_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SaharaApiNetwork]}]}
+      ironic_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, IronicApiNetwork]}]}
+      ceph_mon_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CephPublicNetwork]}]}
       ceph_mon_node_names: {get_attr: [Controller, hostname]}
       DeployIdentifier: {get_param: DeployIdentifier}
       UpdateIdentifier: {get_param: UpdateIdentifier}
@@ -660,7 +624,7 @@ resources:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: redis_virtual_ip
-      NetworkName: {get_param: [ServiceNetMap, RedisNetwork]}
+      NetworkName: {get_attr: [ServiceNetMap, service_net_map, RedisNetwork]}
       ServiceName: redis
 
   # The public VIP is on the External net, falls back to ctlplane
@@ -722,30 +686,30 @@ resources:
       servers: {get_attr: [Controller, attributes, nova_server_resource]}
       input_values:
         # service VIP mappings
-        keystone_admin_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
-        keystone_public_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
-        neutron_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
-        cinder_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
-        glance_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
-        glance_registry_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceRegistryNetwork]}]}
-        swift_proxy_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
-        nova_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
-        nova_metadata_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
-        ceilometer_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
-        aodh_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
-        gnocchi_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
-        heat_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
-        horizon_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
+        keystone_admin_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystoneAdminApiNetwork]}]}
+        keystone_public_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystonePublicApiNetwork]}]}
+        neutron_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NeutronApiNetwork]}]}
+        cinder_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CinderApiNetwork]}]}
+        glance_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceApiNetwork]}]}
+        glance_registry_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceRegistryNetwork]}]}
+        swift_proxy_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SwiftProxyNetwork]}]}
+        nova_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaApiNetwork]}]}
+        nova_metadata_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaMetadataNetwork]}]}
+        ceilometer_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CeilometerApiNetwork]}]}
+        aodh_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, AodhApiNetwork]}]}
+        gnocchi_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GnocchiApiNetwork]}]}
+        heat_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, HeatApiNetwork]}]}
+        horizon_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, HorizonNetwork]}]}
         redis_vip: {get_attr: [RedisVirtualIP, ip_address]}
-        manila_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, ManilaApiNetwork]}]}
-        mysql_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
-        rabbit_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, RabbitMqNetwork]}]}
+        manila_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, ManilaApiNetwork]}]}
+        mysql_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MysqlNetwork]}]}
+        rabbit_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, RabbitMqNetwork]}]}
         # direct configuration of Virtual IPs for each network
         control_virtual_ip: {get_attr: [VipMap, net_ip_map, ctlplane]}
         public_virtual_ip: {get_attr: [VipMap, net_ip_map, external]}
         internal_api_virtual_ip: {get_attr: [VipMap, net_ip_map, internal_api]}
-        sahara_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SaharaApiNetwork]}]}
-        ironic_api_vip: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, IronicApiNetwork]}]}
+        sahara_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SaharaApiNetwork]}]}
+        ironic_api_vip: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, IronicApiNetwork]}]}
         storage_virtual_ip: {get_attr: [VipMap, net_ip_map, storage]}
         storage_mgmt_virtual_ip: {get_attr: [VipMap, net_ip_map, storage_mgmt]}
 
@@ -945,49 +909,49 @@ outputs:
     value: {get_attr: [EndpointMap, endpoint_map, KeystonePublic, uri]}
   KeystoneAdminVip:
     description: Keystone Admin VIP endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystoneAdminApiNetwork]}]}
   PublicVip:
     description: Controller VIP for public API endpoints
     value: {get_attr: [VipMap, net_ip_map, external]}
   AodhInternalVip:
     description: VIP for Aodh API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, AodhApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, AodhApiNetwork]}]}
   CeilometerInternalVip:
     description: VIP for Ceilometer API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CeilometerApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CeilometerApiNetwork]}]}
   CinderInternalVip:
     description: VIP for Cinder API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, CinderApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, CinderApiNetwork]}]}
   GlanceInternalVip:
     description: VIP for Glance API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GlanceApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GlanceApiNetwork]}]}
   GnocchiInternalVip:
     description: VIP for Gnocchi API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, GnocchiApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, GnocchiApiNetwork]}]}
   HeatInternalVip:
     description: VIP for Heat API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, HeatApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, HeatApiNetwork]}]}
   IronicInternalVip:
     description: VIP for Ironic API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, IronicApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, IronicApiNetwork]}]}
   KeystoneInternalVip:
     description: VIP for Keystone API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystonePublicApiNetwork]}]}
   ManilaInternalVip:
     description: VIP for Manila API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, ManilaApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, ManilaApiNetwork]}]}
   NeutronInternalVip:
     description: VIP for Neutron API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NeutronApiNetwork]}]}
   NovaInternalVip:
     description: VIP for Nova API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, NovaApiNetwork]}]}
   SaharaInternalVip:
     description: VIP for Sahara API internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SaharaApiNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SaharaApiNetwork]}]}
   SwiftInternalVip:
     description: VIP for Swift Proxy internal endpoint
-    value: {get_attr: [VipMap, net_ip_map, {get_param: [ServiceNetMap, SwiftProxyNetwork]}]}
+    value: {get_attr: [VipMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, SwiftProxyNetwork]}]}
   EndpointMap:
     description: |
       Mapping of the resources with the needed info for their endpoints.
