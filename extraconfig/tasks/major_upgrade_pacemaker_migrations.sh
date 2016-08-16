@@ -174,6 +174,10 @@ function add_missing_openstack_core_constraints {
 }
 
 function remove_ceilometer_alarm {
+    # Workaround for bug 1613211 to fix up Liberty deployments that
+    # already got broken with regards to /etc/puppet/modules symlinks
+    ln -f -s /usr/share/openstack-puppet/modules/* /etc/puppet/modules/
+
     if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
         if pcs status | grep openstack-ceilometer-alarm; then
             # Disable pacemaker resources for ceilometer-alarms
