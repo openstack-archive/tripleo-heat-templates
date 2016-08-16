@@ -15,6 +15,22 @@ parameters:
   CephClientUserName:
     default: openstack
     type: string
+  CinderEnableNfsBackend:
+    default: false
+    description: Whether to enable or not the NFS backend for Cinder
+    type: boolean
+  CinderEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Cinder
+    type: boolean
+  NovaEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Nova
+    type: boolean
+  NovaComputeLibvirtVifDriver:
+    default: ''
+    description: Libvirt VIF driver configuration for the network
+    type: string
 
 resources:
   NovaBase:
@@ -37,6 +53,8 @@ outputs:
             tripleo::profile::base::nova::nova_compute_enabled: true
             nova::compute::rbd::libvirt_images_rbd_pool: {get_param: NovaRbdPoolName}
             nova::compute::rbd::libvirt_rbd_user: {get_param: CephClientUserName}
+            tripleo::profile::base::nova::compute::cinder_nfs_backend: {get_param: CinderEnableNfsBackend}
+            rbd_persistent_storage: {get_param: CinderEnableRbdBackend}
             nova::compute::rbd::rbd_keyring:
               list_join:
               - '.'
@@ -45,13 +63,23 @@ outputs:
             nova::compute::rbd::libvirt_rbd_secret_uuid: '"%{hiera(\"ceph::profile::params::fsid\")}"'
             nova::compute::instance_usage_audit: true
             nova::compute::instance_usage_audit_period: 'hour'
+            nova::compute::rbd::ephemeral_storage: {get_param: NovaEnableRbdBackend}
+            # TUNNELLED mode provides a security enhancement when using shared
+            # storage but is not supported when not using shared storage.
+            # See https://bugzilla.redhat.com/show_bug.cgi?id=1301986#c12
+            # In future versions of QEMU (2.6, mostly), danpb's native
+            # encryption work will obsolete the need to use TUNNELLED transport
+            # mode.
+            nova::migration::live_migration_tunnelled: {get_param: NovaEnableRbdBackend}
             # Changing the default from 512MB. The current templates can not deploy
             # overclouds with swap. On an idle compute node, we see ~1024MB of RAM
             # used. 2048 is suggested to account for other possible operations for
             # example openvswitch.
             nova::compute::reserved_host_memory: 2048
+            nova::compute::neutron::libvirt_vif_driver: {get_param: NovaComputeLibvirtVifDriver}
+
       step_config: |
         # TODO(emilien): figure how to deal with libvirt profile.
-        # We'll probably threat it like we do with Neutron plugins.
+        # We'll probably treat it like we do with Neutron plugins.
         # Until then, just include it in the default nova-compute role.
         include tripleo::profile::base::nova::compute::libvirt
