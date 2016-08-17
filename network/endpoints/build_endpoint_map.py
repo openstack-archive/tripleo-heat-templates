@@ -30,9 +30,9 @@ import yaml
 (IN_FILE, OUT_FILE) = ('endpoint_data.yaml', 'endpoint_map.yaml')
 
 SUBST = (SUBST_IP_ADDRESS, SUBST_CLOUDNAME) = ('IP_ADDRESS', 'CLOUDNAME')
-PARAMS = (PARAM_CLOUDNAME, PARAM_ENDPOINTMAP, PARAM_NETIPMAP,
+PARAMS = (PARAM_CLOUD_ENDPOINTS, PARAM_ENDPOINTMAP, PARAM_NETIPMAP,
           PARAM_SERVICENETMAP) = (
-          'CloudName', 'EndpointMap', 'NetIpMap', 'ServiceNetMap')
+          'CloudEndpoints', 'EndpointMap', 'NetIpMap', 'ServiceNetMap')
 FIELDS = (F_PORT, F_PROTOCOL, F_HOST) = ('port', 'protocol', 'host')
 
 ENDPOINT_TYPES = frozenset(['Internal', 'Public', 'Admin'])
@@ -95,10 +95,11 @@ def template_parameters(config):
                                                'via parameter_defaults in the '
                                                'resource registry.')
 
-    params[PARAM_CLOUDNAME] = make_parameter('string',
-                                             'overcloud',
-                                             'The DNS name of this cloud. '
-                                             'e.g. ci-overcloud.tripleo.org')
+    params[PARAM_CLOUD_ENDPOINTS] = make_parameter(
+        'json',
+        {},
+        ('A map containing the DNS names for the different endpoints '
+         '(external, internal_api, etc.)'))
     return params
 
 
@@ -124,7 +125,10 @@ def template_output_definition(endpoint_name,
                                    ['NetIpMap',
                                     {'get_param': ['ServiceNetMap',
                                      net_param]}]},
-                SUBST_CLOUDNAME: {'get_param': PARAM_CLOUDNAME},
+                SUBST_CLOUDNAME: {'get_param':
+                                  [PARAM_CLOUD_ENDPOINTS,
+                                   {'get_param': ['ServiceNetMap',
+                                     net_param]}]},
             })
         ])
     }
@@ -139,7 +143,10 @@ def template_output_definition(endpoint_name,
                                      'params': {'NETWORK':
                                      {'get_param': ['ServiceNetMap',
                                                     net_param]}}}}]},
-                SUBST_CLOUDNAME: {'get_param': PARAM_CLOUDNAME},
+                SUBST_CLOUDNAME: {'get_param':
+                                  [PARAM_CLOUD_ENDPOINTS,
+                                   {'get_param': ['ServiceNetMap',
+                                     net_param]}]},
             })
         ])
     }
