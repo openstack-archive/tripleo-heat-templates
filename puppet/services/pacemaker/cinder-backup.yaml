@@ -1,0 +1,49 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Cinder Backup service with Pacemaker configured with Puppet
+
+parameters:
+  CinderBackupBackend:
+    default: swift
+    description: The short name of the Cinder Backup backend to use.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'ceph']
+  CinderBackupRbdPoolName:
+    default: backups
+    type: string
+  CephClientUserName:
+    default: openstack
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  CinderBackupBase:
+    type: ../cinder-backup.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      CinderBackupBackend: {get_param: CinderBackupBackend}
+      CinderBackupRbdPoolName: {get_param: CinderBackupRbdPoolName}
+      CephClientUserName: {get_param: CephClientUserName}
+
+outputs:
+  role_data:
+    description: Role data for the Cinder Backup role.
+    value:
+      service_name: cinder_backup
+      config_settings:
+        map_merge:
+          - get_attr: [CinderBackupBase, role_data, config_settings]
+          - cinder::backup::manage_service: false
+            cinder::backup::enabled: false
+      step_config:
+        list_join:
+          - "\n"
+          - - get_attr: [CinderBackupBase, role_data, step_config]
+            - "include ::tripleo::profile::pacemaker::cinder::backup"
