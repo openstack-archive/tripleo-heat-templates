@@ -40,7 +40,7 @@ def validate_service(filename, tpl):
                   % filename)
             return 1
     if 'parameters' in tpl:
-        required_params = ['EndpointMap', 'ServiceNetMap']
+        required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords']
         for param in required_params:
             if param not in tpl['parameters']:
                 print('ERROR: parameter %s is required for %s.'
