@@ -1,0 +1,51 @@
+heat_template_version: 2016-10-14
+
+description: >
+  HAProxy deployment with TLS enabled, powered by certmonger
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+outputs:
+  role_data:
+    description: Role data for the HAProxy internal TLS via certmonger role.
+    value:
+      service_name: haproxy_internal_tls_certmonger
+      config_settings:
+        generate_service_certificates: true
+        tripleo::haproxy::use_internal_certificates: true
+      certificates_specs:
+        map_merge:
+          repeat:
+            template:
+              haproxy-NETWORK:
+                service_pem: '/etc/pki/tls/certs/overcloud-haproxy-NETWORK.pem'
+                service_certificate: '/etc/pki/tls/certs/overcloud-haproxy-NETWORK.crt'
+                service_key: '/etc/pki/tls/private/overcloud-haproxy-NETWORK.key'
+                hostname: "%{hiera('cloud_name_NETWORK')}"
+                postsave_cmd: "" # TODO
+                principal: "haproxy/%{hiera('cloud_name_NETWORK')}"
+            for_each:
+              NETWORK:
+                # NOTE(jaosorior) Get unique network names to create
+                # certificates for those. We skip the tenant network since
+                # we don't need a certificate for that, and the external
+                # network will be handled in another template.
+                yaql:
+                  expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
+                  data:
+                    map:
+                      get_param: ServiceNetMap

@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   HAproxy service configured with Puppet
@@ -48,6 +48,22 @@ parameters:
     default: 'overcloud-haproxy'
     type: string
 
+resources:
+
+  HAProxyPublicTLS:
+    type: OS::TripleO::Services::HAProxyPublicTLS
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+  HAProxyInternalTLS:
+    type: OS::TripleO::Services::HAProxyInternalTLS
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
 outputs:
   role_data:
     description: Role data for the HAproxy role.
@@ -55,14 +71,21 @@ outputs:
       service_name: haproxy
       monitoring_subscription: {get_param: MonitoringSubscriptionHaproxy}
       config_settings:
-        tripleo.haproxy.firewall_rules:
-          '107 haproxy stats':
-            dport: 1993
-        tripleo::haproxy::haproxy_log_address: {get_param: HAProxySyslogAddress}
-        tripleo::haproxy::haproxy_stats_user: {get_param: HAProxyStatsUser}
-        tripleo::haproxy::haproxy_stats_password: {get_param: HAProxyStatsPassword}
-        tripleo::haproxy::redis_password: {get_param: RedisPassword}
-        tripleo::haproxy::control_virtual_interface: {get_param: ControlVirtualInterface}
-        tripleo::haproxy::public_virtual_interface: {get_param: PublicVirtualInterface}
+        map_merge:
+          - get_attr: [HAProxyPublicTLS, role_data, config_settings]
+          - get_attr: [HAProxyInternalTLS, role_data, config_settings]
+          - tripleo.haproxy.firewall_rules:
+              '107 haproxy stats':
+                dport: 1993
+            tripleo::haproxy::haproxy_log_address: {get_param: HAProxySyslogAddress}
+            tripleo::haproxy::haproxy_stats_user: {get_param: HAProxyStatsUser}
+            tripleo::haproxy::haproxy_stats_password: {get_param: HAProxyStatsPassword}
+            tripleo::haproxy::redis_password: {get_param: RedisPassword}
+            tripleo::haproxy::control_virtual_interface: {get_param: ControlVirtualInterface}
+            tripleo::haproxy::public_virtual_interface: {get_param: PublicVirtualInterface}
+            tripleo::profile::base::haproxy::certificates_specs:
+              map_merge:
+                - get_attr: [HAProxyPublicTLS, role_data, certificates_specs]
+                - get_attr: [HAProxyInternalTLS, role_data, certificates_specs]
       step_config: |
         include ::tripleo::profile::base::haproxy
