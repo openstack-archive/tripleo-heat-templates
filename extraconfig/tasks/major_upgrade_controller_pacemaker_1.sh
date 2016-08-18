@@ -18,7 +18,7 @@ STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk
 pcs property set stonith-enabled=false
 
 # If for some reason rpm-python are missing we want to error out early enough
-if [ ! rpm -q rpm-python &> /dev/null ]; then
+if ! rpm -q rpm-python &> /dev/null; then
     echo_error "ERROR: upgrade cannot start without rpm-python installed"
     exit 1
 fi
