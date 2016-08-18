@@ -13,8 +13,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-include ::tripleo::firewall
-
 if hiera('step') >= 4 {
   hiera_include('volume_classes', [])
 }
