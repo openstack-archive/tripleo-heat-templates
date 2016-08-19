@@ -145,3 +145,5 @@ fi
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
 crudini  --set /etc/nova/nova.conf upgrade_levels compute "$upgrade_level_nova_compute"
+
+crudini --set /etc/sahara/sahara.conf DEFAULT plugins ambari,cdh,mapr,vanilla,spark,storm
