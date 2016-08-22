@@ -113,11 +113,11 @@ function is_mysql_upgrade_needed {
     fi
 
     local currentepoch=$(rpm -q --qf "%{epoch}" $name)
-    local currentversion=$(rpm -q --qf "%{version}" $name)
+    local currentversion=$(rpm -q --qf "%{version}" $name | cut -d. -f-2)
     local currentrelease=$(rpm -q --qf "%{release}" $name)
     local newoutput=$(repoquery -a --pkgnarrow=updates --qf "%{epoch} %{version} %{release}\n" $name)
     local newepoch=$(echo "$newoutput" | awk '{ print $1 }')
-    local newversion=$(echo "$newoutput" | awk '{ print $2 }')
+    local newversion=$(echo "$newoutput" | awk '{ print $2 }' | cut -d. -f-2)
     local newrelease=$(echo "$newoutput" | awk '{ print $3 }')
 
     # With this we trigger the dump restore/path if we change either epoch or
