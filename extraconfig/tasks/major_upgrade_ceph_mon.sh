@@ -17,6 +17,21 @@ if ! [[ "$INSTALLED_VERSION" =~ ^0\.94.* ]]; then
     exit 0
 fi
 
+CEPH_STATUS=$(ceph health | awk '{print $1}')
+if [ ${CEPH_STATUS} = HEALTH_ERR ]; do
+    echo ERROR: Ceph cluster status is HEALTH_ERR, cannot be upgraded
+    exit 1
+fi
+
+# Useful when upgrading with OSDs num < replica size
+if [ $ignore_ceph_upgrade_warnings != "true" ]; then
+    timeout 300 bash -c "while [ ${CEPH_STATUS} != HEALTH_OK ]; do
+      echo WARNING: Waiting for Ceph cluster status to go HEALTH_OK;
+      sleep 30;
+      CEPH_STATUS=$(ceph health | awk '{print $1}')
+    done"
+fi
+
 MON_PID=$(pidof ceph-mon)
 MON_ID=$(hostname -s)
 
@@ -37,8 +52,6 @@ if [[ "$UPDATED_VERSION" =~ ^0\.94.* ]]; then
     echo WARNING: Ceph was not upgraded, restarting daemons
     service ceph start mon.${MON_ID}
 elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
-    echo INFO: Ceph was upgraded to Jewel
-
     # RPM could own some of these but we can't take risks on the pre-existing files
     for d in /var/lib/ceph/mon /var/log/ceph /var/run/ceph /etc/ceph; do
         chown -R ceph:ceph $d
@@ -54,9 +67,11 @@ elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
 
     # Wait for daemon to be back in the quorum
     timeout 300 bash -c "until (ceph quorum_status | jq .quorum_names | grep -sq ${MON_ID}); do
-      echo Waiting for mon.${MON_ID} to re-join quorum;
+      echo WARNING: Waiting for mon.${MON_ID} to re-join quorum;
       sleep 10;
     done"
+
+    echo INFO: Ceph was upgraded to Jewel
 else
     echo ERROR: Ceph was upgraded to an unknown release, daemon is stopped, need manual intervention
     exit 1
