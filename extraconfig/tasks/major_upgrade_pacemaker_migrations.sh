@@ -77,7 +77,6 @@ function services_to_migrate {
     openstack-aodh-evaluator-clone
     openstack-aodh-listener-clone
     openstack-aodh-notifier-clone
-    openstack-ceilometer-api-clone
     openstack-ceilometer-central-clone
     openstack-ceilometer-collector-clone
     openstack-ceilometer-notification-clone
@@ -166,6 +165,17 @@ function migrate_full_to_ng_ha {
         if ! timeout -k 10 600 crm_resource --wait; then
             echo_error "ERROR: cluster remained unstable after resource cleanup for more than 600 seconds, exiting."
             exit 1
+        fi
+    fi
+}
+
+function disable_standalone_ceilometer_api {
+    if [[ -n $(is_bootstrap_node) ]]; then
+        if [[ -n $(is_pacemaker_managed openstack-ceilometer-api) ]]; then
+            # Disable pacemaker resources for ceilometer-api
+            manage_pacemaker_service disable openstack-ceilometer-api
+            check_resource_pacemaker openstack-ceilometer-api stopped 600
+            pcs resource delete openstack-ceilometer-api --wait=600
         fi
     fi
 }
