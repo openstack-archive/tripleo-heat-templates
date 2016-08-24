@@ -50,7 +50,7 @@ if [ "$mariadb_do_major_upgrade" = "auto" ]; then
         DO_MYSQL_UPGRADE=0
     fi
     echo "mysql upgrade required: $DO_MYSQL_UPGRADE"
-elif [ "$mariadb_do_major_upgrade" = 0 ]; then
+elif [ "$mariadb_do_major_upgrade" = "no" ]; then
     DO_MYSQL_UPGRADE=0
 else
     DO_MYSQL_UPGRADE=1
