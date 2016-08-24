@@ -1,0 +1,62 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Software-config for ceilometer configuration under httpd during upgrades
+
+parameters:
+  servers:
+    type: json
+  input_values:
+    type: json
+    description: input values for the software deployments
+resources:
+  CeilometerWsgiMitakaNewtonPreUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      config:
+        get_file: mitaka_to_newton_ceilometer_wsgi_upgrade.pp
+
+  CeilometerWsgiMitakaNewtonUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+          - ''
+          - - "#!/bin/bash\n\nset -e\n\n"
+            - get_file: pacemaker_common_functions.sh
+            - get_file: major_upgrade_pacemaker_migrations.sh
+            - "disable_standalone_ceilometer_api\n\n"
+
+  CeilometerWsgiMitakaNewtonPostUpgradeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        set -e
+        /usr/bin/systemctl reload httpd
+
+  CeilometerWsgiMitakaNewtonPreUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      name: CeilometerWsgiMitakaNewtonPreUpgradeDeployment
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: CeilometerWsgiMitakaNewtonPreUpgradeConfig}
+
+  CeilometerWsgiMitakaNewtonUpgradeConfigDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: CeilometerWsgiMitakaNewtonPreUpgradeDeployment
+    properties:
+      name: CeilometerWsgiMitakaNewtonUpgradeConfigDeployment
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: CeilometerWsgiMitakaNewtonUpgradeConfig}
+
+  CeilometerWsgiMitakaNewtonPostUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: CeilometerWsgiMitakaNewtonUpgradeConfigDeployment
+    properties:
+      name: CeilometerWsgiMitakaNewtonPostUpgradeDeployment
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: CeilometerWsgiMitakaNewtonPostUpgradeConfig}
