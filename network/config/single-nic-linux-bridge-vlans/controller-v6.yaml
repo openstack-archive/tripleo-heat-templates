@@ -1,8 +1,10 @@
 heat_template_version: 2015-04-30
 
 description: >
-  Software Config to drive os-net-config to configure multiple interfaces
-  for the swift storage role.
+  Software Config to drive os-net-config to configure VLANs for the
+  controller role with IPv6 on the External network. The IPv6 default
+  route is on the External network, and the IPv4 default route is on
+  the Control Plane.
 
 parameters:
   ControlPlaneIp:
@@ -57,20 +59,20 @@ parameters:
     default: 60
     description: Vlan ID for the management network traffic.
     type: number
-  ControlPlaneSubnetCidr: # Override this via parameter_defaults
-    default: '24'
-    description: The subnet CIDR of the control plane network.
-    type: string
   ControlPlaneDefaultRoute: # Override this via parameter_defaults
     description: The default route of the control plane network.
     type: string
-  ExternalInterfaceDefaultRoute: # Not used by default in this template
+  ExternalInterfaceDefaultRoute:
     default: '10.0.0.1'
-    description: The default route of the external network.
+    description: default route for the external network
     type: string
   ManagementInterfaceDefaultRoute: # Commented out by default in this template
     default: unset
     description: The default route of the management network.
+    type: string
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
     type: string
   DnsServers: # Override this via parameter_defaults
     default: []
@@ -89,8 +91,8 @@ resources:
         os_net_config:
           network_config:
             -
-              type: interface
-              name: nic1
+              type: linux_bridge
+              name: {get_input: bridge_name}
               use_dhcp: false
               dns_servers: {get_param: DnsServers}
               addresses:
@@ -104,44 +106,71 @@ resources:
                 -
                   ip_netmask: 169.254.169.254/32
                   next_hop: {get_param: EC2MetadataIp}
+                # IPv4 Default Route
                 -
                   default: true
                   next_hop: {get_param: ControlPlaneDefaultRoute}
+              members:
+                -
+                  type: interface
+                  name: {get_input: interface_name}
+                  # force the MAC address of the bridge to this interface
+                  primary: true
             -
-              type: interface
-              name: nic2
-              use_dhcp: false
+              type: vlan
+              vlan_id: {get_param: ExternalNetworkVlanID}
+              device: {get_input: bridge_name}
+              addresses:
+                -
+                  ip_netmask: {get_param: ExternalIpSubnet}
+              routes:
+                # IPv6 Default Route
+                -
+                  default: true
+                  next_hop: {get_param: ExternalInterfaceDefaultRoute}
+            -
+              type: vlan
+              vlan_id: {get_param: InternalApiNetworkVlanID}
+              device: {get_input: bridge_name}
+              addresses:
+                -
+                  ip_netmask: {get_param: InternalApiIpSubnet}
+            -
+              type: vlan
+              vlan_id: {get_param: StorageNetworkVlanID}
+              device: {get_input: bridge_name}
               addresses:
                 -
                   ip_netmask: {get_param: StorageIpSubnet}
             -
-              type: interface
-              name: nic3
-              use_dhcp: false
+              type: vlan
+              vlan_id: {get_param: StorageMgmtNetworkVlanID}
+              device: {get_input: bridge_name}
               addresses:
                 -
                   ip_netmask: {get_param: StorageMgmtIpSubnet}
             -
-              type: interface
-              name: nic4
-              use_dhcp: false
+              type: vlan
+              vlan_id: {get_param: TenantNetworkVlanID}
+              device: {get_input: bridge_name}
               addresses:
                 -
-                  ip_netmask: {get_param: InternalApiIpSubnet}
-            # Uncomment when including environments/network-management.yaml
-            # If setting default route on the Management interface, comment
-            # out the default route on the Control Plane.
-            #-
-            #  type: interface
-            #  name: nic7
-            #  use_dhcp: false
-            #  addresses:
-            #    -
-            #      ip_netmask: {get_param: ManagementIpSubnet}
-            #  routes:
-            #    -
-            #      default: true
-            #      next_hop: {get_param: ManagementInterfaceDefaultRoute}
+                  ip_netmask: {get_param: TenantIpSubnet}
+              # Uncomment when including environments/network-management.yaml
+              # If setting default route on the Management interface, comment
+              # out the default route on the External interface. This will
+              # make the External API unreachable from remote subnets.
+              #-
+              #  type: vlan
+              #  vlan_id: {get_param: ManagementNetworkVlanID}
+              #  device: {get_input: bridge_name}
+              #  addresses:
+              #    -
+              #      ip_netmask: {get_param: ManagementIpSubnet}
+              #  routes:
+              #    -
+              #      default: true
+              #      next_hop: {get_param: ManagementInterfaceDefaultRoute}
 
 outputs:
   OS::stack_id:
