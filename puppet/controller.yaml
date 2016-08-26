@@ -83,10 +83,6 @@ parameters:
     type: string
     constraints:
       - custom_constraint: nova.flavor
-  HorizonSecret:
-    description: Secret key for Django
-    type: string
-    hidden: true
   controllerImage:
     type: string
     default: overcloud-full
@@ -95,10 +91,6 @@ parameters:
   ImageUpdatePolicy:
     default: 'REBUILD_PRESERVE_EPHEMERAL'
     description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
-    type: string
-  InstanceNameTemplate:
-    default: 'instance-%08x'
-    description: Template string to be used to generate instance names
     type: string
   KeyName:
     default: default
@@ -110,39 +102,14 @@ parameters:
     default: false
     description: Whether to manage IPtables rules.
     type: boolean
-  MemcachedIPv6:
-    default: false
-    description: Enable IPv6 features in Memcached.
-    type: boolean
   PurgeFirewallRules:
     default: false
     description: Whether IPtables rules should be purged before setting up the new ones.
     type: boolean
-  NeutronMetadataProxySharedSecret:
-    description: Shared secret to prevent spoofing
-    type: string
-    hidden: true
-  NeutronPassword:
-    description: The password for the neutron service and db account, used by neutron agents.
-    type: string
-    hidden: true
   NeutronPublicInterface:
     default: nic1
     description: What interface to bridge onto br-ex for network nodes.
     type: string
-  NovaEnableDBPurge:
-    default: true
-    description: |
-        Whether to create cron job for purging soft deleted rows in Nova database.
-    type: boolean
-  NovaIPv6:
-    default: false
-    description: Enable IPv6 features in Nova
-    type: boolean
-  NovaPassword:
-    description: The password for the nova service and db account, used by nova-api.
-    type: string
-    hidden: true
   PcsdPassword:
     type: string
     description: The password for the 'pcsd' user.
@@ -162,10 +129,6 @@ parameters:
     default: {}
     description: 'A hash of additional raw devices to use as Swift backend (eg. {sdb: {}})'
     type: json
-  UpgradeLevelNovaCompute:
-    type: string
-    description: Nova Compute upgrade level
-    default: ''
   ServiceNetMap:
     default: {}
     description: Mapping of service_name -> network name. Typically set
@@ -392,43 +355,15 @@ resources:
       server: {get_resource: Controller}
       input_values:
         bootstack_nodeid: {get_attr: [Controller, name]}
-        horizon_secret: {get_param: HorizonSecret}
         debug: {get_param: Debug}
-        keystone_identity_uri: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
-        keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-        keystone_ec2_uri: { get_param: [EndpointMap, KeystoneEC2, uri] }
         enable_fencing: {get_param: EnableFencing}
         enable_load_balancer: {get_param: EnableLoadBalancer}
         manage_firewall: {get_param: ManageFirewall}
         purge_firewall_rules: {get_param: PurgeFirewallRules}
-        neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
-        nova_enable_db_purge: {get_param: NovaEnableDBPurge}
-        nova_ipv6: {get_param: NovaIPv6}
         corosync_ipv6: {get_param: CorosyncIPv6}
-        memcached_ipv6: {get_param: MemcachedIPv6}
-        nova_password: {get_param: NovaPassword}
-        upgrade_level_nova_compute: {get_param: UpgradeLevelNovaCompute}
-        instance_name_template: {get_param: InstanceNameTemplate}
         fencing_config: {get_param: FencingConfig}
         pcsd_password: {get_param: PcsdPassword}
         enable_package_upgrade: {get_attr: [UpdateDeployment, update_managed_packages]}
-        glance_api_servers: { get_param: [EndpointMap, GlanceInternal, uri]}
-        neutron_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NeutronApiNetwork]}]}
-        nova_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NovaApiNetwork]}]}
-        nova_metadata_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, NovaMetadataNetwork]}]}
-        horizon_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, HorizonNetwork]}]}
-        horizon_subnet:
-          str_replace:
-            template: "['SUBNET']"
-            params:
-              SUBNET:
-                get_attr:
-                  - NetIpMap
-                  - net_ip_map
-                  - str_replace:
-                      template: "NETWORK_subnet"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, HorizonNetwork]}
         redis_vip: {get_param: RedisVirtualIP}
         ironic_api_network: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, IronicApiNetwork]}]}
 
@@ -489,37 +424,14 @@ resources:
                 tripleo::fencing::config: {get_input: fencing_config}
 
                 # Neutron
-                neutron::bind_host: {get_input: neutron_api_network}
-                neutron::agents::metadata::metadata_ip: {get_input: neutron_api_network}
                 snmpd_readonly_user_name: {get_input: snmpd_readonly_user_name}
                 snmpd_readonly_user_password: {get_input: snmpd_readonly_user_password}
-
-                # Nova
-                nova::upgrade_level_compute: {get_input: upgrade_level_nova_compute}
-                nova::use_ipv6: {get_input: nova_ipv6}
-                nova::api::api_bind_address: {get_input: nova_api_network}
-                nova::api::metadata_listen: {get_input: nova_metadata_network}
-                nova::glance_api_servers: {get_input: glance_api_servers}
-                nova::api::neutron_metadata_proxy_shared_secret: {get_input: neutron_metadata_proxy_shared_secret}
-                nova::api::instance_name_template: {get_input: instance_name_template}
-                nova::vncproxy::host: {get_input: nova_api_network}
-                nova_enable_db_purge: {get_input: nova_enable_db_purge}
-
-                # Horizon
-                apache::mod::remoteip::proxy_ips: {get_input: horizon_subnet}
-                apache::ip: {get_input: horizon_network}
-                horizon::django_debug: {get_input: debug}
-                horizon::secret_key: {get_input: horizon_secret}
-                horizon::bind_address: {get_input: horizon_network}
-                horizon::keystone_url: {get_input: keystone_auth_uri}
-
                 # Redis
                 redis_vip: {get_input: redis_vip}
                 # Firewall
                 tripleo::firewall::manage_firewall: {get_input: manage_firewall}
                 tripleo::firewall::purge_firewall_rules: {get_input: purge_firewall_rules}
                 # Misc
-                memcached_ipv6: {get_input: memcached_ipv6}
                 tripleo::haproxy::service_certificate: {get_attr: [NodeTLSData, deployed_ssl_certificate_path]}
                 tripleo::packages::enable_upgrade: {get_input: enable_package_upgrade}
 
