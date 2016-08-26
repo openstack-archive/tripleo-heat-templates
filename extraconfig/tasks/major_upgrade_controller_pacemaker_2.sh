@@ -53,6 +53,7 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
     keystone-manage db_sync
     neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini upgrade head
     nova-manage db sync
+    nova-manage api_db sync
 
     pcs resource enable memcached
     check_resource memcached started 600
