@@ -18,6 +18,22 @@ check_disk_for_mysql_dump
 STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk '{ print $2 }')
 pcs property set stonith-enabled=false
 
+# Migrate to HA NG
+if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+    migrate_full_to_ng_ha
+fi
+
+# After migrating the cluster to HA-NG the services not under pacemaker's control
+# are still up and running. We need to stop them explicitely otherwise during the yum
+# upgrade the rpm %post sections will try to do a systemctl try-restart <service>, which
+# is going to take a long time because rabbit is down. By having the service stopped
+# systemctl try-restart is a noop
+
+for $service in $(services_to_migrate); do
+    manage_systemd_service stop "${service%%-clone}"
+    check_resource_systemd "${service%%-clone}" stopped 600
+done
+
 # In case the mysql package is updated, the database on disk must be
 # upgraded as well. This typically needs to happen during major
 # version upgrades (e.g. 5.5 -> 5.6, 5.5 -> 10.1...)
@@ -36,8 +52,6 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
         cp -rdp /etc/my.cnf* "$MYSQL_BACKUP_DIR"
     fi
 
-    pcs resource disable httpd
-    check_resource httpd stopped 1800
     pcs resource disable redis
     check_resource redis stopped 600
     pcs resource disable rabbitmq
@@ -52,14 +66,6 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
     done
     pcs cluster stop --all
 fi
-
-stop_or_disable_service mongod
-check_resource mongod stopped 600
-stop_or_disable_service memcached
-check_resource memcached stopped 600
-
-
-
 
 
 # Swift isn't controled by pacemaker
