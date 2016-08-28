@@ -1,7 +1,17 @@
-heat_template_version: 2015-04-30
+heat_template_version: 2016-10-14
 
 description: >
   Configure hieradata for service -> virtual IP mappings.
+
+parameters:
+  NetIpMap:
+    type: json
+  # FIXME(shardy) this can be comma_delimited_list when
+  # https://bugs.launchpad.net/heat/+bug/1617019 is fixed
+  EnabledServices:
+    type: string
+  ServiceNetMap:
+    type: json
 
 resources:
   VipConfigImpl:
@@ -13,44 +23,49 @@ resources:
           datafiles:
             vip_data:
               mapped_data:
-                keystone_admin_api_vip: {get_input: keystone_admin_api_vip}
-                keystone_public_api_vip: {get_input: keystone_public_api_vip}
-                neutron_api_vip: {get_input: neutron_api_vip}
-                # TODO: pass a `midonet_api_vip` var
-                midonet_api_vip: {get_input: neutron_api_vip}
-                cinder_api_vip: {get_input: cinder_api_vip}
-                glance_api_vip: {get_input: glance_api_vip}
-                glance_registry_vip: {get_input: glance_registry_vip}
-                sahara_api_vip: {get_input: sahara_api_vip}
-                swift_proxy_vip: {get_input: swift_proxy_vip}
-                manila_api_vip: {get_input: manila_api_vip}
-                nova_api_vip: {get_input: nova_api_vip}
-                nova_metadata_vip: {get_input: nova_metadata_vip}
-                ceilometer_api_vip: {get_input: ceilometer_api_vip}
-                aodh_api_vip: {get_input: aodh_api_vip}
-                gnocchi_api_vip: {get_input: gnocchi_api_vip}
-                heat_api_vip: {get_input: heat_api_vip}
-                horizon_vip: {get_input: horizon_vip}
-                redis_vip: {get_input: redis_vip}
-                mysql_vip: {get_input: mysql_vip}
-                public_virtual_ip: {get_input: public_virtual_ip}
-                controller_virtual_ip: {get_input: control_virtual_ip}
-                internal_api_virtual_ip: {get_input: internal_api_virtual_ip}
-                storage_virtual_ip: {get_input: storage_virtual_ip}
-                storage_mgmt_virtual_ip: {get_input: storage_mgmt_virtual_ip}
-                ironic_api_vip: {get_input: ironic_api_vip}
-                opendaylight_api_vip: {get_input: opendaylight_api_vip}
-                # public_virtual_ip and controller_virtual_ip are needed in
-                # both HAproxy & keepalived.
-                tripleo::haproxy::public_virtual_ip: {get_input: public_virtual_ip}
-                tripleo::haproxy::controller_virtual_ip: {get_input: control_virtual_ip}
-                tripleo::keepalived::public_virtual_ip: {get_input: public_virtual_ip}
-                tripleo::keepalived::controller_virtual_ip: {get_input: control_virtual_ip}
-                tripleo::keepalived::internal_api_virtual_ip: {get_input: internal_api_virtual_ip}
-                tripleo::keepalived::storage_virtual_ip: {get_input: storage_virtual_ip}
-                tripleo::keepalived::storage_mgmt_virtual_ip: {get_input: storage_mgmt_virtual_ip}
-                tripleo::redis_notification::haproxy_monitor_ip: {get_input: control_virtual_ip}
-
+                map_merge:
+                  # Dynamically generate per-service VIP data based on EnabledServices
+                  # This works as follows (outer->inner functions)
+                  # yaql - filters services where no mapping exists in ServiceNetMap
+                  #   map_replace: substitute e.g internal_api with the IP from NetIpMap
+                  #     map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
+                  #       map_merge/repeat: generate a per-service mapping
+                  - yaql:
+                      # This filters any entries where the value hasn't been substituted for
+                      # a list, e.g it's still $service_network.  This happens when there is
+                      # no network defined for the service in the ServiceNetMap, which is OK
+                      # as not all services have to be bound to a network, so we filter them
+                      expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
+                      data:
+                        map:
+                          map_replace:
+                            - map_replace:
+                                - map_merge:
+                                    repeat:
+                                      template:
+                                        SERVICE_vip: SERVICE_network
+                                      for_each:
+                                        SERVICE:
+                                          str_split: [',', {get_param: EnabledServices}]
+                                - values: {get_param: ServiceNetMap}
+                            - values: {get_param: NetIpMap}
+                  - keystone_admin_api_vip: {get_input: keystone_admin_api_vip}
+                    keystone_public_api_vip: {get_input: keystone_public_api_vip}
+                    public_virtual_ip: {get_input: public_virtual_ip}
+                    controller_virtual_ip: {get_input: control_virtual_ip}
+                    internal_api_virtual_ip: {get_input: internal_api_virtual_ip}
+                    storage_virtual_ip: {get_input: storage_virtual_ip}
+                    storage_mgmt_virtual_ip: {get_input: storage_mgmt_virtual_ip}
+                    # public_virtual_ip and controller_virtual_ip are needed in
+                    # both HAproxy & keepalived.
+                    tripleo::haproxy::public_virtual_ip: {get_input: public_virtual_ip}
+                    tripleo::haproxy::controller_virtual_ip: {get_input: control_virtual_ip}
+                    tripleo::keepalived::public_virtual_ip: {get_input: public_virtual_ip}
+                    tripleo::keepalived::controller_virtual_ip: {get_input: control_virtual_ip}
+                    tripleo::keepalived::internal_api_virtual_ip: {get_input: internal_api_virtual_ip}
+                    tripleo::keepalived::storage_virtual_ip: {get_input: storage_virtual_ip}
+                    tripleo::keepalived::storage_mgmt_virtual_ip: {get_input: storage_mgmt_virtual_ip}
+                    tripleo::redis_notification::haproxy_monitor_ip: {get_input: control_virtual_ip}
 
 outputs:
   OS::stack_id:
