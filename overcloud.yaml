@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   Deploy an OpenStack environment, consisting of several node types (roles),
@@ -598,6 +598,62 @@ resources:
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [Controller, hostname]}
 
+  ComputeIpListMap:
+    type: OS::TripleO::Network::Ports::NetIpListMap
+    properties:
+      ControlPlaneIpList: {get_attr: [Compute, ip_address]}
+      ExternalIpList: {get_attr: [Compute, external_ip_address]}
+      InternalApiIpList: {get_attr: [Compute, internal_api_ip_address]}
+      StorageIpList: {get_attr: [Compute, storage_ip_address]}
+      StorageMgmtIpList: {get_attr: [Compute, storage_mgmt_ip_address]}
+      TenantIpList: {get_attr: [Compute, tenant_ip_address]}
+      ManagementIpList: {get_attr: [Compute, management_ip_address]}
+      EnabledServices: {get_attr: [ComputeServiceChain, role_data, service_names]}
+      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
+      ServiceHostnameList: {get_attr: [Compute, hostname]}
+
+  BlockStorageIpListMap:
+    type: OS::TripleO::Network::Ports::NetIpListMap
+    properties:
+      ControlPlaneIpList: {get_attr: [BlockStorage, ip_address]}
+      ExternalIpList: {get_attr: [BlockStorage, external_ip_address]}
+      InternalApiIpList: {get_attr: [BlockStorage, internal_api_ip_address]}
+      StorageIpList: {get_attr: [BlockStorage, storage_ip_address]}
+      StorageMgmtIpList: {get_attr: [BlockStorage, storage_mgmt_ip_address]}
+      TenantIpList: {get_attr: [BlockStorage, tenant_ip_address]}
+      ManagementIpList: {get_attr: [BlockStorage, management_ip_address]}
+      EnabledServices: {get_attr: [BlockStorageServiceChain, role_data, service_names]}
+      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
+      ServiceHostnameList: {get_attr: [BlockStorage, hostname]}
+
+  ObjectStorageIpListMap:
+    type: OS::TripleO::Network::Ports::NetIpListMap
+    properties:
+      ControlPlaneIpList: {get_attr: [ObjectStorage, ip_address]}
+      ExternalIpList: {get_attr: [ObjectStorage, external_ip_address]}
+      InternalApiIpList: {get_attr: [ObjectStorage, internal_api_ip_address]}
+      StorageIpList: {get_attr: [ObjectStorage, storage_ip_address]}
+      StorageMgmtIpList: {get_attr: [ObjectStorage, storage_mgmt_ip_address]}
+      TenantIpList: {get_attr: [ObjectStorage, tenant_ip_address]}
+      ManagementIpList: {get_attr: [ObjectStorage, management_ip_address]}
+      EnabledServices: {get_attr: [ObjectStorageServiceChain, role_data, service_names]}
+      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
+      ServiceHostnameList: {get_attr: [ObjectStorage, hostname]}
+
+  CephStorageIpListMap:
+    type: OS::TripleO::Network::Ports::NetIpListMap
+    properties:
+      ControlPlaneIpList: {get_attr: [CephStorage, ip_address]}
+      ExternalIpList: {get_attr: [CephStorage, external_ip_address]}
+      InternalApiIpList: {get_attr: [CephStorage, internal_api_ip_address]}
+      StorageIpList: {get_attr: [CephStorage, storage_ip_address]}
+      StorageMgmtIpList: {get_attr: [CephStorage, storage_mgmt_ip_address]}
+      TenantIpList: {get_attr: [CephStorage, tenant_ip_address]}
+      ManagementIpList: {get_attr: [CephStorage, management_ip_address]}
+      EnabledServices: {get_attr: [CephStorageServiceChain, role_data, service_names]}
+      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
+      ServiceHostnameList: {get_attr: [CephStorage, hostname]}
+
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
     properties:
@@ -627,8 +683,30 @@ resources:
           - {get_attr: [CephStorageServiceChain, role_data, service_names]}
       controller_ips: {get_attr: [Controller, ip_address]}
       controller_names: {get_attr: [Controller, hostname]}
-      service_ips: {get_attr: [ControllerIpListMap, service_ips]}
-      service_node_names: {get_attr: [ControllerIpListMap, service_hostnames]}
+      service_ips:
+        # Note (shardy) this somewhat complex yaql may be replaced
+        # with a map_deep_merge function in ocata.  It merges the
+        # list of maps, but appends to colliding lists when a service
+        # is deployed on more than one role
+        yaql:
+          expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1], [$[0], $[1].flatten()]))
+          data:
+            l:
+              - {get_attr: [ControllerIpListMap, service_ips]}
+              - {get_attr: [ComputeIpListMap, service_ips]}
+              - {get_attr: [BlockStorageIpListMap, service_ips]}
+              - {get_attr: [ObjectStorageIpListMap, service_ips]}
+              - {get_attr: [CephStorageIpListMap, service_ips]}
+      service_node_names:
+        yaql:
+          expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1], [$[0], $[1].flatten()]))
+          data:
+            l:
+              - {get_attr: [ControllerIpListMap, service_hostnames]}
+              - {get_attr: [ComputeIpListMap, service_hostnames]}
+              - {get_attr: [BlockStorageIpListMap, service_hostnames]}
+              - {get_attr: [ObjectStorageIpListMap, service_hostnames]}
+              - {get_attr: [CephStorageIpListMap, service_hostnames]}
       # FIXME(shardy): These require further work to move into service_ips
       memcache_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MemcachedNetwork]}]}
       keystone_public_api_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, KeystonePublicApiNetwork]}]}
