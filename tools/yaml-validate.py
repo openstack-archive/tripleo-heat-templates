@@ -17,6 +17,8 @@ import traceback
 import yaml
 
 
+required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords']
+
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
@@ -40,7 +42,6 @@ def validate_service(filename, tpl):
                   % filename)
             return 1
     if 'parameters' in tpl:
-        required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords']
         for param in required_params:
             if param not in tpl['parameters']:
                 print('ERROR: parameter %s is required for %s.'
@@ -64,6 +65,8 @@ def validate(filename):
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
     for p in tpl.get('parameters', {}):
+        if p in required_params:
+            continue
         str_p = '\'%s\'' % p
         in_resources = str_p in str(tpl.get('resources', {}))
         in_outputs = str_p in str(tpl.get('outputs', {}))
