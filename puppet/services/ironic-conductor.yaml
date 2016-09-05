@@ -22,6 +22,14 @@ parameters:
     default: ['pxe_ipmitool', 'agent_ipmitool']
     description: Enabled Ironic drivers
     type: comma_delimited_list
+  IronicIPXEEnabled:
+    default: true
+    description: Whether to use iPXE instead of PXE for deployment.
+    type: boolean
+  IronicIPXEPort:
+    default: 8088
+    description: Port to use for serving images when iPXE is used.
+    type: string
   MonitoringSubscriptionIronicConductor:
     default: 'overcloud-ironic-conductor'
     type: string
@@ -47,6 +55,15 @@ outputs:
           - ironic::api::neutron_url: {get_param: [EndpointMap, NeutronInternal, uri]}
             ironic::conductor::api_url: {get_param: [EndpointMap, IronicInternal, uri_no_suffix]}
             ironic::conductor::enabled_drivers: {get_param: IronicEnabledDrivers}
+            # We need an endpoint containing a real IP, not a VIP here
+            ironic_conductor_http_host: {get_param: [ServiceNetMap, IronicNetwork]}
+            ironic::conductor::http_url:
+              list_join:
+                - ''
+                - - 'http://'
+                  - '%{hiera("ironic_conductor_http_host")}:'
+                  - {get_param: IronicIPXEPort}
+            ironic::drivers::pxe::ipxe_enabled: {get_param: IronicIPXEEnabled}
             ironic::glance_api_servers: {get_param: [EndpointMap, GlanceInternal, uri]}
             # NOTE: bind IP is found in Heat replacing the network name with the
             # local node IP for the given network; replacement examples
@@ -55,16 +72,22 @@ outputs:
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
             ironic::drivers::pxe::tftp_server: {get_param: [ServiceNetMap, IronicNetwork]}
+            # NOTE(dtantsur): UEFI only works with iPXE currently for us
+            ironic::drivers::pxe::uefi_pxe_config_template: '$pybasedir/drivers/modules/ipxe_config.template'
+            ironic::drivers::pxe::uefi_pxe_bootfile_name: 'ipxe.efi'
             tripleo.ironic_conductor.firewall_rules:
               '134 ironic conductor TFTP':
                 dport: 69
                 proto: udp
+              '135 ironic conductor HTTP':
+                dport: {get_param: IronicIPXEPort}
             # NOTE(dtantsur): the my_ip parameter is heavily overloaded in
             # ironic. It's used as a default value for e.g. TFTP server IP,
             # glance and neutron endpoints, virtual console IP. We override
             # the TFTP server IP in ironic-conductor.yaml as it should not be
             # the VIP, but rather a real IP of the host.
             ironic::my_ip: {get_param: [ServiceNetMap, IronicNetwork]}
+            ironic::pxe::common::http_port: {get_param: IronicIPXEPort}
 
       step_config: |
         include ::tripleo::profile::base::ironic::conductor
