@@ -1,0 +1,644 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Post-deploy configuration steps via puppet for all roles,
+  Controller, Compute, BlockStorage, SwiftStorage and CephStorage.
+
+parameters:
+  servers:
+    type: json
+    description: Mapping of Role name e.g Controller to a list of servers
+
+  role_data:
+    type: json
+    description: Mapping of Role name e.g Controller to the per-role data
+
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
+
+resources:
+  # Post deployment steps for all roles
+  # A single config is re-applied with an incrementing step number
+  # Controller Role steps
+  ControllerArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  ControllerArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, Controller]}
+      config: {get_resource: ControllerArtifactsConfig}
+
+  ControllerPreConfig:
+    type: OS::TripleO::Tasks::ControllerPreConfig
+    properties:
+      servers: {get_param: [servers, Controller]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerConfig:
+    type: OS::TripleO::ControllerConfig
+    properties:
+      StepConfig: {get_param: [role_data, Controller, step_config]}
+
+  # Step through a series of configuration steps
+  ControllerDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [ControllerPreConfig, ControllerArtifactsDeploy]
+    properties:
+      name: ControllerDeployment_Step1
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: ControllerConfig}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step1
+      - ComputeDeployment_Step1
+      - BlockStorageDeployment_Step1
+      - ObjectStorageDeployment_Step1
+      - CephStorageDeployment_Step1
+    properties:
+      name: ControllerDeployment_Step2
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: ControllerConfig}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerDeployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step2
+      - ComputeDeployment_Step2
+      - BlockStorageDeployment_Step2
+      - ObjectStorageDeployment_Step2
+      - CephStorageDeployment_Step2
+    properties:
+      name: ControllerDeployment_Step3
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: ControllerConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerDeployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step3
+      - ComputeDeployment_Step3
+      - BlockStorageDeployment_Step3
+      - ObjectStorageDeployment_Step3
+      - CephStorageDeployment_Step3
+    properties:
+      name: ControllerDeployment_Step4
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: ControllerConfig}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerDeployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step4
+      - ComputeDeployment_Step4
+      - BlockStorageDeployment_Step4
+      - ObjectStorageDeployment_Step4
+      - CephStorageDeployment_Step4
+    properties:
+      name: ControllerDeployment_Step5
+      servers: {get_param: [servers, Controller]}
+      config: {get_resource: ControllerConfig}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  ControllerPostConfig:
+    type: OS::TripleO::Tasks::ControllerPostConfig
+    depends_on:
+      - ControllerDeployment_Step5
+      - ComputeDeployment_Step5
+      - BlockStorageDeployment_Step5
+      - ObjectStorageDeployment_Step5
+      - CephStorageDeployment_Step5
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  ControllerExtraConfigPost:
+    depends_on:
+      - ControllerPostConfig
+      - ComputePostConfig
+      - BlockStoragePostConfig
+      - ObjectStoragePostConfig
+      - CephStoragePostConfig
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, Controller]}
+
+  # Compute Role steps
+  ComputeArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  ComputeArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, Compute]}
+      config: {get_resource: ComputeArtifactsConfig}
+
+  ComputePreConfig:
+    type: OS::TripleO::Tasks::ComputePreConfig
+    properties:
+      servers: {get_param: [servers, Compute]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputeConfig:
+    type: OS::TripleO::ComputeConfig
+    properties:
+      StepConfig: {get_param: [role_data, Compute, step_config]}
+
+  # Step through a series of configuration steps
+  ComputeDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [ComputePreConfig, ComputeArtifactsDeploy]
+    properties:
+      name: ComputeDeployment_Step1
+      servers: {get_param: [servers, Compute]}
+      config: {get_resource: ComputeConfig}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputeDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step1
+      - ComputeDeployment_Step1
+      - BlockStorageDeployment_Step1
+      - ObjectStorageDeployment_Step1
+      - CephStorageDeployment_Step1
+    properties:
+      name: ComputeDeployment_Step2
+      servers: {get_param: [servers, Compute]}
+      config: {get_resource: ComputeConfig}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputeDeployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step2
+      - ComputeDeployment_Step2
+      - BlockStorageDeployment_Step2
+      - ObjectStorageDeployment_Step2
+      - CephStorageDeployment_Step2
+    properties:
+      name: ComputeDeployment_Step3
+      servers: {get_param: [servers, Compute]}
+      config: {get_resource: ComputeConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputeDeployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step3
+      - ComputeDeployment_Step3
+      - BlockStorageDeployment_Step3
+      - ObjectStorageDeployment_Step3
+      - CephStorageDeployment_Step3
+    properties:
+      name: ComputeDeployment_Step4
+      servers: {get_param: [servers, Compute]}
+      config: {get_resource: ComputeConfig}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputeDeployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step4
+      - ComputeDeployment_Step4
+      - BlockStorageDeployment_Step4
+      - ObjectStorageDeployment_Step4
+      - CephStorageDeployment_Step4
+    properties:
+      name: ComputeDeployment_Step5
+      servers: {get_param: [servers, Compute]}
+      config: {get_resource: ComputeConfig}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  ComputePostConfig:
+    type: OS::TripleO::Tasks::ComputePostConfig
+    depends_on:
+      - ControllerDeployment_Step5
+      - ComputeDeployment_Step5
+      - BlockStorageDeployment_Step5
+      - ObjectStorageDeployment_Step5
+      - CephStorageDeployment_Step5
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  ComputeExtraConfigPost:
+    depends_on:
+      - ControllerPostConfig
+      - ComputePostConfig
+      - BlockStoragePostConfig
+      - ObjectStoragePostConfig
+      - CephStoragePostConfig
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+      servers: {get_param: [servers, Compute]}
+
+  # BlockStorage Role steps
+  BlockStorageArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  BlockStorageArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageArtifactsConfig}
+
+  BlockStoragePreConfig:
+    type: OS::TripleO::Tasks::BlockStoragePreConfig
+    properties:
+      servers: {get_param: [servers, BlockStorage]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageConfig:
+    type: OS::TripleO::BlockStorageConfig
+    properties:
+      StepConfig: {get_param: [role_data, BlockStorage, step_config]}
+
+  # Step through a series of configuration steps
+  BlockStorageDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [BlockStoragePreConfig, BlockStorageArtifactsDeploy]
+    properties:
+      name: BlockStorageDeployment_Step1
+      servers: {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step1
+      - ComputeDeployment_Step1
+      - BlockStorageDeployment_Step1
+      - ObjectStorageDeployment_Step1
+      - CephStorageDeployment_Step1
+    properties:
+      name: BlockStorageDeployment_Step2
+      servers: {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageDeployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step2
+      - ComputeDeployment_Step2
+      - BlockStorageDeployment_Step2
+      - ObjectStorageDeployment_Step2
+      - CephStorageDeployment_Step2
+    properties:
+      name: BlockStorageDeployment_Step3
+      servers: {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageDeployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step3
+      - ComputeDeployment_Step3
+      - BlockStorageDeployment_Step3
+      - ObjectStorageDeployment_Step3
+      - CephStorageDeployment_Step3
+    properties:
+      name: BlockStorageDeployment_Step4
+      servers: {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStorageDeployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step4
+      - ComputeDeployment_Step4
+      - BlockStorageDeployment_Step4
+      - ObjectStorageDeployment_Step4
+      - CephStorageDeployment_Step4
+    properties:
+      name: BlockStorageDeployment_Step5
+      servers: {get_param: [servers, BlockStorage]}
+      config: {get_resource: BlockStorageConfig}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  BlockStoragePostConfig:
+    type: OS::TripleO::Tasks::BlockStoragePostConfig
+    depends_on:
+      - ControllerDeployment_Step5
+      - ComputeDeployment_Step5
+      - BlockStorageDeployment_Step5
+      - ObjectStorageDeployment_Step5
+      - CephStorageDeployment_Step5
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  BlockStorageExtraConfigPost:
+    depends_on:
+      - ControllerPostConfig
+      - ComputePostConfig
+      - BlockStoragePostConfig
+      - ObjectStoragePostConfig
+      - CephStoragePostConfig
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, BlockStorage]}
+
+  # ObjectStorage Role steps
+  ObjectStorageArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  ObjectStorageArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageArtifactsConfig}
+
+  ObjectStoragePreConfig:
+    type: OS::TripleO::Tasks::ObjectStoragePreConfig
+    properties:
+      servers: {get_param: [servers, ObjectStorage]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageConfig:
+    type: OS::TripleO::ObjectStorageConfig
+    properties:
+      StepConfig: {get_param: [role_data, ObjectStorage, step_config]}
+
+  # Step through a series of configuration steps
+  ObjectStorageDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [ObjectStoragePreConfig, ObjectStorageArtifactsDeploy]
+    properties:
+      name: ObjectStorageDeployment_Step1
+      servers: {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageConfig}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step1
+      - ComputeDeployment_Step1
+      - BlockStorageDeployment_Step1
+      - ObjectStorageDeployment_Step1
+      - CephStorageDeployment_Step1
+    properties:
+      name: ObjectStorageDeployment_Step2
+      servers: {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageConfig}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageDeployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step2
+      - ComputeDeployment_Step2
+      - BlockStorageDeployment_Step2
+      - ObjectStorageDeployment_Step2
+      - CephStorageDeployment_Step2
+    properties:
+      name: ObjectStorageDeployment_Step3
+      servers: {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageDeployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step3
+      - ComputeDeployment_Step3
+      - BlockStorageDeployment_Step3
+      - ObjectStorageDeployment_Step3
+      - CephStorageDeployment_Step3
+    properties:
+      name: ObjectStorageDeployment_Step4
+      servers: {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageConfig}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStorageDeployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step4
+      - ComputeDeployment_Step4
+      - BlockStorageDeployment_Step4
+      - ObjectStorageDeployment_Step4
+      - CephStorageDeployment_Step4
+    properties:
+      name: ObjectStorageDeployment_Step5
+      servers: {get_param: [servers, ObjectStorage]}
+      config: {get_resource: ObjectStorageConfig}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  ObjectStoragePostConfig:
+    type: OS::TripleO::Tasks::ObjectStoragePostConfig
+    depends_on:
+      - ControllerDeployment_Step5
+      - ComputeDeployment_Step5
+      - BlockStorageDeployment_Step5
+      - ObjectStorageDeployment_Step5
+      - CephStorageDeployment_Step5
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  ObjectStorageExtraConfigPost:
+    depends_on:
+      - ControllerPostConfig
+      - ComputePostConfig
+      - BlockStoragePostConfig
+      - ObjectStoragePostConfig
+      - CephStoragePostConfig
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, ObjectStorage]}
+
+  # CephStorage Role steps
+  CephStorageArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  CephStorageArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageArtifactsConfig}
+
+  CephStoragePreConfig:
+    type: OS::TripleO::Tasks::CephStoragePreConfig
+    properties:
+      servers: {get_param: [servers, CephStorage]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStorageConfig:
+    type: OS::TripleO::CephStorageConfig
+    properties:
+      StepConfig: {get_param: [role_data, CephStorage, step_config]}
+
+  # Step through a series of configuration steps
+  CephStorageDeployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [CephStoragePreConfig, CephStorageArtifactsDeploy]
+    properties:
+      name: CephStorageDeployment_Step1
+      servers: {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageConfig}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStorageDeployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step1
+      - ComputeDeployment_Step1
+      - BlockStorageDeployment_Step1
+      - ObjectStorageDeployment_Step1
+      - CephStorageDeployment_Step1
+    properties:
+      name: CephStorageDeployment_Step2
+      servers: {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageConfig}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStorageDeployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step2
+      - ComputeDeployment_Step2
+      - BlockStorageDeployment_Step2
+      - ObjectStorageDeployment_Step2
+      - CephStorageDeployment_Step2
+    properties:
+      name: CephStorageDeployment_Step3
+      servers: {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageConfig}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStorageDeployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step3
+      - ComputeDeployment_Step3
+      - BlockStorageDeployment_Step3
+      - ObjectStorageDeployment_Step3
+      - CephStorageDeployment_Step3
+    properties:
+      name: CephStorageDeployment_Step4
+      servers: {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageConfig}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStorageDeployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+      - ControllerDeployment_Step4
+      - ComputeDeployment_Step4
+      - BlockStorageDeployment_Step4
+      - ObjectStorageDeployment_Step4
+      - CephStorageDeployment_Step4
+    properties:
+      name: CephStorageDeployment_Step5
+      servers: {get_param: [servers, CephStorage]}
+      config: {get_resource: CephStorageConfig}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  CephStoragePostConfig:
+    type: OS::TripleO::Tasks::CephStoragePostConfig
+    depends_on:
+      - ControllerDeployment_Step5
+      - ComputeDeployment_Step5
+      - BlockStorageDeployment_Step5
+      - ObjectStorageDeployment_Step5
+      - CephStorageDeployment_Step5
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  CephStorageExtraConfigPost:
+    depends_on:
+      - ControllerPostConfig
+      - ComputePostConfig
+      - BlockStoragePostConfig
+      - ObjectStoragePostConfig
+      - CephStoragePostConfig
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, CephStorage]}
