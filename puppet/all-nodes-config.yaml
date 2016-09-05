@@ -77,6 +77,28 @@ resources:
                         for_each:
                           SERVICE:
                             str_split: [',', {get_param: enabled_services}]
+                  # Dynamically generate per-service network data
+                  # This works as follows (outer->inner functions)
+                  # yaql - filters services where no mapping exists in ServiceNetMap
+                  #   map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
+                  #     map_merge/repeat: generate a per-service mapping
+                  - yaql:
+                      # This filters any entries where the value hasn't been substituted for
+                      # a list, e.g it's still $service_network.  This happens when there is
+                      # no network defined for the service in the ServiceNetMap, which is OK
+                      # as not all services have to be bound to a network, so we filter them
+                      expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
+                      data:
+                        map:
+                          map_replace:
+                            - map_merge:
+                                repeat:
+                                  template:
+                                    SERVICE_network: SERVICE_network
+                                  for_each:
+                                    SERVICE:
+                                      str_split: [',', {get_param: enabled_services}]
+                            - values: {get_param: ServiceNetMap}
                   # provides a mapping of service_name_ips to a list of IPs
                   - {get_param: service_ips}
                   - {get_param: service_node_names}
