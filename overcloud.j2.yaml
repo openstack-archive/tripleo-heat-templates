@@ -99,15 +99,8 @@ parameters:
       the overcloud. It's accessible via the Nova metadata API.
     type: json
 
-  # Controller-specific params
-  ControllerCount:
-    type: number
-    default: 1
-
 # Compute-specific params
-  ComputeCount:
-    type: number
-    default: 1
+# FIXME(shardy) handle these deprecated names as they don't match compute.yaml
   HypervisorNeutronPhysicalBridge:
     default: 'br-ex'
     description: >
@@ -122,7 +115,7 @@ parameters:
 
   # Jinja loop for Role in role_data.yaml
 {% for role in roles %}
-  # Resources generated for {{role.name}} Role
+  # Parameters generated for {{role.name}} Role
   {{role.name}}Services:
     description: A list of service resources (configured in the Heat
                  resource_registry) which represent nested stacks
@@ -131,47 +124,32 @@ parameters:
   {% if role.ServicesDefault %}
     default: {{role.ServicesDefault}}
   {% endif %}
+
+  {{role.name}}Count:
+    description: Number of {{role.name}} nodes to deploy
+    type: number
+  {% if role.CountDefault %}
+    default: {{role.CountDefault}}
+  {% endif %}
+
+  {{role.name}}HostnameFormat:
+    type: string
+    description: >
+      Format for {{role.name}} node hostnames
+      Note %index% is translated into the index of the node, e.g 0/1/2 etc
+      and %stackname% is replaced with the stack name e.g overcloud
+  {% if role.HostnameFormatDefault %}
+    default: "{{role.HostnameFormatDefault}}"
+  {% endif %}
+
+  {{role.name}}RemovalPolicies:
+    default: []
+    type: json
+    description: >
+      List of resources to be removed from {{role.name}} ResourceGroup when
+      doing an update which requires removal of specific resources.
+      Example format ComputeRemovalPolicies: [{'resource_list': ['0']}]
 {% endfor %}
-
-# Block storage specific parameters
-  BlockStorageCount:
-    type: number
-    default: 0
-
-# Object storage specific parameters
-  ObjectStorageCount:
-    type: number
-    default: 0
-
-# Ceph storage specific parameters
-  CephStorageCount:
-    type: number
-    default: 0
-
-  # Hostname format for each role
-  # Note %index% is translated into the index of the node, e.g 0/1/2 etc
-  # and %stackname% is replaced with OS::stack_name in the template below.
-  # If you want to use the heat generated names, pass '' (empty string).
-  ControllerHostnameFormat:
-    type: string
-    description: Format for Controller node hostnames
-    default: '%stackname%-controller-%index%'
-  ComputeHostnameFormat:
-    type: string
-    description: Format for Compute node hostnames
-    default: '%stackname%-novacompute-%index%'
-  BlockStorageHostnameFormat:
-    type: string
-    description: Format for BlockStorage node hostnames
-    default: '%stackname%-blockstorage-%index%'
-  ObjectStorageHostnameFormat:
-    type: string
-    description: Format for SwiftStorage node hostnames
-    default: '%stackname%-objectstorage-%index%'
-  CephStorageHostnameFormat:
-    type: string
-    description: Format for CephStorage node hostnames
-    default: '%stackname%-cephstorage-%index%'
 
   # Identifiers to trigger tasks on nodes
   UpdateIdentifier:
@@ -186,41 +164,6 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
-
-  # If you want to remove a specific node from a resource group, you can pass
-  # the node name or id as a <Group>RemovalPolicies parameter, for example:
-  # ComputeRemovalPolicies: [{'resource_list': ['0']}]
-  ControllerRemovalPolicies:
-    default: []
-    type: json
-    description: >
-      List of resources to be removed from ControllerResourceGroup when
-      doing an update which requires removal of specific resources.
-  ComputeRemovalPolicies:
-    default: []
-    type: json
-    description: >
-      List of resources to be removed from ComputeResourceGroup when
-      doing an update which requires removal of specific resources.
-  BlockStorageRemovalPolicies:
-    default: []
-    type: json
-    description: >
-      List of resources to be removed from BlockStorageResourceGroup when
-      doing an update which requires removal of specific resources.
-  ObjectStorageRemovalPolicies:
-    default: []
-    type: json
-    description: >
-      List of resources to be removed from ObjectStorageResourceGroup when
-      doing an update which requires removal of specific resources.
-  CephStorageRemovalPolicies:
-    default: []
-    type: json
-    description: >
-      List of resources to be removed from CephStorageResourceGroup when
-      doing an update which requires removal of specific resources.
-
 
 resources:
 
@@ -296,158 +239,33 @@ resources:
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [{{role.name}}, hostname]}
 
+  {{role.name}}:
+    type: OS::Heat::ResourceGroup
+    depends_on: Networks
+    properties:
+      count: {get_param: {{role.name}}Count}
+      removal_policies: {get_param: {{role.name}}RemovalPolicies}
+      resource_def:
+        type: OS::TripleO::{{role.name}}
+        properties:
+          CloudDomain: {get_param: CloudDomain}
+          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
+          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
+          Hostname:
+            str_replace:
+              template: {get_param: {{role.name}}HostnameFormat}
+              params:
+                '%stackname%': {get_param: 'OS::stack_name'}
+          NodeIndex: '%index%'
+          ServiceConfigSettings:
+            map_merge:
+              -  get_attr: [{{role.name}}ServiceChain, role_data, config_settings]
+          {% for r in roles %}
+              - get_attr: [{{r.name}}ServiceChain, role_data, global_config_settings]
+          {% endfor %}
+          ServiceNames: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+          MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChain, role_data, monitoring_subscriptions]}
 {% endfor %}
-
-  Controller:
-    type: OS::Heat::ResourceGroup
-    depends_on: Networks
-    properties:
-      count: {get_param: ControllerCount}
-      removal_policies: {get_param: ControllerRemovalPolicies}
-      resource_def:
-        type: OS::TripleO::Controller
-        properties:
-          CloudDomain: {get_param: CloudDomain}
-          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
-          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
-          Hostname:
-            str_replace:
-              template: {get_param: ControllerHostnameFormat}
-              params:
-                '%stackname%': {get_param: 'OS::stack_name'}
-          NodeIndex: '%index%'
-          ServiceConfigSettings:
-            map_merge:
-              - get_attr: [ControllerServiceChain, role_data, config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-              - get_attr: [ComputeServiceChain, role_data, global_config_settings]
-              - get_attr: [BlockStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ObjectStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [CephStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-          ServiceNames: {get_attr: [ControllerServiceChain, role_data, service_names]}
-          MonitoringSubscriptions: {get_attr: [ControllerServiceChain, role_data, monitoring_subscriptions]}
-
-  Compute:
-    type: OS::Heat::ResourceGroup
-    depends_on: Networks
-    properties:
-      count: {get_param: ComputeCount}
-      removal_policies: {get_param: ComputeRemovalPolicies}
-      resource_def:
-        type: OS::TripleO::Compute
-        properties:
-          CloudDomain: {get_param: CloudDomain}
-          NeutronPhysicalBridge: {get_param: HypervisorNeutronPhysicalBridge}
-          NeutronPublicInterface: {get_param: HypervisorNeutronPublicInterface}
-          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
-          EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
-          Hostname:
-            str_replace:
-              template: {get_param: ComputeHostnameFormat}
-              params:
-                '%stackname%': {get_param: 'OS::stack_name'}
-          NodeIndex: '%index%'
-          ServiceConfigSettings:
-            map_merge:
-              - get_attr: [ComputeServiceChain, role_data, config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-              - get_attr: [ComputeServiceChain, role_data, global_config_settings]
-              - get_attr: [BlockStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ObjectStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [CephStorageServiceChain, role_data, global_config_settings]
-          ServiceNames: {get_attr: [ComputeServiceChain, role_data, service_names]}
-          MonitoringSubscriptions: {get_attr: [ComputeServiceChain, role_data, monitoring_subscriptions]}
-
-  BlockStorage:
-    type: OS::Heat::ResourceGroup
-    depends_on: Networks
-    properties:
-      count: {get_param: BlockStorageCount}
-      removal_policies: {get_param: BlockStorageRemovalPolicies}
-      resource_def:
-        type: OS::TripleO::BlockStorage
-        properties:
-          UpdateIdentifier: {get_param: UpdateIdentifier}
-          Hostname:
-            str_replace:
-              template: {get_param: BlockStorageHostnameFormat}
-              params:
-                '%stackname%': {get_param: 'OS::stack_name'}
-          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
-          CloudDomain: {get_param: CloudDomain}
-          ServerMetadata: {get_param: ServerMetadata}
-          NodeIndex: '%index%'
-          ServiceConfigSettings:
-            map_merge:
-              - get_attr: [BlockStorageServiceChain, role_data, config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-              - get_attr: [ComputeServiceChain, role_data, global_config_settings]
-              - get_attr: [BlockStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ObjectStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [CephStorageServiceChain, role_data, global_config_settings]
-          ServiceNames: {get_attr: [BlockStorageServiceChain, role_data, service_names]}
-          MonitoringSubscriptions: {get_attr: [BlockStorageServiceChain, role_data, monitoring_subscriptions]}
-
-  ObjectStorage:
-    type: OS::Heat::ResourceGroup
-    depends_on: Networks
-    properties:
-      count: {get_param: ObjectStorageCount}
-      removal_policies: {get_param: ObjectStorageRemovalPolicies}
-      resource_def:
-        type: OS::TripleO::ObjectStorage
-        properties:
-          UpdateIdentifier: {get_param: UpdateIdentifier}
-          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
-          Hostname:
-            str_replace:
-              template: {get_param: ObjectStorageHostnameFormat}
-              params:
-                '%stackname%': {get_param: 'OS::stack_name'}
-          CloudDomain: {get_param: CloudDomain}
-          ServerMetadata: {get_param: ServerMetadata}
-          NodeIndex: '%index%'
-          ServiceConfigSettings:
-            map_merge:
-              - get_attr: [ObjectStorageServiceChain, role_data, config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-              - get_attr: [ComputeServiceChain, role_data, global_config_settings]
-              - get_attr: [BlockStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ObjectStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [CephStorageServiceChain, role_data, global_config_settings]
-          ServiceNames: {get_attr: [ObjectStorageServiceChain, role_data, service_names]}
-          MonitoringSubscriptions: {get_attr: [ObjectStorageServiceChain, role_data, monitoring_subscriptions]}
-
-  CephStorage:
-    type: OS::Heat::ResourceGroup
-    depends_on: Networks
-    properties:
-      count: {get_param: CephStorageCount}
-      removal_policies: {get_param: CephStorageRemovalPolicies}
-      resource_def:
-        type: OS::TripleO::CephStorage
-        properties:
-          ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
-          UpdateIdentifier: {get_param: UpdateIdentifier}
-          Hostname:
-            str_replace:
-              template: {get_param: CephStorageHostnameFormat}
-              params:
-                '%stackname%': {get_param: 'OS::stack_name'}
-          CloudDomain: {get_param: CloudDomain}
-          ServerMetadata: {get_param: ServerMetadata}
-          NodeIndex: '%index%'
-          ServiceConfigSettings:
-            map_merge:
-              - get_attr: [CephStorageServiceChain, role_data, config_settings]
-              - get_attr: [ControllerServiceChain, role_data, global_config_settings]
-              - get_attr: [ComputeServiceChain, role_data, global_config_settings]
-              - get_attr: [BlockStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [ObjectStorageServiceChain, role_data, global_config_settings]
-              - get_attr: [CephStorageServiceChain, role_data, global_config_settings]
-          ServiceNames: {get_attr: [CephStorageServiceChain, role_data, service_names]}
-          MonitoringSubscriptions: {get_attr: [CephStorageServiceChain, role_data, monitoring_subscriptions]}
 
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
