@@ -22,6 +22,10 @@ parameters:
     type: comma_delimited_list
   keystone_admin_api_node_ips:
     type: comma_delimited_list
+  NetVipMap:
+    type: json
+  ServiceNetMap:
+    type: json
   DeployIdentifier:
     type: string
     default: ''
@@ -112,6 +116,53 @@ resources:
                     deploy_identifier: {get_param: DeployIdentifier}
                     update_identifier: {get_param: UpdateIdentifier}
                     stack_action: {get_param: StackAction}
+            vip_data:
+              mapped_data:
+                map_merge:
+                  # Dynamically generate per-service VIP data based on enabled_services
+                  # This works as follows (outer->inner functions)
+                  # yaql - filters services where no mapping exists in ServiceNetMap
+                  #   map_replace: substitute e.g internal_api with the IP from NetVipMap
+                  #     map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
+                  #       map_merge/repeat: generate a per-service mapping
+                  - yaql:
+                      # This filters any entries where the value hasn't been substituted for
+                      # a list, e.g it's still $service_network.  This happens when there is
+                      # no network defined for the service in the ServiceNetMap, which is OK
+                      # as not all services have to be bound to a network, so we filter them
+                      expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
+                      data:
+                        map:
+                          map_replace:
+                            - map_replace:
+                                - map_merge:
+                                    repeat:
+                                      template:
+                                        SERVICE_vip: SERVICE_network
+                                      for_each:
+                                        SERVICE:
+                                          str_split: [',', {get_param: enabled_services}]
+                                - values: {get_param: ServiceNetMap}
+                            - values: {get_param: NetVipMap}
+                  - keystone_admin_api_vip:
+                      get_param: [NetVipMap, {get_param: [ServiceNetMap, keystone_admin_api_network]}]
+                    keystone_public_api_vip:
+                      get_param: [NetVipMap, {get_param: [ServiceNetMap, keystone_public_api_network]}]
+                    public_virtual_ip: {get_param: [NetVipMap, external]}
+                    controller_virtual_ip: {get_param: [NetVipMap, ctlplane]}
+                    internal_api_virtual_ip: {get_param: [NetVipMap, internal_api]}
+                    storage_virtual_ip: {get_param: [NetVipMap, storage]}
+                    storage_mgmt_virtual_ip: {get_param: [NetVipMap, storage_mgmt]}
+                    # public_virtual_ip and controller_virtual_ip are needed in
+                    # both HAproxy & keepalived.
+                    tripleo::haproxy::public_virtual_ip: {get_param: [NetVipMap, external]}
+                    tripleo::haproxy::controller_virtual_ip: {get_param: [NetVipMap, ctlplane]}
+                    tripleo::keepalived::public_virtual_ip: {get_param: [NetVipMap, external]}
+                    tripleo::keepalived::controller_virtual_ip: {get_param: [NetVipMap, ctlplane]}
+                    tripleo::keepalived::internal_api_virtual_ip: {get_param: [NetVipMap, internal_api]}
+                    tripleo::keepalived::storage_virtual_ip: {get_param: [NetVipMap, storage]}
+                    tripleo::keepalived::storage_mgmt_virtual_ip: {get_param: [NetVipMap, storage_mgmt]}
+                    tripleo::redis_notification::haproxy_monitor_ip: {get_param: [NetVipMap, ctlplane]}
 
 outputs:
   config_id:
