@@ -12,6 +12,7 @@ cat > $UPGRADE_SCRIPT << ENDOFCAT
 ### This file is automatically delivered to the swift-storage nodes as part of the
 ### tripleo upgrades workflow
 
+set -eu
 
 function systemctl_swift {
     action=\$1
