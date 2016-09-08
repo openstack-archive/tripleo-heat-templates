@@ -1,0 +1,44 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Extra config to add swap space to nodes.
+
+# Parameters passed from the parent template - note if you maintain
+# out-of-tree templates they may require additional parameters if the
+# in-tree templates add a new role.
+parameters:
+  servers:
+    type: json
+  swap_partition_label:
+    type: string
+    description: Swap partition label
+    default: 'swap1'
+
+
+resources:
+
+  SwapConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        set -eux
+        swap_partition=$(realpath /dev/disk/by-label/$swap_partition_label)
+        swapon $swap_partition
+        echo "$swap_partition swap swap defaults 0 0" >> /etc/fstab
+      inputs:
+        - name: swap_partition_label
+          description: Swap partition label
+          default: 'swap1'
+
+{% for role in roles %}
+  {{role.name}}SwapDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      config: {get_resource: SwapConfig}
+      servers: {get_param: servers, {{role.name}}}
+      input_values:
+        swap_partition_label: {get_param: swap_partition_label}
+      actions: ["CREATE"]
+{% endfor %}
