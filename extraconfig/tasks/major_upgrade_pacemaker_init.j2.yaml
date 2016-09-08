@@ -1,0 +1,87 @@
+heat_template_version: 2014-10-16
+description: 'Upgrade for Pacemaker deployments'
+
+parameters:
+
+  servers:
+    type: json
+  input_values:
+    type: json
+    description: input values for the software deployments
+
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
+  UpgradeLevelNovaCompute:
+    type: string
+    description: Nova Compute upgrade level
+    default: ''
+
+resources:
+
+  # For the UpgradeInit also rename /etc/resolv.conf.save for +bug/1567004
+
+  UpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+  # TODO(jistr): for Mitaka->Newton upgrades and further we can use
+  # map_merge with input_values instead of feeding params into scripts
+  # via str_replace on bash snippets
+
+  # FIXME(shardy) we have hard-coded per-role *ScriptConfig's here
+  # Would be better to have a common config for all roles
+  ComputeDeliverUpgradeScriptConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - str_replace:
+              template: |
+                #!/bin/bash
+                upgrade_level_nova_compute='UPGRADE_LEVEL_NOVA_COMPUTE'
+              params:
+                UPGRADE_LEVEL_NOVA_COMPUTE: {get_param: UpgradeLevelNovaCompute}
+          - get_file: major_upgrade_compute.sh
+
+  ObjectStorageDeliverUpgradeScriptConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: {get_file: major_upgrade_object_storage.sh}
+
+  CephStorageDeliverUpgradeScriptConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: {get_file: major_upgrade_ceph_storage.sh}
+
+{% for role in roles %}
+  UpgradeInit{{role.name}}Deployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      servers:  {get_param: [servers, {{role.name}}]}
+      config: {get_resource: UpgradeInitConfig}
+      input_values: {get_param: input_values}
+
+  {% if not role.name in ['Controller', 'BlockStorage'] %}
+  {{role.name}}DeliverUpgradeScriptDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      servers:  {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}DeliverUpgradeScriptConfig}
+      input_values: {get_param: input_values}
+  {% endif %}
+{% endfor %}
