@@ -64,15 +64,16 @@ def validate(filename):
         print(traceback.format_exc())
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
-    for p in tpl.get('parameters', {}):
-        if p in required_params:
-            continue
-        str_p = '\'%s\'' % p
-        in_resources = str_p in str(tpl.get('resources', {}))
-        in_outputs = str_p in str(tpl.get('outputs', {}))
-        if not in_resources and not in_outputs:
-            print('Warning: parameter %s in template %s appears to be unused'
-                  % (p, filename))
+    if 'heat_template_version' in tpl:
+        for p in tpl.get('parameters', {}):
+            if p in required_params:
+                continue
+            str_p = '\'%s\'' % p
+            in_resources = str_p in str(tpl.get('resources', {}))
+            in_outputs = str_p in str(tpl.get('outputs', {}))
+            if not in_resources and not in_outputs:
+                print('Warning: parameter %s in template %s '
+                      'appears to be unused' % (p, filename))
 
     return retval
 
@@ -87,7 +88,7 @@ for base_path in path_args:
     if os.path.isdir(base_path):
         for subdir, dirs, files in os.walk(base_path):
             for f in files:
-                if f.endswith('.yaml'):
+                if f.endswith('.yaml') and not f.endswith('.j2.yaml'):
                     file_path = os.path.join(subdir, f)
                     failed = validate(file_path)
                     if failed:
