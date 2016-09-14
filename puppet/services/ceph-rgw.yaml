@@ -1,0 +1,77 @@
+heat_template_version: 2016-04-08
+
+description: >
+  Ceph RadosGW service.
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  AdminToken:
+    description: The keystone auth secret and db password.
+    type: string
+    hidden: true
+  CephRgwKey:
+    description: The cephx key for the radosgw client. Can be created
+                 with ceph-authtool --gen-print-key.
+    type: string
+    hidden: true
+  SwiftPassword:
+    description: The password for the swift service account, used by the Ceph RGW services.
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+resources:
+  CephBase:
+    type: ./ceph-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Ceph RadosGW service.
+    value:
+      service_name: ceph_rgw
+      config_settings:
+        map_merge:
+          - get_attr: [CephBase, role_data, config_settings]
+          - tripleo::profile::base::ceph::rgw::rgw_key: {get_param: CephRgwKey}
+            tripleo::profile::base::ceph::rgw::keystone_admin_token: {get_param: AdminToken}
+            tripleo::profile::base::ceph::rgw::keystone_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            ceph::profile::params::frontend_type: 'civetweb'
+            ceph_rgw_civetweb_bind_address: {get_param: [ServiceNetMap, CephRgwNetwork]}
+            ceph::profile::params::rgw_frontends:
+              list_join:
+               - ''
+               - - 'civetweb port='
+                 - '%{hiera("ceph_rgw_civetweb_bind_address")}'
+                 - ':'
+                 - {get_param: [EndpointMap, CephRgwInternal, port]}
+            tripleo.ceph_rgw.firewall_rules:
+              '122 ceph rgw':
+                dport: {get_param: [EndpointMap, CephRgwInternal, port]}
+            ceph::rgw::keystone::auth::public_url: {get_param: [EndpointMap, CephRgwPublic, uri]}
+            ceph::rgw::keystone::auth::internal_url: {get_param: [EndpointMap, CephRgwInternal, uri]}
+            ceph::rgw::keystone::auth::admin_url: {get_param: [EndpointMap, CephRgwAdmin, uri]}
+            ceph::rgw::keystone::auth::password: {get_param: SwiftPassword}
+            ceph::rgw::keystone::auth::region: {get_param: KeystoneRegion}
+            ceph::rgw::keystone::auth::tenant: 'service'
+      step_config: |
+        include ::tripleo::profile::base::ceph::rgw
