@@ -261,6 +261,21 @@ resources:
           {% for r in roles %}
               - get_attr: [{{r.name}}ServiceChain, role_data, global_config_settings]
           {% endfor %}
+              # This next step combines two yaql passes:
+              # - The inner one does a deep merge on the service_config_settings for all roles
+              # - The outer one filters the map based on the services enabled for the role
+              #   then merges the result into one map.
+              - yaql:
+                  expression: let(root => $) -> $.data.map.items().where($[0] in $root.data.services).select($[1]).reduce($1.mergeWith($2), {})
+                  data:
+                    map:
+                      yaql:
+                        expression: $.data.where($ != null).reduce($1.mergeWith($2), {})
+                        data:
+                        {% for r in roles %}
+                          - get_attr: [{{r.name}}ServiceChain, role_data, service_config_settings]
+                        {% endfor %}
+                    services: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
           ServiceNames: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChain, role_data, monitoring_subscriptions]}
           LoggingSources: {get_attr: [{{role.name}}ServiceChain, role_data, logging_sources]}
