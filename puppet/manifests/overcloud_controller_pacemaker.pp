@@ -201,7 +201,7 @@ if hiera('step') >= 1 {
       'wsrep_drupal_282555_workaround'=> '0',
       'wsrep_causal_reads'            => '0',
       'wsrep_sst_method'              => 'rsync',
-      'wsrep_provider_options'        => "gmcast.listen_addr=tcp://[${mysql_bind_host}]:4567;",
+      'wsrep_provider_options'        => "gmcast.listen_addr=tcp://${mysql_bind_host}:4567;",
     },
   }
 
