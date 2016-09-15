@@ -18,13 +18,13 @@ if ! [[ "$INSTALLED_VERSION" =~ ^0\.94.* ]]; then
 fi
 
 CEPH_STATUS=$(ceph health | awk '{print $1}')
-if [ ${CEPH_STATUS} = HEALTH_ERR ]; do
+if [ ${CEPH_STATUS} = HEALTH_ERR ]; then
     echo ERROR: Ceph cluster status is HEALTH_ERR, cannot be upgraded
     exit 1
 fi
 
 # Useful when upgrading with OSDs num < replica size
-if [ $ignore_ceph_upgrade_warnings != "true" ]; then
+if [ ${ignore_ceph_upgrade_warnings:-false} != "true" ]; then
     timeout 300 bash -c "while [ ${CEPH_STATUS} != HEALTH_OK ]; do
       echo WARNING: Waiting for Ceph cluster status to go HEALTH_OK;
       sleep 30;
@@ -44,7 +44,7 @@ timeout 60 bash -c "while kill -0 ${MON_PID} 2> /dev/null; do
 done"
 
 # Update to Jewel
-yum -y -q update ceph-mon
+yum -y -q update ceph-mon ceph
 
 # Restart/Exit if not on Jewel, only in that case we need the changes
 UPDATED_VERSION=$(ceph --version | awk '{print $3}')
@@ -54,7 +54,7 @@ if [[ "$UPDATED_VERSION" =~ ^0\.94.* ]]; then
 elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
     # RPM could own some of these but we can't take risks on the pre-existing files
     for d in /var/lib/ceph/mon /var/log/ceph /var/run/ceph /etc/ceph; do
-        chown -R ceph:ceph $d
+        chown -R ceph:ceph $d || echo WARNING: chown of $d failed
     done
 
     # Replay udev events with newer rules
