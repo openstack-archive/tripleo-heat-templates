@@ -1,0 +1,139 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Post-deploy configuration steps via puppet for all roles,
+  as defined in ../roles_data.yaml
+
+parameters:
+  servers:
+    type: json
+    description: Mapping of Role name e.g Controller to a list of servers
+
+  role_data:
+    type: json
+    description: Mapping of Role name e.g Controller to the per-role data
+
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
+
+resources:
+
+{% for role in roles %}
+  # Post deployment steps for all roles
+  # A single config is re-applied with an incrementing step number
+  # {{role.name}} Role steps
+  {{role.name}}ArtifactsConfig:
+    type: deploy-artifacts.yaml
+
+  {{role.name}}ArtifactsDeploy:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      servers:  {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}ArtifactsConfig}
+
+  {{role.name}}PreConfig:
+    type: OS::TripleO::Tasks::{{role.name}}PreConfig
+    properties:
+      servers: {get_param: [servers, {{role.name}}]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Config:
+    type: OS::TripleO::{{role.name}}Config
+    properties:
+      StepConfig: {get_param: [role_data, {{role.name}}, step_config]}
+
+  # Step through a series of configuration steps
+  {{role.name}}Deployment_Step1:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
+    properties:
+      name: {{role.name}}Deployment_Step1
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 1
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step2:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step1
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step2
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 2
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step3:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step2
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step3
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 3
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step4:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step3
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step4
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 4
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}Deployment_Step5:
+    type: OS::Heat::StructuredDeploymentGroup
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step4
+  {% endfor %}
+    properties:
+      name: {{role.name}}Deployment_Step5
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}Config}
+      input_values:
+        step: 5
+        update_identifier: {get_param: DeployIdentifier}
+
+  {{role.name}}PostConfig:
+    type: OS::TripleO::Tasks::{{role.name}}PostConfig
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}Deployment_Step5
+  {% endfor %}
+    properties:
+      servers:  {get_param: servers}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+
+  # Note, this should come last, so use depends_on to ensure
+  # this is created after any other resources.
+  {{role.name}}ExtraConfigPost:
+    depends_on:
+  {% for dep in roles %}
+      - {{dep.name}}PostConfig
+  {% endfor %}
+    type: OS::TripleO::NodeExtraConfigPost
+    properties:
+        servers: {get_param: [servers, {{role.name}}]}
+{% endfor %}
