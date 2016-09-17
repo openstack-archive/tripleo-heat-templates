@@ -1,0 +1,64 @@
+heat_template_version: 2016-10-14
+
+description: Fluentd client configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: >
+      Mapping of service endpoint -> protocol. Typically set
+      via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+  FluentdBase:
+    type: ./fluentd-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+  LoggingConfiguration:
+    type: OS::TripleO::LoggingConfiguration
+
+outputs:
+  role_data:
+    description: Role data for the Fluentd client role.
+    value:
+      service_name: fluentd_client
+      config_settings:
+        map_merge:
+          - get_attr: [FluentdBase, role_data, config_settings]
+          - tripleo::profile::base::logging::fluentd::fluentd_servers:
+              get_attr: [LoggingConfiguration, LoggingServers]
+            tripleo::profile::base::logging::fluentd::fluentd_filters:
+              yaql:
+                expression: >
+                  $.data.filters.flatten().where($)
+                data:
+                  filters:
+                    - get_attr: [LoggingConfiguration, LoggingDefaultFilters]
+                    - get_attr: [LoggingConfiguration, LoggingExtraFilters]
+            tripleo::profile::base::logging::fluentd::fluentd_pos_file_path:
+              get_attr: [LoggingConfiguration, LoggingPosFilePath]
+            tripleo::profile::base::logging::fluentd::fluentd_use_ssl:
+              get_attr: [LoggingConfiguration, LoggingUsesSSL]
+            tripleo::profile::base::logging::fluentd::fluentd_ssl_certificate:
+              get_attr: [LoggingConfiguration, LoggingSSLCertificate]
+            tripleo::profile::base::logging::fluentd::fluentd_ssl_key:
+              get_attr: [LoggingConfiguration, LoggingSSLKey]
+            tripleo::profile::base::logging::fluentd::fluentd_ssl_key_passphrase:
+              get_attr: [LoggingConfiguration, LoggingSSLKeyPassphrase]
+            tripleo::profile::base::logging::fluentd::fluentd_shared_key:
+              get_attr: [LoggingConfiguration, LoggingSharedKey]
+      step_config: |
+        include ::tripleo::profile::base::logging::fluentd
