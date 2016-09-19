@@ -121,7 +121,7 @@ include ::neutron::config
 # If the value of core plugin is set to 'midonet',
 # include midonet agent,
 # else use the default value of 'ml2'
-if hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
+if hiera('neutron::core_plugin') == 'nuage_neutron.plugins.nuage.plugin.NuagePlugin' {
   include ::nuage::vrs
   include ::nova::compute::neutron
 

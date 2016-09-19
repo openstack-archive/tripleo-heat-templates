@@ -822,7 +822,7 @@ MYSQL_HOST=localhost\n",
     enabled        => false,
   }
   include ::neutron::server::notifications
-  if  hiera('neutron::core_plugin') == 'neutron.plugins.nuage.plugin.NuagePlugin' {
+  if  hiera('neutron::core_plugin') == 'nuage_neutron.plugins.nuage.plugin.NuagePlugin' {
     include ::neutron::plugins::nuage
   }
   if  hiera('neutron::core_plugin') == 'neutron_plugin_contrail.plugins.opencontrail.contrail_plugin.NeutronPluginContrailCoreV2' {
@@ -868,10 +868,12 @@ MYSQL_HOST=localhost\n",
       enabled        => false,
     }
   }
-  include ::neutron::plugins::ml2
-  class { '::neutron::agents::ml2::ovs':
-    manage_service => false,
-    enabled        => false,
+  if  hiera('neutron::core_plugin') == 'ml2' {
+    include ::neutron::plugins::ml2
+    class { '::neutron::agents::ml2::ovs':
+      manage_service => false,
+      enabled        => false,
+    }
   }
 
   if 'cisco_ucsm' in hiera('neutron::plugins::ml2::mechanism_drivers') {
