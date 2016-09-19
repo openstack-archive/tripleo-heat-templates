@@ -56,3 +56,116 @@ function is_mysql_upgrade_needed {
     fi
     echo "1"
 }
+
+# This function returns the list of services to be migrated away from pacemaker
+# and to systemd. The reason to have these services in a separate function is because
+# this list is needed in three different places: major_upgrade_controller_pacemaker_{1,2}
+# and in the function to migrate the cluster from full HA to HA NG
+function services_to_migrate {
+    # The following PCMK resources the ones the we are going to delete
+    PCMK_RESOURCE_TODELETE="
+    httpd-clone
+    memcached-clone
+    mongod-clone
+    neutron-dhcp-agent-clone
+    neutron-l3-agent-clone
+    neutron-metadata-agent-clone
+    neutron-netns-cleanup-clone
+    neutron-openvswitch-agent-clone
+    neutron-ovs-cleanup-clone
+    neutron-server-clone
+    openstack-aodh-evaluator-clone
+    openstack-aodh-listener-clone
+    openstack-aodh-notifier-clone
+    openstack-ceilometer-api-clone
+    openstack-ceilometer-central-clone
+    openstack-ceilometer-collector-clone
+    openstack-ceilometer-notification-clone
+    openstack-cinder-api-clone
+    openstack-cinder-scheduler-clone
+    openstack-glance-api-clone
+    openstack-glance-registry-clone
+    openstack-gnocchi-metricd-clone
+    openstack-gnocchi-statsd-clone
+    openstack-heat-api-cfn-clone
+    openstack-heat-api-clone
+    openstack-heat-api-cloudwatch-clone
+    openstack-heat-engine-clone
+    openstack-nova-api-clone
+    openstack-nova-conductor-clone
+    openstack-nova-consoleauth-clone
+    openstack-nova-novncproxy-clone
+    openstack-nova-scheduler-clone
+    openstack-sahara-api-clone
+    openstack-sahara-engine-clone
+    "
+    echo $PCMK_RESOURCE_TODELETE
+}
+
+# This function will migrate a mitaka system where all the resources are managed
+# via pacemaker to a newton setup where only a few services will be managed by pacemaker
+# On a high-level it will operate as follows:
+# 1. Set the cluster in maintenance-mode so no start/stop action will actually take place
+#    during the conversion
+# 2. Remove all the colocation constraints and then the ordering constraints, except the
+#    ones related to haproxy/VIPs which exist in Newton as well
+# 3. Remove all the resources that won't be managed by pacemaker in newton. Note that they
+#    will show up as ORPHANED but they will keep running normally via systemd. They will be
+#    enabled to start at boot by puppet during the converge step
+# 4. Take the cluster out of maintenance-mode and do a resource cleanup
+function migrate_full_to_ng_ha {
+    if [[ -n $(pcmk_running) ]]; then
+        pcs property set maintenance-mode=true
+        # We are making sure here that the property has propagated everywhere
+        if ! timeout -k 10 300 crm_resource --wait; then
+            echo_error "ERROR: cluster remained unstable after setting maintenance-mode for more than 300 seconds, exiting."
+            exit 1
+        fi
+        # First we go through all the colocation constraints (except the ones we want to keep, i.e. the haproxy/ip ones)
+        # and we remove those
+        COL_CONSTRAINTS=$(pcs config show | sed -n '/^Colocation Constraints:$/,/^$/p' | grep -v "Colocation Constraints:" | egrep -v "ip-.*haproxy" | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
+        for constraint in $COL_CONSTRAINTS; do
+            log_debug "Deleting colocation constraint $constraint from CIB"
+            pcs constraint remove "$constraint"
+        done
+
+        # Now we kill all the ordering constraints (except the haproxy/ip ones)
+        ORD_CONSTRAINTS=$(pcs config show | sed -n '/^Ordering Constraints:/,/^Colocation Constraints:$/p' | grep -v "Ordering Constraints:"  | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
+        for constraint in $ORD_CONSTRAINTS; do
+            log_debug "Deleting ordering constraint $constraint from CIB"
+            pcs constraint remove "$constraint"
+        done
+
+        # At this stage there are no constraints whatsoever except the haproxy/ip ones
+        # which we want to keep. We now delete each resource that will move to systemd
+        # Note that the corresponding systemd resource will stay running, which means that
+        # later when we do the "yum update", things will be a bit slower because each
+        # "systemctl try-restart <service>" is not a no-op any longer because the service is up
+        # and running and it will be restarted with rabbitmq being down.
+        PCS_STATUS_OUTPUT="$(pcs status)"
+        for resource in $(services_to_migrate) "delay-clone" "openstack-core-clone"; do
+             if echo "$PCS_STATUS_OUTPUT" | grep "$resource"; then
+                 log_debug "Deleting $resource from the CIB"
+
+                 # We need to add --force because the cluster is in maintenance mode and the resource
+                 # is unmanaged. The if serves to make this idempotent
+                 pcs resource delete --force "$resource"
+             else
+                 log_debug "Service $service not found as a pacemaker resource, not trying to delete."
+             fi
+        done
+
+        # At this stage all the pacemaker resources are removed from the CIB. Once we remove the
+        # maintenance-mode those systemd resources will keep on running. They shall be systemd enabled
+        # via the puppet converge step later on
+        pcs property set maintenance-mode=false
+        # We need to do a pcs resource cleanup here + crm_resource --wait to make sure the
+        # cluster is in a clean state before we stop everything, upgrade and restart everything
+        pcs resource cleanup
+        # We are making sure here that the cluster is stable before proceeding
+        if ! timeout -k 10 600 crm_resource --wait; then
+            echo_error "ERROR: cluster remained unstable after resource cleanup for more than 600 seconds, exiting."
+            exit 1
+        fi
+    fi
+}

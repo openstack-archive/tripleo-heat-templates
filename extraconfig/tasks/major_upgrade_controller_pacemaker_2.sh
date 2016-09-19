@@ -32,8 +32,6 @@ fi
 
 start_or_enable_service galera
 check_resource galera started 600
-start_or_enable_service mongod
-check_resource mongod started 600
 
 if [[ -n $(is_bootstrap_node) ]]; then
     tstart=$(date +%s)
@@ -59,14 +57,18 @@ if [[ -n $(is_bootstrap_node) ]]; then
     # sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
 fi
 
-start_or_enable_service memcached
-check_resource memcached started 600
 start_or_enable_service rabbitmq
 check_resource rabbitmq started 600
 start_or_enable_service redis
 check_resource redis started 600
-start_or_enable_service httpd
-check_resource httpd started 1800
 
 # Swift isn't controled by pacemaker
 systemctl_swift start
+
+# We need to start the systemd services we explicitely stopped at step _1.sh
+# FIXME: Should we let puppet during the convergence step do the service enabling or
+# should we add it here?
+for $service in $(services_to_migrate); do
+    manage_systemd_service stop "${service%%-clone}"
+    check_resource_systemd "${service%%-clone}" started 600
+done
