@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   OpenStack Neutron Server configured with Puppet
@@ -39,7 +39,10 @@ parameters:
     type: string
   NeutronL3HA:
     default: false
-    description: Whether to enable HA for virtual routers
+    description: |
+      Whether to enable HA for virtual routers. While the default value is
+      'false', L3 HA will be automatically enabled if the number of nodes hosting
+      controller configurations and DVR is disabled.
     type: boolean
   NovaPassword:
     description: The password for the nova service and db account, used by nova-api.
@@ -61,6 +64,13 @@ parameters:
     default:
       tag: openstack.neutron.api
       path: /var/log/neutron/server.log
+  ControllerCount:
+    description: |
+      Under normal conditions, this should not be overridden manually and is
+      set at deployment time. The default value is present to allow the
+      template to be used in environments that do not override it.
+    default: 1
+    type: number
 
 resources:
 
@@ -70,6 +80,18 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+
+conditions:
+
+  auto_enable_l3_ha:
+    and:
+      - not:
+          equals:
+            - get_param: ControllerCount
+            - 1
+      - equals:
+        - get_param: NeutronEnableDVR
+        - false
 
 outputs:
   role_data:
@@ -103,7 +125,7 @@ outputs:
             neutron::server::api_workers: {get_param: NeutronWorkers}
             neutron::server::rpc_workers: {get_param: NeutronWorkers}
             neutron::server::allow_automatic_l3agent_failover: {get_param: NeutronAllowL3AgentFailover}
-            neutron::server::l3_ha: {get_param: NeutronL3HA}
+            neutron::server::l3_ha: {if: ["auto_enable_l3_ha", true, {get_param: NeutronL3HA}]}
             neutron::keystone::authtoken::password: {get_param: NeutronPassword}
 
             neutron::server::notifications::nova_url: { get_param: [ EndpointMap, NovaInternal, uri ] }
