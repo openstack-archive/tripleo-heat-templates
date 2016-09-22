@@ -12,6 +12,8 @@ cat > $UPGRADE_SCRIPT << ENDOFCAT
 ### This file is automatically delivered to the compute nodes as part of the
 ### tripleo upgrades workflow
 
+set -eu
+
 # pin nova to kilo (messaging +-1) for the nova-compute service
 
 crudini  --set /etc/nova/nova.conf upgrade_levels compute $upgrade_level_nova_compute
