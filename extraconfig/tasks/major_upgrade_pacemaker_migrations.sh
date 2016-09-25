@@ -109,10 +109,11 @@ function services_to_migrate {
 #    during the conversion
 # 2. Remove all the colocation constraints and then the ordering constraints, except the
 #    ones related to haproxy/VIPs which exist in Newton as well
-# 3. Remove all the resources that won't be managed by pacemaker in newton. Note that they
-#    will show up as ORPHANED but they will keep running normally via systemd. They will be
-#    enabled to start at boot by puppet during the converge step
-# 4. Take the cluster out of maintenance-mode and do a resource cleanup
+# 3. Take the cluster out of maintenance-mode and do a resource cleanup
+# 4. Remove all the resources that won't be managed by pacemaker in newton. The
+#    outcome will be
+#    that they are stopped and removed from pacemakers control
+# 5. Do a resource cleanup to make sure the cluster is in a clean state
 function migrate_full_to_ng_ha {
     if [[ -n $(pcmk_running) ]]; then
         pcs property set maintenance-mode=true
@@ -135,32 +136,35 @@ function migrate_full_to_ng_ha {
             log_debug "Deleting ordering constraint $constraint from CIB"
             pcs constraint remove "$constraint"
         done
+        # At this stage all the pacemaker resources are removed from the CIB.
+        # Once we remove the maintenance-mode those systemd resources will keep
+        # on running. They shall be systemd enabled via the puppet converge
+        # step later on
+        pcs property set maintenance-mode=false
 
         # At this stage there are no constraints whatsoever except the haproxy/ip ones
-        # which we want to keep. We now delete each resource that will move to systemd
-        # Note that the corresponding systemd resource will stay running, which means that
-        # later when we do the "yum update", things will be a bit slower because each
-        # "systemctl try-restart <service>" is not a no-op any longer because the service is up
-        # and running and it will be restarted with rabbitmq being down.
+        # which we want to keep. We now disable and then delete each resource
+        # that will move to systemd.
+        # We want the systemd resources be stopped before doing "yum update",
+        # that way "systemctl try-restart <service>" is no-op because the
+        # service was down already 
         PCS_STATUS_OUTPUT="$(pcs status)"
         for resource in $(services_to_migrate) "delay-clone" "openstack-core-clone"; do
              if echo "$PCS_STATUS_OUTPUT" | grep "$resource"; then
                  log_debug "Deleting $resource from the CIB"
-
-                 # We need to add --force because the cluster is in maintenance mode and the resource
-                 # is unmanaged. The if serves to make this idempotent
+                 if ! pcs resource disable "$resource" --wait=600; then
+                     echo_error "ERROR: resource $resource failed to be disabled"
+                     exit 1
+                 fi
                  pcs resource delete --force "$resource"
              else
                  log_debug "Service $service not found as a pacemaker resource, not trying to delete."
              fi
         done
 
-        # At this stage all the pacemaker resources are removed from the CIB. Once we remove the
-        # maintenance-mode those systemd resources will keep on running. They shall be systemd enabled
-        # via the puppet converge step later on
-        pcs property set maintenance-mode=false
-        # We need to do a pcs resource cleanup here + crm_resource --wait to make sure the
-        # cluster is in a clean state before we stop everything, upgrade and restart everything
+        # We need to do a pcs resource cleanup here + crm_resource --wait to
+        # make sure the cluster is in a clean state before we stop everything,
+        # upgrade and restart everything
         pcs resource cleanup
         # We are making sure here that the cluster is stable before proceeding
         if ! timeout -k 10 600 crm_resource --wait; then
