@@ -32,6 +32,13 @@ fi
 
 start_or_enable_service galera
 check_resource galera started 600
+# We need mongod which is now a systemd service up and running before calling
+# ceilometer-dbsync. There is still a race here: mongod might not be up on all nodes
+# so ceilometer-dbsync will fail a couple of times before that. As it retries indefinitely
+# we should be good.
+# Due to LP Bug https://bugs.launchpad.net/tripleo/+bug/1627254 am using systemctl directly atm
+systemctl start mongod
+check_resource mongod started 600
 
 if [[ -n $(is_bootstrap_node) ]]; then
     tstart=$(date +%s)
