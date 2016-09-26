@@ -98,6 +98,9 @@ parameters:
     default:
       tag: openstack.keystone
       path: /var/log/keystone/keystone.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 resources:
 
@@ -107,6 +110,7 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -163,7 +167,8 @@ outputs:
               ec2/driver:
                 value: 'keystone.contrib.ec2.backends.sql.Ec2'
             keystone::service_name: 'httpd'
-            keystone::wsgi::apache::ssl: false
+            keystone::enable_ssl: {get_param: EnableInternalTLS}
+            keystone::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             keystone::wsgi::apache::servername:
               str_replace:
                 template:
@@ -188,15 +193,25 @@ outputs:
                   - 13000
                   - 35357
                   - 13357
+            keystone::admin_bind_host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
+            keystone::public_bind_host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}
             # NOTE: bind IP is found in Heat replacing the network name with the
             # local node IP for the given network; replacement examples
             # (eg. for internal_api):
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            # NOTE: this applies to all 4 bind IP settings below...
-            keystone::admin_bind_host: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
-            keystone::public_bind_host: {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}
+            # NOTE: this applies to all 2 bind IP settings below...
             keystone::wsgi::apache::bind_host: {get_param: [ServiceNetMap, KeystonePublicApiNetwork]}
             keystone::wsgi::apache::admin_bind_host: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
       step_config: |
