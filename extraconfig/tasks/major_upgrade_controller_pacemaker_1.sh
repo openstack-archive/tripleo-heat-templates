@@ -178,5 +178,7 @@ crudini  --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend rabbit
 crudini --set /etc/swift/proxy-server.conf pipeline:main pipeline "catch_errors healthcheck cache ratelimit tempurl formpost authtoken keystone staticweb proxy-logging proxy-server"
 # LP: 1615035, required only for M/N upgrade.
 crudini --set /etc/nova/nova.conf DEFAULT scheduler_host_manager host_manager
+# LP: 1627450, required only for M/N upgrade
+crudini --set /etc/nova/nova.conf DEFAULT scheduler_driver filter_scheduler
 
 crudini --set /etc/sahara/sahara.conf DEFAULT plugins ambari,cdh,mapr,vanilla,spark,storm
