@@ -41,6 +41,9 @@ parameters:
     default:
       tag: openstack.gnocchi.api
       path: /var/log/gnocchi/app.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 resources:
 
@@ -57,6 +60,7 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -83,7 +87,7 @@ outputs:
             gnocchi::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
             gnocchi::keystone::authtoken::password: {get_param: GnocchiPassword}
             gnocchi::keystone::authtoken::project_name: 'service'
-            gnocchi::wsgi::apache::ssl: false
+            gnocchi::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             gnocchi::wsgi::apache::servername:
               str_replace:
                 template:
@@ -98,7 +102,12 @@ outputs:
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
             gnocchi::wsgi::apache::bind_host: {get_param: [ServiceNetMap, GnocchiApiNetwork]}
-            gnocchi::api::host: {get_param: [ServiceNetMap, GnocchiApiNetwork]}
+            gnocchi::api::host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, GnocchiApiNetwork]}
 
             gnocchi::api::keystone_auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
             gnocchi::api::keystone_identity_uri: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
