@@ -19,7 +19,7 @@ STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk
 pcs property set stonith-enabled=false
 
 # Migrate to HA NG
-if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+if [[ -n $(is_bootstrap_node) ]]; then
     migrate_full_to_ng_ha
 fi
 
@@ -29,9 +29,26 @@ fi
 # is going to take a long time because rabbit is down. By having the service stopped
 # systemctl try-restart is a noop
 
-for $service in $(services_to_migrate); do
+for service in $(services_to_migrate); do
     manage_systemd_service stop "${service%%-clone}"
-    check_resource_systemd "${service%%-clone}" stopped 600
+    # So the reason for not reusing check_resource_systemd is that
+    # I have observed systemctl is-active returning unknown with at least
+    # one service that was stopped (See LP 1627254)
+    timeout=600
+    tstart=$(date +%s)
+    tend=$(( $tstart + $timeout ))
+    check_interval=3
+    while (( $(date +%s) < $tend )); do
+      if [[ "$(systemctl is-active ${service%%-clone})" = "active" ]]; then
+        echo "$service still active, sleeping $check_interval seconds."
+        sleep $check_interval
+      else
+        # we do not care if it is inactive, unknown or failed as long as it is
+        # not running
+        break
+      fi
+
+    done
 done
 
 # In case the mysql package is updated, the database on disk must be
@@ -46,7 +63,7 @@ done
 # on mysql package versionning, but this can be overriden manually
 # to support specific upgrade scenario
 
-if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+if [[ -n $(is_bootstrap_node) ]]; then
     if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
         mysqldump $backup_flags > "$MYSQL_BACKUP_DIR/openstack_database.sql"
         cp -rdp /etc/my.cnf* "$MYSQL_BACKUP_DIR"
@@ -68,7 +85,7 @@ if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)
 fi
 
 
-# Swift isn't controled by pacemaker
+# Swift isn't controlled by pacemaker
 systemctl_swift stop
 
 tstart=$(date +%s)
