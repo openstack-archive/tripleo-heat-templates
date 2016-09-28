@@ -61,6 +61,7 @@ if [[ -n $(is_bootstrap_node) ]]; then
     neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini upgrade head
     nova-manage db sync
     nova-manage api_db sync
+    nova-manage db online_data_migrations
     #TODO(marios):someone from sahara needs to check this:
     # sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
 fi
