@@ -1,0 +1,110 @@
+heat_template_version: 2016-10-14
+
+description: >
+  OpenStack Glance Common settings with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CephClientUserName:
+    default: openstack
+    type: string
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  GlanceNotifierStrategy:
+    description: Strategy to use for Glance notification queue
+    type: string
+    default: noop
+  GlanceLogFile:
+    description: The filepath of the file to use for logging messages from Glance.
+    type: string
+    default: ''
+  GlancePassword:
+    description: The password for the glance service and db account, used by the glance services.
+    type: string
+    hidden: true
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
+  GlanceRbdPoolName:
+    default: images
+    type: string
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+outputs:
+  role_data:
+    description: Role data for the Glance common role.
+    value:
+      service_name: glance_base
+      config_settings:
+        glance_notifier_strategy: {get_param: GlanceNotifierStrategy}
+        glance_log_file: {get_param: GlanceLogFile}
+        glance::backend::swift::swift_store_auth_address: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        glance::backend::swift::swift_store_user: service:glance
+        glance::backend::swift::swift_store_key: {get_param: GlancePassword}
+        glance::backend::swift::swift_store_create_container_on_put: true
+        glance::backend::rbd::rbd_store_pool: {get_param: GlanceRbdPoolName}
+        glance::backend::rbd::rbd_store_user: {get_param: CephClientUserName}
+        glance_backend: {get_param: GlanceBackend}
+        glance::notify::rabbitmq::rabbit_userid: {get_param: RabbitUserName}
+        glance::notify::rabbitmq::rabbit_port: {get_param: RabbitClientPort}
+        glance::notify::rabbitmq::rabbit_password: {get_param: RabbitPassword}
+        glance::notify::rabbitmq::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        glance::notify::rabbitmq::notification_driver: messagingv2
+        glance::registry::db::database_db_max_retries: -1
+        glance::registry::db::database_max_retries: -1
+      service_config_settings:
+        keystone:
+          glance::keystone::auth::public_url: {get_param: [EndpointMap, GlancePublic, uri]}
+          glance::keystone::auth::internal_url: {get_param: [EndpointMap, GlanceInternal, uri]}
+          glance::keystone::auth::admin_url: {get_param: [EndpointMap, GlanceAdmin, uri]}
+          glance::keystone::auth::password: {get_param: GlancePassword }
+          glance::keystone::auth::region: {get_param: KeystoneRegion}
+          glance::keystone::auth::tenant: 'service'
+        mysql:
+          glance::db::mysql::password: {get_param: GlancePassword}
+          glance::db::mysql::user: glance
+          glance::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          glance::db::mysql::dbname: glance
+          glance::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
