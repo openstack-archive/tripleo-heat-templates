@@ -245,6 +245,15 @@ resources:
       EnabledServices: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [{{role.name}}, hostname]}
+      NetworkHostnameMap:
+        # Note (shardy) this somewhat complex yaql may be replaced
+        # with a map_deep_merge function in ocata.  It merges the
+        # list of maps, but appends to colliding lists so we can
+        # create a map of lists for all nodes for each network
+        yaql:
+          expression: dict($.data.where($ != null).flatten().selectMany($.items()).groupBy($[0], $[1], [$[0], $[1].flatten()]))
+          data:
+            - {get_attr: [{{role.name}}, hostname_map]}
 
   {{role.name}}:
     type: OS::Heat::ResourceGroup
@@ -337,6 +346,14 @@ resources:
             l:
 {% for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, service_hostnames]}
+{% endfor %}
+      short_service_node_names:
+        yaql:
+          expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1], [$[0], $[1].flatten()]))
+          data:
+            l:
+{% for role in roles %}
+              - {get_attr: [{{role.name}}IpListMap, short_service_hostnames]}
 {% endfor %}
       # FIXME(shardy): These require further work to move into service_ips
       memcache_node_ips: {get_attr: [ControllerIpListMap, net_ip_map, {get_attr: [ServiceNetMap, service_net_map, MemcachedNetwork]}]}
