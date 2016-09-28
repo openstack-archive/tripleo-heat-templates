@@ -46,6 +46,14 @@ parameters:
       tag: openstack.glance.registry
       path: /var/log/glance/registry.log
 
+resources:
+  GlanceBase:
+    type: ./glance-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
 outputs:
   role_data:
     description: Role data for the Glance Registry role.
@@ -56,43 +64,37 @@ outputs:
       logging_groups:
         - glance
       config_settings:
-        glance::registry::database_connection:
-          list_join:
-            - ''
-            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
-              - '://glance:'
-              - {get_param: GlancePassword}
-              - '@'
-              - {get_param: [EndpointMap, MysqlInternal, host]}
-              - '/glance'
-        glance::registry::authtoken::password: {get_param: GlancePassword}
-        glance::registry::authtoken::project_name: 'service'
-        glance::registry::pipeline: 'keystone'
-        glance::registry::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-        glance::registry::authtoken::auth_url: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
-        glance::registry::debug: {get_param: Debug}
-        glance::registry::workers: {get_param: GlanceWorkers}
-        glance::registry::db::database_db_max_retries: -1
-        glance::registry::db::database_max_retries: -1
-        tripleo.glance_registry.firewall_rules:
-          '112 glance_registry':
-            dport:
-              - 9191
-        # NOTE: bind IP is found in Heat replacing the network name with the
-        # local node IP for the given network; replacement examples
-        # (eg. for internal_api):
-        # internal_api -> IP
-        # internal_api_uri -> [IP]
-        # internal_api_subnet - > IP/CIDR
-        glance::registry::bind_host: {get_param: [ServiceNetMap, GlanceRegistryNetwork]}
+        map_merge:
+          - get_attr: [GlanceBase, role_data, config_settings]
+
+          - glance::registry::database_connection:
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://glance:'
+                  - {get_param: GlancePassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/glance'
+            glance::registry::authtoken::password: {get_param: GlancePassword}
+            glance::registry::authtoken::project_name: 'service'
+            glance::registry::pipeline: 'keystone'
+            glance::registry::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            glance::registry::authtoken::auth_url: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+            glance::registry::debug: {get_param: Debug}
+            glance::registry::workers: {get_param: GlanceWorkers}
+            tripleo.glance_registry.firewall_rules:
+              '112 glance_registry':
+                dport:
+                  - 9191
+            # NOTE: bind IP is found in Heat replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            glance::registry::bind_host: {get_param: [ServiceNetMap, GlanceRegistryNetwork]}
       step_config: |
         include ::tripleo::profile::base::glance::registry
       service_config_settings:
-        mysql:
-          glance::db::mysql::password: {get_param: GlancePassword}
-          glance::db::mysql::user: glance
-          glance::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
-          glance::db::mysql::dbname: glance
-          glance::db::mysql::allowed_hosts:
-            - '%'
-            - "%{hiera('mysql_bind_host')}"
+          get_attr: [GlanceBase, role_data, config_settings]
