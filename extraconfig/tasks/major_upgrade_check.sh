@@ -88,8 +88,8 @@ check_python_rpm()
 
 check_clean_cluster()
 {
-    if crm_mon -1 | grep -A3 Failed; then
-        echo_error "ERROR: upgrade cannot start with failed resources on the cluster. Clean them up before starting: pcs resource cleanup."
+    if pcs status | grep -q Stopped:; then
+        echo_error "ERROR: upgrade cannot start with stopped resources on the cluster. Make sure that all the resources are up and running."
         exit 1
     fi
 }

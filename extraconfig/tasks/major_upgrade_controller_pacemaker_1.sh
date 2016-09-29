@@ -6,7 +6,9 @@ cluster_sync_timeout=1800
 
 check_cluster
 check_pcsd
-check_clean_cluster
+if [[ -n $(is_bootstrap_node) ]]; then
+    check_clean_cluster
+fi
 check_python_rpm
 check_galera_root_password
 check_disk_for_mysql_dump
