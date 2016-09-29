@@ -32,6 +32,8 @@ fi
 
 start_or_enable_service galera
 check_resource galera started 600
+start_or_enable_service redis
+check_resource galera started 600
 # We need mongod which is now a systemd service up and running before calling
 # ceilometer-dbsync. There is still a race here: mongod might not be up on all nodes
 # so ceilometer-dbsync will fail a couple of times before that. As it retries indefinitely
@@ -62,14 +64,13 @@ if [[ -n $(is_bootstrap_node) ]]; then
     nova-manage db sync
     nova-manage api_db sync
     nova-manage db online_data_migrations
+    gnocchi-upgrade
     #TODO(marios):someone from sahara needs to check this:
     # sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
 fi
 
 start_or_enable_service rabbitmq
 check_resource rabbitmq started 600
-start_or_enable_service redis
-check_resource redis started 600
 start_or_enable_service openstack-cinder-volume
 check_resource openstack-cinder-volume started 600
 
