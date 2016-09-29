@@ -68,20 +68,3 @@ if [[ -n $(is_bootstrap_node) ]]; then
     #TODO(marios):someone from sahara needs to check this:
     # sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
 fi
-
-start_or_enable_service rabbitmq
-check_resource rabbitmq started 600
-start_or_enable_service openstack-cinder-volume
-check_resource openstack-cinder-volume started 600
-
-
-# Swift isn't controled by pacemaker
-systemctl_swift start
-
-# We need to start the systemd services we explicitely stopped at step _1.sh
-# FIXME: Should we let puppet during the convergence step do the service enabling or
-# should we add it here?
-for service in $(services_to_migrate); do
-    manage_systemd_service start "${service%%-clone}"
-    check_resource_systemd "${service%%-clone}" started 600
-done
