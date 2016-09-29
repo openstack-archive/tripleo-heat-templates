@@ -33,7 +33,7 @@ fi
 start_or_enable_service galera
 check_resource galera started 600
 start_or_enable_service redis
-check_resource galera started 600
+check_resource redis started 600
 # We need mongod which is now a systemd service up and running before calling
 # ceilometer-dbsync. There is still a race here: mongod might not be up on all nodes
 # so ceilometer-dbsync will fail a couple of times before that. As it retries indefinitely
