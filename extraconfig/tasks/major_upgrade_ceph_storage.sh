@@ -18,7 +18,7 @@ set -eu
 echo INFO: starting $(basename "$0")
 
 # Exit if not running
-if ! pidof ceph-osd; then
+if ! pidof ceph-osd &> /dev/null; then
     echo INFO: ceph-osd is not running, skipping
     exit 0
 fi
@@ -63,7 +63,7 @@ if [[ "$UPDATED_VERSION" =~ ^0\.94.* ]]; then
 elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
     # RPM could own some of these but we can't take risks on the pre-existing files
     for d in /var/lib/ceph/osd /var/log/ceph /var/run/ceph /etc/ceph; do
-        chown -R ceph:ceph $d || echo WARNING: chown of $d failed
+        chown -L -R ceph:ceph $d || echo WARNING: chown of $d failed
     done
 
     # Replay udev events with newer rules
