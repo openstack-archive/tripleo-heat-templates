@@ -13,9 +13,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+# The content of this file will be used to generate
+# the puppet manifests for all roles, the placeholder
+# __ROLE__ will be replaced by 'controller', 'blockstorage',
+# 'cephstorage' and all the deployed roles.
+
 if hiera('step') >= 4 {
-  hiera_include('controller_classes', [])
+  hiera_include('__ROLE___classes', [])
 }
 
-$package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller', hiera('step')])
+$package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud___ROLE__', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
