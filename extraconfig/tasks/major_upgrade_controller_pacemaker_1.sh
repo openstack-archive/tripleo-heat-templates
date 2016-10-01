@@ -20,9 +20,13 @@ check_disk_for_mysql_dump
 STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk '{ print $2 }')
 pcs property set stonith-enabled=false
 
-# Migrate to HA NG
+# Migrate to HA NG and fix up rabbitmq queues
+# We fix up the rabbitmq ha queues after the migration because it will
+# restart the rabbitmq resource. Doing it after the migration means no other
+# services will be restart as there are no other constraints
 if [[ -n $(is_bootstrap_node) ]]; then
     migrate_full_to_ng_ha
+    rabbitmq_mitaka_newton_upgrade
 fi
 
 # After migrating the cluster to HA-NG the services not under pacemaker's control
