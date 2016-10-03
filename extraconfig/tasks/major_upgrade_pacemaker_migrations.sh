@@ -154,7 +154,7 @@ function migrate_full_to_ng_ha {
                  fi
                  pcs resource delete --force "$resource"
              else
-                 log_debug "Service $service not found as a pacemaker resource, not trying to delete."
+                 log_debug "Service $resource not found as a pacemaker resource, not trying to delete."
              fi
         done
 
