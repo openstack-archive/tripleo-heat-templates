@@ -32,6 +32,29 @@ parameters:
     default: []
     type: comma_delimited_list
 
+resources:
+   # This adds the extra "services" on for keystone
+   # so that keystone_admin_api_network and
+   # keystone_public_api_network point to the correct
+   # network on the nodes running the "keystone" service
+  EnabledServicesValue:
+    type: OS::Heat::Value
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          expression: let(root => $) -> $.data.extra_services.items().where($[0] in $root.data.enabled_services).select($[1]).flatten() + $root.data.enabled_services
+          data:
+            enabled_services: {get_param: EnabledServices}
+            extra_services:
+              # If anything other than keystone needs this
+              # then we should add an extra_networks interface
+              # to the service templates role_data but for
+              # now we hard-code the keystone special case
+              keystone:
+                - keystone_admin_api
+                - keystone_public_api
+
 outputs:
   net_ip_map:
     description: >
@@ -64,7 +87,7 @@ outputs:
                         template:
                           SERVICE_node_ips: SERVICE_network
                         for_each:
-                          SERVICE: {get_param: EnabledServices}
+                          SERVICE: {get_attr: [EnabledServicesValue, value]}
                   - values: {get_param: ServiceNetMap}
               - values:
                   ctlplane: {get_param: ControlPlaneIpList}
@@ -89,4 +112,4 @@ outputs:
                 template:
                   SERVICE_node_names: {get_param: ServiceHostnameList}
                 for_each:
-                    SERVICE: {get_param: EnabledServices}
+                    SERVICE: {get_attr: [EnabledServicesValue, value]}
