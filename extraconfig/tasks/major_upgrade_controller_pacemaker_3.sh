@@ -20,7 +20,7 @@ services=$(services_to_migrate)
 if [[ ${keep_sahara_services_on_upgrade} =~ [Ff]alse ]] ; then
     services=${services%%openstack-sahara*}
 fi
-for service in $(services); do
+for service in $services; do
     manage_systemd_service start "${service%%-clone}"
     check_resource_systemd "${service%%-clone}" started 600
 done
