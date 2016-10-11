@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   OpenStack Nova API service configured with Puppet
@@ -52,6 +52,9 @@ parameters:
       tag: openstack.nova.api
       path: /var/log/nova/nova-api.log
 
+conditions:
+  nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
+
 resources:
   ApacheServiceBase:
     type: ./apache.yaml
@@ -78,49 +81,52 @@ outputs:
         - nova
       config_settings:
         map_merge:
-          - get_attr: [NovaBase, role_data, config_settings]
-          - get_attr: [ApacheServiceBase, role_data, config_settings]
+        - get_attr: [NovaBase, role_data, config_settings]
+        - get_attr: [ApacheServiceBase, role_data, config_settings]
+        - nova::cron::archive_deleted_rows::hour: '"*/12"'
+          nova::cron::archive_deleted_rows::destination: '"/dev/null"'
+          tripleo.nova_api.firewall_rules:
+            '113 nova_api':
+              dport:
+                - 6080
+                - 13080
+                - 8773
+                - 3773
+                - 8774
+                - 13774
+                - 8775
+          nova::keystone::authtoken::project_name: 'service'
+          nova::keystone::authtoken::password: {get_param: NovaPassword}
+          nova::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+          nova::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+          nova::api::enabled: true
+          nova::api::default_floating_pool: 'public'
+          nova::api::sync_db_api: true
+          nova::api::enable_proxy_headers_parsing: true
+          # NOTE: bind IP is found in Heat replacing the network name with the local node IP
+          # for the given network; replacement examples (eg. for internal_api):
+          # internal_api -> IP
+          # internal_api_uri -> [IP]
+          # internal_api_subnet - > IP/CIDR
+          nova::api::api_bind_address: {get_param: [ServiceNetMap, NovaApiNetwork]}
+          nova::wsgi::apache::ssl: false
+          nova::wsgi::apache::bind_host: {get_param: [ServiceNetMap, NovaApiNetwork]}
+          nova::wsgi::apache::servername:
+            str_replace:
+              template:
+                '"%{::fqdn_$NETWORK}"'
+              params:
+                $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+          nova::wsgi::apache::workers: {get_param: NovaWorkers}
+          nova::wsgi::apache::bind_host: {get_param: [ServiceNetMap, NovaApiNetwork]}
+          nova::api::neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
+          nova::api::instance_name_template: {get_param: InstanceNameTemplate}
+          nova_enable_db_purge: {get_param: NovaEnableDBPurge}
+        -
+          if:
+          - nova_workers_zero
+          - {}
           - nova::api::osapi_compute_workers: {get_param: NovaWorkers}
-            nova::cron::archive_deleted_rows::hour: '"*/12"'
-            nova::cron::archive_deleted_rows::destination: '"/dev/null"'
-            tripleo.nova_api.firewall_rules:
-              '113 nova_api':
-                dport:
-                  - 6080
-                  - 13080
-                  - 8773
-                  - 3773
-                  - 8774
-                  - 13774
-                  - 8775
-            nova::keystone::authtoken::project_name: 'service'
-            nova::keystone::authtoken::password: {get_param: NovaPassword}
-            nova::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-            nova::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
-            nova::api::enabled: true
-            nova::api::default_floating_pool: 'public'
-            nova::api::sync_db_api: true
-            nova::api::enable_proxy_headers_parsing: true
-            # NOTE: bind IP is found in Heat replacing the network name with the local node IP
-            # for the given network; replacement examples (eg. for internal_api):
-            # internal_api -> IP
-            # internal_api_uri -> [IP]
-            # internal_api_subnet - > IP/CIDR
-            nova::api::api_bind_address: {get_param: [ServiceNetMap, NovaApiNetwork]}
-            nova::wsgi::apache::ssl: false
-            nova::wsgi::apache::bind_host: {get_param: [ServiceNetMap, NovaApiNetwork]}
-            nova::wsgi::apache::servername:
-              str_replace:
-                template:
-                  '"%{::fqdn_$NETWORK}"'
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-            nova::wsgi::apache::workers: {get_param: NovaWorkers}
-            nova::wsgi::apache::bind_host: {get_param: [ServiceNetMap, NovaApiNetwork]}
-            nova::api::neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
-            nova::api::instance_name_template: {get_param: InstanceNameTemplate}
-            nova_enable_db_purge: {get_param: NovaEnableDBPurge}
-
       step_config: |
         include tripleo::profile::base::nova::api
       service_config_settings:
