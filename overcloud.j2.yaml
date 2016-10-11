@@ -214,8 +214,16 @@ resources:
       EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
       DefaultPasswords: {get_attr: [DefaultPasswords, passwords]}
 
+  {{role.name}}HostsDeployment:
+    type: OS::Heat::StructuredDeployments
+    properties:
+      name: {{role.name}}HostsDeployment
+      config: {get_attr: [hostsConfig, config_id]}
+      servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+
   {{role.name}}AllNodesDeployment:
     type: OS::Heat::StructuredDeployments
+    depends_on: {{role.name}}HostsDeployment
     properties:
       name: {{role.name}}AllNodesDeployment
       config: {get_attr: [allNodesConfig, config_id]}
@@ -303,6 +311,16 @@ resources:
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChain, role_data, monitoring_subscriptions]}
 {% endfor %}
 
+  hostsConfig:
+    type: OS::TripleO::Hosts::SoftwareConfig
+    properties:
+      hosts:
+{% for role in roles %}
+        - list_join:
+            - '\n'
+            - {get_attr: [{{role.name}}, hosts_entry]}
+{% endfor %}
+
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
     properties:
@@ -311,12 +329,6 @@ resources:
       cloud_name_storage: {get_param: CloudNameStorage}
       cloud_name_storage_mgmt: {get_param: CloudNameStorageManagement}
       cloud_name_ctlplane: {get_param: CloudNameCtlplane}
-      hosts:
-{% for role in roles %}
-        - list_join:
-            - '\n'
-            - {get_attr: [{{role.name}}, hosts_entry]}
-{% endfor %}
       enabled_services:
         list_join:
           - ','
@@ -517,6 +529,10 @@ resources:
   # Post deployment steps for all roles
   AllNodesDeploySteps:
     type: OS::TripleO::PostDeploySteps
+{% for role in roles %}
+    depends_on:
+      - {{role.name}}AllNodesDeployment
+{% endfor %}
     properties:
       servers:
 {% for role in roles %}
@@ -599,7 +615,7 @@ outputs:
     value:
       list_join:
       - "\n"
-      - - {get_attr: [allNodesConfig, hosts_entries]}
+      - - {get_attr: [hostsConfig, hosts_entries]}
       -
         - str_replace:
             template: IP  HOST
