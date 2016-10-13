@@ -23,7 +23,7 @@ if [ $docker_namespace_is_registry ]; then
     # if namespace is used with local registry, trim all namespacing
     trim_var=$docker_registry
     registry_host="${trim_var%%/*}"
-    /bin/sed -i "s/# INSECURE_REGISTRY='--insecure-registry[ ]'/INSECURE_REGISTRY='--insecure-registry $registry_host'/g" /etc/sysconfig/docker
+    /bin/sed -i -r "s/^[# ]*INSECURE_REGISTRY *=.+$/INSECURE_REGISTRY='--insecure-registry $registry_host'/" /etc/sysconfig/docker
     /usr/bin/systemctl start --no-block docker.service
 fi
 
