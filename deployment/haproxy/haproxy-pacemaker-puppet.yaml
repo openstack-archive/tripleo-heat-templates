@@ -365,6 +365,17 @@ outputs:
             container_image: {get_param: ContainerHAProxyImage}
             container_image_latest: *haproxy_image_pcmklatest
       update_tasks:
+        - name: Tear-down non-HA haproxy container
+          when:
+            - step|int == 1
+          block: &haproxy_teardown_nonha
+            - name: Remove non-HA haproxy container
+              include_role:
+                name: tripleo_container_rm
+              vars:
+                tripleo_container_cli: "{{ container_cli }}"
+                tripleo_containers_to_rm:
+                  - haproxy
         - name: Set HAProxy upgrade facts
           block: &haproxy_update_upgrade_facts
           - name: set is_haproxy_bootstrap_node fact
@@ -432,6 +443,10 @@ outputs:
                 - old_haproxy_image_id.stdout != new_haproxy_image_id.stdout
 
       upgrade_tasks:
+        - name: Tear-down non-HA haproxy container
+          when:
+            - step|int == 0
+          block: *haproxy_teardown_nonha
         - name: Prepare switch of haproxy image name
           when:
             - step|int == 0
@@ -533,7 +548,7 @@ outputs:
               when:
                 - groups['haproxy'] | length > 1
                 - item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ haproxy_short_node_names }}"
+              loop: "{{ haproxy_short_node_names | default([]) }}"
             - fail:
                 msg: >
                   You can't upgrade haproxy without staged
