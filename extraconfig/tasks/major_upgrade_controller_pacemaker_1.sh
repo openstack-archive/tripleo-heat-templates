@@ -31,6 +31,6 @@ fi
 # services will be restart as there are no other constraints
 if [[ -n $(is_bootstrap_node) ]]; then
     migrate_full_to_ng_ha
-    rabbitmq_mitaka_newton_upgrade
+    rabbitmq_newton_ocata_upgrade
 fi
 

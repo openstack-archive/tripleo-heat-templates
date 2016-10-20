@@ -179,3 +179,23 @@ function disable_standalone_ceilometer_api {
         fi
     fi
 }
+
+
+# This function will make sure that the rabbitmq ha policies are converted from mitaka to newton
+# In newton we had: Attributes: set_policy="ha-all ^(?!amq\.).* {"ha-mode":"all"}"
+# In ocata we want: Attributes: set_policy="ha-all ^(?!amq\.).* {"ha-mode":"exactly","ha-params":2}"
+# The nr "2" should be CEIL(N/2) where N is the number of Controllers (i.e. rabbit instances)
+# Note that changing an attribute like this makes the rabbitmq resource restart
+function rabbitmq_newton_ocata_upgrade {
+    if pcs resource show rabbitmq-clone | grep -q -E "Attributes:.*\"ha-mode\":\"all\""; then
+        # Number of controller is obtained by counting how many hostnames we
+        # have in controller_node_names hiera key
+        nr_controllers=$(($(hiera controller_node_names | grep -o "," |wc -l) + 1))
+        nr_queues=$(($nr_controllers / 2 + ($nr_controllers % 2)))
+        if ! [ $nr_queues -gt 0 -a $nr_queues -le $nr_controllers ]; then
+            echo_error "ERROR: The nr. of HA queues during the M/N upgrade is out of range $nr_queues"
+            exit 1
+        fi
+        pcs resource update rabbitmq set_policy='ha-all ^(?!amq\\.).* {"ha-mode":"exactly","ha-params":'"$nr_queues}" --wait=600
+    fi
+}
