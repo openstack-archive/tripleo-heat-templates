@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   OpenStack Cinder API service configured with Puppet
@@ -39,8 +39,22 @@ parameters:
     default:
       tag: openstack.cinder.api
       path: /var/log/cinder/cinder-api.log
+  CinderWorkers:
+    type: string
+    description: Set the number of workers for cinder::wsgi::apache
+    default: '"%{::processorcount}"'
+
+conditions:
+  cinder_workers_zero: {equals : [{get_param: CinderWorkers}, 0]}
 
 resources:
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
 
   CinderBase:
     type: ./cinder-base.yaml
@@ -61,6 +75,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - cinder::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
             cinder::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
             cinder::keystone::authtoken::password: {get_param: CinderPassword}
@@ -85,6 +100,19 @@ outputs:
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
             cinder::api::bind_host: {get_param: [ServiceNetMap, CinderApiNetwork]}
+            cinder::wsgi::apache::ssl: false
+            cinder::wsgi::apache::bind_host: {get_param: [ServiceNetMap, CinderApiNetwork]}
+            cinder::wsgi::apache::servername:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+          -
+            if:
+            - cinder_workers_zero
+            - {}
+            - cinder::wsgi::apache::workers: {get_param: CinderWorkers}
       step_config: |
         include ::tripleo::profile::base::cinder::api
       service_config_settings:
