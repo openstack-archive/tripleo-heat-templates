@@ -18,7 +18,9 @@ echo "127.0.0.1 $HOSTNAME.localdomain $HOSTNAME" >> /etc/hosts
 #echo "ADD_REGISTRY='--registry-mirror $docker_registry'" >> /etc/sysconfig/docker
 
 # Local docker registry 1.8
-if [ $docker_namespace_is_registry ]; then
+# NOTE(mandre) $docker_namespace_is_registry is not a bash variable but is
+# a place holder for text replacement done via heat
+if [ "$docker_namespace_is_registry" = True ]; then
     /usr/bin/systemctl stop docker.service
     # if namespace is used with local registry, trim all namespacing
     trim_var=$docker_registry
