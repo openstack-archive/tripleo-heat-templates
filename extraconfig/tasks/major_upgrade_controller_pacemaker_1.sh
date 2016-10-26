@@ -153,8 +153,8 @@ if [[ -n $(rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "syst
     pushd OVS_UPGRADE
     echo "Attempting to downloading latest openvswitch with yumdownloader"
     yumdownloader --resolve openvswitch
-    echo "Updating openvswitch with nopostun"
-    rpm -U --nopostun ./*.rpm
+    echo "Updating openvswitch with nopostun option"
+    rpm -U --replacepkgs --nopostun ./*.rpm
     popd
 else
     echo "Skipping manual upgrade of openvswitch - no restart in postun detected"
