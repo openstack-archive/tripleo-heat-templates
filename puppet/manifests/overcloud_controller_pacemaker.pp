@@ -119,7 +119,8 @@ if hiera('step') >= 1 {
   $rabbit_ipv6 = str2bool(hiera('rabbit_ipv6', false))
   if $rabbit_ipv6 {
       $rabbit_env = merge(hiera('rabbitmq_environment'), {
-        'RABBITMQ_SERVER_START_ARGS' => '"-proto_dist inet6_tcp"'
+        'RABBITMQ_SERVER_START_ARGS' => '"-proto_dist inet6_tcp"',
+        'RABBITMQ_CTL_ERL_ARGS' => '"-proto_dist inet6_tcp"'
       })
   } else {
     $rabbit_env = hiera('rabbitmq_environment')
