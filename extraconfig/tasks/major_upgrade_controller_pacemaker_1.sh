@@ -17,8 +17,10 @@ check_disk_for_mysql_dump
 # nodes where a service fails to stop, which could be fatal during an upgrade
 # procedure. So we remember the stonith state. If it was enabled we reenable it
 # at the end of this script
-STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk '{ print $2 }')
-pcs property set stonith-enabled=false
+if [[ -n $(is_bootstrap_node) ]]; then
+    STONITH_STATE=$(pcs property show stonith-enabled | grep "stonith-enabled" | awk '{ print $2 }')
+    pcs property set stonith-enabled=false
+fi
 
 # Migrate to HA NG
 if [[ -n $(is_bootstrap_node) ]]; then
@@ -181,8 +183,10 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
 fi
 
 # Let's reset the stonith back to true if it was true, before starting the cluster
-if [ $STONITH_STATE == "true" ]; then
-    pcs -f /var/lib/pacemaker/cib/cib.xml property set stonith-enabled=true
+if [[ -n $(is_bootstrap_node) ]]; then
+    if [ $STONITH_STATE == "true" ]; then
+        pcs -f /var/lib/pacemaker/cib/cib.xml property set stonith-enabled=true
+    fi
 fi
 
 # Pin messages sent to compute nodes to kilo, these will be upgraded later
