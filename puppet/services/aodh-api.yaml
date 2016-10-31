@@ -26,6 +26,9 @@ parameters:
     description: Combination alarms are deprecated in Newton, hence disabled
                  by default. To enable, set this parameter to true.
     type: boolean
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 resources:
   AodhBase:
@@ -41,6 +44,7 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -52,7 +56,7 @@ outputs:
         map_merge:
           - get_attr: [AodhBase, role_data, config_settings]
           - get_attr: [ApacheServiceBase, role_data, config_settings]
-          - aodh::wsgi::apache::ssl: false
+          - aodh::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             aodh::wsgi::apache::servername:
               str_replace:
                 template:
@@ -66,13 +70,18 @@ outputs:
                 dport:
                   - 8042
                   - 13042
+            aodh::api::host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, AodhApiNetwork]}
             # NOTE: bind IP is found in Heat replacing the network name with the
             # local node IP for the given network; replacement examples
             # (eg. for internal_api):
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            aodh::api::host: {get_param: [ServiceNetMap, AodhApiNetwork]}
             aodh::wsgi::apache::bind_host: {get_param: [ServiceNetMap, AodhApiNetwork]}
             tripleo::profile::base::aodh::api::enable_combination_alarms: {get_param: EnableCombinationAlarms}
       service_config_settings:
