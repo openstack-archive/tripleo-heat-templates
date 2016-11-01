@@ -73,8 +73,9 @@ if [[ "$pacemaker_status" == "active" ]] ; then
         pcs cluster stop
     fi
 else
-    echo "Upgrading openstack-puppet-modules"
+    echo "Upgrading openstack-puppet-modules and its dependencies"
     yum -q -y update openstack-puppet-modules
+    yum deplist openstack-puppet-modules | awk '/dependency/{print $2}' | xargs yum -q -y update
     echo "Upgrading other packages is handled by config management tooling"
     echo -n "true" > $heat_outputs_path.update_managed_packages
     exit 0
