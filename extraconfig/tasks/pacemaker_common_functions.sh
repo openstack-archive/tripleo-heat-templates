@@ -284,7 +284,7 @@ function systemctl_swift {
             services=$(systemctl | grep openstack-swift- | grep running | awk '{print $1}')
             ;;
         start)
-            enable_swift_storage=$(hiera -c /etc/puppet/hiera.yaml 'enable_swift_storage')
+            enable_swift_storage=$(hiera -c /etc/puppet/hiera.yaml tripleo::profile::base::swift::storage::enable_swift_storage)
             if [[ $enable_swift_storage != "true" ]]; then
                 services=( openstack-swift-proxy )
             fi
