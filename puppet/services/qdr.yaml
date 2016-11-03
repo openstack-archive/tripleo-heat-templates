@@ -1,0 +1,60 @@
+heat_template_version: ocata
+
+description: >
+  Qpid dispatch router service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  RabbitUserName:
+    default: guest
+    description: The username for Qdr
+    type: string
+  RabbitPassword:
+    description: The password for Qdr
+    type: string
+    hidden: true
+  RabbitClientPort:
+    description: Listening port for Qdr
+    default: 5672
+    type: number
+  MonitoringSubscriptionQdr:
+    default: 'overcloud-qdr'
+    type: string
+
+outputs:
+  role_data:
+    description: Role data for the Qdr role.
+    value:
+      service_name: rabbitmq
+      monitoring_subscription: {get_param: MonitoringSubscriptionQdr}
+      global_config_settings:
+        messaging_notify_service_name: 'amqp'
+        messaging_rpc_service_name: 'amqp'
+        keystone::messaging::amqp::amqp_pre_settled: 'notify'
+      config_settings:
+        tripleo.rabbitmq.firewall_rules:
+          '109 qdr':
+            dport:
+              - {get_param: RabbitClientPort}
+        qdr::listener_addr: {get_param: [ServiceNetMap, QdrNetwork]}
+        # cannot pass qdr::listener_port directly because it needs to be a string
+        # we do the conversion in the puppet layer
+        tripleo::profile::base::qdr::qdr_listener_port: {get_param: RabbitClientPort}
+        tripleo::profile::base::qdr::qdr_username: {get_param: RabbitUserName}
+        tripleo::profile::base::qdr::qdr_password: {get_param: RabbitPassword}
+
+      step_config: |
+        include ::tripleo::profile::base::qdr
