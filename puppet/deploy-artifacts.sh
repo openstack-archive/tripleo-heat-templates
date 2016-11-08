@@ -8,7 +8,7 @@ trap cleanup EXIT
 
 if [ -n "$artifact_urls" ]; then
   for URL in $(echo $artifact_urls | sed -e "s| |\n|g" | sort -u); do
-    curl -o $TMP_DATA/file_data "$artifact_urls"
+    curl --globoff -o $TMP_DATA/file_data "$artifact_urls"
     if file -b $TMP_DATA/file_data | grep RPM &>/dev/null; then
       yum install -y $TMP_DATA/file_data
     elif file -b $TMP_DATA/file_data | grep 'gzip compressed data' &>/dev/null; then
