@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   Ceph External service.
@@ -27,9 +27,20 @@ parameters:
   GlanceRbdPoolName:
     default: images
     type: string
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd']
   GnocchiRbdPoolName:
     default: metrics
     type: string
+  NovaEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Nova
+    type: boolean
   NovaRbdPoolName:
     default: vms
     type: string
@@ -50,6 +61,16 @@ parameters:
   MonitoringSubscriptionCephExternal:
     default: 'overcloud-ceph-external'
     type: string
+
+conditions:
+  glance_multiple_locations:
+    and:
+    - equals:
+      - get_param: GlanceBackend
+      - rbd
+    - equals:
+      - get_param: NovaEnableRbdBackend
+      - true
 
 outputs:
   role_data:
@@ -79,6 +100,7 @@ outputs:
               GLANCE_POOL: {get_param: GlanceRbdPoolName}
               GNOCCHI_POOL: {get_param: GnocchiRbdPoolName}
       service_config_settings:
-        get_attr: [CephBase, role_data, service_config_settings]
+        glance_api:
+          glance::api::show_multiple_locations: {if: [glance_multiple_locations, true, false]}
       step_config: |
         include ::tripleo::profile::base::ceph::client
