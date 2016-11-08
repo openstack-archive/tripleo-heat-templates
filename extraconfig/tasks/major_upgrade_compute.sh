@@ -35,6 +35,10 @@ fi
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y update
 
+# Due to bug#1640177 we need to restart compute agent
+echo "Restarting openstack ceilometer agent compute"
+systemctl restart openstack-ceilometer-compute
+
 ENDOFCAT
 
 # ensure the permissions are OK
