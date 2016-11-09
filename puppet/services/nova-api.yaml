@@ -51,6 +51,9 @@ parameters:
     default:
       tag: openstack.nova.api
       path: /var/log/nova/nova-api.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
@@ -62,6 +65,7 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
   NovaBase:
     type: ./nova-base.yaml
@@ -101,21 +105,26 @@ outputs:
           nova::api::default_floating_pool: 'public'
           nova::api::sync_db_api: true
           nova::api::enable_proxy_headers_parsing: true
+          nova::api::api_bind_address:
+            str_replace:
+              template:
+                '"%{::fqdn_$NETWORK}"'
+              params:
+                $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+          nova::api::service_name: 'httpd'
+          nova::wsgi::apache::ssl: {get_param: EnableInternalTLS}
           # NOTE: bind IP is found in Heat replacing the network name with the local node IP
           # for the given network; replacement examples (eg. for internal_api):
           # internal_api -> IP
           # internal_api_uri -> [IP]
           # internal_api_subnet - > IP/CIDR
-          nova::api::api_bind_address: {get_param: [ServiceNetMap, NovaApiNetwork]}
-          nova::api::service_name: 'httpd'
-          nova::wsgi::apache::ssl: false
           nova::wsgi::apache::bind_host: {get_param: [ServiceNetMap, NovaApiNetwork]}
           nova::wsgi::apache::servername:
             str_replace:
               template:
                 '"%{::fqdn_$NETWORK}"'
               params:
-                $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+                $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
           nova::api::neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
           nova::api::instance_name_template: {get_param: InstanceNameTemplate}
           nova_enable_db_purge: {get_param: NovaEnableDBPurge}
