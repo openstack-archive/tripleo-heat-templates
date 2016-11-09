@@ -18,14 +18,8 @@ check_pcsd()
     fi
 }
 
-check_disk_for_mysql_dump()
+mysql_need_update()
 {
-    # Where to backup current database if mysql need to be upgraded
-    MYSQL_BACKUP_DIR=/var/tmp/mysql_upgrade_osp
-    MYSQL_TEMP_UPGRADE_BACKUP_DIR=/var/lib/mysql-temp-upgrade-backup
-    # Spare disk ratio for extra safety
-    MYSQL_BACKUP_SIZE_RATIO=1.2
-
     # Shall we upgrade mysql data directory during the stack upgrade?
     if [ "$mariadb_do_major_upgrade" = "auto" ]; then
         ret=$(is_mysql_upgrade_needed)
@@ -40,6 +34,17 @@ check_disk_for_mysql_dump()
     else
         DO_MYSQL_UPGRADE=1
     fi
+}
+
+check_disk_for_mysql_dump()
+{
+    # Where to backup current database if mysql need to be upgraded
+    MYSQL_BACKUP_DIR=/var/tmp/mysql_upgrade_osp
+    MYSQL_TEMP_UPGRADE_BACKUP_DIR=/var/lib/mysql-temp-upgrade-backup
+    # Spare disk ratio for extra safety
+    MYSQL_BACKUP_SIZE_RATIO=1.2
+
+    mysql_need_update
 
     if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
         if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
