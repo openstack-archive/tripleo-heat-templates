@@ -1,0 +1,84 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Panko API service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MonitoringSubscriptionPankoApi:
+    default: 'overcloud-ceilometer-panko-api'
+    type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+resources:
+  PankoBase:
+    type: ./panko-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
+outputs:
+  role_data:
+    description: Role data for the Panko API service.
+    value:
+      service_name: panko_api
+      monitoring_subscription: {get_param: MonitoringSubscriptionPankoApi}
+      config_settings:
+        map_merge:
+          - get_attr: [PankoBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - panko::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            panko::wsgi::apache::servername:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, PankoApiNetwork]}
+            panko::api::service_name: 'httpd'
+            panko::api::enable_proxy_headers_parsing: true
+            tripleo.panko_api.firewall_rules:
+              '140 panko-api':
+                dport:
+                  - 8779
+                  - 13779
+            panko::api::host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, PankoApiNetwork]}
+            # NOTE: bind IP is found in Heat replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            panko::wsgi::apache::bind_host: {get_param: [ServiceNetMap, PankoApiNetwork]}
+      service_config_settings:
+        get_attr: [PankoBase, role_data, service_config_settings]
+      step_config: |
+        include tripleo::profile::base::panko::api

@@ -1,0 +1,74 @@
+heat_template_version: 2016-04-08
+
+description: >
+  OpenStack Panko service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  PankoPassword:
+    description: The password for the panko services.
+    type: string
+    hidden: true
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+outputs:
+  role_data:
+    description: Role data for the Panko role.
+    value:
+      service_name: panko_base
+      config_settings:
+        panko_redis_password: {get_param: RedisPassword}
+        panko::db::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://panko:'
+              - {get_param: PankoPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/panko'
+        panko::debug: {get_param: Debug}
+        panko::auth::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+        panko::keystone::authtoken::project_name: 'service'
+        panko::keystone::authtoken::password: {get_param: PankoPassword}
+        panko::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+        panko::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix] }
+        panko::auth::auth_password: {get_param: PankoPassword}
+        panko::auth::auth_region: 'regionOne'
+        panko::auth::auth_tenant_name: 'service'
+      service_config_settings:
+        keystone:
+          panko::keystone::auth::public_url: {get_param: [EndpointMap, PankoPublic, uri]}
+          panko::keystone::auth::internal_url: {get_param: [EndpointMap, PankoInternal, uri]}
+          panko::keystone::auth::admin_url: {get_param: [EndpointMap, PankoAdmin, uri]}
+          panko::keystone::auth::password: {get_param: PankoPassword}
+          panko::keystone::auth::region: {get_param: KeystoneRegion}
+          panko::keystone::auth::tenant: 'service'
+        mysql:
+          panko::db::mysql::user: panko
+          panko::db::mysql::password: {get_param: PankoPassword}
+          panko::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          panko::db::mysql::dbname: panko
+          panko::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
