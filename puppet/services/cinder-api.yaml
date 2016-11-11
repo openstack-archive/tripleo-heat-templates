@@ -43,6 +43,9 @@ parameters:
     type: string
     description: Set the number of workers for cinder::wsgi::apache
     default: '"%{::os_workers}"'
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   cinder_workers_zero: {equals : [{get_param: CinderWorkers}, 0]}
@@ -55,6 +58,7 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
   CinderBase:
     type: ./cinder-base.yaml
@@ -94,21 +98,26 @@ outputs:
                 dport:
                   - 8776
                   - 13776
+            cinder::api::bind_host:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, CinderApiNetwork]}
+            cinder::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            cinder::api::service_name: 'httpd'
             # NOTE: bind IP is found in Heat replacing the network name with the local node IP
             # for the given network; replacement examples (eg. for internal_api):
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            cinder::api::bind_host: {get_param: [ServiceNetMap, CinderApiNetwork]}
-            cinder::api::service_name: 'httpd'
-            cinder::wsgi::apache::ssl: false
             cinder::wsgi::apache::bind_host: {get_param: [ServiceNetMap, CinderApiNetwork]}
             cinder::wsgi::apache::servername:
               str_replace:
                 template:
                   '"%{::fqdn_$NETWORK}"'
                 params:
-                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+                  $NETWORK: {get_param: [ServiceNetMap, CinderApiNetwork]}
           -
             if:
             - cinder_workers_zero
