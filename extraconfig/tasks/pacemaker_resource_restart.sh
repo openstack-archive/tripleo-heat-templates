@@ -28,7 +28,6 @@ if [[ -d "$RESTART_FOLDER" && -n $(pcmk_running) && -n $(is_bootstrap_node) ]]; 
 
 fi
 
-haproxy_status=$(systemctl is-active haproxy)
-if [ "$haproxy_status" = "active" ]; then
+if [ $(systemctl is-active haproxy) = "active" ]; then
     systemctl reload haproxy
 fi
