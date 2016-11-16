@@ -55,7 +55,7 @@ if [[ -n $(is_bootstrap_node) ]]; then
 
     # Run all the db syncs
     # TODO: check if this can be triggered in puppet and removed from here
-    ceilometer-dbsync --config-file=/etc/ceilometer/ceilometer.conf
+    ceilometer-upgrade --config-file=/etc/ceilometer/ceilometer.conf --skip-gnocchi-resource-types
     cinder-manage db sync
     glance-manage --config-file=/etc/glance/glance-registry.conf db_sync
     heat-manage --config-file /etc/heat/heat.conf db_sync
