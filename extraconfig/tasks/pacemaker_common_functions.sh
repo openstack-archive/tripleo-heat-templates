@@ -297,3 +297,27 @@ function systemctl_swift {
         manage_systemd_service $action $service
     done
 }
+
+# Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
+function special_case_ovs_upgrade_if_needed {
+    if [[ -n $(rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart") ]]; then
+        echo "Manual upgrade of openvswitch - restart in postun detected"
+        rm -rf OVS_UPGRADE
+        mkdir OVS_UPGRADE && pushd OVS_UPGRADE
+        echo "Attempting to downloading latest openvswitch with yumdownloader"
+        yumdownloader --resolve openvswitch
+        for pkg in $(ls -1 *.rpm);  do
+            if rpm -U --test $pkg 2>&1 | grep "already installed" ; then
+                echo "Looks like newer version of $pkg is already installed, skipping"
+            else
+                echo "Updating $pkg with nopostun option"
+                rpm -U --replacepkgs --nopostun $pkg
+            fi
+        done
+        popd
+    else
+        echo "Skipping manual upgrade of openvswitch - no restart in postun detected"
+    fi
+
+}
+
