@@ -45,6 +45,25 @@ fi
 pacemaker_status=$(systemctl is-active pacemaker)
 pacemaker_dumpfile=$(mktemp)
 
+# Fix the redis/rabbit resource start/stop timeouts. See https://bugs.launchpad.net/tripleo/+bug/1633455
+# and https://bugs.launchpad.net/tripleo/+bug/1634851
+if [[ "$pacemaker_status" == "active" && \
+      "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]] ; then
+    if pcs resource show rabbitmq | grep -E "start.*timeout=100"; then
+        pcs resource update rabbitmq op start timeout=200s
+    fi
+    if pcs resource show rabbitmq | grep -E "stop.*timeout=90"; then
+        pcs resource update rabbitmq op stop timeout=200s
+    fi
+    if pcs resource show redis | grep -E "start.*timeout=120"; then
+        pcs resource update redis op start timeout=200s
+    fi
+    if pcs resource show redis | grep -E "stop.*timeout=120"; then
+        pcs resource update redis op stop timeout=200s
+    fi
+fi
+
+
 if [[ "$pacemaker_status" == "active" ]] ; then
 SERVICES="memcached
 httpd
