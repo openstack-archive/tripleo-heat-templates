@@ -1,0 +1,91 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Tacker service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  TackerPassword:
+    description: The password for the tacker service account.
+    type: string
+    hidden: true
+  Debug:
+    type: string
+    default: ''
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+
+outputs:
+  role_data:
+    description: Role data for the Tacker role.
+    value:
+      service_name: tacker
+      config_settings:
+        tacker_password: {get_param: TackerPassword}
+        tacker::db::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://tacker:'
+              - {get_param: TackerPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/tacker'
+              - '?bind_address='
+              - "%{hiera('tripleo::profile::base::database::mysql::client_bind_address')}"
+
+        tacker::keystone::auth::tenant: 'service'
+        tacker::keystone::auth::password: {get_param: TackerPassword}
+        tacker::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+        tacker::debug: {get_param: Debug}
+        tacker::rpc_backend: rabbit
+        tacker::rabbit_userid: {get_param: RabbitUserName}
+        tacker::rabbit_password: {get_param: RabbitPassword}
+        tacker::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        tacker::rabbit_port: {get_param: RabbitClientPort}
+        tacker::server::bind_host: {get_param: [ServiceNetMap, TackerApiNetwork]}
+
+        tacker::db::mysql::password: {get_param: TackerPassword}
+        tacker::db::mysql::user: tacker
+        tacker::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+        tacker::db::mysql::dbname: tacker
+        tacker::db::mysql::allowed_hosts:
+          - '%'
+          - {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+
+
+      step_config: |
+        include ::tripleo::profile::base::tacker
