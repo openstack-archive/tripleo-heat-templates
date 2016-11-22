@@ -1,0 +1,90 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Congress service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CongressPassword:
+    description: The password for the congress service account.
+    type: string
+    hidden: true
+  Debug:
+    type: string
+    default: ''
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+
+outputs:
+  role_data:
+    description: Role data for the Congress role.
+    value:
+      service_name: congress
+      config_settings:
+        congress_password: {get_param: CongressPassword}
+        congress::db::database_connection:
+          list_join:
+            - ''
+            - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+              - '://congress:'
+              - {get_param: CongressPassword}
+              - '@'
+              - {get_param: [EndpointMap, MysqlInternal, host]}
+              - '/congress'
+              - '?bind_address='
+              - "%{hiera('tripleo::profile::base::database::mysql::client_bind_address')}"
+        congress::keystone::auth::tenant: 'service'
+        congress::keystone::auth::password: {get_param: CongressPassword}
+        congress::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+        congress::debug: {get_param: Debug}
+        congress::rpc_backend: rabbit
+        congress::rabbit_userid: {get_param: RabbitUserName}
+        congress::rabbit_password: {get_param: RabbitPassword}
+        congress::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+        congress::rabbit_port: {get_param: RabbitClientPort}
+        congress::server::bind_host: {get_param: [ServiceNetMap, CongressApiNetwork]}
+
+        congress::db::mysql::password: {get_param: CongressPassword}
+        congress::db::mysql::user: congress
+        congress::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+        congress::db::mysql::dbname: congress
+        congress::db::mysql::allowed_hosts:
+          - '%'
+          - {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+
+
+      step_config: |
+        include ::tripleo::profile::base::congress
