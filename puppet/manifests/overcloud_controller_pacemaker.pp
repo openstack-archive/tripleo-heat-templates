@@ -440,6 +440,7 @@ if hiera('step') >= 2 {
       resource_params => 'set_policy=\'ha-all ^(?!amq\.).* {"ha-mode":"all"}\'',
       clone_params    => 'ordered=true interleave=true',
       meta_params     => 'notify=true',
+      op_params       => 'start timeout=200s stop timeout=200s',
       require         => Class['::rabbitmq'],
     }
 
@@ -476,6 +477,7 @@ if hiera('step') >= 2 {
       master_params   => '',
       meta_params     => 'notify=true ordered=true interleave=true',
       resource_params => 'wait_last_known_master=true',
+      op_params       => 'start timeout=200s stop timeout=200s',
       require         => Class['::redis'],
     }
 
