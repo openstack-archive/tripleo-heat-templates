@@ -1,8 +1,6 @@
-heat_template_version: 2015-04-30
-
+heat_template_version: '2016-10-14'
 description: >
   Software Config to drive os-net-config for a simple bridge.
-
 parameters:
   ControlPlaneIp:
     default: ''
@@ -35,43 +33,45 @@ parameters:
   ControlPlaneDefaultRoute: # Override this via parameter_defaults
     description: The default route of the control plane network.
     type: string
-    default: '192.0.2.1'
+    default: 192.0.2.1
   EC2MetadataIp: # Override this via parameter_defaults
     description: The IP address of the EC2 metadata server.
     type: string
-    default: '169.254.169.254/32'
-
-
+    default: 169.254.169.254/32
 resources:
   OsNetConfigImpl:
-    type: OS::Heat::StructuredConfig
+    type: OS::Heat::SoftwareConfig
     properties:
-      group: os-apply-config
+      group: script
       config:
-        os_net_config:
-          network_config:
-            -
-              type: linux_bridge
-              name: {get_input: bridge_name}
-              addresses:
-                -
-                  ip_netmask: {get_param: ControlPlaneIp}
-              members:
-                -
-                  type: interface
-                  name: {get_input: interface_name}
+        str_replace:
+          template:
+            get_file: network/scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: linux_bridge
+                name: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: ControlPlaneIp
+                members:
+                - type: interface
+                  name: interface_name
                   # force the MAC address of the bridge to this interface
                   primary: true
-              routes:
-                -
-                  ip_netmask: 0.0.0.0/0
-                  next_hop: {get_param: ControlPlaneDefaultRoute}
+                routes:
+                - ip_netmask: 0.0.0.0/0
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
                   default: true
-                -
-                  ip_netmask: {get_param: EC2MetadataIp}
-                  next_hop: {get_param: ControlPlaneDefaultRoute}
-
+                - ip_netmask:
+                    get_param: EC2MetadataIp
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
 outputs:
   OS::stack_id:
     description: The OsNetConfigImpl resource.
-    value: {get_resource: OsNetConfigImpl}
+    value:
+      get_resource: OsNetConfigImpl
+
