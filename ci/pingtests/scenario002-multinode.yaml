@@ -1,0 +1,137 @@
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template to created resources deployed by scenario002.
+parameters:
+  key_name:
+    type: string
+    description: Name of keypair to assign to servers
+    default: 'pingtest_key'
+  image:
+    type: string
+    description: Name of image to use for servers
+    default: 'pingtest_image'
+  public_net_name:
+    type: string
+    default: 'nova'
+    description: >
+      ID or name of public network for which floating IP addresses will be allocated
+  private_net_name:
+    type: string
+    description: Name of private network to be created
+    default: 'default-net'
+  private_net_cidr:
+    type: string
+    description: Private network address (CIDR notation)
+    default: '192.168.2.0/24'
+  private_net_gateway:
+    type: string
+    description: Private network gateway address
+    default: '192.168.2.1'
+  private_net_pool_start:
+    type: string
+    description: Start of private network IP address allocation pool
+    default: '192.168.2.100'
+  private_net_pool_end:
+    type: string
+    default: '192.168.2.200'
+    description: End of private network IP address allocation pool
+
+resources:
+
+  key_pair:
+    type: OS::Nova::KeyPair
+    properties:
+      save_private_key: true
+      name: {get_param: key_name }
+
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: { get_param: private_net_name }
+
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network_id: { get_resource: private_net }
+      cidr: { get_param: private_net_cidr }
+      gateway_ip: { get_param: private_net_gateway }
+      allocation_pools:
+        - start: { get_param: private_net_pool_start }
+          end: { get_param: private_net_pool_end }
+
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: { get_param: public_net_name }
+
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: router }
+      subnet_id: { get_resource: private_subnet }
+
+  volume1:
+    type: OS::Cinder::Volume
+    properties:
+      name: Volume1
+      image: { get_param: image }
+      size: 1
+
+  server1:
+    type: OS::Nova::Server
+    depends_on: volume1
+    properties:
+      name: Server1
+      block_device_mapping:
+        - device_name: vda
+          volume_id: { get_resource: volume1 }
+      flavor: { get_resource: test_flavor }
+      key_name: { get_resource: key_pair }
+      networks:
+        - port: { get_resource: server1_port }
+
+  server1_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_resource: private_net }
+      fixed_ips:
+        - subnet_id: { get_resource: private_subnet }
+      security_groups: [{ get_resource: server_security_group }]
+
+  server1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    # TODO: investigate why we need this depends_on and if we could
+    # replace it by router_id with get_resource: router_interface
+    depends_on: router_interface
+    properties:
+      floating_network: { get_param: public_net_name }
+      port_id: { get_resource: server1_port }
+
+  server_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group rules for server
+      name: pingtest-security-group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+
+  test_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      ram: 512
+      vcpus: 1
+
+outputs:
+  server1_private_ip:
+    description: IP address of server1 in private network
+    value: { get_attr: [ server1, first_address ] }
+  server1_public_ip:
+    description: Floating IP address of server1 in public network
+    value: { get_attr: [ server1_floating_ip, floating_ip_address ] }
