@@ -48,7 +48,13 @@ $mongodb_replset = hiera('mongodb::server::replset')
 $mongo_node_string = join($mongo_node_ips_with_port, ',')
 $database_connection = "mongodb://${mongo_node_string}/ceilometer?replicaSet=${mongodb_replset}"
 
-include ::ceilometer
+$rabbit_hosts = hiera('rabbitmq_node_ips', undef)
+$rabbit_port  = hiera('ceilometer::rabbit_port', 5672)
+$rabbit_endpoints = suffix(any2array(normalize_ip_for_uri($rabbit_hosts)), ":${rabbit_port}")
+
+class { '::ceilometer' :
+  rabbit_hosts => $rabbit_endpoints,
+}
 
 class {'::ceilometer::db':
   database_connection => $database_connection,
