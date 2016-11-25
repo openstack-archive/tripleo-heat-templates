@@ -170,8 +170,49 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  AddVipsToEtcHosts:
+    default: True
+    type: boolean
+    description: >
+      Set to true to append per network Vips to /etc/hosts on each node.
+
+conditions:
+  add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
 
 resources:
+
+  VipHosts:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        list_join:
+        - '\n'
+        - - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, external]}
+                HOST: {get_param: CloudName}
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
+                HOST: {get_param: CloudNameCtlplane}
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, internal_api]}
+                HOST: {get_param: CloudNameInternal}
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, storage]}
+                HOST: {get_param: CloudNameStorage}
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, storage_mgmt]}
+                HOST: {get_param: CloudNameStorageManagement}
 
   HeatAuthEncryptionKey:
     type: OS::Heat::RandomString
@@ -328,8 +369,15 @@ resources:
     type: OS::TripleO::Hosts::SoftwareConfig
     properties:
       hosts:
+        list_join:
+        - '\n'
+        - - if:
+            - add_vips_to_etc_hosts
+            - {get_attr: [VipHosts, value]}
+            - ''
+        -
 {% for role in roles %}
-        - list_join:
+          - list_join:
             - '\n'
             - {get_attr: [{{role.name}}, hosts_entry]}
 {% endfor %}
@@ -581,32 +629,7 @@ outputs:
       list_join:
       - "\n"
       - - {get_attr: [hostsConfig, hosts_entries]}
-      -
-        - str_replace:
-            template: IP  HOST
-            params:
-              IP: {get_attr: [VipMap, net_ip_map, external]}
-              HOST: {get_param: CloudName}
-        - str_replace:
-            template: IP  HOST
-            params:
-              IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
-              HOST: {get_param: CloudNameCtlplane}
-        - str_replace:
-            template: IP  HOST
-            params:
-              IP: {get_attr: [VipMap, net_ip_map, internal_api]}
-              HOST: {get_param: CloudNameInternal}
-        - str_replace:
-            template: IP  HOST
-            params:
-              IP: {get_attr: [VipMap, net_ip_map, storage]}
-              HOST: {get_param: CloudNameStorage}
-        - str_replace:
-            template: IP  HOST
-            params:
-              IP: {get_attr: [VipMap, net_ip_map, storage_mgmt]}
-              HOST: {get_param: CloudNameStorageManagement}
+      - - {get_attr: [VipHosts, value]}
   EnabledServices:
     description: The services enabled on each role
     value:
