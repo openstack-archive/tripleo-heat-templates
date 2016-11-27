@@ -18,21 +18,21 @@ read -a BlockStorage_hosts_a <<< $BLOCKSTORAGE_HOSTS
 read -a ObjectStorage_hosts_a <<< $OBJECTSTORAGE_HOSTS
 read -a CephStorage_hosts_a <<< $CEPHSTORAGE_HOSTS
 
-roles="Controller Compute BlockStorage ObjectStorage CephStorage"
+roles=${OVERCLOUD_ROLES:-"Controller Compute BlockStorage ObjectStorage CephStorage"}
 admin_user_id=$(openstack user show admin -c id -f value)
 admin_project_id=$(openstack project show admin -c id -f value)
 
 function check_stack {
-    local stack_to_check=$1
+    local stack_to_check=${1:-""}
 
-    if [ "$stack_to_check" = "|" ]; then
+    if [ "$stack_to_check" = "" ]; then
         echo Stack not created
         return 1
     fi
 
     echo Checking if $1 stack is created
     set +e
-    heat resource-list $stack_to_check
+    openstack stack resource list $stack_to_check
     rc=$?
     set -e
 
@@ -49,13 +49,13 @@ for role in $roles; do
         sleep $SLEEP_TIME
     done
 
-    rg_stack=$(heat resource-list overcloud | grep " $role " | awk '{print $4}')
+    rg_stack=$(openstack stack resource show overcloud $role -c physical_resource_id -f value)
     while ! check_stack $rg_stack; do
         sleep $SLEEP_TIME
-        rg_stack=$(heat resource-list overcloud | grep " $role " | awk '{print $4}')
+        rg_stack=$(openstack stack resource show overcloud $role -c physical_resource_id -f value)
     done
 
-    stacks=$(heat resource-list $rg_stack | grep OS::TripleO::$role | awk '{print $4}')
+    stacks=$(openstack stack resource list $rg_stack -c physical_resource_id -f value)
 
     i=0
 
@@ -65,13 +65,13 @@ for role in $roles; do
             server_resource_name="NovaCompute"
         fi
 
-        server_stack=$(heat resource-list $stack | grep " $server_resource_name " | awk '{print $4}')
+        server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         while ! check_stack $server_stack; do
             sleep $SLEEP_TIME
-            server_stack=$(heat resource-list $stack | grep " $server_resource_name " | awk '{print $4}')
+            server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         done
 
-        deployed_server_stack=$(heat resource-list $server_stack | grep "deployed-server" | awk '{print $4}')
+        deployed_server_stack=$(openstack stack resource show $server_stack deployed-server -c physical_resource_id -f value)
 
         echo "======================"
         echo "$role$i os-collect-config.conf configuration:"
