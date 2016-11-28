@@ -35,50 +35,60 @@ parameters:
     description: Whether to use Galera instead of regular MariaDB.
     type: boolean
 
+resources:
+
+  MySQLTLS:
+    type: OS::TripleO::Services::MySQLTLS
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+
 outputs:
   role_data:
     description: Service MySQL using composable services.
     value:
       service_name: mysql
       config_settings:
-        # The Galera package should work in cluster and
-        # non-cluster modes based on the config file.
-        # We set the package name here explicitly so
-        # that it matches what we pre-install
-        # in tripleo-puppet-elements.
-        mysql::server::package_name: 'mariadb-galera-server'
-        mysql::server::manage_config_file: true
-        tripleo.mysql.firewall_rules:
-          '104 mysql galera':
-            dport:
-              - 873
-              - 3306
-              - 4444
-              - 4567
-              - 4568
-              - 9200
-        mysql_max_connections: {get_param: MysqlMaxConnections}
-        mysql::server::root_password:
-          yaql:
-            expression: $.data.passwords.where($ != '').first()
-            data:
-              passwords:
-                - {get_param: MysqlRootPassword}
-                - {get_param: [DefaultPasswords, mysql_root_password]}
-        mysql_clustercheck_password: {get_param: MysqlClustercheckPassword}
-        enable_galera: {get_param: EnableGalera}
-        # NOTE: bind IP is found in Heat replacing the network name with the
-        # local node IP for the given network; replacement examples
-        # (eg. for internal_api):
-        # internal_api -> IP
-        # internal_api_uri -> [IP]
-        # internal_api_subnet - > IP/CIDR
-        mysql_bind_host: {get_param: [ServiceNetMap, MysqlNetwork]}
-        tripleo::profile::base::database::mysql::bind_address:
-          str_replace:
-            template:
-              '"%{::fqdn_$NETWORK}"'
-            params:
-              $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+        map_merge:
+          - get_attr: [MySQLTLS, role_data, config_settings]
+          -
+            # The Galera package should work in cluster and
+            # non-cluster modes based on the config file.
+            # We set the package name here explicitly so
+            # that it matches what we pre-install
+            # in tripleo-puppet-elements.
+            mysql::server::package_name: 'mariadb-galera-server'
+            mysql::server::manage_config_file: true
+            tripleo.mysql.firewall_rules:
+              '104 mysql galera':
+                dport:
+                  - 873
+                  - 3306
+                  - 4444
+                  - 4567
+                  - 4568
+                  - 9200
+            mysql_max_connections: {get_param: MysqlMaxConnections}
+            mysql::server::root_password:
+              yaql:
+                expression: $.data.passwords.where($ != '').first()
+                data:
+                  passwords:
+                    - {get_param: MysqlRootPassword}
+                    - {get_param: [DefaultPasswords, mysql_root_password]}
+            mysql_clustercheck_password: {get_param: MysqlClustercheckPassword}
+            enable_galera: {get_param: EnableGalera}
+            # NOTE: bind IP is found in Heat replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            mysql_bind_host: {get_param: [ServiceNetMap, MysqlNetwork]}
+            tripleo::profile::base::database::mysql::bind_address:
+              str_replace:
+                template:
+                  '"%{::fqdn_$NETWORK}"'
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
       step_config: |
         include ::tripleo::profile::base::database::mysql
