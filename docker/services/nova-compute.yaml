@@ -1,0 +1,69 @@
+heat_template_version: 2015-04-30
+
+description: >
+  OpenStack containerized Nova Compute service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerNovaComputeImage:
+    description: image
+    default: 'centos-binary-nova-compute'
+    type: string
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  NovaComputeBase:
+    type: ../../puppet/services/nova-compute.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Nova Compute service.
+    value:
+      config_settings: {get_attr: [NovaComputeBase, role_data, config_settings]}
+      step_config: {get_attr: [NovaComputeBase, role_data, step_config]}
+      puppet_tags: nova_config,nova_paste_api_ini
+      docker_config:
+        step_1:
+          novacompute:
+            image:
+              list_join:
+              - '/'
+              - [ {get_param: DockerNamespace}, {get_param: DockerNovaComputeImage} ]
+            net: host
+            privileged: true
+            user: root
+            restart: always
+            volumes:
+              - /var/lib/etc-data/json-config/nova-compute.json:/var/lib/kolla/config_files/config.json
+              - /var/lib/etc-data/nova/nova.conf:/var/lib/kolla/config_files/nova.conf:ro
+              - /var/lib/etc-data/nova/rootwrap.conf:/var/lib/kolla/config_files/rootwrap.conf:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /lib/modules:/lib/modules:ro
+              - /run:/run
+              - /dev:/dev
+              - logs:/var/log/kolla/
+              - /etc/iscsi:/etc/iscsi
+              - libvirtd:/var/lib/libvirt
+              - nova_compute:/var/lib/nova/
+            environment:
+             - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_2: {}
