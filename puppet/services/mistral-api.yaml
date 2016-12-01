@@ -50,3 +50,22 @@ outputs:
         get_attr: [MistralBase, role_data, service_config_settings]
       step_config: |
         include ::tripleo::profile::base::mistral::api
+      upgrade_tasks:
+        - name: Check if mistral api is deployed
+          command: systemctl is-enabled openstack-mistral-api
+          tags: common
+          ignore_errors: True
+          register: mistral_api_enabled
+        - name: "PreUpgrade step0,validation: Check if openstack-mistral-api is running"
+          shell: >
+            /usr/bin/systemctl show 'openstack-mistral-api' --property ActiveState |
+            grep '\bactive\b'
+          when: mistral_api_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop mistral_api service
+          tags: step1
+          service: name=openstack-mistral-api state=stopped
+        - name: Install openstack-mistral-api package if it was disabled
+          tags: step3
+          yum: name=openstack-mistral-api state=latest
+          when: mistral_api_enabled.rc != 0
