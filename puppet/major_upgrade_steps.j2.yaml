@@ -1,0 +1,98 @@
+heat_template_version: 2016-10-14
+description: 'Upgrade steps for all roles'
+
+parameters:
+  servers:
+    type: json
+
+  role_data:
+    type: json
+    description: Mapping of Role name e.g Controller to the per-role data
+
+  UpdateIdentifier:
+    type: string
+    description: >
+      Setting to a previously unused value during stack-update will trigger
+      the Upgrade resources to re-run on all roles.
+
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
+
+resources:
+
+  # For the UpgradeInit also rename /etc/resolv.conf.save for +bug/1567004
+  UpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+{% for role in roles %}
+  {{role.name}}Upgrade_Init:
+    type: OS::Heat::StructuredDeploymentGroup
+    properties:
+      name: {{role.name}}Upgrade_Init
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: UpgradeInitConfig}
+{% endfor %}
+
+# Upgrade Steps for all roles
+# FIXME(shardy): would be nice to make the number of steps configurable
+{% for step in range(1, 8) %}
+  {% for role in roles %}
+  # Step {{step}} resources
+  {{role.name}}UpgradeConfig_Step{{step}}:
+    type: OS::TripleO::UpgradeConfig
+  # The UpgradeConfig resources could actually be created without
+  # serialization, but the event output is easier to follow if we
+  # do, and there should be minimal performance hit (creating the
+  # config is cheap compared to the time to apply the deployment).
+    depends_on:
+  {% if step == 1 %}
+      - {{role.name}}Upgrade_Init
+  {% else %}
+      {% for dep in roles %}
+      - {{dep.name}}Upgrade_Step{{step -1}}
+      {% endfor %}
+  {% endif %}
+    properties:
+      UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_tasks]}
+      step: {{step}}
+
+  {{role.name}}Upgrade_Step{{step}}:
+    type: OS::Heat::StructuredDeploymentGroup
+  {% if step > 1 %}
+    depends_on:
+      {% for dep in roles %}
+      - {{dep.name}}Upgrade_Step{{step -1}}
+      {% endfor %}
+  {% endif %}
+    properties:
+      name: {{role.name}}Upgrade_Step{{step}}
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}UpgradeConfig_Step{{step}}}
+      input_values:
+        role: {{role.name}}
+        update_identifier: {get_param: UpdateIdentifier}
+  {% endfor %}
+{% endfor %}
+
+outputs:
+  # Output the config for each role, just use Step1 as the config should be
+  # the same for all steps (only the tag provided differs)
+  upgrade_configs:
+    description: The per-role upgrade configuration used
+    value:
+{% for role in roles %}
+      {{role.name.lower()}}: {get_attr: [{{role.name}}UpgradeConfig_Step1, upgrade_config]}
+{% endfor %}
+

@@ -22,8 +22,8 @@ Config Settings
 Each service may define a config_settings output variable which returns
 Hiera settings to be configured.
 
-Steps
------
+Deployment Steps
+----------------
 
 Each service may define an output variable which returns a puppet manifest
 snippet that will run at each of the following steps. Earlier manifests
@@ -48,3 +48,29 @@ are re-asserted when applying latter ones.
    4) General OpenStack Services
 
    5) Service activation (Pacemaker)
+
+Upgrade Steps
+-------------
+
+Each service template may optionally define a `upgrade_tasks` key, which is a
+list of ansible tasks to be performed during the upgrade process.
+
+Similar to the step_config, we allow a series of steps for the per-service
+upgrade sequence, defined as ansible tasks with a tag e.g "step1" for the first
+step, "step2" for the second, etc.
+
+   Steps/tages correlate to the following:
+
+   1) Quiesce the control-plane, e.g disable LoadBalancer, stop pacemaker cluster
+
+   2) Stop all control-plane services, ready for upgrade
+
+   3) Perform a package update, (either specific packages or the whole system)
+
+   4) Start services needed for migration tasks (e.g DB)
+
+   5) Perform any migration tasks, e.g DB sync commands
+
+   6) Start control-plane services
+
+   7) Any additional online migration tasks (e.g data migrations)
