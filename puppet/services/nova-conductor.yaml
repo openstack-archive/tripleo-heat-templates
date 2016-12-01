@@ -30,6 +30,10 @@ parameters:
     default:
       tag: openstack.nova.scheduler
       path: /var/log/nova/nova-scheduler.log
+  UpgradeLevelNovaCompute:
+    type: string
+    description: Nova Compute upgrade level
+    default: auto
 
 conditions:
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
@@ -61,3 +65,19 @@ outputs:
           - nova::conductor::workers: {get_param: NovaWorkers}
       step_config: |
         include tripleo::profile::base::nova::conductor
+      upgrade_tasks:
+        - name: Stop nova_conductor service
+          tags: step2
+          service: name=openstack-nova-conductor state=stopped
+        - name: update nova conductor
+          tags: step2
+          yum: name=openstack-nova-conductor state=latest
+        # If not already set by puppet (e.g a pre-ocata version), set the
+        # upgrade_level for compute to "auto"
+        - name: Set compute upgrade level to auto
+          tags: step3
+          ini_file:
+            str_replace:
+              template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
+              params:
+                LEVEL: {get_param: UpgradeLevelNovaCompute}
