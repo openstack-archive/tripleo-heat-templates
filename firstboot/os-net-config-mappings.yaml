@@ -9,8 +9,28 @@ description: >
           nic1: "00:c8:7c:e6:f0:2e"
         node2:
           nic1: "00:18:7d:99:0c:b6"
-  This will result in the first nodeN entry where a mac matches a
-  local device being written as a mapping file for os-net-config in
+        node3:
+          dmiString: 'system-uuid'
+          id: 'A8C85861-1B16-4803-8689-AFC62984F8F6'
+          nic1: em3
+        # Dell PowerEdge
+        nodegroup1:
+          dmiString: "system-product-name"
+          id: "PowerEdge R630"
+          nic1: em3
+          nic2: em1
+          nic3: em2
+        # Cisco UCS B200-M4"
+        nodegroup2:
+          dmiString: "system-product-name"
+          id: "UCSB-B200-M4"
+          nic1: enp7s0
+          nic2: enp6s0
+
+  This will result in the first node* entry where either:
+       a) a mac matches a local device
+    or b) a DMI String matches the specified id
+  being written as a mapping file for os-net-config in
   /etc/os-net-config/mapping.yaml
 
 parameters:
@@ -47,15 +67,36 @@ resources:
             echo '$node_lookup' | python -c "
             import json
             import sys
+            import copy
+            from subprocess import PIPE, Popen
             import yaml
+
+            def write_mapping_file(interface_mapping):
+              with open('/etc/os-net-config/mapping.yaml', 'w') as f:
+                yaml.safe_dump(interface_mapping, f,  default_flow_style=False)
+
             input = sys.stdin.readline() or '{}'
             data = json.loads(input)
             for node in data:
+              interface_mapping = {'interface_mapping':
+                                      copy.deepcopy(data[node])}
+              if 'dmiString' in interface_mapping['interface_mapping']:
+                del interface_mapping['interface_mapping']['dmiString']
+              if 'id' in interface_mapping['interface_mapping']:
+                del interface_mapping['interface_mapping']['id']
+              # Match on mac addresses first
               if any(x in '$eth_addr'.split(',') for x in data[node].values()):
-                interface_mapping = {'interface_mapping': data[node]}
-                with open('/etc/os-net-config/mapping.yaml', 'w') as f:
-                  yaml.safe_dump(interface_mapping, f, default_flow_style=False)
+                write_mapping_file(interface_mapping)
                 break
+              # If data contain dmiString and id keys, try to match node(group)
+              if 'dmiString' in data[node] and 'id' in data[node]:
+                ps = Popen([ 'dmidecode',
+                             '--string', data[node].get('dmiString') ],
+                             stdout=PIPE)
+                out, err = ps.communicate()
+                if data[node].get('id') == out.rstrip():
+                  write_mapping_file(interface_mapping)
+                  break
             "
           params:
             $node_lookup: {get_param: NetConfigDataLookup}
