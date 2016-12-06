@@ -30,17 +30,9 @@ write_entries() {
 }
 
 if [ ! -z "$hosts" ]; then
-    # cloud-init files are /etc/cloud/templates/hosts.OSNAME.tmpl
-    DIST=$(lsb_release -is | tr -s [A-Z] [a-z])
-    case $DIST in
-        fedora|redhatenterpriseserver)
-            name="redhat"
-            ;;
-        *)
-            name="$DIST"
-            ;;
-    esac
-    write_entries "/etc/cloud/templates/hosts.${name}.tmpl" "$hosts"
+    for tmpl in /etc/cloud/templates/hosts.*.tmpl ; do
+        write_entries "$tmpl" "$hosts"
+    done
     write_entries "/etc/hosts" "$hosts"
 else
     echo "No hosts in Heat, nothing written."
