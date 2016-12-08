@@ -58,6 +58,10 @@ Role Options
 * description: (string) as few sentences describing the role and information
   pertaining to the usage of the role.
 
+ * networks: (list), optional list of networks which the role will have
+   access to when network isolation is enabled. The names should match
+   those defined in network_data.yaml.
+
 Working with Roles
 ==================
 The tripleoclient provides a series of commands that can be used to view
