@@ -108,7 +108,9 @@ EOF_CAT
 }
 
 if [ -n '$network_config' ]; then
-    trap configure_safe_defaults EXIT
+    if [ -z "${disable_configure_safe_defaults:-''}" ]; then
+        trap configure_safe_defaults EXIT
+    fi
 
     mkdir -p /etc/os-net-config
     # Note these variables come from the calling heat SoftwareConfig

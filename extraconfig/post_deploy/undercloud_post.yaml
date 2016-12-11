@@ -1,0 +1,93 @@
+heat_template_version: ocata
+
+description: >
+  Post-deployment for the TripleO undercloud
+
+parameters:
+  servers:
+    type: json
+  DeployedServerPortMap:
+    default: {}
+    type: json
+  UndercloudDhcpRangeStart:
+    type: string
+    default: '192.168.24.5'
+  UndercloudDhcpRangeEnd:
+    type: string
+    default: '192.168.24.24'
+  UndercloudNetworkCidr:
+    type: string
+    default: '192.168.24.0/24'
+  UndercloudNetworkGateway:
+    type: string
+    default: '192.168.24.1'
+  UndercloudNameserver:
+    type: string
+    default: ''
+  AdminPassword: #supplied by tripleo-undercloud-passwords.yaml
+    type: string
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    hidden: True
+  SSLCertificate:
+    description: >
+      The content of the SSL certificate (without Key) in PEM format.
+    type: string
+    default: ""
+    hidden: True
+  SnmpdReadonlyUserPassword:
+    description: The user password for SNMPd with readonly rights running on all Overcloud nodes
+    type: string
+    hidden: true
+
+conditions:
+
+  ssl_disabled: {equals : [{get_param: SSLCertificate}, ""]}
+
+resources:
+
+  UndercloudPostConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: deploy_identifier
+        - name: local_ip
+        - name: undercloud_dhcp_start
+        - name: undercloud_dhcp_end
+        - name: undercloud_network_cidr
+        - name: undercloud_network_gateway
+        - name: undercloud_nameserver
+        - name: admin_password
+        - name: auth_url
+        - name: snmp_readonly_user_password
+      config: {get_file: ./undercloud_post.sh}
+
+  UndercloudPostDeployment:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      servers: {get_param: servers}
+      config: {get_resource: UndercloudPostConfig}
+      input_values:
+        local_ip: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
+        undercloud_dhcp_start: {get_param: UndercloudDhcpRangeStart}
+        undercloud_dhcp_end: {get_param: UndercloudDhcpRangeEnd}
+        undercloud_network_cidr: {get_param: UndercloudNetworkCidr}
+        undercloud_network_gateway: {get_param: UndercloudNetworkGateway}
+        undercloud_nameserver: {get_param: UndercloudNameserver}
+        ssl_certificate: {get_param: SSLCertificate}
+        admin_password: {get_param: AdminPassword}
+        snmp_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+        # if SSL is enabled we use the public virtual ip as the stackrc endpoint
+        auth_url:
+          if:
+          - ssl_disabled
+          - list_join:
+            - ''
+            - - 'http://'
+              - {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
+              - ':5000/v2.0'
+          - list_join:
+            - ''
+            - - 'https://'
+              - {get_param: [DeployedServerPortMap, 'public_virtual_ip', fixed_ips, 0, ip_address]}
+              - ':13000/v2.0'
