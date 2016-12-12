@@ -76,7 +76,7 @@ elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
     # If on ext4, we need to enforce lower values for name and namespace len
     # or ceph-osd will refuse to start, see: http://tracker.ceph.com/issues/16187
     for OSD_ID in $OSD_IDS; do
-      OSD_FS=$(findmnt -n -o FSTYPE -T /var/lib/ceph/osd/ceph-${OSD_ID})
+      OSD_FS=$(df -l --output=fstype /var/lib/ceph/osd/ceph-${OSD_ID} | tail -n +2)
       if [ ${OSD_FS} = ext4 ]; then
         crudini --set /etc/ceph/ceph.conf global osd_max_object_name_len 256
         crudini --set /etc/ceph/ceph.conf global osd_max_object_namespace_len 64
