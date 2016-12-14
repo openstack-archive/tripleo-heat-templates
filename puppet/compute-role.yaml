@@ -124,6 +124,12 @@ parameters:
     type: string
     description: Command which will be run whenever configuration data changes
     default: os-refresh-config --timeout 14400
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
 
 resources:
 
@@ -350,6 +356,27 @@ resources:
         bridge_name: {get_param: NeutronPhysicalBridge}
         interface_name: {get_param: NeutronPublicInterface}
 
+  NovaComputeUpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+  # Note we may be able to make this conditional on UpgradeInitCommandNotEmpty
+  # but https://bugs.launchpad.net/heat/+bug/1649900 needs fixing first
+  NovaComputeUpgradeInitDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: NetworkDeployment
+    properties:
+      name: NovaComputeUpgradeInitDeployment
+      server: {get_resource: NovaCompute}
+      config: {get_resource: NovaComputeUpgradeInitConfig}
+
   NovaComputeConfig:
     type: OS::Heat::StructuredConfig
     properties:
@@ -395,7 +422,7 @@ resources:
 
   NovaComputeDeployment:
     type: OS::TripleO::SoftwareDeployment
-    depends_on: NetworkDeployment
+    depends_on: NovaComputeUpgradeInitDeployment
     properties:
       name: NovaComputeDeployment
       config: {get_resource: NovaComputeConfig}
