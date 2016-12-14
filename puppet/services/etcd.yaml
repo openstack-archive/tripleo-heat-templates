@@ -1,0 +1,58 @@
+heat_template_version: ocata
+
+description: >
+  Etcd service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  EtcdInitialClusterToken:
+    default: 'etcd-tripleo'
+    description: Initial cluster token for the etcd cluster during bootstrap.
+    type: string
+  MonitoringSubscriptionEtcd:
+    default: 'overcloud-etcd'
+    type: string
+
+outputs:
+  role_data:
+    description: Role data for the Etcd role.
+    value:
+      service_name: etcd
+      monitoring_subscription: {get_param: MonitoringSubscriptionEtcd}
+      config_settings:
+        etcd::etcd_name:
+          str_replace:
+            template:
+              '"%{::fqdn_$NETWORK}"'
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+        # NOTE: bind IP is found in Heat replacing the network name with the local node IP
+        # for the given network; replacement examples (eg. for internal_api):
+        # internal_api -> IP
+        # internal_api_uri -> [IP]
+        # internal_api_subnet - > IP/CIDR
+        tripleo::profile::base::etcd::bind_ip: {get_param: [ServiceNetMap, EtcdNetwork]}
+        tripleo::profile::base::etcd::client_port: '2379'
+        tripleo::profile::base::etcd::peer_port: '2380'
+        etcd::initial_cluster_token: {get_param: EtcdInitialClusterToken}
+        etcd::manage_package: false
+        tripleo.etcd.firewall_rules:
+          '141 etcd':
+            dport:
+              - 2379
+              - 2380
+      step_config: |
+        include ::tripleo::profile::base::etcd
