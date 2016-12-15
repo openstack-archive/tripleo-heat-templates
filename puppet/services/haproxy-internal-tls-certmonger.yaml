@@ -19,6 +19,22 @@ parameters:
                  via parameter_defaults in the resource registry.
     type: json
 
+resources:
+
+  HAProxyNetworks:
+    type: OS::Heat::Value
+    properties:
+      value:
+        # NOTE(jaosorior) Get unique network names to create
+        # certificates for those. We skip the tenant network since
+        # we don't need a certificate for that, and the external
+        # network will be handled in another template.
+        yaql:
+          expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
+          data:
+            map:
+              get_param: ServiceNetMap
+
 outputs:
   role_data:
     description: Role data for the HAProxy internal TLS via certmonger role.
@@ -39,13 +55,12 @@ outputs:
                 postsave_cmd: "" # TODO
                 principal: "haproxy/%{hiera('cloud_name_NETWORK')}"
             for_each:
-              NETWORK:
-                # NOTE(jaosorior) Get unique network names to create
-                # certificates for those. We skip the tenant network since
-                # we don't need a certificate for that, and the external
-                # network will be handled in another template.
-                yaql:
-                  expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
-                  data:
-                    map:
-                      get_param: ServiceNetMap
+              NETWORK: {get_attr: [HAProxyNetworks, value]}
+      metadata_settings:
+        repeat:
+          template:
+          - service: haproxy
+            network: $NETWORK
+            type: vip
+          for_each:
+            $NETWORK: {get_attr: [HAProxyNetworks, value]}

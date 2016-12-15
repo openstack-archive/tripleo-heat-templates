@@ -21,6 +21,22 @@ parameters:
                  via parameter_defaults in the resource registry.
     type: json
 
+resources:
+
+  ApacheNetworks:
+    type: OS::Heat::Value
+    properties:
+      value:
+        # NOTE(jaosorior) Get unique network names to create
+        # certificates for those. We skip the tenant network since
+        # we don't need a certificate for that, and the external
+        # network will be handled in another template.
+        yaql:
+          expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
+          data:
+            map:
+              get_param: ServiceNetMap
+
 outputs:
   role_data:
     description: Role data for the Apache role.
@@ -38,13 +54,12 @@ outputs:
                   hostname: "%{hiera('fqdn_NETWORK')}"
                   principal: "HTTP/%{hiera('fqdn_NETWORK')}"
               for_each:
-                NETWORK:
-                  # NOTE(jaosorior) Get unique network names to create
-                  # certificates for those. We skip the tenant network since
-                  # we don't need a certificate for that, and the external
-                  # network will be handled in another template.
-                  yaql:
-                    expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
-                    data:
-                      map:
-                        get_param: ServiceNetMap
+                NETWORK: {get_attr: [ApacheNetworks, value]}
+      metadata_settings:
+        repeat:
+          template:
+            - service: HTTP
+              network: $NETWORK
+              type: node
+          for_each:
+            $NETWORK: {get_attr: [ApacheNetworks, value]}
