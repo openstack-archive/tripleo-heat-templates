@@ -74,3 +74,17 @@ step, "step2" for the second, etc.
    6) Start control-plane services
 
    7) Any additional online migration tasks (e.g data migrations)
+
+Nova Server Metadata Settings
+-----------------------------
+
+One can use the hook of type `OS::TripleO::ServiceServerMetadataHook` to pass
+entries to the nova instances' metadata. It is, however, disabled by default.
+In order to overwrite it one needs to define it in the resource registry. An
+implementation of this hook needs to conform to the following:
+
+* It needs to define an input called `RoleData` of json type. This gets as
+  input the contents of the `role_data` for each role's ServiceChain.
+
+* This needs to define an output called `metadata` which will be given to the
+  Nova Server resource as the instance's metadata.
