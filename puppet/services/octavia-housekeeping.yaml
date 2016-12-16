@@ -1,0 +1,70 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Octavia Housekeeping service.
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OctaviaAmphoraExpiryAge:
+    default: 0
+    description: The interval in seconds after which an unused Amphora will
+                 be considered expired and cleaned up. If left to 0, the
+                 configuration will not be set and the system will use
+                 the service defaults.
+    type: number
+  MonitoringSubscriptionOctaviaHousekeeping:
+    default: 'overcloud-octavia-housekeeping'
+    type: string
+  OctaviaHousekeepingLoggingSource:
+    type: json
+    default:
+      tag: openstack.octavia.housekeeping
+      path: /var/log/octavia/housekeeping.log
+
+conditions:
+  amphora_expiry_is_zero: {equals: [{get_param: OctaviaAmphoraExpiryAge}, 0]}
+
+
+resources:
+
+  OctaviaBase:
+    type: ./octavia-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Octavia Housekeeping service.
+    value:
+      service_name: octavia_housekeeping
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaHousekeeping}
+      logging_source: {get_param: OctaviaHousekeepingLoggingSource}
+      logging_groups:
+        - octavia
+      config_settings:
+        map_merge:
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          -
+            if:
+            - amphora_expiry_is_zero
+            - {}
+            - octavia::worker::amphora_expiry_age: {get_param: OctaviaAmphoraExpiryAge}
+      step_config: |
+        include tripleo::profile::base::octavia::housekeeping
+
+

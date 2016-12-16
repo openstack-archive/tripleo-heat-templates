@@ -1,0 +1,102 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Octavia Worker service.
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MonitoringSubscriptionOctaviaWorker:
+    default: 'overcloud-octavia-worker'
+    type: string
+  OctaviaWorkerLoggingSource:
+    type: json
+    default:
+      tag: openstack.octavia.worker
+      path: /var/log/octavia/worker.log
+  OctaviaAmphoraImageTag:
+    default: ''
+    description: Glance image tag for identifying the amphora image.
+    type: string
+  OctaviaAmphoraNetworkList:
+    default: []
+    description: List of networks to attach to amphorae.
+    type: comma_delimited_list
+  OctaviaLoadBalancerTopology:
+    default: ''
+    description: Load balancer topology configuration.
+    type: string
+  OctaviaFlavorId:
+    default: 65
+    description: Nova flavor ID to be used when creating the nova flavor for
+                 amphora.
+    type: number
+  OctaviaFlavorProperties:
+    default: {}
+    description: Dictionary describing the nova flavor for amphora.
+    type: json
+  OctaviaManageNovaFlavor:
+    default: false
+    description: Configure the nova flavor for the amphora.
+    type: boolean
+  OctaviaSSHKeyName:
+    default: 'octavia-ssh-key'
+    description: name for ssh key to be configured so the amphora can
+                 be logged into.
+    type: string
+
+conditions:
+  octavia_topology_unset: {equals : [{get_param: OctaviaLoadBalancerTopology}, ""]}
+  octavia_amphora_tag_unset: {equals: [{get_param: OctaviaAmphoraImageTag}, ""]}
+
+resources:
+
+  OctaviaBase:
+    type: ./octavia-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Octavia WoWorker service.
+    value:
+      service_name: octavia_worker
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaWorker}
+      logging_source: {get_param: OctaviaWorkerLoggingSource}
+      logging_groups:
+        -octavia
+      config_settings:
+        map_merge:
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          - octavia::worker::amp_boot_network_list: {get_param: OctaviaAmphoraNetworkList}
+            octavia::worker::amp_flavor_id: {get_param: OctaviaFlavorId}
+            octavia::worker::nova_flavor_config: {get_param: OctaviaFlavorProperties}
+            octavia::worker::manage_nova_flavor: {get_param: OctaviaManageNovaFlavor}
+            octavia::worker::ssh_key_name: {get_param: OctaviaSSHKeyName}
+          -
+            if:
+            - octavia_amphora_tag_unset
+            - {}
+            - octavia::worker::amp_image_tag: {get_param: OctaviaAmphoraImageTag}
+          -
+            if:
+            - octavia_topology_unset
+            - {}
+            - octavia::worker::loadbalancer_topology: {get_param: OctaviaLoadBalancerTopology}
+      step_config: |
+        include tripleo::profile::base::octavia::worker
+
