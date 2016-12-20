@@ -138,6 +138,12 @@ parameters:
     type: string
     description: Command which will be run whenever configuration data changes
     default: os-refresh-config --timeout 14400
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
 
 parameter_groups:
 - label: deprecated
@@ -384,10 +390,30 @@ resources:
       server: {get_resource: Controller}
       NodeIndex: {get_param: NodeIndex}
 
+  ControllerUpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+  # Note we may be able to make this conditional on UpgradeInitCommandNotEmpty
+  # but https://bugs.launchpad.net/heat/+bug/1649900 needs fixing first
+  ControllerUpgradeInitDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: NetworkDeployment
+    properties:
+      name: ControllerUpgradeInitDeployment
+      server: {get_resource: Controller}
+      config: {get_resource: ControllerUpgradeInitConfig}
 
   ControllerDeployment:
     type: OS::TripleO::SoftwareDeployment
-    depends_on: NetworkDeployment
+    depends_on: ControllerUpgradeInitDeployment
     properties:
       name: ControllerDeployment
       config: {get_resource: ControllerConfig}

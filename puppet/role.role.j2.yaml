@@ -124,6 +124,13 @@ parameters:
   LoggingGroups:
     type: comma_delimited_list
     default: []
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
+
 
 resources:
   {{role}}:
@@ -345,9 +352,30 @@ resources:
       server: {get_resource: {{role}}}
       actions: {get_param: NetworkDeploymentActions}
 
+  {{role}}UpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+  # Note we may be able to make this conditional on UpgradeInitCommandNotEmpty
+  # but https://bugs.launchpad.net/heat/+bug/1649900 needs fixing first
+  {{role}}UpgradeInitDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: NetworkDeployment
+    properties:
+      name: {{role}}UpgradeInitDeployment
+      server: {get_resource: {{role}}}
+      config: {get_resource: {{role}}UpgradeInitConfig}
+
   {{role}}Deployment:
     type: OS::Heat::StructuredDeployment
-    depends_on: NetworkDeployment
+    depends_on: {{role}}UpgradeInitDeployment
     properties:
       name: {{role}}Deployment
       config: {get_resource: {{role}}Config}
