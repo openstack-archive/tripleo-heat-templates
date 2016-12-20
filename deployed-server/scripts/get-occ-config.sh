@@ -79,24 +79,19 @@ for role in $OVERCLOUD_ROLES; do
             server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         done
 
-        deployed_server_stack=$(openstack stack resource show $server_stack deployed-server -c physical_resource_id -f value)
+        deployed_server_metadata_url=$(openstack stack resource metadata $server_stack deployed-server | jq -r '.["os-collect-config"].request.metadata_url')
 
         echo "======================"
         echo "$role$i os-collect-config.conf configuration:"
 
         config="
 [DEFAULT]
-collectors=heat
+collectors=request
 command=os-refresh-config
 polling_interval=30
 
-[heat]
-user_id=$admin_user_id
-password=$OS_PASSWORD
-auth_url=$OS_AUTH_URL
-project_id=$admin_project_id
-stack_id=$deployed_server_stack
-resource_name=deployed-server-config"
+[request]
+metadata_url=$deployed_server_metadata_url"
 
         echo "$config"
         echo "======================"
