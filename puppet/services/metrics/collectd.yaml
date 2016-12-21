@@ -1,0 +1,111 @@
+heat_template_version: ocata
+
+description: Collectd client service
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  CollectdDefaultPlugins:
+    default:
+      - disk
+      - interface
+      - load
+      - memory
+      - processes
+      - tcpconns
+    type: comma_delimited_list
+    description: >
+      List of collectd plugins to activate on all overcloud hosts.  See
+      the documentation for the puppet-collectd module for a list plugins
+      supported by the module (https://github.com/voxpupuli/puppet-collectd).
+      Set this key to override the default list of plugins.  Use
+      CollectdExtraPlugins if you want to load additional plugins without
+      overriding the defaults.
+  CollectdExtraPlugins:
+    default: []
+    type: comma_delimited_list
+    description: >
+      List of collectd plugins to activate on all overcloud hosts.  See
+      the documentation for the puppet-collectd module for a list plugins
+      supported by the module (https://github.com/voxpupuli/puppet-collectd).
+      Set this key to load plugins in addition to those in
+      CollectdDefaultPlugins.
+  CollectdServer:
+    type: string
+    description: >
+      Address of remote collectd server to which we will send
+      metrics.
+    default: ''
+  CollectdServerPort:
+    type: number
+    default: 25826
+    description: >
+      Port on remote collectd server to which we will send
+      metrics.
+  CollectdUsername:
+    type: string
+    description: >
+      Username for authenticating to the remote collectd server. The default
+      is to not configure any authentication.
+    default: ''
+  CollectdPassword:
+    type: string
+    hidden: true
+    description: >
+      Password for authenticating to the remote collectd server. The
+      default is to not configure any authentication.
+    default: ''
+  CollectdSecurityLevel:
+    type: string
+    description: >
+      Security level setting for remote collectd connection.
+    default: 'None'
+    constraints:
+      - allowed_values:
+          - None
+          - Sign
+          - Encrypt
+
+outputs:
+  role_data:
+    description: Role data for the Collectd client role.
+    value:
+      service_name: collectd
+      config_settings:
+        collectd::manage_repo: false
+        collectd::purge: true
+        collectd::recurse: true
+        collectd::purge_config: true
+        collectd::minimum_version: "5.7"
+        tripleo::profile::base::metrics::collectd::collectd_server:
+          get_param: CollectdServer
+        tripleo::profile::base::metrics::collectd::collectd_port:
+          get_param: CollectdServerPort
+        tripleo::profile::base::metrics::collectd::collectd_username:
+          get_param: CollectdUsername
+        tripleo::profile::base::metrics::collectd::collectd_password:
+          get_param: CollectdPassword
+        tripleo::profile::base::metrics::collectd::collectd_securitylevel:
+          get_param: CollectdSecurityLevel
+        tripleo.collectd.plugins.collectd:
+          yaql:
+            data:
+              default_plugins: {get_param: CollectdDefaultPlugins}
+              extra_plugins: {get_param: CollectdExtraPlugins}
+            expression: >
+              ($.data.default_plugins + $.data.extra_plugins)
+              .flatten().distinct()
+      step_config: |
+        include ::tripleo::profile::base::metrics::collectd
