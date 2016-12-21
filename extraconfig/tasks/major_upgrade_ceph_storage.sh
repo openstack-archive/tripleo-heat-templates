@@ -8,7 +8,9 @@ set -o pipefail
 
 UPGRADE_SCRIPT=/root/tripleo_upgrade_node.sh
 
-cat > $UPGRADE_SCRIPT << 'ENDOFCAT'
+declare -f special_case_ovs_upgrade_if_needed > $UPGRADE_SCRIPT
+# use >> here so we don't lose the declaration we added above
+cat >> $UPGRADE_SCRIPT << 'ENDOFCAT'
 #!/bin/bash
 ### DO NOT MODIFY THIS FILE
 ### This file is automatically delivered to the ceph-storage nodes as part of the
@@ -49,19 +51,7 @@ timeout 60 bash -c "while kill -0 ${OSD_PIDS} 2> /dev/null; do
   sleep 2;
 done"
 
-# Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
-if [[ -n $(rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart") ]]; then
-    echo "Manual upgrade of openvswitch - restart in postun detected"
-    mkdir OVS_UPGRADE || true
-    pushd OVS_UPGRADE
-    echo "Attempting to downloading latest openvswitch with yumdownloader"
-    yumdownloader --resolve openvswitch
-    echo "Updating openvswitch with nopostun option"
-    rpm -U --replacepkgs --nopostun ./*.rpm
-    popd
-else
-    echo "Skipping manual upgrade of openvswitch - no restart in postun detected"
-fi
+special_case_ovs_upgrade_if_needed
 
 # Update (Ceph to Jewel)
 yum -y install python-zaqarclient  # needed for os-collect-config
