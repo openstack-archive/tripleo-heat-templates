@@ -44,6 +44,9 @@ AGENT_COMMAND_MOUNTS="-v /var/lib/etc-data:/var/lib/etc-data \
                       -v /var/lib/heat-cfntools:/var/lib/heat-cfntools \
                       -v /etc/sysconfig/docker:/etc/sysconfig/docker \
                       -v /etc/sysconfig/network-scripts:/etc/sysconfig/network-scripts \
+                      -v /var/lib/os-collect-config:/var/lib/os-collect-config \
+                      -v /var/lib/os-apply-config-deployments:/var/lib/os-apply-config-deployments \
+                      -v /var/lib/heat-config:/var/lib/heat-config \
                       -v /usr/lib64/libseccomp.so.2:/usr/lib64/libseccomp.so.2"
 
 
