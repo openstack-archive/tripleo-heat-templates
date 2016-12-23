@@ -24,6 +24,45 @@ def exit_usage():
     sys.exit(1)
 
 
+def validate_mysql_connection(settings):
+    no_op = lambda *args: False
+    error_status = [0]
+
+    def mysql_protocol(items):
+        return items == ['EndpointMap', 'MysqlInternal', 'protocol']
+
+    def client_bind_address(item):
+        return 'bind_address' in item
+
+    def validate_mysql_uri(key, items):
+        # Only consider a connection if it targets mysql
+        if key.endswith('connection') and \
+           search(items, mysql_protocol, no_op):
+            # Assume the "bind_address" option is one of
+            # the token that made up the uri
+            if not search(items, client_bind_address, no_op):
+                error_status[0] = 1
+        return False
+
+    def search(item, check_item, check_key):
+        if check_item(item):
+            return True
+        elif isinstance(item, list):
+            for i in item:
+                if search(i, check_item, check_key):
+                    return True
+        elif isinstance(item, dict):
+            for k in item.keys():
+                if check_key(k, item[k]):
+                    return True
+                elif search(item[k], check_item, check_key):
+                    return True
+        return False
+
+    search(settings, no_op, validate_mysql_uri)
+    return error_status[0]
+
+
 def validate_service(filename, tpl):
     if 'outputs' in tpl and 'role_data' in tpl['outputs']:
         if 'value' not in tpl['outputs']['role_data']:
@@ -40,6 +79,12 @@ def validate_service(filename, tpl):
                 os.path.basename(filename).split('.')[0].replace("-", "_")):
             print('ERROR: service_name should match file name for service: %s.'
                   % filename)
+            return 1
+        # if service connects to mysql, the uri should use option
+        # bind_address to avoid issues with VIP failover
+        if 'config_settings' in role_data and \
+           validate_mysql_connection(role_data['config_settings']):
+            print('ERROR: mysql connection uri should use option bind_address')
             return 1
     if 'parameters' in tpl:
         for param in required_params:
