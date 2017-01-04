@@ -1,0 +1,48 @@
+heat_template_version: 2014-10-16
+
+description: >
+  Do some configuration, then reboot - sometimes needed for early-boot
+  changes such as modifying kernel configuration
+
+parameters:
+  server:
+    type: string
+
+resources:
+
+  SomeConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        echo "did some config before reboot" > /root/pre-reboot-config
+
+  SomeDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      name: SomeDeployment
+      server:  {get_param: server}
+      config: {get_resource: SomeConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  RebootConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        # Stop os-collect-config to avoid any race collecting another
+        # deployment before reboot happens
+        systemctl stop os-collect-config.service
+        /sbin/reboot
+
+  RebootDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: SomeDeployment
+    properties:
+      name: RebootDeployment
+      server:  {get_param: server}
+      config: {get_resource: RebootConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+      signal_transport: NO_SIGNAL
