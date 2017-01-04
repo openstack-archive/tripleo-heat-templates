@@ -1,3 +1,7 @@
+# certain initialization steps (run in a container) will occur
+# on the first role listed in the roles file
+{% set primary_role_name = roles[0].name -%}
+
 heat_template_version: ocata
 
 description: >
@@ -11,7 +15,6 @@ parameters:
   role_data:
     type: json
     description: Mapping of Role name e.g Controller to the per-role data
-
   DeployIdentifier:
     default: ''
     type: string
@@ -46,81 +49,171 @@ resources:
       input_values:
         update_identifier: {get_param: DeployIdentifier}
 
+  {{role.name}}CreateConfigDir:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: {get_file: create-config-dir.sh}
+
+  {{role.name}}CreateConfigDirDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}CreateConfigDir}
+
+  # this creates a JSON config file for our docker-puppet.py script
+  {{role.name}}GenPuppetConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: json-file
+      config:
+        /var/lib/docker-puppet/docker-puppet.json:
+          yaql:
+            # select only services that have a non-null config_image with
+            # a step_config as well
+            expression:
+              $.data.config_volume.zip($.data.puppet_tags, $.data.step_config, $.data.config_image).where($[3] != null and $[1] != null)
+            data:
+              config_volume: {get_param: [role_data, {{role.name}}, config_volume]}
+              step_config: {get_param: [role_data, {{role.name}}, step_config]}
+              puppet_tags: {get_param: [role_data, {{role.name}}, puppet_tags]}
+              config_image: {get_param: [role_data, {{role.name}}, config_image]}
+
+  {{role.name}}GenPuppetDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}GenPuppetConfig}
+
+  {{role.name}}GenerateConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: {get_file: docker-puppet.py}
+
+  {{role.name}}GenerateConfigDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: [{{role.name}}GenPuppetDeployment, {{role.name}}ArtifactsDeploy, {{role.name}}CreateConfigDirDeployment]
+    properties:
+      name: {{role.name}}GenerateConfigDeployment
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}GenerateConfig}
+
+  {{role.name}}PuppetStepConfig:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        yaql:
+          expression:
+            # select 'step_config' only from services that do not have a docker_image
+            $.data.service_names.zip($.data.step_config, $.data.docker_image).where($[2] = null).where($[1] != null).select($[1]).join("\n")
+          data:
+            service_names: {get_param: [role_data, {{role.name}}, service_names]}
+            step_config: {get_param: [role_data, {{role.name}}, step_config]}
+            docker_image: {get_param: [role_data, {{role.name}}, docker_image]}
+
+  {{role.name}}DockerConfig:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        yaql:
+          expression:
+            # select 'docker_config' only from services that have a docker_image
+            $.data.service_names.zip($.data.docker_config, $.data.docker_image).where($[2] != null).select($[1]).reduce($1.mergeWith($2), {})
+          data:
+            service_names: {get_param: [role_data, {{role.name}}, service_names]}
+            docker_config: {get_param: [role_data, {{role.name}}, docker_config]}
+            docker_image: {get_param: [role_data, {{role.name}}, docker_image]}
+
+  {{role.name}}KollaJsonConfig:
+    type: OS::Heat::StructuredConfig
+    properties:
+      group: json-file
+      config:
+        {get_param: [role_data, {{role.name}}, kolla_config]}
+
+  {{role.name}}KollaJsonDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      name: {{role.name}}KollaJsonDeployment
+      config: {get_resource: {{role.name}}KollaJsonConfig}
+      servers: {get_param: [servers, {{role.name}}]}
+
+  # BEGIN BAREMETAL CONFIG STEPS
+
+  {% if role.name == 'Controller' %}
+  ControllerPrePuppet:
+    type: OS::TripleO::Tasks::ControllerPrePuppet
+    properties:
+      servers: {get_param: [servers, Controller]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
+  {% endif %}
+
   {{role.name}}Config:
     type: OS::TripleO::{{role.name}}Config
     properties:
-      StepConfig: {get_param: [role_data, {{role.name}}, step_config]}
-  {% if role.name.lower() == 'compute' %}
-      PuppetTags: {get_param: [role_data, {{role.name}}, puppet_tags]}
-  {% endif %}
+      StepConfig: {get_attr: [{{role.name}}PuppetStepConfig, value]}
 
-  # Step through a series of configuration steps
-  {{role.name}}Deployment_Step1:
+  {% for step in range(1, 6) %}
+
+  {{role.name}}Deployment_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
+  {% if step == 1 %}
     depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
+  {% else %}
+    depends_on:
+    {% for dep in roles %}
+      - {{dep.name}}Deployment_Step{{step -1}}
+      - {{dep.name}}ContainersDeployment_Step{{step -1}}
+    {% endfor %}
+  {% endif %}
     properties:
-      name: {{role.name}}Deployment_Step1
+      name: {{role.name}}Deployment_Step{{step}}
       servers: {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}Config}
       input_values:
-        step: 1
+        step: {{step}}
         update_identifier: {get_param: DeployIdentifier}
 
-  {{role.name}}Deployment_Step2:
-    type: OS::Heat::StructuredDeploymentGroup
-    depends_on:
-  {% for dep in roles %}
-      - {{dep.name}}Deployment_Step1
   {% endfor %}
-    properties:
-      name: {{role.name}}Deployment_Step2
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}Config}
-      input_values:
-        step: 2
-        update_identifier: {get_param: DeployIdentifier}
+  # END BAREMETAL CONFIG STEPS
 
-  {{role.name}}Deployment_Step3:
-    type: OS::Heat::StructuredDeploymentGroup
-    depends_on:
-  {% for dep in roles %}
-      - {{dep.name}}Deployment_Step2
-  {% endfor %}
-    properties:
-      name: {{role.name}}Deployment_Step3
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}Config}
-      input_values:
-        step: 3
-        update_identifier: {get_param: DeployIdentifier}
+  # BEGIN CONTAINER CONFIG STEPS
+  {% for step in range(1, 6) %}
 
-  {{role.name}}Deployment_Step4:
-    type: OS::Heat::StructuredDeploymentGroup
-    depends_on:
-  {% for dep in roles %}
-      - {{dep.name}}Deployment_Step3
-  {% endfor %}
+  {{role.name}}ContainersConfig_Step{{step}}:
+    type: OS::Heat::StructuredConfig
     properties:
-      name: {{role.name}}Deployment_Step4
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}Config}
-      input_values:
-        step: 4
-        update_identifier: {get_param: DeployIdentifier}
+      group: docker-cmd
+      config:
+        {get_attr: [{{role.name}}DockerConfig, value, step_{{step}}]}
 
-  {{role.name}}Deployment_Step5:
+  {{role.name}}ContainersDeployment_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
+  {% if step == 1 %}
     depends_on:
-  {% for dep in roles %}
-      - {{dep.name}}Deployment_Step4
-  {% endfor %}
+      - {{role.name}}PreConfig
+      - {{role.name}}KollaJsonDeployment
+      - {{role.name}}GenPuppetDeployment
+      - {{role.name}}GenerateConfigDeployment
+  {% else %}
+    depends_on:
+      {% for dep in roles %}
+        - {{dep.name}}ContainersDeployment_Step{{step -1}}
+        - {{dep.name}}Deployment_Step{{step}} # baremetal steps of the same level run first
+        - {{dep.name}}Deployment_Step{{step -1}}
+      {% endfor %}
+  {% endif %}
     properties:
-      name: {{role.name}}Deployment_Step5
+      name: {{role.name}}ContainersDeployment_Step{{step}}
       servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}Config}
-      input_values:
-        step: 5
-        update_identifier: {get_param: DeployIdentifier}
+      config: {get_resource: {{role.name}}ContainersConfig_Step{{step}}}
+
+  {% endfor %}
+  # END CONTAINER CONFIG STEPS
 
   {{role.name}}PostConfig:
     type: OS::TripleO::Tasks::{{role.name}}PostConfig
@@ -144,68 +237,15 @@ resources:
     properties:
         servers: {get_param: [servers, {{role.name}}]}
 
-  {% if role.name.lower() == 'compute' %}
-  CopyEtcConfig:
-    type: OS::Heat::SoftwareConfig
-    depends_on: {{role.name}}PostConfig
+  {% if role.name == 'Controller' %}
+  ControllerPostPuppet:
+    depends_on:
+      - ControllerExtraConfigPost
+    type: OS::TripleO::Tasks::ControllerPostPuppet
     properties:
-      group: script
-      outputs:
-        - name: result
-      config: {get_file: ../docker/copy-etc.sh}
-
-  CopyEtcDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      name: CopyEtcDeployment
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: CopyEtcConfig}
-
-  {{role.name}}KollaJsonConfig:
-    type: OS::Heat::StructuredConfig
-    depends_on: CopyEtcDeployment
-    properties:
-      group: json-file
-      config:
-        {get_param: [role_data, {{role.name}}, kolla_config]}
-
-  {{role.name}}KollaJsonDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      name: {{role.name}}KollaJsonDeployment
-      config: {get_resource: {{role.name}}KollaJsonConfig}
-      servers: {get_param: [servers, {{role.name}}]}
-
-  {{role.name}}ContainersConfig_Step1:
-    type: OS::Heat::StructuredConfig
-    depends_on: {{role.name}}KollaJsonDeployment
-    properties:
-      group: docker-cmd
-      config:
-        {get_param: [role_data, {{role.name}}, docker_config, step_1]}
-
-  {{role.name}}ContainersConfig_Step2:
-    type: OS::Heat::StructuredConfig
-    depends_on: {{role.name}}KollaJsonDeployment
-    properties:
-      group: docker-cmd
-      config:
-        {get_param: [role_data, {{role.name}}, docker_config, step_2]}
-
-  {{role.name}}ContainersDeployment_Step1:
-    type: OS::Heat::StructuredDeploymentGroup
-    depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
-    properties:
-      name: {{role.name}}ContainersDeployment_Step1
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}ContainersConfig_Step1}
-
-  {{role.name}}ContainersDeployment_Step2:
-    type: OS::Heat::StructuredDeploymentGroup
-    depends_on: {{role.name}}ContainersDeployment_Step1
-    properties:
-      name: {{role.name}}ContainersDeployment_Step2
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}ContainersConfig_Step2}
+      servers: {get_param: [servers, Controller]}
+      input_values:
+        update_identifier: {get_param: DeployIdentifier}
   {% endif %}
+
 {% endfor %}
