@@ -119,7 +119,7 @@ from the deployment command, the script should be ready to run:
     [NovaCompute]: CREATE_IN_PROGRESS state changed
 
 The user running the script must be able to ssh as root to each server.  Define
-the the names of your custom roles (if applicable) and hostnames of the deployed
+the names of your custom roles (if applicable) and hostnames of the deployed
 servers you intend to use for each role type. For each role name, a
 corresponding <role-name>_hosts variable should also be defined, e.g.::
 
