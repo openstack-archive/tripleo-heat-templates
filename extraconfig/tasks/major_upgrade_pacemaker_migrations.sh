@@ -83,7 +83,6 @@ function services_to_migrate {
     openstack-cinder-api-clone
     openstack-cinder-scheduler-clone
     openstack-glance-api-clone
-    openstack-glance-registry-clone
     openstack-gnocchi-metricd-clone
     openstack-gnocchi-statsd-clone
     openstack-heat-api-cfn-clone
