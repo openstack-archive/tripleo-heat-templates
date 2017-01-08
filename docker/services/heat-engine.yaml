@@ -1,0 +1,92 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Heat Engine service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerHeatEngineImage:
+    description: image
+    default: 'centos-binary-heat-engine:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+
+resources:
+
+  HeatBase:
+    type: ../../puppet/services/heat-engine.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Heat Engine role.
+    value:
+      service_name: {get_attr: [HeatBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [HeatBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config: {get_attr: [HeatBase, role_data, step_config]}
+      service_config_settings: {get_attr: [HeatBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &heat_engine_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerHeatEngineImage} ]
+      puppet_tags: heat_config,file,concat,file_line
+      config_volume: heat
+      config_image: *heat_engine_image
+      kolla_config:
+         /var/lib/kolla/config_files/heat_engine.json:
+           command: /usr/bin/heat-engine --config-file /usr/share/heat/heat-dist.conf --config-file /etc/heat/heat.conf
+           config_files:
+           - dest: /etc/heat/heat.conf
+             owner: heat
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/heat/heat.conf
+      docker_config:
+        step_3:
+          heat_engine_db_sync:
+            image: *heat_engine_image
+            net: host
+            privileged: false
+            detach: false
+            volumes:
+              - /var/lib/config-data/heat/etc/heat:/etc/heat:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            command: ['heat-manage', 'db_sync']
+        step_4:
+          heat_engine:
+            image: *heat_engine_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /run:/run
+              - /var/lib/kolla/config_files/heat_engine.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/heat/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
