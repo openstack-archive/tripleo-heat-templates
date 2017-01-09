@@ -1,0 +1,58 @@
+---
+- name: Configuration to be applied before rebooting the node
+  connection: local
+  hosts: localhost
+
+  tasks:
+    # Kernel Args Configuration
+    - block:
+        - name: Ensure the kernel args ( {{ _KERNEL_ARGS_ }} ) is present as TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS
+          lineinfile:
+            dest: /etc/default/grub
+            regexp: '^TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS.*'
+            insertafter: '^GRUB_CMDLINE_LINUX.*'
+            line: 'TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS=" {{ _KERNEL_ARGS_ }} "'
+        - name: Add TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS to the GRUB_CMDLINE_LINUX parameter
+          lineinfile:
+            dest: /etc/default/grub
+            line: 'GRUB_CMDLINE_LINUX="${GRUB_CMDLINE_LINUX:+$GRUB_CMDLINE_LINUX }${TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS}"'
+            insertafter: '^TRIPLEO_HEAT_TEMPLATE_KERNEL_ARGS.*'
+        - name: Generate grub config file
+          command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      become: true
+      when: _KERNEL_ARGS_|default("") != ""
+
+    # Tune-d Configuration
+    - block:
+        - name: Tune-d Configuration
+          lineinfile:
+            dest: /etc/tuned/cpu-partitioning-variables.conf
+            regexp: '^isolated_cores=.*'
+            line: 'isolated_cores={{ _HOST_CPUS_LIST_ }}'
+          when: _HOST_CPUS_LIST_|default("") != ""
+
+        - name: Tune-d provile activation
+          shell: tuned-adm profile {{ _TUNED_PROFILE_NAME_ }}
+      become: true
+      when: _TUNED_PROFILE_NAME_|default("") != ""
+
+    # Provisioning Network workaround
+    # The script will be executed before os-net-config, in which case, only Provisioning network will have IP
+    # BOOTPROTO of all interface config files (except provisioning), will be set to "none" to avoid reboot failing to acquire IP on other networks
+    - block:
+      - find:
+          paths: /etc/sysconfig/network-scripts/
+          patterns: ifcfg-*
+        register: ifcfg_files
+
+      - replace:
+          dest: "{{ item.path }}"
+          regexp: '^BOOTPROTO=.*'
+          replace: 'BOOTPROTO=none'
+        when:
+          - item.path | regex_replace('(^.*ifcfg-)(.*)', '\\2') != "lo"
+          # This condition will list all the interfaces except the one with valid IP (which is Provisioning network at this stage)
+          # Simpler Version - hostvars[inventory_hostname]['ansible_' + iface_name ]['ipv4']['address'] is undefined
+          - hostvars[inventory_hostname]['ansible_' + item.path | regex_replace('(^.*ifcfg-)(.*)', '\\2') ]['ipv4']['address'] is undefined
+        with_items:
+          - "{{ ifcfg_files.files }}"
