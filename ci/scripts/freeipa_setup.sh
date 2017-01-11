@@ -13,6 +13,8 @@ set -eux
 
 if [ -f "~/freeipa-setup.env" ]; then
     source ~/freeipa-setup.env
+elif [ -f "/tmp/freeipa-setup.env" ]; then
+    source /tmp/freeipa-setup.env
 fi
 
 # Set DNS servers
