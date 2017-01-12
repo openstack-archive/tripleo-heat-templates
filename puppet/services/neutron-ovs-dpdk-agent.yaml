@@ -26,32 +26,6 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  HostCpusList:
-    default: "0"
-    description: List of cores to be used for host process
-    type: string
-    constraints:
-      - allowed_pattern: "[0-9,-]+"
-  NeutronDpdkCoreList:
-    default: ""
-    description: List of cores to be used for DPDK Poll Mode Driver
-    type: string
-    constraints:
-      - allowed_pattern: "[0-9,-]*"
-  NeutronDpdkMemoryChannels:
-    default: ""
-    description: Number of memory channels to be used for DPDK
-    type: string
-    constraints:
-      - allowed_pattern: "[0-9]*"
-  NeutronDpdkSocketMemory:
-    default: ""
-    description: Memory allocated for each socket
-    type: string
-  NeutronDpdkDriverType:
-    default: "vfio-pci"
-    description: DPDK Driver type
-    type: string
   # below parameters has to be set in neutron agent only for compute nodes.
   # as of now there is no other usecase for these parameters except dpdk.
   # should be moved to compute only ovs agent in case of any other usecases.
@@ -75,9 +49,6 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  OpenVswitchUpgrade:
-    type: ./openvswitch-upgrade.yaml
-
   # Merging role-specific parameters (RoleParameters) with the default parameters.
   # RoleParameters will have the precedence over the default parameters.
   RoleParametersValue:
@@ -89,20 +60,19 @@ resources:
           - map_replace:
             - neutron::agents::ml2::ovs::datapath_type: NeutronDatapathType
               neutron::agents::ml2::ovs::vhostuser_socket_dir: NeutronVhostuserSocketDir
-              vswitch::dpdk::driver_type: NeutronDpdkDriverType
-              vswitch::dpdk::host_core_list: HostCpusList
-              vswitch::dpdk::pmd_core_list: NeutronDpdkCoreList
-              vswitch::dpdk::memory_channels: NeutronDpdkMemoryChannels
-              vswitch::dpdk::socket_mem: NeutronDpdkSocketMemory
             - values: {get_param: [RoleParameters]}
           - values:
               NeutronDatapathType: {get_param: NeutronDatapathType}
               NeutronVhostuserSocketDir: {get_param: NeutronVhostuserSocketDir}
-              NeutronDpdkDriverType: {get_param: NeutronDpdkDriverType}
-              HostCpusList: {get_param: HostCpusList}
-              NeutronDpdkCoreList: {get_param: NeutronDpdkCoreList}
-              NeutronDpdkMemoryChannels: {get_param: NeutronDpdkMemoryChannels}
-              NeutronDpdkSocketMemory: {get_param: NeutronDpdkSocketMemory}
+
+  Ovs:
+    type: ./openvswitch.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
@@ -116,7 +86,8 @@ outputs:
             - keys:
                 tripleo.neutron_ovs_agent.firewall_rules: tripleo.neutron_ovs_dpdk_agent.firewall_rules
           - neutron::agents::ml2::ovs::enable_dpdk: true
+          - get_attr: [Ovs, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
       step_config: {get_attr: [NeutronOvsAgent, role_data, step_config]}
       upgrade_tasks:
-        get_attr: [OpenVswitchUpgrade, role_data, upgrade_tasks]
+        get_attr: [Ovs, role_data, upgrade_tasks]

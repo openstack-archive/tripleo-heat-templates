@@ -1,0 +1,178 @@
+heat_template_version: pike
+
+description: >
+  Open vSwitch Configuration
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OvsDpdkCoreList:
+    description: >
+      List of cores to be used for DPDK lcore threads.  Note, these threads
+      are used by the OVS control path for validator and handling functions.
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9,-]*"
+    default: ""
+  OvsDpdkMemoryChannels:
+    description: Number of memory channels per socket to be used for DPDK
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9]*"
+    default: ""
+  OvsDpdkSocketMemory:
+    default: ""
+    description: >
+      Sets the amount of hugepage memory to assign per NUMA node. It is
+      recommended to use the socket closest to the PCIe slot used for the
+      desired DPDK NIC.  The format should be in "<socket 0 mem>, <socket 1
+      mem>, <socket n mem>", where the value is specified in MB.  For example:
+      "1024,0".
+    type: string
+  OvsDpdkDriverType:
+    default: "vfio-pci"
+    description: >
+      DPDK Driver type. Ensure the Overcloud NIC to be used for DPDK supports
+      this UIO/PMD driver.
+    type: string
+  OvsPmdCoreList:
+    description: >
+      A list or range of CPU cores for PMD threads to be pinned to.  Note, NIC
+      location to cores on socket, number of hyper-threaded logical cores, and
+      desired number of PMD threads can all play a role in configuring this
+      setting.  These cores should be on the same socket where
+      OvsDpdkSocketMemory is assigned.  If using hyperthreading then specify
+      both logical cores that would equal the physical core. Also, specifying
+      more than one core will trigger multiple PMD threads to be spawned which
+      may improve dataplane performance.
+    constraints:
+      - allowed_pattern: "[0-9,-]*"
+    type: string
+    default: ""
+  # DEPRECATED: the following options are deprecated and are currently maintained
+  # for backwards compatibility. They will be removed in the Queens cycle.
+  HostCpusList:
+    description: List of cores to be used for host process
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9,-]*"
+    default: ''
+  NeutronDpdkCoreList:
+    description: List of cores to be used for DPDK Poll Mode Driver
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9,-]*"
+    default: ''
+  NeutronDpdkMemoryChannels:
+    description: Number of memory channels to be used for DPDK
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9]*"
+    default: ''
+  NeutronDpdkSocketMemory:
+    default: ''
+    description: Memory allocated for each socket
+    type: string
+  NeutronDpdkDriverType:
+    default: "vfio-pci"
+    description: DPDK Driver type
+    type: string
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+    - HostCpusList
+    - NeutronDpdkCoreList
+    - NeutronDpdkMemoryChannels
+    - NeutronDpdkSocketMemory
+    - NeutronDpdkDriverType
+
+conditions:
+  l_cores_empty: {equals: [{get_param: OvsDpdkCoreList}, '']}
+  pmd_cores_empty: {equals: [{get_param: OvsPmdCoreList}, '']}
+  mem_channels_empty: {equals: [{get_param: OvsDpdkMemoryChannels}, '']}
+  socket_mem_empty: {equals: [{get_param: OvsDpdkSocketMemory}, '']}
+  driver_not_set: {equals: [{get_param: OvsDpdkDriverType}, 'vfio-pci']}
+
+outputs:
+  role_data:
+    description: Role data for the Open vSwitch service.
+    value:
+      service_name: openvswitch
+      config_settings:
+        map_replace:
+          - map_replace:
+            - vswitch::dpdk::driver_type: OvsDpdkDriverType
+              vswitch::dpdk::host_core_list: OvsDpdkCoreList
+              vswitch::dpdk::pmd_core_list: OvsPmdCoreList
+              vswitch::dpdk::memory_channels: OvsDpdkMemoryChannels
+              vswitch::dpdk::socket_mem: OvsDpdkSocketMemory
+            - values: {get_param: [RoleParameters]}
+          - values:
+              OvsDpdkCoreList: {if: [l_cores_empty, {get_param: HostCpusList}, {get_param: OvsDpdkCoreList}]}
+              OvsDpdkMemoryChannels: {if: [mem_channels_empty, {get_param: NeutronDpdkMemoryChannels}, {get_param: OvsDpdkMemoryChannels}]}
+              OvsDpdkSocketMemory: {if: [socket_mem_empty, {get_param: NeutronDpdkSocketMemory}, {get_param: OvsDpdkSocketMemory}]}
+              OvsDpdkDriverType: {if: [driver_not_set, {get_param: NeutronDpdkDriverType}, {get_param: OvsDpdkDriverType}]}
+              OvsPmdCoreList: {if: [pmd_cores_empty, {get_param: NeutronDpdkCoreList}, {get_param: OvsPmdCoreList}]}
+
+      upgrade_tasks:
+        - name: Check openvswitch version.
+          tags: step2
+          register: ovs_version
+          ignore_errors: true
+          shell: rpm -qa | awk -F- '/^openvswitch-2/{print $2 "-" $3}'
+        - name: Check openvswitch packaging.
+          tags: step2
+          shell: rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep -q "systemctl.*try-restart"
+          register: ovs_packaging_issue
+          ignore_errors: true
+        - block:
+            - name: "Ensure empty directory: emptying."
+              file:
+                state: absent
+                path: /root/OVS_UPGRADE
+            - name: "Ensure empty directory: creating."
+              file:
+                state: directory
+                path: /root/OVS_UPGRADE
+                owner: root
+                group: root
+                mode: 0750
+            - name: Download OVS packages.
+              command: yumdownloader --destdir /root/OVS_UPGRADE --resolve openvswitch
+            - name: Get rpm list for manual upgrade of OVS.
+              shell: ls -1 /root/OVS_UPGRADE/*.rpm
+              register: ovs_list_of_rpms
+            - name: Manual upgrade of OVS
+              shell: |
+                rpm -U --test {{item}} 2>&1 | grep "already installed" || \
+                rpm -U --replacepkgs --notriggerun --nopostun {{item}};
+              args:
+                chdir: /root/OVS_UPGRADE
+              with_items:
+                - "{{ovs_list_of_rpms.stdout_lines}}"
+          tags: step2
+          when: "'2.5.0-14' in '{{ovs_version.stdout}}'
+                or
+                ovs_packaging_issue|succeeded"
