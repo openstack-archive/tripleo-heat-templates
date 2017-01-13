@@ -1,6 +1,7 @@
 {% set enabled_roles = roles|rejectattr('disable_upgrade_deployment')|list -%}
 {% set batch_upgrade_steps_max = 3 -%}
 {% set upgrade_steps_max = 6 -%}
+{% set deliver_script = {'deliver': False} -%}
 heat_template_version: ocata
 description: 'Upgrade steps for all roles'
 
@@ -17,6 +18,19 @@ parameters:
     description: >
       Setting to a previously unused value during stack-update will trigger
       the Upgrade resources to re-run on all roles.
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  NovaPassword:
+    description: The password for the nova service and db account, used by nova-api.
+    type: string
+    hidden: true
 
 conditions:
   # Conditions to disable any steps where the task list is empty
@@ -35,6 +49,43 @@ conditions:
 
 resources:
 
+{% for role in roles if role.disable_upgrade_deployment|default(false) %}
+  {{role.name}}DeliverUpgradeScriptConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "set -eu\n\n"
+          - "if hiera -c /etc/puppet/hiera.yaml service_names | grep nova_compute ; then\n\n"
+          - "  crudini --set /etc/nova/nova.conf placement auth_type password\n\n"
+          - "  crudini --set /etc/nova/nova.conf placement username placement\n\n"
+          - "  crudini --set /etc/nova/nova.conf placement project_domain_name Default\n\n"
+          - "  crudini --set /etc/nova/nova.conf placement user_domain_name Default\n\n"
+          - "  crudini --set /etc/nova/nova.conf placement project_name service\n\n"
+          - "  systemctl restart openstack-nova-compute\n\n"
+          - "fi\n\n"
+          - str_replace:
+              template: |
+                crudini --set /etc/nova/nova.conf placement password 'SERVICE_PASSWORD'
+                crudini --set /etc/nova/nova.conf placement region_name 'REGION_NAME'
+                crudini --set /etc/nova/nova.conf placement auth_url 'AUTH_URL'
+              params:
+                SERVICE_PASSWORD: { get_param: NovaPassword }
+                REGION_NAME: { get_param: KeystoneRegion }
+                AUTH_URL: { get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+          - get_file: ../extraconfig/tasks/pacemaker_common_functions.sh
+          - get_file: ../extraconfig/tasks/tripleo_upgrade_node.sh
+
+  {{role.name}}DeliverUpgradeScriptDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    properties:
+      servers:  {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}DeliverUpgradeScriptConfig}
+{% endfor %}
+
 # Upgrade Steps for all roles, batched updates
 # The UpgradeConfig resources could actually be created without
 # serialization, but the event output is easier to follow if we
@@ -50,8 +101,18 @@ resources:
     {% if role.name in enabled_roles %}
     depends_on:
       - {{role.name}}UpgradeBatch_Step{{step -1}}
+    {%- endif %}
+  {% else %}
+    {% for role in roles if role.disable_upgrade_deployment|default(false) %}
+      {% if deliver_script.update({'deliver': True}) %} {% endif %}
+    {% endfor %}
+    {% if deliver_script.deliver %}
+    depends_on:
     {% endif %}
-  {%- endif %}
+      {% for dep in roles if dep.disable_upgrade_deployment|default(false) %}
+      - {{dep.name}}DeliverUpgradeScriptDeployment
+      {% endfor %}
+  {% endif %}
     properties:
       UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
       step: {{step}}
