@@ -14,6 +14,7 @@
 import argparse
 import jinja2
 import os
+import shutil
 import six
 import sys
 import yaml
@@ -33,6 +34,9 @@ def parse_opts(argv):
                         action='store_true',
                         help="""Enable safe mode (do not overwrite files).""",
                         default=False)
+    parser.add_argument('-o', '--output-dir', metavar='OUTPUT_DIR',
+                        help="""Output dir for all the templates""",
+                        default='')
     opts = parser.parse_args(argv[1:])
 
     return opts
@@ -60,7 +64,7 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
         out_f.write(r_template)
 
 
-def process_templates(template_path, role_data_path, overwrite):
+def process_templates(template_path, role_data_path, output_dir, overwrite):
 
     with open(role_data_path) as role_data_file:
         role_data = yaml.safe_load(role_data_file)
@@ -68,6 +72,11 @@ def process_templates(template_path, role_data_path, overwrite):
     j2_excludes_path = os.path.join(template_path, 'j2_excludes.yaml')
     with open(j2_excludes_path) as role_data_file:
         j2_excludes = yaml.safe_load(role_data_file)
+
+    if output_dir and not os.path.isdir(output_dir):
+        if os.path.exists(output_dir):
+            raise RuntimeError('Output dir %s is not a directory' % output_dir)
+        os.mkdir(output_dir)
 
     role_names = [r.get('name') for r in role_data]
     r_map = {}
@@ -89,6 +98,17 @@ def process_templates(template_path, role_data_path, overwrite):
             # filtering dirs at this point.
             dirs[:] = [d for d in dirs if not d[0] == '.']
             files = [f for f in files if not f[0] == '.']
+
+            # NOTE(flaper87): We could have used shutil.copytree
+            # but it requires the dst dir to not be present. This
+            # approach is safer as it doesn't require us to delete
+            # the output_dir in advance and it allows for running
+            # the command multiple times with the same output_dir.
+            out_dir = subdir
+            if output_dir:
+                out_dir = os.path.join(output_dir, subdir)
+                if not os.path.exists(out_dir):
+                    os.mkdir(out_dir)
 
             for f in files:
                 file_path = os.path.join(subdir, f)
@@ -113,7 +133,7 @@ def process_templates(template_path, role_data_path, overwrite):
                                 [role.lower(),
                                  os.path.basename(f).replace('.role.j2.yaml',
                                                              '.yaml')])
-                            out_f_path = os.path.join(subdir, out_f)
+                            out_f_path = os.path.join(out_dir, out_f)
                             if not (out_f_path in excl_templates):
                                 _j2_render_to_file(template_data, j2_data,
                                                    out_f_path, overwrite)
@@ -124,9 +144,12 @@ def process_templates(template_path, role_data_path, overwrite):
                     with open(file_path) as j2_template:
                         template_data = j2_template.read()
                         j2_data = {'roles': role_data}
-                        out_f = file_path.replace('.j2.yaml', '.yaml')
-                        _j2_render_to_file(template_data, j2_data, out_f,
+                        out_f = os.path.basename(f).replace('.j2.yaml', '.yaml')
+                        out_f_path = os.path.join(out_dir, out_f)
+                        _j2_render_to_file(template_data, j2_data, out_f_path,
                                            overwrite)
+                elif output_dir:
+                    shutil.copy(os.path.join(subdir, f), out_dir)
 
     else:
         print('Unexpected argument %s' % template_path)
@@ -135,4 +158,4 @@ opts = parse_opts(sys.argv)
 
 role_data_path = os.path.join(opts.base_path, opts.roles_data)
 
-process_templates(opts.base_path, role_data_path, (not opts.safe))
+process_templates(opts.base_path, role_data_path, opts.output_dir, (not opts.safe))
