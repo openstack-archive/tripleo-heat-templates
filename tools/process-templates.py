@@ -78,6 +78,18 @@ def process_templates(template_path, role_data_path, overwrite):
 
     if os.path.isdir(template_path):
         for subdir, dirs, files in os.walk(template_path):
+
+            # NOTE(flaper87): Ignore hidden dirs as we don't
+            # generate templates for those.
+            # Note the slice assigment for `dirs` is necessary
+            # because we need to modify the *elements* in the
+            # dirs list rather than the reference to the list.
+            # This way we'll make sure os.walk will iterate over
+            # the shrunk list. os.walk doesn't have an API for
+            # filtering dirs at this point.
+            dirs[:] = [d for d in dirs if not d[0] == '.']
+            files = [f for f in files if not f[0] == '.']
+
             for f in files:
                 file_path = os.path.join(subdir, f)
                 # We do two templating passes here:
