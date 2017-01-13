@@ -24,7 +24,7 @@ echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 yum -q -y remove openstack-dashboard
 
 # Install the needed packages
-yum -q install -y ipa-server ipa-server-dns epel-release rng-tools mod_nss
+yum -q install -y ipa-server ipa-server-dns epel-release rng-tools mod_nss git
 yum -q install -y haveged
 
 # Prepare hostname
