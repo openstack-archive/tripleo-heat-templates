@@ -38,6 +38,12 @@ parameters:
     type: json
     description: Optional scheduler hints to pass to nova
     default: {}
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
 
 resources:
   deployed-server:
@@ -45,6 +51,25 @@ resources:
     properties:
       name: {get_param: name}
       software_config_transport: {get_param: software_config_transport}
+
+  UpgradeInitConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - "#!/bin/bash\n\n"
+          - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+          - get_param: UpgradeInitCommand
+
+  UpgradeInitDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      name: UpgradeInitDeployment
+      server: {get_resource: deployed-server}
+      config: {get_resource: UpgradeInitConfig}
+
 
   InstanceIdConfig:
     type: OS::Heat::StructuredConfig
@@ -58,6 +83,7 @@ resources:
     properties:
       config: {get_resource: InstanceIdConfig}
       server: {get_resource: deployed-server}
+    depends_on: UpgradeInitDeployment
 
   HostsEntryConfig:
     type: OS::Heat::SoftwareConfig
