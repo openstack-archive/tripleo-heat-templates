@@ -79,7 +79,14 @@ for role in $OVERCLOUD_ROLES; do
             server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         done
 
-        deployed_server_metadata_url=$(openstack stack resource metadata $server_stack deployed-server | jq -r '.["os-collect-config"].request.metadata_url')
+        while true; do
+            deployed_server_metadata_url=$(openstack stack resource metadata $server_stack deployed-server | jq -r '.["os-collect-config"].request.metadata_url')
+            if [ "$deployed_server_metadata_url" = "null" ]; then
+                continue
+            else
+                break
+            fi
+        done
 
         echo "======================"
         echo "$role$i os-collect-config.conf configuration:"
