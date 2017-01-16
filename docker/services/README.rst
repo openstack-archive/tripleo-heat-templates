@@ -19,8 +19,11 @@ Building Kolla Images
 
 TripleO currently relies on Kolla docker containers. Kolla supports container
 customization and we are making use of this feature within TripleO to inject
-puppet (our configuration tool of choice) into the Kolla base images. To
-build Kolla images for TripleO adjust your kolla config to build your
+puppet (our configuration tool of choice) into the Kolla base images. The
+undercloud nova-scheduler also requires openstack-tripleo-common to
+provide custom filters.
+
+To build Kolla images for TripleO adjust your kolla config to build your
 centos base image with puppet using the example below:
 
 .. code-block::
@@ -28,6 +31,7 @@ centos base image with puppet using the example below:
 $ cat template-overrides.j2
 {% extends parent_template %}
 {% set base_centos_binary_packages_append = ['puppet'] %}
+{% set nova_scheduler_packages_append = ['openstack-tripleo-common'] %}
 
 kolla-build --base centos --template-override template-overrides.j2
 
