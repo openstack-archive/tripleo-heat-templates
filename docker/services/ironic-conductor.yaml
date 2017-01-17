@@ -1,0 +1,111 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Ironic Conductor service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerIronicConductorImage:
+    description: image
+    default: 'centos-binary-ironic-conductor:latest'
+    type: string
+  DockerIronicConfigImage:
+    description: image
+    default: 'centos-binary-ironic-pxe:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  IronicConductorBase:
+    type: ../../puppet/services/ironic-conductor.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Ironic Conductor role.
+    value:
+      service_name: {get_attr: [IronicConductorBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [IronicConductorBase, role_data, config_settings]
+          # to avoid hard linking errors we store these on the same
+          # volume/device as the ironic master_path
+          - ironic::drivers::pxe::tftp_root: /var/lib/ironic/tftpboot
+          - ironic::drivers::pxe::tftp_master_path: /var/lib/ironic/tftpboot/master_images
+          - ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
+          - ironic::pxe::http_root: /var/lib/ironic/httpboot
+          - ironic::conductor::http_root: /var/lib/ironic/httpboot
+      step_config: {get_attr: [IronicConductorBase, role_data, step_config]}
+      service_config_settings: {get_attr: [IronicConductorBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &ironic_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerIronicConductorImage} ]
+      puppet_tags: ironic_config
+      config_volume: ironic
+      config_image:
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerIronicConfigImage} ]
+      kolla_config:
+         /var/lib/kolla/config_files/ironic_conductor.json:
+           command: /usr/bin/ironic-conductor
+           config_files:
+           - dest: /etc/ironic/ironic.conf
+             owner: ironic
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/ironic/ironic.conf
+           permissions:
+           - path: /var/lib/ironic/httpboot
+             owner: ironic:ironic
+             recurse: true
+           - path: /var/lib/ironic/tftpboot
+             owner: ironic:ironic
+             recurse: true
+      docker_config:
+        step_4:
+          ironic-init-dirs:
+            image: *ironic_image
+            user: root
+            command: ['/bin/bash', '-c', 'mkdir /var/lib/ironic/httpboot && mkdir /var/lib/ironic/tftpboot']
+            volumes:
+              - ironic:/var/lib/ironic
+          ironic_conductor:
+            start_order: 80
+            image: *ironic_image
+            net: host
+            privileged: true
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/ironic/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /lib/modules:/lib/modules:ro
+              - /sys:/sys
+              - /dev:/dev
+              - /run:/run #shared?
+              - ironic:/var/lib/ironic
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
