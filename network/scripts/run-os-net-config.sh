@@ -10,7 +10,7 @@
 # a deployment input via input_values
 # $network_config : the json serialized os-net-config config to apply
 #
-set -ux
+set -eux
 
 function get_metadata_ip() {
 
@@ -98,8 +98,10 @@ EOF_CAT
             fi
         fi
     done
+    set +e
     os-net-config -c /etc/os-net-config/dhcp_all_interfaces.yaml -v --detailed-exit-codes --cleanup
     RETVAL=$?
+    set -e
     if [[ $RETVAL == 2 ]]; then
         ping_metadata_ip
     elif [[ $RETVAL != 0 ]]; then
@@ -123,8 +125,10 @@ if [ -n '$network_config' ]; then
     sed -i "s/bridge_name/${bridge_name:-''}/" /etc/os-net-config/config.json
     sed -i "s/interface_name/${interface_name:-''}/" /etc/os-net-config/config.json
 
+    set +e
     os-net-config -c /etc/os-net-config/config.json -v --detailed-exit-codes
     RETVAL=$?
+    set -e
 
     if [[ $RETVAL == 2 ]]; then
         ping_metadata_ip
