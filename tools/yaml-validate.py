@@ -94,6 +94,10 @@ def validate_mysql_connection(settings):
 
 
 def validate_service(filename, tpl):
+    if 'heat_template_version' in tpl and not str(tpl['heat_template_version']).isalpha():
+        print('ERROR: heat_template_version needs to be the release alias not a date: %s'
+              % filename)
+        return 1
     if 'outputs' in tpl and 'role_data' in tpl['outputs']:
         if 'value' not in tpl['outputs']['role_data']:
             print('ERROR: invalid role_data for filename: %s'
