@@ -8,6 +8,8 @@
 #   - AdminPassword
 #   - UndercloudFQDN
 #   - HostsSecret
+#   - ProvisioningCIDR: If set, it adds the given CIDR or IP to the
+#                       provisioning interface (which is hardcoded to eth1)
 #
 set -eux
 
@@ -15,6 +17,12 @@ if [ -f "~/freeipa-setup.env" ]; then
     source ~/freeipa-setup.env
 elif [ -f "/tmp/freeipa-setup.env" ]; then
     source /tmp/freeipa-setup.env
+fi
+
+if [ -n "$ProvisioningCIDR" ]; then
+    # Add address to provisioning network interface
+    ip link set dev eth1 up
+    ip addr add $ProvisioningCIDR dev eth1
 fi
 
 # Set DNS servers
