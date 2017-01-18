@@ -19,9 +19,39 @@ import yaml
 
 required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords']
 
+envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
+                                'tls-endpoints-public-ip.yaml',
+                                'tls-everywhere-endpoints-dns.yaml']
+ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
+
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
+
+
+def get_base_endpoint_map(filename):
+    try:
+        tpl = yaml.load(open(filename).read())
+        return tpl['parameters']['EndpointMap']['default']
+    except Exception:
+        print(traceback.format_exc())
+    return None
+
+
+def get_endpoint_map_from_env(filename):
+    try:
+        tpl = yaml.load(open(filename).read())
+        return {
+            'file': filename,
+            'map': tpl['parameter_defaults']['EndpointMap']
+        }
+    except Exception:
+        print(traceback.format_exc())
+    return None
+
+
+def validate_endpoint_map(base_map, env_map):
+    return sorted(base_map.keys()) == sorted(env_map.keys())
 
 
 def validate_mysql_connection(settings):
@@ -128,6 +158,8 @@ if len(sys.argv) < 2:
 path_args = sys.argv[1:]
 exit_val = 0
 failed_files = []
+base_endpoint_map = None
+env_endpoint_maps = list()
 
 for base_path in path_args:
     if os.path.isdir(base_path):
@@ -139,6 +171,12 @@ for base_path in path_args:
                     if failed:
                         failed_files.append(file_path)
                     exit_val |= failed
+                    if f == ENDPOINT_MAP_FILE:
+                        base_endpoint_map = get_base_endpoint_map(file_path)
+                    if f in envs_containing_endpoint_map:
+                        env_endpoint_map = get_endpoint_map_from_env(file_path)
+                        if env_endpoint_map:
+                            env_endpoint_maps.append(env_endpoint_map)
     elif os.path.isfile(base_path) and base_path.endswith('.yaml'):
         failed = validate(base_path)
         if failed:
@@ -147,6 +185,30 @@ for base_path in path_args:
     else:
         print('Unexpected argument %s' % base_path)
         exit_usage()
+
+if base_endpoint_map and \
+        len(env_endpoint_maps) == len(envs_containing_endpoint_map):
+    for env_endpoint_map in env_endpoint_maps:
+        matches = validate_endpoint_map(base_endpoint_map,
+                                        env_endpoint_map['map'])
+        if not matches:
+            print("ERROR: %s doesn't match base endpoint map" %
+                  env_endpoint_map['file'])
+            failed_files.append(env_endpoint_map['file'])
+            exit_val |= 1
+        else:
+            print("%s matches base endpoint map" % env_endpoint_map['file'])
+else:
+    print("ERROR: Can't validate endpoint maps since a file is missing. "
+          "If you meant to delete one of these files you should update this "
+          "tool as well.")
+    if not base_endpoint_map:
+        failed_files.append(ENDPOINT_MAP_FILE)
+    if len(env_endpoint_maps) != len(envs_containing_endpoint_map):
+        matched_files = set(os.path.basename(matched_env_file['file'])
+                            for matched_env_file in env_endpoint_maps)
+        failed_files.extend(set(envs_containing_endpoint_map) - matched_files)
+    exit_val |= 1
 
 if failed_files:
     print('Validation failed on:')
