@@ -60,7 +60,7 @@ if [[ -n $(is_bootstrap_node) ]]; then
     glance-manage db_sync
     heat-manage --config-file /etc/heat/heat.conf db_sync
     keystone-manage db_sync
-    neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini upgrade head
+    neutron-db-manage upgrade heads
     nova-manage db sync
     nova-manage api_db sync
     nova-manage db online_data_migrations
