@@ -8,8 +8,8 @@
 #   - AdminPassword
 #   - UndercloudFQDN
 #   - HostsSecret
-#   - ProvisioningCIDR: If set, it adds the given CIDR or IP to the
-#                       provisioning interface (which is hardcoded to eth1)
+#   - ProvisioningCIDR: If set, it adds the given CIDR to the provisioning
+#                       interface (which is hardcoded to eth1)
 #
 set -eux
 
