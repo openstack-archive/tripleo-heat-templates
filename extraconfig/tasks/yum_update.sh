@@ -42,7 +42,7 @@ if [[ "$list_updates" == "" ]]; then
     exit 0
 fi
 
-pacemaker_status=$(systemctl is-active pacemaker)
+pacemaker_status=$(systemctl is-active pacemaker || :)
 
 # Fix the redis/rabbit resource start/stop timeouts. See https://bugs.launchpad.net/tripleo/+bug/1633455
 # and https://bugs.launchpad.net/tripleo/+bug/1634851
