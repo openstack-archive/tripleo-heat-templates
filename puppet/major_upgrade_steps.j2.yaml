@@ -1,3 +1,4 @@
+{% set upgrade_steps_max = 8 -%}
 heat_template_version: ocata
 description: 'Upgrade steps for all roles'
 
@@ -17,12 +18,12 @@ parameters:
 
 resources:
 
-# Upgrade Steps for all roles
+# Upgrade Steps for all roles, batched updates
 # FIXME(shardy): would be nice to make the number of steps configurable
-{% for step in range(0, 8) %}
+{% for step in range(0, upgrade_steps_max) %}
   {% for role in roles %}
   # Step {{step}} resources
-  {{role.name}}UpgradeConfig_Step{{step}}:
+  {{role.name}}UpgradeBatchConfig_Step{{step}}:
     type: OS::TripleO::UpgradeConfig
   # The UpgradeConfig resources could actually be created without
   # serialization, but the event output is easier to follow if we
@@ -31,9 +32,57 @@ resources:
   {% if step > 0 %}
     depends_on:
       {% for dep in roles %}
+      - {{dep.name}}UpgradeBatch_Step{{step -1}}
+      {% endfor %}
+  {% endif %}
+    properties:
+      UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
+      step: {{step}}
+
+  {{role.name}}UpgradeBatch_Step{{step}}:
+    type: OS::Heat::StructuredDeploymentGroup
+  {% if step > 0 %}
+    depends_on:
+      {% for dep in roles %}
+      - {{dep.name}}UpgradeBatch_Step{{step -1}}
+      {% endfor %}
+  {% endif %}
+    update_policy:
+      batch_create:
+        max_batch_size: {{role.upgrade_batch_size|default(1)}}
+      rolling_update:
+        max_batch_size: {{role.upgrade_batch_size|default(1)}}
+    properties:
+      name: {{role.name}}UpgradeBatch_Step{{step}}
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}UpgradeBatchConfig_Step{{step}}}
+      input_values:
+        role: {{role.name}}
+        update_identifier: {get_param: UpdateIdentifier}
+  {% endfor %}
+{% endfor %}
+
+# Upgrade Steps for all roles
+# FIXME(shardy): would be nice to make the number of steps configurable
+{% for step in range(0, upgrade_steps_max) %}
+  {% for role in roles %}
+  # Step {{step}} resources
+  {{role.name}}UpgradeConfig_Step{{step}}:
+    type: OS::TripleO::UpgradeConfig
+  # The UpgradeConfig resources could actually be created without
+  # serialization, but the event output is easier to follow if we
+  # do, and there should be minimal performance hit (creating the
+  # config is cheap compared to the time to apply the deployment).
+    depends_on:
+  {% if step > 0 %}
+      {% for dep in roles %}
         {% if not dep.disable_upgrade_deployment|default(false) %}
       - {{dep.name}}Upgrade_Step{{step -1}}
         {% endif %}
+      {% endfor %}
+  {% else %}
+      {% for dep in roles %}
+      - {{dep.name}}UpgradeBatch_Step{{upgrade_steps_max -1}}
       {% endfor %}
   {% endif %}
     properties:
@@ -42,12 +91,16 @@ resources:
   {% if not role.disable_upgrade_deployment|default(false) %}
   {{role.name}}Upgrade_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
-  {% if step > 0 %}
     depends_on:
+  {% if step > 0 %}
       {% for dep in roles %}
         {% if not dep.disable_upgrade_deployment|default(false) %}
       - {{dep.name}}Upgrade_Step{{step -1}}
         {% endif %}
+      {% endfor %}
+  {% else %}
+      {% for dep in roles %}
+      - {{dep.name}}UpgradeBatch_Step{{upgrade_steps_max -1}}
       {% endfor %}
   {% endif %}
     properties:
