@@ -45,3 +45,44 @@ outputs:
                   - '6800-7300'
       step_config: |
         include ::tripleo::profile::base::ceph::osd
+      upgrade_batch_tasks:
+        - name: Get OSD IDs
+          tags: step1
+          shell: ls /var/lib/ceph/osd | awk 'BEGIN { FS = "-" } ; { print $2 }'
+          register: osd_ids
+          # "so that mirrors aren't rebalanced as if the OSD died" - gfidente / leseb
+        - name: ceph osd set noout
+          tags: step1
+          command: ceph osd set noout
+        - name: ceph osd set norebalance
+          tags: step1
+          command: ceph osd set norebalance
+        - name: ceph osd set nodeep-scrub
+          tags: step1
+          command: ceph osd set nodeep-scrub
+        - name: ceph osd set noscrub
+          tags: step1
+          command: ceph osd set noscrub
+        - name: Stop Ceph OSD
+          tags: step1
+          service: name=ceph-osd@$item state=stopped
+          with_items: "{{osd_ids.stdout.strip().split()}}"
+        - name: Update ceph OSD packages
+          tags: step1
+          yum: name=ceph-osd state=latest
+        - name: Start ceph-osd service
+          tags: step1
+          service: name=ceph-osd@$item state=started
+          with_items: "{{osd_ids.stdout.strip().split()}}"
+        - name: ceph osd unset noout
+          tags: step1
+          command: ceph osd unset noout
+        - name: ceph osd unset norebalance
+          tags: step1
+          command: ceph osd unset norebalance
+        - name: ceph osd unset nodeep-scrub
+          tags: step1
+          command: ceph osd unset nodeep-scrub
+        - name: ceph osd unset noscrub
+          tags: step1
+          command: ceph osd unset noscrub
