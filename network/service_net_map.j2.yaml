@@ -21,6 +21,9 @@ parameters:
   # snake_case - the names must still match when converted
   ServiceNetMapDefaults:
     default:
+      # Note the values in this map are replaced by *NetName
+      # to allow for sane defaults when the network names are
+      # overridden.
       ApacheNetwork: internal_api
       NeutronTenantNetwork: tenant
       CeilometerApiNetwork: internal_api
@@ -84,20 +87,62 @@ parameters:
                  internal use only, this will be removed in future.
     type: json
 
+  InternalApiNetName:
+    default: internal_api
+    description: The name of the internal API network.
+    type: string
+  ExternalNetName:
+    default: external
+    description: The name of the external network.
+    type: string
+  ManagementNetName:
+    default: management
+    description: The name of the management network.
+    type: string
+  StorageNetName:
+    default: storage
+    description: The name of the storage network.
+    type: string
+  StorageMgmtNetName:
+    default: storage_mgmt
+    description: The name of the Storage management network.
+    type: string
+  TenantNetName:
+    default: tenant
+    description: The name of the tenant network.
+    type: string
+
+
 parameter_groups:
 - label: deprecated
   description: Do not use deprecated params, they will be removed.
   parameters:
   - ServiceNetMapDeprecatedMapping
 
+resources:
+  ServiceNetMapValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+          - map_replace:
+             - {get_param: ServiceNetMapDefaults}
+             - values:
+                 external: {get_param: ExternalNetName}
+                 internal_api: {get_param: InternalApiNetName}
+                 storage: {get_param: StorageNetName}
+                 storage_mgmt: {get_param: StorageMgmtNetName}
+                 tenant: {get_param: TenantNetName}
+                 management: {get_param: ManagementNetName}
+          - map_replace:
+             - {get_param: ServiceNetMap}
+             - keys: {get_param: ServiceNetMapDeprecatedMapping}
+
+
 outputs:
   service_net_map:
-    value:
-      map_merge:
-        - {get_param: ServiceNetMapDefaults}
-        - map_replace:
-           - {get_param: ServiceNetMap}
-           - keys: {get_param: ServiceNetMapDeprecatedMapping}
+    value: {get_attr: [ServiceNetMapValue, value]}
 
   service_net_map_lower:
     value:
@@ -107,9 +152,4 @@ outputs:
       yaql:
         expression: dict($.data.map.items().select([ regex(`([a-z0-9])([A-Z])`).replace($[0], '\\1_\\2').toLower(), $[1]]))
         data:
-          map:
-            map_merge:
-              - {get_param: ServiceNetMapDefaults}
-              - map_replace:
-                 - {get_param: ServiceNetMap}
-                 - keys: {get_param: ServiceNetMapDeprecatedMapping}
+          map: {get_attr: [ServiceNetMapValue, value]}
