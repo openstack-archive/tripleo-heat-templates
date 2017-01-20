@@ -16,6 +16,23 @@ parameters:
       Setting to a previously unused value during stack-update will trigger
       the Upgrade resources to re-run on all roles.
 
+conditions:
+  # Conditions to disable any steps where the task list is empty
+{% for step in range(0, upgrade_steps_max) %}
+  {% for role in roles %}
+  UpgradeBatchConfig_Step{{step}}Enabled:
+    not:
+      equals:
+        - {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
+        - []
+  UpgradeConfig_Step{{step}}Enabled:
+    not:
+      equals:
+        - {get_param: [role_data, {{role.name}}, upgrade_tasks]}
+        - []
+  {% endfor %}
+{% endfor %}
+
 resources:
 
 # Upgrade Steps for all roles, batched updates
@@ -25,6 +42,7 @@ resources:
   # Step {{step}} resources
   {{role.name}}UpgradeBatchConfig_Step{{step}}:
     type: OS::TripleO::UpgradeConfig
+    condition: UpgradeBatchConfig_Step{{step}}Enabled
   # The UpgradeConfig resources could actually be created without
   # serialization, but the event output is easier to follow if we
   # do, and there should be minimal performance hit (creating the
@@ -41,6 +59,7 @@ resources:
 
   {{role.name}}UpgradeBatch_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
+    condition: UpgradeBatchConfig_Step{{step}}Enabled
   {% if step > 0 %}
     depends_on:
       {% for dep in roles %}
@@ -69,6 +88,7 @@ resources:
   # Step {{step}} resources
   {{role.name}}UpgradeConfig_Step{{step}}:
     type: OS::TripleO::UpgradeConfig
+    condition: UpgradeConfig_Step{{step}}Enabled
   # The UpgradeConfig resources could actually be created without
   # serialization, but the event output is easier to follow if we
   # do, and there should be minimal performance hit (creating the
@@ -91,6 +111,7 @@ resources:
   {% if not role.disable_upgrade_deployment|default(false) %}
   {{role.name}}Upgrade_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
+    condition: UpgradeConfig_Step{{step}}Enabled
     depends_on:
   {% if step > 0 %}
       {% for dep in roles %}
