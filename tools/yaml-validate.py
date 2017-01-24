@@ -196,8 +196,8 @@ if base_endpoint_map and \
         matches = validate_endpoint_map(base_endpoint_map,
                                         env_endpoint_map['map'])
         if not matches:
-            print("ERROR: %s doesn't match base endpoint map" %
-                  env_endpoint_map['file'])
+            print("ERROR: %s needs to be updated to match changes in base "
+                  "endpoint map" % env_endpoint_map['file'])
             failed_files.append(env_endpoint_map['file'])
             exit_val |= 1
         else:
