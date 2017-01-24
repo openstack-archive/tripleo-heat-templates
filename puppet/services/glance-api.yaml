@@ -45,8 +45,23 @@ parameters:
     default:
       tag: openstack.glance.api
       path: /var/log/glance/api.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 resources:
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
   GlanceBase:
     type: ./glance-base.yaml
     properties:
@@ -66,6 +81,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [GlanceBase, role_data, config_settings]
+          - get_attr: [TLSProxyBase, role_data, config_settings]
           - glance::api::database_connection:
               list_join:
                 - ''
@@ -100,7 +116,23 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            glance::api::bind_host: {get_param: [ServiceNetMap, GlanceApiNetwork]}
+            tripleo::profile::base::glance::api::tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, GlanceApiNetwork]
+            tripleo::profile::base::glance::api::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, GlanceApiNetwork]}
+            tripleo::profile::base::glance::api::tls_proxy_port:
+              get_param: [EndpointMap, GlanceInternal, port]
+            # Bind to localhost if internal TLS is enabled, since we put a TLs
+            # proxy in front.
+            glance::api::bind_host:
+              if:
+              - use_tls_proxy
+              - 'localhost'
+              - {get_param: [ServiceNetMap, GlanceApiNetwork]}
       step_config: |
         include ::tripleo::profile::base::glance::api
       service_config_settings:
