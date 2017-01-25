@@ -1,0 +1,84 @@
+heat_template_version: ocata
+description: 'Generates the relevant service principals for a server'
+
+parameters:
+  RoleData:
+     type: json
+     description: the list containing the 'role_data' output for the ServiceChain
+
+  # Coming from parameter_defaults
+  CloudName:
+    default: overcloud.localdomain
+    description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
+    type: string
+  CloudNameInternal:
+    default: overcloud.internalapi.localdomain
+    description: >
+      The DNS name of this cloud's internal API endpoint. E.g.
+      'ci-overcloud.internalapi.tripleo.org'.
+    type: string
+  CloudNameStorage:
+    default: overcloud.storage.localdomain
+    description: >
+      The DNS name of this cloud's storage endpoint. E.g.
+      'ci-overcloud.storage.tripleo.org'.
+    type: string
+  CloudNameStorageManagement:
+    default: overcloud.storagemgmt.localdomain
+    description: >
+      The DNS name of this cloud's storage management endpoint. E.g.
+      'ci-overcloud.storagemgmt.tripleo.org'.
+    type: string
+  CloudNameCtlplane:
+    default: overcloud.ctlplane.localdomain
+    description: >
+      The DNS name of this cloud's storage management endpoint. E.g.
+      'ci-overcloud.management.tripleo.org'.
+    type: string
+
+resources:
+
+  IncomingMetadataSettings:
+    type: OS::Heat::Value
+    properties:
+      value:
+        yaql:
+          # Filter null values and values that contain don't contain
+          # 'metadata_settings', get the values from that key and get the
+          # unique ones.
+          expression: list($.data.where($ != null).where($.containsKey('metadata_settings')).metadata_settings.flatten().distinct())
+          data: {get_param: RoleData}
+
+  # Generates entries for nova metadata with the following format:
+  #   'managed_service_<id>' : <service>/<fqdn>
+  # Depending on the requested network
+  IndividualServices:
+    type: OS::Heat::Value
+    properties:
+      value:
+        yaql:
+          expression: let(fqdns => $.data.fqdns) -> dict($.data.metadata.where($ != null and $.type = 'vip').select([concat('managed_service_', $.service, $.network), concat($.service, '/', $fqdns.get($.network))]))
+          data:
+            metadata: {get_attr: [IncomingMetadataSettings, value]}
+            fqdns:
+              external: {get_param: CloudName}
+              internal_api: {get_param: CloudNameInternal}
+              storage: {get_param: CloudNameStorage}
+              storage_mgmt: {get_param: CloudNameStorageManagement}
+              ctlplane: {get_param: CloudNameCtlplane}
+
+  CompactServices:
+    type: OS::Heat::Value
+    properties:
+      value:
+        yaql:
+          expression: dict($.data.where($ != null and $.type = 'node').select([$.service, $.network.replace('_', '')]).groupBy($[0], $[1]))
+          data: {get_attr: [IncomingMetadataSettings, value]}
+
+outputs:
+  metadata:
+    description: actual metadata entries that will be passed to the server.
+    value:
+      map_merge:
+        - {get_attr: [IndividualServices, value]}
+        - compact_services: {get_attr: [CompactServices, value]}
