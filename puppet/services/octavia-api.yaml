@@ -1,0 +1,97 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Octavia API service.
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OctaviaPassword:
+    description: The password for the Octavia's database account.
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionOctaviaApi:
+    default: 'overcloud-octavia-api'
+    type: string
+  OctaviaApiLoggingSource:
+    type: json
+    default:
+      tag: openstack.octavia.api
+      path: /var/log/octavia/api.log
+
+resources:
+
+  OctaviaBase:
+    type: ./octavia-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Octavia API service.
+    value:
+      service_name: octavia_api
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaApi}
+      logging_source: {get_param: OctaviaApiLoggingSource}
+      logging_groups:
+        - octavia
+      config_settings:
+        map_merge:
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          - octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            octavia::db::database_connection:
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://octavia:'
+                  - {get_param: OctaviaPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/octavia'
+                  - '?bind_address='
+                  - "%{hiera('tripleo::profile::base::database::mysql::client_bind_address')}"
+            octavia::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            octavia::keystone::authtoken::project_name: 'service'
+            octavia::api::sync_db: true
+            tripleo.octavia_api.firewall_rules:
+              '120 octavia api':
+                dport:
+                  - 9876
+                  - 13876
+            octavia::host: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+      step_config: |
+        include tripleo::profile::base::octavia::api
+      service_config_settings:
+        keystone:
+          octavia::keystone::auth::tenant: 'service'
+          octavia::keystone::auth::public_url: {get_param: [EndpointMap, OctaviaPublic, uri]}
+          octavia::keystone::auth::internal_url: { get_param: [ EndpointMap, OctaviaInternal, uri ] }
+          octavia::keystone::auth::admin_url: { get_param: [ EndpointMap, OctaviaAdmin, uri ] }
+          octavia::keystone::auth::password: {get_param: OctaviaPassword}
+          octavia::keystone::auth::region: {get_param: KeystoneRegion}
+        mysql:
+          octavia::db::mysql::password: {get_param: OctaviaPassword}
+          octavia::db::mysql::user: octavia
+          octavia::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          octavia::db::mysql::dbname: octavia
+          octavia::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
