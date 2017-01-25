@@ -33,6 +33,10 @@ fi
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y update
 
+# Update nova neutron auth parameters, to be able to launch and migrate the
+# workloads before running the converge step
+puppet apply /root/liberty_to_mitaka_neutron_auth_param.pp
+systemctl restart openstack-nova-compute
 ENDOFCAT
 
 # ensure the permissions are OK
