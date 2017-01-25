@@ -1,0 +1,114 @@
+heat_template_version: 2016-10-14
+
+description: >
+  Software Config to drive os-net-config for a simple bridge configured
+  with a static IP address for the ctlplane network.
+
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  ExternalIpSubnet:
+    default: ''
+    description: IP address/subnet on the external network
+    type: string
+  InternalApiIpSubnet:
+    default: ''
+    description: IP address/subnet on the internal API network
+    type: string
+  StorageIpSubnet:
+    default: ''
+    description: IP address/subnet on the storage network
+    type: string
+  StorageMgmtIpSubnet:
+    default: ''
+    description: IP address/subnet on the storage mgmt network
+    type: string
+  TenantIpSubnet:
+    default: ''
+    description: IP address/subnet on the tenant network
+    type: string
+  ManagementIpSubnet:
+    default: ''
+    description: IP address/subnet on the management network
+    type: string
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  OvSBridgeMtu:
+    default: 1300
+    description: The mtu of the OvS bridge
+    type: number
+
+resources:
+
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        list_join:
+        - ''
+        - - |
+            #!/bin/bash
+            function network_config_hook {
+              primary_private_ip=$(cat /etc/nodepool/primary_node_private)
+              sed -i "s/primary_private_ip/$primary_private_ip/" /etc/os-net-config/config.json
+              subnode_private_ip=$(cat /etc/nodepool/node_private)
+              sed -i "s/subnode_private_ip/$subnode_private_ip/" /etc/os-net-config/config.json
+              # We start with an arbitrarily high vni key so that we don't
+              # overlap with Neutron created values. These will also match the
+              # values that we've been using previously from the devstack-gate
+              # code.
+              vni=1000002
+              subnode_index=$(grep -n $(cat /etc/nodepool/node_private) /etc/nodepool/sub_nodes_private | cut -d: -f1)
+              let vni+=$subnode_index
+              sed -i "s/vni/$vni/" /etc/os-net-config/config.json
+              export interface_name="br-ex_$primary_private_ip"
+              # Until we are fully migrated to os-net-config we need to clean
+              # up the old bridge first created by devstack-gate
+              ovs-vsctl del-br br-ex
+            }
+
+          -
+            str_replace:
+              template:
+                get_file: ../../network/scripts/run-os-net-config.sh
+              params:
+                $network_config:
+                  network_config:
+                    - type: ovs_bridge
+                      name: bridge_name
+                      mtu:
+                        get_param: OvSBridgeMtu
+                      use_dhcp: false
+                      addresses:
+                        - ip_netmask:
+                            list_join:
+                              - "/"
+                              - - get_param: ControlPlaneIp
+                                - get_param: ControlPlaneSubnetCidr
+                      members:
+                        - type: ovs_tunnel
+                          name: interface_name
+                          tunnel_type: vxlan
+                          ovs_options:
+                            - list_join:
+                              - "="
+                              - - key
+                                - vni
+                            - list_join:
+                              - "="
+                              - - remote_ip
+                                - primary_private_ip
+                            - list_join:
+                              - "="
+                              - - local_ip
+                                - subnode_private_ip
+
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value: {get_resource: OsNetConfigImpl}
