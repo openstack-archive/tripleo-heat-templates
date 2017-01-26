@@ -113,3 +113,24 @@ outputs:
         get_attr: [CephBase, role_data, service_config_settings]
       step_config: |
         include ::tripleo::profile::base::ceph::mon
+      upgrade_batch_tasks:
+        # Note we perform these tasks in list order, but they are all step0 so
+        # we can perform a rolling upgrade of all mon nodes in step0, then a
+        # rolling upgrade of all osd nodes in step1
+        # FIXME(shardy) I suspect we can use heat or ansible facts here instead?
+        - name: Get hostname
+          tags: step0
+          shell: hostname -s
+          register: mon_id
+        - name: Stop Ceph Mon
+          tags: step0
+          service: name=ceph-mon@{{mon_id.stdout}} pattern=ceph-mon state=stopped
+        - name: Update ceph packages
+          tags: step0
+          yum: name=ceph-mon,ceph state=latest
+        - name: Start ceph-mon service
+          tags: step0
+          service: name=ceph-mon@{{mon_id.stdout}} state=started
+        - name: ceph osd crush tunables default
+          tags: step0
+          shell: ceph osd crush tunables default
