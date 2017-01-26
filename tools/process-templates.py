@@ -19,6 +19,8 @@ import six
 import sys
 import yaml
 
+__tht_root_dir = os.path.dirname(os.path.dirname(__file__))
+
 
 def parse_opts(argv):
     parser = argparse.ArgumentParser(
@@ -51,9 +53,14 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
         print('ERROR: path already exists for file: %s' % outfile_name)
         sys.exit(1)
 
+    # Search for templates relative to the current template path first
+    template_base = os.path.dirname(yaml_f)
+    j2_loader = jinja2.loaders.FileSystemLoader([template_base, __tht_root_dir])
+
     try:
         # Render the j2 template
-        template = jinja2.Environment().from_string(j2_template)
+        template = jinja2.Environment(loader=j2_loader).from_string(
+            j2_template)
         r_template = template.render(**j2_data)
     except jinja2.exceptions.TemplateError as ex:
         error_msg = ("Error rendering template %s : %s"
