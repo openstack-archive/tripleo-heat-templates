@@ -1,0 +1,76 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized swift proxy service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerSwiftProxyImage:
+    description: image
+    default: 'centos-binary-swift-proxy-server:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  SwiftProxyBase:
+    type: ../../puppet/services/swift-proxy.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the swift proxy.
+    value:
+      service_name: {get_attr: [SwiftProxyBase, role_data, service_name]}
+      config_settings: {get_attr: [SwiftProxyBase, role_data, config_settings]}
+      step_config: {get_attr: [SwiftProxyBase, role_data, step_config]}
+      service_config_settings: {get_attr: [SwiftProxyBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &swift_proxy_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerSwiftProxyImage} ]
+      puppet_tags: swift_proxy_config
+      config_volume: swift
+      config_image: *swift_proxy_image
+      kolla_config:
+        /var/lib/kolla/config_files/swift_proxy.json:
+          command: /usr/bin/swift-proxy-server /etc/swift/proxy-server.conf
+      docker_config:
+        step_4:
+          swift_proxy:
+            image: *swift_proxy_image
+            net: host
+            user: swift
+            restart: always
+            # I'm mounting /etc/swift as rw.  Are the rings written to at all during runtime?
+            volumes:
+              - /var/lib/kolla/config_files/swift_proxy.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/swift:/var/lib/kolla/config_files/src:ro
+              - /var/lib/config-data/swift/etc/swift:/etc/swift:rw
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /run:/run
+              - swift-srv:/srv
+              - /dev:/dev
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
