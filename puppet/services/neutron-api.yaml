@@ -71,6 +71,9 @@ parameters:
       removed in Ocata.  Future releases will enable L3 HA by default if it is
       appropriate for the deployment type. Alternate mechanisms will be
       available to override.
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 parameter_groups:
 - label: deprecated
@@ -82,7 +85,18 @@ parameter_groups:
   parameters:
   - NeutronL3HA
 
+conditions:
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
+
 resources:
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
   NeutronBase:
     type: ./neutron-base.yaml
@@ -103,6 +117,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [TLSProxyBase, role_data, config_settings]
           - neutron::server::database_connection:
               list_join:
                 - ''
@@ -140,7 +155,23 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            neutron::bind_host: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+            tripleo::profile::base::neutron::server::tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, NeutronApiNetwork]
+            tripleo::profile::base::neutron::server::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+            tripleo::profile::base::neutron::server::tls_proxy_port:
+              get_param: [EndpointMap, NeutronInternal, port]
+            # Bind to localhost if internal TLS is enabled, since we put a TLS
+            # proxy in front.
+            neutron::bind_host:
+              if:
+              - use_tls_proxy
+              - 'localhost'
+              - {get_param: [ServiceNetMap, NeutronApiNetwork]}
             tripleo::profile::base::neutron::server::l3_ha_override: {get_param: NeutronL3HA}
       step_config: |
         include tripleo::profile::base::neutron::server
