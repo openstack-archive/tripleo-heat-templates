@@ -72,7 +72,9 @@ with open(config_file) as f:
 
 configs = {}
 
-for service in json_data:
+for service in (json_data or []):
+    if service is None:
+        continue
     config_volume = service[0] or ''
     puppet_tags = service[1] or ''
     manifest = service[2] or ''
