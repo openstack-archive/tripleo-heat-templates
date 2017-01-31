@@ -10,6 +10,9 @@
 #   - HostsSecret
 #   - ProvisioningCIDR: If set, it adds the given CIDR to the provisioning
 #                       interface (which is hardcoded to eth1)
+#   - UsingNovajoin: If unset, we pre-provision the service principals
+#                    needed for the overcloud deploy. If set, we skip this,
+#                    since novajoin will do it.
 #
 set -eux
 
@@ -94,11 +97,13 @@ if [ "$?" = '1' ]; then
     exit 1
 fi
 
-# Create undercloud host
-ipa host-add $UndercloudFQDN --password=$HostsSecret --force
+if [ -z "$UsingNovajoin" ]; then
+    # Create undercloud host
+    ipa host-add $UndercloudFQDN --password=$HostsSecret --force
 
-# Create overcloud nodes and services
-git clone https://github.com/JAORMX/freeipa-tripleo-incubator.git
-cd freeipa-tripleo-incubator
-python create_ipa_tripleo_host_setup.py -w $HostsSecret -d $(hostname -d) \
-    --controller-count 1 --compute-count 1
+    # Create overcloud nodes and services
+    git clone https://github.com/JAORMX/freeipa-tripleo-incubator.git
+    cd freeipa-tripleo-incubator
+    python create_ipa_tripleo_host_setup.py -w $HostsSecret -d $(hostname -d) \
+        --controller-count 1 --compute-count 1
+fi
