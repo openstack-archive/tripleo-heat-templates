@@ -32,6 +32,11 @@ are re-asserted when applying latter ones.
  * config_settings: Custom hiera settings for this service. These are
    used to generate configs.
 
+ * kolla_config: Contains YAML that represents how to map config files
+   into the kolla container. This config file is typically mapped into
+   the container itself at the /var/lib/kolla/config_files/config.json
+   location and drives how kolla's external config mechanisms work.
+
  * step_config: A puppet manifest that is used to step through the deployment
    sequence. Each sequence is given a "step" (via hiera('step') that provides
    information for when puppet classes should activate themselves.
