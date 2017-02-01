@@ -21,10 +21,54 @@ def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
 
+
+def validate_mysql_connection(settings):
+    no_op = lambda *args: False
+    error_status = [0]
+
+    def mysql_protocol(items):
+        return 'mysql+pymysql' in items
+
+    def client_bind_address(item):
+        return 'bind_address' in item
+
+    def validate_mysql_uri(key, items):
+        # Only consider a connection if it targets mysql
+        if key.endswith('dsn') and \
+           search(items, mysql_protocol, no_op):
+            # Assume the "bind_address" option is one of
+            # the token that made up the uri
+            if not search(items, client_bind_address, no_op):
+                error_status[0] = 1
+        return False
+
+    def search(item, check_item, check_key):
+        if check_item(item):
+            return True
+        elif isinstance(item, list):
+            for i in item:
+                if search(i, check_item, check_key):
+                    return True
+        elif isinstance(item, dict):
+            for k in item.keys():
+                if check_key(k, item[k]):
+                    return True
+                elif search(item[k], check_item, check_key):
+                    return True
+        return False
+
+    search(settings, no_op, validate_mysql_uri)
+    return error_status[0]
+
+
 def validate(filename):
     print('Validating %s' % filename)
     try:
         tpl = yaml.load(open(filename).read())
+        if filename.startswith('./puppet/') and \
+           validate_mysql_connection(tpl):
+            print('ERROR: mysql connection uri should use option bind_address')
+            return 1
     except Exception:
         print(traceback.format_exc())
         return 1
