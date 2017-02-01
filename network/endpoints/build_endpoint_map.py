@@ -280,8 +280,9 @@ def main():
     try:
         if options.check:
             if not check_up_to_date(options.output_file, options.input_file):
-                print('EndpointMap template does not match input data',
-                      file=sys.stderr)
+                print('EndpointMap template does not match input data. Please '
+                      'run the build_endpoint_map.py tool to update the '
+                      'template.', file=sys.stderr)
                 sys.exit(2)
         else:
             build_endpoint_map(options.output_file, options.input_file)
