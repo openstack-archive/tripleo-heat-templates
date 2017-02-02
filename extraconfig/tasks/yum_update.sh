@@ -10,6 +10,11 @@
 echo "Started yum_update.sh on server $deploy_server_id at `date`"
 echo -n "false" > $heat_outputs_path.update_managed_packages
 
+if [ -f /.dockerenv ]; then
+    echo "Not running due to running inside a container"
+    exit 0
+fi
+
 if [[ -z "$update_identifier" ]]; then
     echo "Not running due to unset update_identifier"
     exit 0
