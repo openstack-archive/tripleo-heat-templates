@@ -94,10 +94,6 @@ def validate_mysql_connection(settings):
 
 
 def validate_service(filename, tpl):
-    if 'heat_template_version' in tpl and not str(tpl['heat_template_version']).isalpha():
-        print('ERROR: heat_template_version needs to be the release alias not a date: %s'
-              % filename)
-        return 1
     if 'outputs' in tpl and 'role_data' in tpl['outputs']:
         if 'value' not in tpl['outputs']['role_data']:
             print('ERROR: invalid role_data for filename: %s'
@@ -134,6 +130,13 @@ def validate(filename):
     retval = 0
     try:
         tpl = yaml.load(open(filename).read())
+
+        # The template alias version should be used instead a date, this validation
+        # will be applied to all templates not just for those in the services folder.
+        if 'heat_template_version' in tpl and not str(tpl['heat_template_version']).isalpha():
+            print('ERROR: heat_template_version needs to be the release alias not a date: %s'
+                  % filename)
+            return 1
 
         if (filename.startswith('./puppet/services/') and
                 filename != './puppet/services/services.yaml'):
