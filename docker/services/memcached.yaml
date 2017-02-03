@@ -1,0 +1,69 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Memcached services
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerMemcachedImage:
+    description: image
+    default: 'centos-binary-memcached:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  MemcachedBase:
+    type: ../../puppet/services/memcached.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Memcached API role.
+    value:
+      service_name: {get_attr: [MemcachedBase, role_data, service_name]}
+      config_settings: {get_attr: [MemcachedBase, role_data, config_settings]}
+      step_config: {get_attr: [MemcachedBase, role_data, step_config]}
+      service_config_settings: {get_attr: [MemcachedBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &memcached_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerMemcachedImage} ]
+      puppet_tags: 'file'
+      config_volume: 'memcached'
+      config_image: *memcached_image
+      kolla_config: {}
+      docker_config:
+        step_1:
+          memcached:
+            image: *memcached_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /var/lib/config-data/memcached/etc/sysconfig/memcached:/etc/sysconfig/memcached:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            command: ['/bin/bash', '-c', 'source /etc/sysconfig/memcached; /usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS']
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
