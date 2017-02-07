@@ -46,10 +46,11 @@ resources:
   {{role.name}}UpgradeBatchConfig_Step{{step}}:
     type: OS::TripleO::UpgradeConfig
   {%- if step > 0 %}
+    condition: {{role.name}}UpgradeBatchConfigEnabled
+    {% if role.name in enabled_roles %}
     depends_on:
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}UpgradeBatch_Step{{step -1}}
-      {%- endfor %}
+      - {{role.name}}UpgradeBatch_Step{{step -1}}
+    {% endif %}
   {%- endif %}
     properties:
       UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
@@ -61,12 +62,13 @@ resources:
   {{role.name}}UpgradeBatch_Step{{step}}:
     type: OS::Heat::SoftwareDeploymentGroup
     condition: {{role.name}}UpgradeBatchConfigEnabled
-  {%- if step > 0 %}
+    {%- if step > 0 %}
     depends_on:
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}UpgradeBatch_Step{{step -1}}
-      {%- endfor %}
-  {%- endif %}
+      - {{role.name}}UpgradeBatch_Step{{step -1}}
+    {% else %}
+    depends_on:
+      - {{role.name}}UpgradeBatchConfig_Step{{step}}
+    {%- endif %}
     update_policy:
       batch_create:
         max_batch_size: {{role.upgrade_batch_size|default(1)}}
@@ -92,15 +94,12 @@ resources:
   # serialization, but the event output is easier to follow if we
   # do, and there should be minimal performance hit (creating the
   # config is cheap compared to the time to apply the deployment).
-    depends_on:
   {%- if step > 0 %}
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}Upgrade_Step{{step -1}}
-      {%- endfor %}
-  {%- else %}
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}UpgradeBatch_Step{{batch_upgrade_steps_max -1}}
-      {%- endfor %}
+    condition: {{role.name}}UpgradeConfigEnabled
+    {% if role.name in enabled_roles %}
+    depends_on:
+      - {{role.name}}Upgrade_Step{{step -1}}
+    {% endif %}
   {%- endif %}
     properties:
       UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_tasks]}
@@ -111,17 +110,11 @@ resources:
   {%- for role in enabled_roles %}
   {{role.name}}Upgrade_Step{{step}}:
     type: OS::Heat::SoftwareDeploymentGroup
+    {%- if step > 0 %}
     condition: {{role.name}}UpgradeConfigEnabled
     depends_on:
-  {%- if step > 0 %}
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}Upgrade_Step{{step -1}}
-      {%- endfor %}
-  {%- else %}
-      {%- for dep in enabled_roles %}
-      - {{dep.name}}UpgradeBatch_Step{{batch_upgrade_steps_max -1}}
-      {%- endfor %}
-  {%- endif %}
+      - {{role.name}}Upgrade_Step{{step -1}}
+    {%- endif %}
     properties:
       name: {{role.name}}Upgrade_Step{{step}}
       servers: {get_param: [servers, {{role.name}}]}
@@ -154,4 +147,3 @@ outputs:
 {% for role in roles %}
       {{role.name.lower()}}: {get_attr: [{{role.name}}UpgradeConfig_Step1, upgrade_config]}
 {% endfor %}
-
