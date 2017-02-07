@@ -66,7 +66,10 @@ def validate_mysql_connection(settings):
 
     def validate_mysql_uri(key, items):
         # Only consider a connection if it targets mysql
-        if key.endswith('connection') and \
+        # TODO(owalsh): skip nova mysql uris,temporary workaround for
+        # tripleo/+bug/1662344
+        if not key.startswith('nova') and \
+           key.endswith('connection') and \
            search(items, mysql_protocol, no_op):
             # Assume the "bind_address" option is one of
             # the token that made up the uri
