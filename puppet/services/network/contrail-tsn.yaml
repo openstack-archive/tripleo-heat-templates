@@ -1,0 +1,64 @@
+heat_template_version: ocata
+
+description: >
+  Contrail TSN Service
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronMetadataProxySharedSecret:
+    description: Metadata Secret
+    type: string
+  VrouterPhysicalInterface:
+    default: 'eth0'
+    description: vRouter physical interface
+    type: string
+  VrouterGateway:
+    default: '192.168.24.1'
+    description: vRouter default gateway
+    type: string
+  VrouterNetmask:
+    default: '255.255.255.0'
+    description: vRouter netmask
+    type: string
+
+resources:
+  ContrailBase:
+    type: ./contrail-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Contrail TSN Service
+    value:
+      service_name: contrail_tsn
+      config_settings:
+        map_merge:
+          - get_attr: [ContrailBase, role_data, config_settings]
+          - contrail::vrouter::host_ip: {get_param: [ServiceNetMap, NeutronCorePluginOpencontrailNetwork]}
+            contrail::vrouter::physical_interface: {get_param: VrouterPhysicalInterface}
+            contrail::vrouter::gateway: {get_param: VrouterGateway}
+            contrail::vrouter::netmask: {get_param: VrouterNetmask}
+            contrail::vrouter::metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
+            contrail::vrouter::is_tsn: 'true'
+            tripleo.neutron_compute_plugin_opencontrail.firewall_rules:
+              '111 neutron_compute_plugin_opencontrail proxy':
+                dport: 8097
+                proto: tcp
+      step_config: |
+        include ::tripleo::network::contrail::vrouter

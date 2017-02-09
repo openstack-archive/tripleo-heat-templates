@@ -1,0 +1,105 @@
+heat_template_version: ocata
+
+parameters:
+  ContrailRepo:
+    type: string
+    default: http://192.168.24.1/contrail
+  VrouterPhysicalInterface:
+    default: 'eth0'
+    description: vRouter physical interface
+    type: string
+
+description: >
+  Prepares vhost0 interface to be used by os-net-config
+
+resources:
+  userdata:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: vrouter_module_config}
+
+  vrouter_module_config:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            sed -i '/\[main\]/a \ \ \ \ \parser = future' /etc/puppet/puppet.conf
+            cat <<EOF > /etc/yum.repos.d/contrail.repo
+            [Contrail]
+            name=Contrail Repo
+            baseurl=$contrail_repo
+            enabled=1
+            gpgcheck=0
+            protect=1
+            EOF
+            if [[ `hostname |awk -F"-" '{print $2}'` == "novacompute" || `hostname |awk -F"-" '{print $2}'` == "contrailtsn" ]]; then 
+              yum install -y contrail-vrouter-utils
+              function pkt_setup () {
+                  for f in /sys/class/net/$1/queues/rx-*
+                  do
+                      q="$(echo $f | cut -d '-' -f2)"
+                      r=$(($q%32))
+                      s=$(($q/32))
+                      ((mask=1<<$r))
+                      str=(`printf "%x" $mask`)
+                      if [ $s -gt 0 ]; then
+                          for ((i=0; i < $s; i++))
+                          do
+                              str+=,00000000
+                          done
+                      fi
+                      echo $str > $f/rps_cpus
+                  done
+                  ifconfig $1 up
+              }
+              function insert_vrouter() {
+                  insmod /tmp/vrouter.ko
+                  if [ -f /sys/class/net/pkt1/queues/rx-0/rps_cpus ]; then
+                      pkt_setup pkt1
+                  fi
+                  if [ -f /sys/class/net/pkt2/queues/rx-0/rps_cpus ]; then
+                      pkt_setup pkt2
+                  fi
+                  if [ -f /sys/class/net/pkt3/queues/rx-0/rps_cpus ]; then
+                      pkt_setup pkt3
+                  fi
+                  DEV_MAC=$(cat /sys/class/net/$phy_int/address)
+                  vif --create vhost0 --mac $DEV_MAC
+                  vif --add $phy_int --mac $DEV_MAC --vrf 0 --vhost-phys --type physical
+                  vif --add vhost0 --mac $DEV_MAC --vrf 0 --type vhost --xconnect $phy_int
+                  ip link set vhost0 up
+                  return 0
+              }
+              yumdownloader contrail-vrouter --destdir /tmp
+              cd /tmp
+              rpm2cpio /tmp/contrail-vrouter*.rpm | cpio -idmv
+              cp `find /tmp/lib/modules -name vrouter.ko |tail -1` /tmp
+              insert_vrouter
+              if [[ `ifconfig $dev |grep "inet "` ]]; then
+                def_gw=''
+                if [[ `ip route show |grep default|grep $dev` ]]; then
+                  def_gw=`ip route show |grep default|grep $dev|awk '{print $3}'`
+                fi
+                ip=`ifconfig $dev |grep "inet "|awk '{print $2}'`
+                mask=`ifconfig $dev |grep "inet "|awk '{print $4}'`
+                ip address delete $ip/$mask dev $dev
+                ip address add $ip/$mask dev vhost0
+                if [[ $def_gw ]]; then
+                  ip route add default via $def_gw
+                fi
+              fi
+            fi
+          params:
+            $phy_int: {get_param: VrouterPhysicalInterface}
+            $contrail_repo: {get_param: ContrailRepo}
+
+outputs:
+  # This means get_resource from the parent template will get the userdata, see:
+  # http://docs.openstack.org/developer/heat/template_guide/composition.html#making-your-template-resource-more-transparent
+  # Note this is new-for-kilo, an alternative is returning a value then using
+  # get_attr in the parent template instead.
+  OS::stack_id:
+    value: {get_resource: userdata}
