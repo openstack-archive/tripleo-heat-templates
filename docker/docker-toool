@@ -1,0 +1,189 @@
+#!/usr/bin/env python
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+import argparse
+import os
+import shutil
+import sys
+import json
+
+docker_cmd = '/bin/docker'
+
+# Tool to start docker containers as configured via
+# tripleo-heat-templates.
+#
+# This tool reads data from a json file generated from heat when the
+# TripleO stack is run.  All the configuration data used to start the
+# containerized services is in this file.
+#
+# By default this tool lists all the containers that are started and
+# their start order.
+#
+# If you wish to see the command line used to start a given container,
+# specify it by name using the --container argument.  --run can then be
+# used with this to actually execute docker to run the container.\n
+#
+# Other options listed allow you to modify this command line for
+# debugging purposes.  For example:
+#
+# docker-toool -c swift-proxy -r -e /bin/bash -u root -i -n test
+#
+# will run the swift proxy container as user root, executing /bin/bash,
+#
+# named 'test', and will run interactively (eg -ti).
+
+
+def parse_opts(argv):
+    parser = argparse.ArgumentParser("Tool to start docker containers via "
+                                     "TripleO configurations")
+    parser.add_argument('-f', '--config',
+                        help="""File to use as docker startup configuration data.""",
+                        default='/var/lib/docker-container-startup-configs.json')
+    parser.add_argument('-r', '--run',
+                        action='store_true',
+                        help="""Run the container as specified with --container.""",
+                        default=False)
+    parser.add_argument('-e', '--command',
+                        help="""Override the command used to run the container.""",
+                        default='')
+    parser.add_argument('-c', '--container',
+                        help="""Specify a container to run or show the command for.""",
+                        default='')
+    parser.add_argument('-u', '--user',
+                        help="""User to run container as.""",
+                        default='')
+    parser.add_argument('-n', '--name',
+                        help="""Name of container.""",
+                        default='')
+    parser.add_argument('-i', '--interactive',
+                        action='store_true',
+                        help="""Start docker container interactively (-ti).""",
+                        default=False)
+    opts = parser.parse_args(argv[1:])
+
+    return opts
+
+def docker_arg_map(key, value):
+    value = str(value).encode('ascii', 'ignore')
+    return {
+        'environment': "--env=%s" % value,
+        # 'image': value,
+        'net': "--net=%s" % value,
+        'pid': "--pid=%s" % value,
+        'privileged': "--privileged=%s" % value.lower(),
+        #'restart': "--restart=%s" % "false",
+        'user': "--user=%s" % value,
+        'volumes': "--volume=%s" % value,
+        'volumes_from': "--volumes-from=%s" % value,
+    }.get(key, None)
+
+def run_docker_container(opts, container_name):
+    container_found = False
+
+    with open(opts.config) as f:
+        json_data = json.load(f)
+
+    for step in (json_data or []):
+        if step is None:
+            continue
+        for container in (json_data[step] or []):
+            if container == container_name:
+                print('container found: %s' % container)
+                container_found = True
+                # A few positional arguments:
+                command = ''
+                image = ''
+
+                cmd = [
+                    docker_cmd,
+                    'run',
+                    '--name',
+                    opts.name or container
+                ]
+                for container_data in (json_data[step][container] or []):
+                    if container_data == "environment":
+                        for env in (json_data[step][container][container_data] or []):
+                            arg = docker_arg_map("environment", env)
+                            if arg:
+                                cmd.append(arg)
+                    elif container_data == "volumes":
+                        for volume in (json_data[step][container][container_data] or []):
+                            arg = docker_arg_map("volumes", volume)
+                            if arg:
+                                cmd.append(arg)
+                    elif container_data == "volumes_from":
+                        for volume in (json_data[step][container][container_data] or []):
+                            arg = docker_arg_map("volumes_from", volume)
+                            if arg:
+                                cmd.append(arg)
+                    elif container_data == 'command':
+                        command = json_data[step][container][container_data]
+                    elif container_data == 'image':
+                        image = json_data[step][container][container_data]
+                    else:
+                        # Only add a restart if we're not interactive
+                        if container_data == 'restart':
+                            if opts.interactive:
+                                continue
+                        if container_data == 'user':
+                            if opts.user:
+                                continue
+                        arg = docker_arg_map(container_data,
+                                json_data[step][container][container_data])
+                        if arg:
+                            cmd.append(arg)
+
+                if opts.user:
+                    cmd.append('--user')
+                    cmd.append(opts.user)
+                if opts.interactive:
+                    cmd.append('-ti')
+                    # May as well remove it when we're done too
+                    cmd.append('--rm')
+                cmd.append(image)
+                if opts.command:
+                    cmd.append(opts.command)
+                elif command:
+                    cmd.extend(command)
+
+                print ' '.join(cmd)
+
+                if opts.run:
+                    os.execl(docker_cmd, *cmd)
+
+    if not container_found:
+        print("Container '%s' not found!" % container_name)
+
+def list_docker_containers(opts):
+    print opts
+    with open(opts.config) as f:
+        json_data = json.load(f)
+
+    for step in (json_data or []):
+        if step is None:
+            continue
+        print step
+        for container in (json_data[step] or []):
+            print('\tcontainer: %s' % container)
+            for container_data in (json_data[step][container] or []):
+                #print('\t\tcontainer_data: %s' % container_data)
+                if container_data == "start_order":
+                    print('\t\tstart_order: %s' % json_data[step][container][container_data])
+
+opts = parse_opts(sys.argv)
+
+if opts.container:
+    run_docker_container(opts, opts.container)
+else:
+    list_docker_containers(opts)
+
