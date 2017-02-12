@@ -138,6 +138,15 @@ if [[ "$pacemaker_status" == "active" ]] ; then
     pcs status
 fi
 
+# We didn't complete the M->N upgrades correctly with a
+# `nova-manage db online_data_migrations` command before, which might result in
+# a performance impairment. So, as a stop-gap-solution we run it here on the
+# first controller node, which is a noop if there is nothing to do.
+if hiera -c /etc/puppet/hiera.yaml service_names | grep -q nova_api && \
+  [[ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]] ; then
+    /usr/bin/nova-manage db online_data_migrations
+fi
+
 echo "Finished yum_update.sh on server $deploy_server_id at `date`"
 
 exit $return_code
