@@ -44,9 +44,14 @@ if [[ -n \$NOVA_COMPUTE ]]; then
     systemctl restart openstack-ceilometer-compute
 fi
 
-# Apply puppet manifest to converge just right after the \$ROLE upgrade
-puppet apply /root/${ROLE}_puppet_config.pp
-
+# Apply puppet manifest to converge just right after the ${ROLE} upgrade
+$(declare -f run_puppet)
+for step in 1 2 3 4 5 6; do
+    if ! run_puppet /root/${ROLE}_puppet_config.pp ${ROLE} \${step}; then
+         echo "Puppet failure at step \${step}"
+         exit 1
+    fi
+done
 ENDOFCAT
 
 # ensure the permissions are OK
