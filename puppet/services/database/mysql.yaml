@@ -34,6 +34,10 @@ parameters:
     default: true
     description: Whether to use Galera instead of regular MariaDB.
     type: boolean
+  NovaPassword:
+    description: The password for the nova db account
+    type: string
+    hidden: true
 
 resources:
 
@@ -94,6 +98,8 @@ outputs:
               {get_param: [ServiceNetMap, MysqlNetwork]}
       step_config: |
         include ::tripleo::profile::base::database::mysql
+      metadata_settings:
+        get_attr: [MySQLTLS, role_data, metadata_settings]
       upgrade_tasks:
         - name: Check for galera root password
           tags: step0
@@ -104,6 +110,15 @@ outputs:
         - name: Start service
           tags: step4
           service: name=mariadb state=started
-      metadata_settings:
-        get_attr: [MySQLTLS, role_data, metadata_settings]
-
+        - name: Setup cell_v2 (create cell0 database)
+          tags: step4
+          mysql_db:
+            name: nova_cell0
+            state: present
+        - name: Setup cell_v2 (grant access to the nova DB user)
+          tags: step4
+          mysql_user:
+            str_replace:
+              template: "name=nova password=PASSWORD host=\"%\" priv=\"nova.*:ALL/nova_cell0.*:ALL,GRANT\" state=present"
+              params:
+                PASSWORD: {get_param: NovaPassword}
