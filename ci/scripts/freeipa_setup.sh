@@ -22,6 +22,15 @@ elif [ -f "/tmp/freeipa-setup.env" ]; then
     source /tmp/freeipa-setup.env
 fi
 
+export Hostname=${Hostname:-""}
+export FreeIPAIP=${FreeIPAIP:-""}
+export DirectoryManagerPassword=${DirectoryManagerPassword:-""}
+export AdminPassword=${AdminPassword:-""}
+export UndercloudFQDN=${UndercloudFQDN:-""}
+export HostsSecret=${HostsSecret:-""}
+export ProvisioningCIDR=${ProvisioningCIDR:-""}
+export UsingNovajoin=${UsingNovajoin:-""}
+
 if [ -n "$ProvisioningCIDR" ]; then
     # Add address to provisioning network interface
     ip link set dev eth1 up
