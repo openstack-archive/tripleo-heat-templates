@@ -15,8 +15,12 @@ cat > $UPGRADE_SCRIPT << ENDOFCAT
 
 set -eu
 NOVA_COMPUTE=""
-if systemctl show 'openstack-nova-compute' --property ActiveState | grep '\bactive\b'; then
+if hiera -c /etc/puppet/hiera.yaml service_names | grep nova_compute ; then
    NOVA_COMPUTE="true"
+fi
+SWIFT_STORAGE=""
+if hiera -c /etc/puppet/hiera.yaml service_names | grep swift_storage ; then
+   SWIFT_STORAGE="true"
 fi
 
 DEBUG="true"
@@ -34,10 +38,13 @@ $(declare -f special_case_ovs_upgrade_if_needed)
 special_case_ovs_upgrade_if_needed
 
 yum -y install python-zaqarclient  # needed for os-collect-config
-systemctl_swift stop
+if [[ -n \$SWIFT_STORAGE ]]; then
+    systemctl_swift stop
+fi
 yum -y update
-systemctl_swift start
-
+if [[ -n \$SWIFT_STORAGE ]]; then
+    systemctl_swift start
+fi
 # Due to bug#1640177 we need to restart compute agent
 if [[ -n \$NOVA_COMPUTE ]]; then
     echo "Restarting openstack ceilometer agent compute"
