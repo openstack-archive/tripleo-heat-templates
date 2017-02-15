@@ -94,7 +94,9 @@ rm -f /etc/httpd/conf.d/ssl.conf
 # Set up FreeIPA
 ipa-server-install -U -r `hostname -d|tr "[a-z]" "[A-Z]"` \
                    -p $DirectoryManagerPassword -a $AdminPassword \
-                   --hostname `hostname -f`
+                   --hostname `hostname -f` \
+                   --ip-address=$FreeIPAIP \
+                   --setup-dns --auto-forwarders --auto-reverse
 
 # Authenticate
 echo $AdminPassword | kinit admin
