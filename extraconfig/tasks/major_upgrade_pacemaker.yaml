@@ -100,7 +100,10 @@ resources:
     properties:
       group: puppet
       config:
-        get_file: liberty_to_mitaka_nova_api_upgrade.pp
+        list_join:
+          - ''
+          - - get_file: liberty_to_mitaka_nova_api_upgrade.pp
+            - get_file: liberty_to_mitaka_nova_api_upgrade_conf.pp
 
   NovaApiDatabaseUpgradeDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
@@ -110,26 +113,54 @@ resources:
       servers: {get_param: controller_servers}
       config: {get_resource: NovaApiDatabaseUpgradeConfig}
 
-  NovaApiDatabasePostConfig:
+  NovaApiDatabasePostUgradeRestartConfig:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
       config: |
         #!/bin/bash
-        set -eux
-        crudini --set /etc/nova/nova.conf api_database connection "$(hiera nova::api_database_connection)"
-        crudini --set /etc/nova/nova.conf neutron auth_plugin v3password
-        crudini --set /etc/nova/nova.conf neutron auth_url "$(hiera nova::api::identity_uri)"
-        if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
-            nova-manage api_db sync
-            nova-manage db online_data_migrations
-        fi
-        systemctl restart openstack-nova-api
 
-  NovaApiDatabasePostUpgradeDeployment:
+        set -eux
+        # As per http://docs.openstack.org/developer/nova/upgrade.html
+        # restart conductor first and nova-api list.
+
+        # This is the best way to restart the whole nova stack.  It
+        # 100% of time leads to no transiant errors in pcs resources.
+        # conductor is the leaf of the pacemaker dependency graph and
+        # must be restarted first.  consoleauth is the root of this
+        # branch and will restart all nova service in this order:
+        # openstack-nova-consoleauth openstack-nova-novncproxy openstack-nova-api openstack-nova-scheduler openstack-nova-conductor
+        if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+            for res in openstack-nova-conductor openstack-nova-consoleauth ; do
+                pcs resource restart ${res}-clone --wait=600
+            done
+        fi
+
+  NovaApiDatabaseUpgradePostUpgradeRestartDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
     depends_on: NovaApiDatabaseUpgradeDeployment
     properties:
-      name: NovaApiDatabasePostUpgradeDeployment
+      name: NovaApiDatabaseUpgradePostUpgradeRestartDeployment
       servers: {get_param: controller_servers}
-      config: {get_resource: NovaApiDatabasePostConfig}
+      config: {get_resource: NovaApiDatabasePostUgradeRestartConfig}
+
+  NovaApiComputePostConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: puppet
+      config:
+        list_join:
+        - ''
+        - - get_file: liberty_to_mitaka_nova_api_upgrade_conf.pp
+          - |
+            exec { '/bin/systemctl restart openstack-nova-compute': refreshonly => true }
+            Nova_config<| |> ~> Exec['/bin/systemctl restart openstack-nova-compute']
+
+
+  NovaApiComputePostUpgradeDeployment:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on: NovaApiDatabaseUpgradePostUpgradeRestartDeployment
+    properties:
+      name: NovaApiComputePostUpgradeDeployment
+      servers: {get_param: compute_servers}
+      config: {get_resource: NovaApiComputePostConfig}
