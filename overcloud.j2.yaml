@@ -255,6 +255,18 @@ resources:
       EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
       DefaultPasswords: {get_attr: [DefaultPasswords, passwords]}
 
+  # Filter any null/None service_names which may be present due to mapping
+  # of services to OS::Heat::None
+  {{role.name}}ServiceNames:
+    type: OS::Heat::Value
+    depends_on: {{role.name}}ServiceChain
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          expression: coalesce($.data, []).where($ != null)
+          data: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+
   {{role.name}}HostsDeployment:
     type: OS::Heat::StructuredDeployments
     properties:
@@ -305,7 +317,7 @@ resources:
       StorageMgmtIpList: {get_attr: [{{role.name}}, storage_mgmt_ip_address]}
       TenantIpList: {get_attr: [{{role.name}}, tenant_ip_address]}
       ManagementIpList: {get_attr: [{{role.name}}, management_ip_address]}
-      EnabledServices: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+      EnabledServices: {get_attr: [{{role.name}}ServiceNames, value]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [{{role.name}}, hostname]}
       NetworkHostnameMap:
@@ -361,8 +373,8 @@ resources:
                         {% for r in roles %}
                           - get_attr: [{{r.name}}ServiceChain, role_data, service_config_settings]
                         {% endfor %}
-                    services: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
-          ServiceNames: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+                    services: {get_attr: [{{role.name}}ServiceNames, value]}
+          ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChain, role_data, monitoring_subscriptions]}
           ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChain, role_data, service_metadata_settings]}
 {% endfor %}
@@ -396,7 +408,7 @@ resources:
         list_join:
           - ','
 {% for role in roles %}
-          - {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+          - {get_attr: [{{role.name}}ServiceNames, value]}
 {% endfor %}
       logging_groups:
         yaql:
@@ -646,7 +658,7 @@ outputs:
     description: The services enabled on each role
     value:
 {% for role in roles %}
-      {{role.name}}: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+      {{role.name}}: {get_attr: [{{role.name}}ServiceNames, value]}
 {% endfor %}
   RoleData:
     description: The configuration data associated with each role

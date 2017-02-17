@@ -10,7 +10,7 @@ parameters:
     type: string
   DockerNovaComputeImage:
     description: image
-    default: 'centos-binary-nova-compute'
+    default: 'centos-binary-nova-compute:latest'
     type: string
   ServiceNetMap:
     default: {}
@@ -29,53 +29,57 @@ parameters:
 
 resources:
 
+
   NovaComputeBase:
     type: ../../puppet/services/nova-compute.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
 
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
     value:
+      service_name: {get_attr: [NovaComputeBase, role_data, service_name]}
       config_settings: {get_attr: [NovaComputeBase, role_data, config_settings]}
       step_config: {get_attr: [NovaComputeBase, role_data, step_config]}
       puppet_tags: nova_config,nova_paste_api_ini
+      docker_image: &nova_compute_image
+        list_join:
+        - '/'
+        - [ {get_param: DockerNamespace}, {get_param: DockerNovaComputeImage} ]
+      config_volume: nova_libvirt
+      config_image: *nova_compute_image
       kolla_config:
-        /var/lib/etc-data/json-config/nova-compute.json:
+        /var/lib/kolla/config_files/nova-compute.json:
            command: /usr/bin/nova-compute --config-file /etc/nova/nova.conf --config-file /etc/nova/rootwrap.conf
            config_files:
            - dest: /etc/nova/nova.conf
              owner: nova
              perm: '0600'
-             source: /var/lib/kolla/config_files/nova.conf
+             source: /var/lib/kolla/config_files/src/etc/nova/nova.conf
            - dest: /etc/nova/rootwrap.conf
              owner: nova
              perm: '0600'
-             source: /var/lib/kolla/config_files/rootwrap.conf
+             source: /var/lib/kolla/config_files/src/etc/nova/rootwrap.conf
       docker_config:
-        step_1:
+        step_4:
           novacompute:
-            image:
-              list_join:
-              - '/'
-              - [ {get_param: DockerNamespace}, {get_param: DockerNovaComputeImage} ]
+            image: *nova_compute_image
             net: host
             privileged: true
             user: root
             restart: always
             volumes:
-              - /var/lib/etc-data/json-config/nova-compute.json:/var/lib/kolla/config_files/config.json
-              - /var/lib/etc-data/nova/nova.conf:/var/lib/kolla/config_files/nova.conf:ro
-              - /var/lib/etc-data/nova/rootwrap.conf:/var/lib/kolla/config_files/rootwrap.conf:ro
+              - /var/lib/kolla/config_files/nova-compute.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/nova_libvirt:/var/lib/kolla/config_files/src:ro
+              - /dev:/dev
+              - /etc/iscsi:/etc/iscsi
               - /etc/localtime:/etc/localtime:ro
               - /lib/modules:/lib/modules:ro
               - /run:/run
-              - /dev:/dev
-              - logs:/var/log/kolla/
-              - /etc/iscsi:/etc/iscsi
+              - /var/lib/nova:/var/lib/nova
               - libvirtd:/var/lib/libvirt
-              - nova_compute:/var/lib/nova/
             environment:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-        step_2: {}

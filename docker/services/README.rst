@@ -1,65 +1,104 @@
-========
-services
-========
+===============
+Docker Services
+===============
 
-A TripleO nested stack Heat template that encapsulates generic configuration
-data to configure a specific service. This generally includes everything
-needed to configure the service excluding the local bind ports which
-are still managed in the per-node role templates directly (controller.yaml,
-compute.yaml, etc.). All other (global) service settings go into
-the puppet/service templates.
+TripleO docker services are currently built on top of the puppet services.
+To do this each of the docker services includes the output of the
+t-h-t puppet/service templates where appropriate.
 
-Input Parameters
-----------------
+In general global docker specific service settings should reside in these
+templates (templates in the docker/services directory.) The required and
+optional items are specified in the docker settings section below.
 
-Each service may define its own input parameters and defaults.
-Operators will use the parameter_defaults section of any Heat
-environment to set per service parameters.
+If you are adding a config setting that applies to both docker and
+baremetal that setting should (so long as we use puppet) go into the
+puppet/services templates themselves.
 
-Config Settings
+Building Kolla Images
+---------------------
+
+TripleO currently relies on Kolla docker containers. Kolla supports container
+customization and we are making use of this feature within TripleO to inject
+puppet (our configuration tool of choice) into the Kolla base images. To
+build Kolla images for TripleO adjust your kolla config to build your
+centos base image with puppet using the example below:
+
+.. code-block::
+
+$ cat template-overrides.j2
+{% extends parent_template %}
+{% set base_centos_binary_packages_append = ['puppet'] %}
+
+kolla-build --base centos --template-override template-overrides.j2
+
+..
+
+
+Docker settings
 ---------------
-
-Each service may define a config_settings output variable which returns
-Hiera settings to be configured.
-
-Steps
------
-
 Each service may define an output variable which returns a puppet manifest
 snippet that will run at each of the following steps. Earlier manifests
 are re-asserted when applying latter ones.
 
- * config_settings: Custom hiera settings for this service. These are
-   used to generate configs.
+ * config_settings: This setting is generally inherited from the
+   puppet/services templates and only need to be appended
+   to on accasion if docker specific config settings are required.
+
+ * step_config: This setting controls the manifest that is used to
+   create docker config files via puppet. The puppet tags below are
+   used along with this manifest to generate a config directory for
+   this container.
 
  * kolla_config: Contains YAML that represents how to map config files
    into the kolla container. This config file is typically mapped into
    the container itself at the /var/lib/kolla/config_files/config.json
    location and drives how kolla's external config mechanisms work.
 
- * step_config: A puppet manifest that is used to step through the deployment
-   sequence. Each sequence is given a "step" (via hiera('step') that provides
-   information for when puppet classes should activate themselves.
+ * docker_image: The full name of the docker image that will be used.
 
- * docker_compose:
+ * docker_config: Data that is passed to the docker-cmd hook to configure
+   a container, or step of containers at each step. See the available steps
+   below and the related docker-cmd hook documentation in the heat-agents
+   project.
 
- * container_name:
+ * puppet_tags: Puppet resource tag names that are used to generate config
+   files with puppet. Only the named config resources are used to generate
+   a config file. Any service that specifies tags will have the default
+   tags of 'file,concat,file_line' appended to the setting.
+   Example: keystone_config
 
- * volumes:
+ * config_volume: The name of the volume (directory) where config files
+   will be generated for this service. Use this as the location to
+   bind mount into the running Kolla container for configuration.
+
+ * config_image: The name of the docker image that will be used for
+   generating configuration files. This is often the same value as
+   'docker_image' above but some containers share a common set of
+   config files which are generated in a common base container.
+
+Docker steps
+------------
+Similar to baremetal docker containers are brought up in a stepwise manner.
+The current architecture supports bringing up baremetal services alongside
+of containers. For each step the baremetal puppet manifests are executed
+first and then any docker containers are brought up afterwards.
 
 Steps correlate to the following:
 
-   1) Service configuration generation with puppet.
-
-   2) Early Openstack Service setup (database init?)
-
-   3) Early containerized networking services startup (OVS)
-
-   4) Network configuration
-
-   5) General OpenStack Services
-
-   6) Service activation (Pacemaker)
-
-   7) Fencing (Pacemaker)
-
+   Pre) Containers config files generated per hiera settings.
+   1) Load Balancer configuration baremetal
+     a) step 1 baremetal
+     b) step 1 containers
+   2) Core Services (Database/Rabbit/NTP/etc.)
+     a) step 2 baremetal
+     b) step 2 containers
+   3) Early Openstack Service setup (Ringbuilder, etc.)
+     a) step 3 baremetal
+     b) step 3 containers
+   4) General OpenStack Services
+     a) step 4 baremetal
+     b) step 4 containers
+     c) Keystone containers post initialization (tenant,service,endpoint creation)
+   5) Service activation (Pacemaker)
+     a) step 5 baremetal
+     b) step 5 containers
