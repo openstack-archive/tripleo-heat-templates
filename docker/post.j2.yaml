@@ -29,6 +29,66 @@ parameters:
 
 resources:
 
+  # These utility tasks use docker-puppet.py to execute tasks via puppet
+  # We only execute these on the first node in the primary role
+  {{primary_role_name}}DockerPuppetTasks:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        yaql:
+          expression:
+            dict($.data.docker_puppet_tasks.where($1 != null).selectMany($.items()).groupBy($[0], $[1]))
+          data:
+            docker_puppet_tasks: {get_param: [role_data, {{primary_role_name}}, docker_puppet_tasks]}
+
+# BEGIN primary_role_name docker-puppet-tasks (run only on a single node)
+{% for step in range(1, 6) %}
+
+  {{primary_role_name}}DockerPuppetJsonConfig{{step}}:
+      type: OS::Heat::StructuredConfig
+      properties:
+        group: json-file
+        config:
+          /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json:
+            {get_attr: [{{primary_role_name}}DockerPuppetTasks, value, 'step_{{step}}']}
+
+  {{primary_role_name}}DockerPuppetJsonDeployment{{step}}:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      server: {get_param: [servers, {{primary_role_name}}, '0']}
+      config: {get_resource: {{primary_role_name}}DockerPuppetJsonConfig{{step}}}
+
+  {{primary_role_name}}DockerPuppetTasksConfig{{step}}:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: {get_file: docker-puppet.py}
+      inputs:
+        - name: CONFIG
+        - name: NET_HOST
+        - name: NO_ARCHIVE
+
+  {{primary_role_name}}DockerPuppetTasksDeployment{{step}}:
+    type: OS::Heat::SoftwareDeployment
+    depends_on:
+      {% for dep in roles %}
+      - {{dep.name}}Deployment_Step{{step}}
+      - {{dep.name}}ContainersDeployment_Step{{step}}
+      {% endfor %}
+      - {{primary_role_name}}DockerPuppetJsonDeployment{{step}}
+    properties:
+      name: {{primary_role_name}}DockerPuppetJsonDeployment{{step}}
+      server: {get_param: [servers, {{primary_role_name}}, '0']}
+      config: {get_resource: {{primary_role_name}}DockerPuppetTasksConfig{{step}}}
+      input_values:
+        CONFIG: /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json
+        NET_HOST: 'true'
+        NO_ARCHIVE: 'true'
+
+{% endfor %}
+# END primary_role_name docker-puppet-tasks
+
 {% for role in roles %}
   # Post deployment steps for all roles
   # A single config is re-applied with an incrementing step number
@@ -165,10 +225,11 @@ resources:
     depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
   {% else %}
     depends_on:
-    {% for dep in roles %}
+      {% for dep in roles %}
       - {{dep.name}}Deployment_Step{{step -1}}
       - {{dep.name}}ContainersDeployment_Step{{step -1}}
-    {% endfor %}
+      {% endfor %}
+      - {{primary_role_name}}DockerPuppetTasksDeployment{{step -1}}
   {% endif %}
     properties:
       name: {{role.name}}Deployment_Step{{step}}
@@ -201,11 +262,12 @@ resources:
       - {{role.name}}GenerateConfigDeployment
   {% else %}
     depends_on:
-      {% for dep in roles %}
+        {% for dep in roles %}
         - {{dep.name}}ContainersDeployment_Step{{step -1}}
         - {{dep.name}}Deployment_Step{{step}} # baremetal steps of the same level run first
         - {{dep.name}}Deployment_Step{{step -1}}
-      {% endfor %}
+        {% endfor %}
+        - {{primary_role_name}}DockerPuppetTasksDeployment{{step -1}}
   {% endif %}
     properties:
       name: {{role.name}}ContainersDeployment_Step{{step}}
@@ -220,6 +282,7 @@ resources:
     depends_on:
   {% for dep in roles %}
       - {{dep.name}}Deployment_Step5
+      - {{primary_role_name}}DockerPuppetTasksDeployment5
   {% endfor %}
     properties:
       servers:  {get_param: servers}
