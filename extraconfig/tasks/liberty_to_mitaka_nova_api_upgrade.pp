@@ -61,11 +61,11 @@ if downcase($pacemaker_master) == $::hostname {
     command     => '/usr/bin/nova-manage api_db sync',
     refreshonly => true,
     logoutput   => on_failure,
-    notify      => Exec['nova-db-online-data-migration']
+    notify      => Exec['nova-db-online-data-migrations']
   }
 
-  exec { 'nova-db-online-data-migration':
-    command     => '/usr/bin/nova-manage db online_data_migration',
+  exec { 'nova-db-online-data-migrations':
+    command     => '/usr/bin/nova-manage db online_data_migrations',
     refreshonly => true,
     logoutput   => on_failure,
   }
