@@ -19,8 +19,21 @@ environment to set per service parameters.
 Config Settings
 ---------------
 
-Each service may define a config_settings output variable which returns
-Hiera settings to be configured.
+Each service may define three ways in which to output variables to configure Hiera
+settings on the nodes.
+
+ * config_settings: the hiera keys will be pushed on all roles of which the service
+   is a part of.
+
+ * global_config_settings: the hiera keys will be distributed to all roles
+
+ * service_config_settings: Takes an extra key to wire in values that are
+   defined for a service that need to be consumed by some other service.
+   For example:
+   service_config_settings:
+     haproxy:
+       foo: bar
+   This will set the hiera key 'foo' on all roles where haproxy is included.
 
 Deployment Steps
 ----------------
