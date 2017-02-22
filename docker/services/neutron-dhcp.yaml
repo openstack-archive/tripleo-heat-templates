@@ -1,0 +1,93 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Neutron DHCP service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerNeutronApiImage:
+    description: image
+    default: 'centos-binary-neutron-dhcp-agent:latest'
+    type: string
+  # we configure all neutron services in the same neutron
+  DockerNeutronConfigImage:
+    description: image
+    default: 'centos-binary-neutron-openvswitch-agent:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  NeutronBase:
+    type: ../../puppet/services/neutron-dhcp.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Neutron DHCP role.
+    value:
+      service_name: {get_attr: [NeutronBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+      step_config: {get_attr: [NeutronBase, role_data, step_config]}
+      service_config_settings: {get_attr: [NeutronBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &neutron_dhcp_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerNeutronApiImage} ]
+      puppet_tags: neutron_config,neutron_dhcp_agent_config
+      config_volume: neutron
+      config_image:
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerNeutronConfigImage} ]
+      kolla_config:
+         /var/lib/kolla/config_files/neutron_dhcp.json:
+           command: /usr/bin/neutron-dhcp-agent --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/dhcp_agent.ini --log-file /var/log/neutron/dhcp-agent.log
+           config_files:
+           - dest: /etc/neutron/neutron.conf
+             owner: neutron
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/neutron/neutron.conf
+           - dest: /etc/neutron/dhcp_agent.ini
+             owner: neutron
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/neutron/dhcp_agent.ini
+      docker_config:
+        step_4:
+          neutron_dhcp:
+            image: *neutron_dhcp_image
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/neutron_dhcp.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/neutron/:/var/lib/kolla/config_files/src:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /lib/modules:/lib/modules:ro
+              - /run/:/run
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
