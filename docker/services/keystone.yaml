@@ -1,0 +1,153 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Keystone service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerKeystoneImage:
+    description: image
+    default: 'centos-binary-keystone:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+
+resources:
+
+  KeystoneBase:
+    type: ../../puppet/services/keystone.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Keystone API role.
+    value:
+      service_name: {get_attr: [KeystoneBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [KeystoneBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config:
+        list_join:
+          - "\n"
+          - - "['Keystone_user', 'Keystone_endpoint', 'Keystone_domain', 'Keystone_tenant', 'Keystone_user_role', 'Keystone_role', 'Keystone_service'].each |String $val| { noop_resource($val) }"
+            - {get_attr: [KeystoneBase, role_data, step_config]}
+      service_config_settings: {get_attr: [KeystoneBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &keystone_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerKeystoneImage} ]
+      puppet_tags: keystone_config
+      config_volume: keystone
+      config_image: *keystone_image
+      kolla_config:
+         /var/lib/kolla/config_files/keystone.json:
+           command: /usr/sbin/httpd -DFOREGROUND
+           config_files:
+           - dest: /etc/keystone/keystone.conf
+             owner: keystone
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/keystone/keystone.conf
+           - dest: /etc/keystone/credential-keys/0
+             owner: keystone
+             perm: '0600'
+             source: /var/lib/kolla/config_files/src/etc/keystone/credential-keys/0
+           - dest: /etc/keystone/credential-keys/1
+             owner: keystone
+             perm: '0600'
+             source: /var/lib/kolla/config_files/src/etc/keystone/credential-keys/1
+           - dest: /etc/httpd/conf.d/10-keystone_wsgi_admin.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf.d/10-keystone_wsgi_admin.conf
+           - dest: /etc/httpd/conf.d/10-keystone_wsgi_main.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf.d/10-keystone_wsgi_main.conf
+           - dest: /etc/httpd/conf/httpd.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/httpd.conf
+           - dest: /etc/httpd/conf/ports.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/ports.conf
+           - dest: /var/www/cgi-bin/keystone/keystone-admin
+             owner: keystone
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/var/www/cgi-bin/keystone/keystone-admin
+           - dest: /var/www/cgi-bin/keystone/keystone-public
+             owner: keystone
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/var/www/cgi-bin/keystone/keystone-public
+      docker_config:
+        step_3:
+          keystone-init-log:
+            start_order: 0
+            image: *keystone_image
+            user: root
+            command: ['/bin/bash', '-c', 'mkdir /var/log/httpd && mkdir /var/log/keystone && chown keystone:keystone /var/log/keystone']
+            volumes:
+              - logs:/var/log
+          keystone_db_sync:
+            start_order: 1
+            image: *keystone_image
+            net: host
+            privileged: false
+            detach: false
+            volumes: &keystone_volumes
+              - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/keystone/:/var/lib/kolla/config_files/src:ro
+              - /var/lib/config-data/keystone/etc/httpd/conf.modules.d:/etc/httpd/conf.modules.d:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - logs:/var/log
+            environment:
+              - KOLLA_BOOTSTRAP=True
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          keystone:
+            start_order: 1
+            image: *keystone_image
+            net: host
+            privileged: false
+            restart: always
+            volumes: *keystone_volumes
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          keystone_bootstrap:
+            start_order: 2
+            action: exec
+            command:
+              [ 'keystone', 'keystone-manage', 'bootstrap', '--bootstrap-password', {get_param: AdminPassword} ]
+      docker_puppet_tasks:
+        # Keystone endpoint creation occurs only on single node
+        step_4:
+          - 'keystone_init_tasks'
+          - 'keystone_config,keystone_domain_config,keystone_endpoint,keystone_identity_provider,keystone_paste_ini,keystone_role,keystone_service,keystone_tenant,keystone_user,keystone_user_role,keystone_domain'
+          - 'include ::tripleo::profile::base::keystone'
+          - list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerKeystoneImage} ]
