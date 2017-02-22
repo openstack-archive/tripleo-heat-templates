@@ -1,0 +1,99 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Zaqar services
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerZaqarImage:
+    description: image
+    default: 'centos-binary-zaqar:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  ZaqarBase:
+    type: ../../puppet/services/zaqar.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Zaqar API role.
+    value:
+      service_name: {get_attr: [ZaqarBase, role_data, service_name]}
+      config_settings: {get_attr: [ZaqarBase, role_data, config_settings]}
+      step_config: {get_attr: [ZaqarBase, role_data, step_config]}
+      service_config_settings: {get_attr: [ZaqarBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &zaqar_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerZaqarImage} ]
+      puppet_tags: zaqar_config
+      config_volume: zaqar
+      config_image: *zaqar_image
+      kolla_config:
+        /var/lib/kolla/config_files/zaqar.json:
+          command: /usr/bin/zaqar-server --config-file /etc/zaqar/zaqar.conf
+          config_files:
+          - dest: /etc/zaqar/zaqar.conf
+            owner: zaqar
+            perm: '0640'
+            source: /var/lib/kolla/config_files/src/etc/zaqar/zaqar.conf
+        /var/lib/kolla/config_files/zaqar_websocket.json:
+          command: /usr/bin/zaqar-server --config-file /etc/zaqar/zaqar.conf --config-file /etc/zaqar/1.conf
+          config_files:
+          - dest: /etc/zaqar/zaqar.conf
+            owner: zaqar
+            perm: '0640'
+            source: /var/lib/kolla/config_files/src/etc/zaqar/zaqar.conf
+          - dest: /etc/zaqar/1.conf
+            owner: zaqar
+            perm: '0640'
+            source: /var/lib/kolla/config_files/src/etc/zaqar/1.conf
+      docker_config:
+        step_4:
+          zaqar:
+            image: *zaqar_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/zaqar.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/zaqar/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          zaqar_websocket:
+            image: *zaqar_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/zaqar_websocket.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/zaqar/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
