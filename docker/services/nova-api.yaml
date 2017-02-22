@@ -1,0 +1,134 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized Nova API service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerNovaApiImage:
+    description: image
+    default: 'centos-binary-nova-api:latest'
+    type: string
+  DockerNovaBaseImage:
+    description: image
+    default: 'centos-binary-nova-base:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  NovaApiBase:
+    type: ../../puppet/services/nova-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Nova API role.
+    value:
+      service_name: {get_attr: [NovaApiBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [NovaApiBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config: {get_attr: [NovaApiBase, role_data, step_config]}
+      service_config_settings: {get_attr: [NovaApiBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      docker_image: &nova_api_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerNovaApiImage} ]
+      puppet_tags: nova_config
+      config_volume: nova
+      config_image:
+        list_join:
+        - '/'
+        - [ {get_param: DockerNamespace}, {get_param: DockerNovaBaseImage} ]
+      kolla_config:
+         /var/lib/kolla/config_files/nova_api.json:
+           command: /usr/bin/nova-api
+           config_files:
+           - dest: /etc/nova/nova.conf
+             owner: nova
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/nova/nova.conf
+      docker_config:
+        step_3:
+          nova_api_db_sync:
+            start_order: 1
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: &nova_api_volumes
+              - /var/lib/config-data/nova/etc/:/etc/:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            command: ['/usr/bin/nova-manage', 'api_db', 'sync']
+          # FIXME: we probably want to wait on the 'cell_v2 update' in order for this
+          # to be capable of upgrading a baremetal setup. This is to ensure the name
+          # of the cell is 'default'
+          nova_api_map_cell0:
+            start_order: 2
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: *nova_api_volumes
+            command:
+              - '/usr/bin/nova-manage'
+              - 'cell_v2'
+              - 'map_cell0'
+          nova_api_create_default_cell:
+            start_order: 3
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: *nova_api_volumes
+            # NOTE: allowing the exit code 2 is a dirty way of making
+            # this idempotent (if the resource already exists a conflict
+            # is raised)
+            exit_codes: [0,2]
+            command:
+              - '/usr/bin/nova-manage'
+              - 'cell_v2'
+              - 'create_cell'
+              - '--name="default"'
+          nova_db_sync:
+            start_order: 4
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: *nova_api_volumes
+            command: ['/usr/bin/nova-manage', 'db', 'sync']
+        step_4:
+          nova_api:
+            start_order: 2
+            image: *nova_api_image
+            net: host
+            user: nova
+            privileged: true
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/nova/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS

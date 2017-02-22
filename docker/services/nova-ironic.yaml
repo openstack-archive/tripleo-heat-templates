@@ -1,7 +1,7 @@
 heat_template_version: ocata
 
 description: >
-  OpenStack containerized Nova Compute service
+  OpenStack containerized Nova Ironic Compute service
 
 parameters:
   DockerNamespace:
@@ -10,7 +10,11 @@ parameters:
     type: string
   DockerNovaComputeImage:
     description: image
-    default: 'centos-binary-nova-compute:latest'
+    default: 'centos-binary-nova-compute-ironic:latest'
+    type: string
+  DockerNovaBaseImage:
+    description: image
+    default: 'centos-binary-nova-base:latest'
     type: string
   ServiceNetMap:
     default: {}
@@ -30,29 +34,30 @@ parameters:
 resources:
 
 
-  NovaComputeBase:
-    type: ../../puppet/services/nova-compute.yaml
+  NovaIronicBase:
+    type: ../../puppet/services/nova-ironic.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
 
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
     value:
-      service_name: {get_attr: [NovaComputeBase, role_data, service_name]}
-      config_settings: {get_attr: [NovaComputeBase, role_data, config_settings]}
-      step_config: {get_attr: [NovaComputeBase, role_data, step_config]}
+      service_name: {get_attr: [NovaIronicBase, role_data, service_name]}
+      config_settings: {get_attr: [NovaIronicBase, role_data, config_settings]}
+      step_config: {get_attr: [NovaIronicBase, role_data, step_config]}
       puppet_tags: nova_config,nova_paste_api_ini
-      docker_image: &nova_compute_image
+      docker_image: &nova_ironic_image
         list_join:
         - '/'
         - [ {get_param: DockerNamespace}, {get_param: DockerNovaComputeImage} ]
-      config_volume: nova_libvirt
-      config_image: *nova_compute_image
+      config_volume: nova
+      config_image:
+        list_join:
+        - '/'
+        - [ {get_param: DockerNamespace}, {get_param: DockerNovaBaseImage} ]
       kolla_config:
-        /var/lib/kolla/config_files/nova-compute.json:
+        /var/lib/kolla/config_files/nova_ironic.json:
            command: /usr/bin/nova-compute --config-file /etc/nova/nova.conf --config-file /etc/nova/rootwrap.conf
            config_files:
            - dest: /etc/nova/nova.conf
@@ -64,23 +69,20 @@ outputs:
              perm: '0600'
              source: /var/lib/kolla/config_files/src/etc/nova/rootwrap.conf
       docker_config:
-        # FIXME: run discover hosts here
-        step_4:
+        step_5:
           novacompute:
-            image: *nova_compute_image
+            image: *nova_ironic_image
             net: host
             privileged: true
             user: root
             restart: always
             volumes:
-              - /var/lib/kolla/config_files/nova-compute.json:/var/lib/kolla/config_files/config.json:ro
-              - /var/lib/config-data/nova_libvirt:/var/lib/kolla/config_files/src:ro
+              - /var/lib/kolla/config_files/nova_ironic.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/nova:/var/lib/kolla/config_files/src:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /run:/run
               - /dev:/dev
               - /etc/iscsi:/etc/iscsi
-              - /etc/localtime:/etc/localtime:ro
-              - /lib/modules:/lib/modules:ro
-              - /run:/run
-              - /var/lib/nova:/var/lib/nova
-              - libvirtd:/var/lib/libvirt
+              - nova_compute:/var/lib/nova/
             environment:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
