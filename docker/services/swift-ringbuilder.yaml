@@ -1,0 +1,80 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Swift Ringbuilder
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerSwiftProxyImage:
+    description: image
+    default: 'centos-binary-swift-proxy-server:latest'
+    type: string
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  SwiftMinPartHours:
+    type: number
+    default: 1
+    description: The minimum time (in hours) before a partition in a ring can be moved following a rebalance.
+  SwiftPartPower:
+    default: 10
+    description: Partition Power to use when building Swift rings
+    type: number
+  SwiftRingBuild:
+    default: true
+    description: Whether to manage Swift rings or not
+    type: boolean
+  SwiftReplicas:
+    type: number
+    default: 3
+    description: How many replicas to use in the swift rings.
+  SwiftRawDisks:
+    default: {}
+    description: 'A hash of additional raw devices to use as Swift backend (eg. {sdb: {}})'
+    type: json
+  SwiftUseLocalDir:
+    default: true
+    description: 'Use a local directory for Swift storage services when building rings'
+    type: boolean
+
+resources:
+
+  SwiftRingbuilderBase:
+    type: ../../puppet/services/swift-ringbuilder.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for Swift Ringbuilder configuration in containers.
+    value:
+      service_name: {get_attr: [SwiftRingbuilderBase, role_data, service_name]}
+      config_settings: {get_attr: [SwiftRingbuilderBase, role_data, config_settings]}
+      step_config: {get_attr: [SwiftRingbuilderBase, role_data, step_config]}
+      service_config_settings: {get_attr: [SwiftRingbuilderBase, role_data, service_config_settings]}
+      puppet_tags: exec,ring_object_device,swift::ringbuilder::create,tripleo::profile::base::swift::add_devices,swift::ringbuilder::rebalance
+      # BEGIN DOCKER SETTINGS
+      docker_image: &docker_image
+        list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerSwiftProxyImage} ]
+      config_volume: 'swift'
+      config_image: *docker_image
+      kolla_config: {}
+      docker_config: {}
