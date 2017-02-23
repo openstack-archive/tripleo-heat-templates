@@ -127,7 +127,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         mkdir -p /etc/puppet
         cp -a /tmp/puppet-etc/* /etc/puppet
         rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-        echo '{"step": 6}' > /etc/puppet/hieradata/docker.json
+        echo '{"step": %(step)s}' > /etc/puppet/hieradata/docker.json
         TAGS=""
         if [ -n "%(puppet_tags)s" ]; then
             TAGS='--tags "%(puppet_tags)s"'
@@ -162,7 +162,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         fi
         """ % {'puppet_tags': puppet_tags, 'name': config_volume,
                'hostname': hostname,
-               'no_archive': os.environ.get('NO_ARCHIVE', '')})
+               'no_archive': os.environ.get('NO_ARCHIVE', ''),
+               'step': os.environ.get('STEP', '6')})
 
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
