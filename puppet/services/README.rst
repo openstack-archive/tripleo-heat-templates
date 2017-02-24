@@ -100,9 +100,22 @@ step, "step2" for the second, etc.
 
    Steps/tages correlate to the following:
 
-   1) Quiesce the control-plane, e.g disable LoadBalancer, stop pacemaker cluster
+   1) Stop all control-plane services.
 
-   2) Stop all control-plane services, ready for upgrade
+   2) Quiesce the control-plane, e.g disable LoadBalancer, stop
+      pacemaker cluster: this will stop the following resource:
+      - ocata:
+        - galera
+        - rabbit
+        - redis
+        - haproxy
+        - vips
+        - cinder-volumes
+        - cinder-backup
+        - manilla-share
+        - rbd-mirror
+
+      The exact order is controlled by the cluster constraints.
 
    3) Perform a package update and install new packages: A general
       upgrade is done, and only new package should go into service
