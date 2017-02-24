@@ -50,6 +50,7 @@ mysql_need_update
 
 if [[ -n $(is_bootstrap_node) ]]; then
     if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
+        backup_flags="--defaults-extra-file=/root/.my.cnf -u root --flush-privileges --all-databases --single-transaction"
         mysqldump $backup_flags > "$MYSQL_BACKUP_DIR/openstack_database.sql"
         cp -rdp /etc/my.cnf* "$MYSQL_BACKUP_DIR"
     fi
