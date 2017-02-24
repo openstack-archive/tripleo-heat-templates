@@ -91,7 +91,9 @@ step, "step2" for the second, etc.
 
    2) Stop all control-plane services, ready for upgrade
 
-   3) Perform a package update, (either specific packages or the whole system)
+   3) Perform a package update and install new packages: A general
+      upgrade is done, and only new package should go into service
+      ansible tasks.
 
    4) Start services needed for migration tasks (e.g DB)
 
