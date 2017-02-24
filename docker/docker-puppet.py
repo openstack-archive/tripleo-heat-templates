@@ -46,6 +46,15 @@ def pull_image(name):
 
 
 def rm_container(name):
+    if os.environ.get('SHOW_DIFF', None):
+        print('Diffing container: %s' % name)
+        subproc = subprocess.Popen(['/usr/bin/docker', 'diff', name],
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        cmd_stdout, cmd_stderr = subproc.communicate()
+        print(cmd_stdout)
+        print(cmd_stderr)
+
     print('Removing container: %s' % name)
     subproc = subprocess.Popen(['/usr/bin/docker', 'rm', name],
                                stdout=subprocess.PIPE,
