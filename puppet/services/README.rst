@@ -16,6 +16,25 @@ Each service may define its own input parameters and defaults.
 Operators will use the parameter_defaults section of any Heat
 environment to set per service parameters.
 
+Apart from sevice specific inputs, there are few default parameters for all
+the services. Following are the list of default parameters:
+
+ * ServiceNetMap: Mapping of service_name -> network name. Typically set via
+   parameter_defaults in the resource registry.  This mapping overrides those
+   in ServiceNetMapDefaults.
+
+ * EndpointMap: Mapping of service endpoint -> protocol. Typically set via
+   parameter_defaults in the resource registry.
+
+ * DefaultPasswords: Mapping of service -> default password. Used to help pass
+   top level passwords managed by Heat into services.
+
+ * RoleName: Name of the role on which this service is deployed. A service can
+   be deployed in multiple roles.
+
+ * RoleParameters: Parameter specific to a role on which the service is
+   applied.
+
 Config Settings
 ---------------
 
