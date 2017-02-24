@@ -59,6 +59,14 @@ parameters:
       }
     default: {}
     type: json
+  CephValidationRetries:
+    type: number
+    default: 5
+    description: Number of retry attempts for Ceph validation
+  CephValidationDelay:
+    type: number
+    default: 10
+    description: Interval (in seconds) in between validation checks
   MonitoringSubscriptionCephMon:
     default: 'overcloud-ceph-mon'
     type: string
@@ -119,21 +127,32 @@ outputs:
         # rolling upgrade of all osd nodes in step1
         - name: Check status
           tags: step0,validation
-          shell: ceph health | grep -qv HEALTH_ERR
-        # FIXME(shardy) I suspect we can use heat or ansible facts here instead?
-        - name: Get hostname
+          shell: ceph health | egrep -sq "HEALTH_OK|HEALTH_WARN"
+        - name: Stop CephMon
           tags: step0
-          shell: hostname -s
-          register: mon_id
-        - name: Stop Ceph Mon
+          service:
+            name: ceph-mon@{{ ansible_hostname }}
+            state: stopped
+        - name: Update Ceph packages
           tags: step0
-          service: name=ceph-mon@{{mon_id.stdout}} pattern=ceph-mon state=stopped
-        - name: Update ceph packages
+          yum:
+            name: ceph-mon
+            state: latest
+        - name: Start CephMon
           tags: step0
-          yum: name=ceph-mon state=latest
-        - name: Start ceph-mon service
-          tags: step0
-          service: name=ceph-mon@{{mon_id.stdout}} state=started
+          service:
+            name: ceph-mon@{{ ansible_hostname }}
+            state: started
+        # ceph-ansible
+        # https://github.com/ceph/ceph-ansible/blob/master/infrastructure-playbooks/rolling_update.yml#L149-L157
+        - name: Wait for the monitor to join the quorum...
+          tags: step0,ceph_quorum_validation
+          shell: |
+            ceph -s | grep monmap | sed 's/.*quorum//' | egrep -sq {{ ansible_hostname }}
+          register: ceph_quorum_nodecheck
+          until: ceph_quorum_nodecheck.rc == 0
+          retries: {get_param: CephValidationRetries}
+          delay: {get_param: CephValidationDelay}
         - name: ceph osd crush tunables default
           tags: step0
           shell: ceph osd crush tunables default
