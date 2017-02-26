@@ -85,8 +85,17 @@ outputs:
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       upgrade_tasks:
-        # The panko API isn't installed in newton images, so install
-        # it on upgrade
-        - name: Install openstack-panko-api packages on upgrade
-          tags: step3
-          yum: name=openstack-panko-api state=latest
+        - name: Check if httpd is deployed
+          command: systemctl is-enabled httpd
+          tags: step0,validation
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check if httpd is running"
+          shell: >
+            /usr/bin/systemctl show 'httpd' --property ActiveState |
+            grep '\bactive\b'
+          when: httpd_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop panko-api service (running under httpd)
+          tags: step1
+          service: name=httpd state=stopped
