@@ -79,14 +79,21 @@ outputs:
           ceph::rgw::keystone::auth::password: {get_param: SwiftPassword}
       upgrade_tasks:
         - name: Gather RGW instance ID
-          tags: step0
+          tags: common
           shell: hiera -c /etc/puppet/hiera.yaml ceph::profile::params::rgw_name radosgw.gateway
           register: rgw_id
+        - name: Check if ceph_rgw is deployed
+          command: systemctl is-enabled ceph-radosgw@{{rgw_id.stdout}}
+          tags: common
+          ignore_errors: True
+          register: ceph_rgw_enabled
         - name: Check status
           shell: /usr/bin/systemctl show ceph-radosgw@{{rgw_id.stdout}} --property ActiveState | grep '\bactive\b'
+          when: ceph_rgw_enabled.rc == 0
           tags: step0,validation
         - name: Stop RGW instance
           tags: step1
+          when: ceph_rgw_enabled.rc == 0
           service:
             name: ceph-radosgw@{{rgw_id.stdout}}
             state: stopped
