@@ -1,0 +1,118 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack containerized gnocchi service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerGnocchiApiImage:
+    description: image
+    default: 'centos-binary-gnocchi-api:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  GnocchiApiPuppetBase:
+      type: ../../puppet/services/gnocchi-api.yaml
+      properties:
+        EndpointMap: {get_param: EndpointMap}
+        ServiceNetMap: {get_param: ServiceNetMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the gnocchi API role.
+    value:
+      service_name: {get_attr: [GnocchiApiPuppetBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [GnocchiApiPuppetBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config: &step_config
+        get_attr: [GnocchiApiPuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [GnocchiApiPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: gnocchi
+        puppet_tags: gnocchi_api_paste_ini,gnocchi_config
+        step_config: *step_config
+        config_image: &gnocchi_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerGnocchiApiImage} ]
+      kolla_config:
+          /var/lib/kolla/config_files/gnocchi-api.json:
+           command: /usr/sbin/httpd -DFOREGROUND
+           config_files:
+           - dest: /etc/gnocchi/gnocchi.conf
+             owner: gnocchi
+             perm: '0640'
+             source: /var/lib/kolla/config_files/src/etc/gnocchi/gnocchi.conf
+           - dest: /etc/httpd/conf.d/10-gnocchi_wsgi.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf.d/10-gnocchi_wsgi.conf
+           - dest: /etc/httpd/conf/httpd.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/httpd.conf
+           - dest: /etc/httpd/conf/ports.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/ports.conf
+           - dest: /var/www/cgi-bin/gnocchi/app
+             owner: gnocchi
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/var/www/cgi-bin/gnocchi/app
+      docker_config:
+        step_3:
+          gnocchi-init-log:
+            start_order: 0
+            image: *gnocchi_image
+            user: root
+            command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && mkdir -p /var/log/gnocchi && chown gnocchi:gnocchi /var/log/gnocchi']
+            volumes:
+              - logs:/var/log
+          gnocchi_db_sync:
+            start_order: 1
+            image: *gnocchi_image
+            net: host
+            detach: false
+            privileged: false
+            volumes:
+              - /var/lib/config-data/gnocchi/etc/gnocchi/:/etc/gnocchi:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - logs:/var/log
+            command: ["/usr/bin/gnocchi-upgrade", "--skip-storage"]
+        step_4:
+          gnocchi-api:
+            image: *gnocchi_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/gnocchi-api.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/gnocchi/:/var/lib/kolla/config_files/src:ro
+              - /var/lib/config-data/gnocchi/etc/httpd/conf.modules.d:/etc/httpd/conf.modules.d:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
