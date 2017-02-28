@@ -1,0 +1,119 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Panko service configured with docker
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerPankoApiImage:
+    description: image
+    default: 'centos-binary-panko-api:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  PankoApiPuppetBase:
+    type: ../../puppet/services/panko-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Panko API role.
+    value:
+      service_name: {get_attr: [PankoApiPuppetBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [PankoApiPuppetBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config: &step_config
+        get_attr: [PankoApiPuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [PankoApiPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS #
+      puppet_config:
+        config_volume: panko
+        puppet_tags: panko_api_paste_ini,panko_config
+        step_config: *step_config
+        config_image: &panko_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerPankoApiImage} ]
+      kolla_config:
+         /var/lib/kolla/config_files/panko-api.json:
+           command: /usr/sbin/httpd -DFOREGROUND
+           config_files:
+           - dest: /etc/httpd/conf.d/10-panko_wsgi.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf.d/10-panko_wsgi.conf
+           - dest: /etc/httpd/conf/httpd.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/httpd.conf
+           - dest: /etc/httpd/conf/ports.conf
+             owner: root
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/etc/httpd/conf/ports.conf
+           - dest: /etc/panko/panko.conf
+             owner: panko
+             perm: '0600'
+             source: /var/lib/kolla/config_files/src/etc/panko/panko.conf
+           - dest: /var/www/cgi-bin/panko/app
+             owner: panko
+             perm: '0644'
+             source: /var/lib/kolla/config_files/src/var/www/cgi-bin/panko/app
+      docker_config:
+        step_3:
+          panko-init-log:
+            start_order: 0
+            image: *panko_image
+            user: root
+            command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && mkdir -p /var/log/panko && chown panko:panko /var/log/panko']
+            volumes:
+              - logs:/var/log
+          panko_db_sync:
+            start_order: 1
+            image: *panko_image
+            net: host
+            detach: false
+            privileged: false
+            volumes:
+              - /var/lib/config-data/panko/etc/panko:/etc/panko:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - logs:/var/log
+            command: /usr/bin/panko-dbsync
+        step_4:
+          panko_api:
+            start_order: 2
+            image: *panko_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/panko-api.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/panko/:/var/lib/kolla/config_files/src:ro
+              - /var/lib/config-data/panko/etc/httpd/conf.modules.d:/etc/httpd/conf.modules.d:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
