@@ -13,10 +13,18 @@ fi
 
 retryCount=0
 opts=
+config_opts=
 attach_opts=
 sat5_opts=
 repos="repos --enable rhel-7-server-rpms"
 satellite_repo=${REG_SAT_REPO}
+proxy_host=
+proxy_port=
+proxy_url=
+proxy_username=
+proxy_password=
+
+# process variables..
 if [ -n "${REG_AUTO_ATTACH:-}" ]; then
     opts="$opts --auto-attach"
 
@@ -97,6 +105,57 @@ if [ -n "${REG_TYPE:-}" ]; then
     opts="$opts --type=$REG_TYPE"
 fi
 
+# Proxy settings (host and port)
+if [ -n "${REG_HTTP_PROXY_HOST:-}" ]; then
+    proxy_host="${REG_HTTP_PROXY_HOST}"
+fi
+
+if [ -n "${REG_HTTP_PROXY_PORT:-}" ]; then
+    proxy_port="${REG_HTTP_PROXY_PORT}"
+fi
+
+# Proxy settings (user and password)
+if [ -n "${REG_HTTP_PROXY_USERNAME:-}" ]; then
+    proxy_username="${REG_HTTP_PROXY_USERNAME}"
+fi
+
+if [ -n "${REG_HTTP_PROXY_PASSWORD:-}" ]; then
+    proxy_password="${REG_HTTP_PROXY_PASSWORD}"
+fi
+
+# Sanity Checks for proxy host/port/user/password
+if [ -n "${REG_HTTP_PROXY_HOST:-}" ]; then
+    if [ -n "${REG_HTTP_PROXY_PORT:-}" ]; then
+        # Good both values are not empty
+        proxy_url="http://${proxy_host}:${proxy_port}"
+        config_opts="--server.proxy_hostname=${proxy_host} --server.proxy_port=${proxy_port}"
+        sat5_opts="${sat5_opts} --proxy_hostname=${proxy_url}"
+        echo "RHSM Proxy set to: ${proxy_url}"
+        if [ -n "${REG_HTTP_PROXY_USERNAME:-}" ]; then
+            if [ -n "${REG_HTTP_PROXY_PASSWORD:-}" ]; then
+                config_opts="${config_opts} --server.proxy_user=${proxy_username} --server.proxy_password=${proxy_password}"
+                sat5_opts="${sat5_opts} --proxyUser=${proxy_username} --proxyPassword=${proxy_password}"
+            else
+                echo "Warning: REG_HTTP_PROXY_PASSWORD cannot be null with non-empty REG_HTTP_PROXY_USERNAME! Skipping..."
+                proxy_username= ; proxy_password=
+            fi
+        else
+            if [ -n "${REG_HTTP_PROXY_PASSWORD:-}" ]; then
+                echo "Warning: REG_HTTP_PROXY_USERNAME cannot be null with non-empty REG_HTTP_PROXY_PASSWORD! Skipping..."
+                proxy_username= ; proxy_password=
+            fi
+        fi
+    else
+        echo "Warning: REG_HTTP_PROXY_PORT cannot be null with non-empty REG_HTTP_PROXY_HOST! Skipping..."
+        proxy_host= ; proxy_port= ; proxy_url= ; proxy_username= ; proxy_password=
+    fi
+else
+    if [ -n "${REG_HTTP_PROXY_PORT:-}" ]; then
+        echo "Warning: REG_HTTP_PROXY_HOST cannot be null with non-empty REG_HTTP_PROXY_PORT! Skipping..."
+        proxy_host= ; proxy_port= ; proxy_url= ; proxy_username= ; proxy_password=
+    fi
+fi
+
 function retry() {
   if [[ $retryCount < 3 ]]; then
     $@
@@ -126,6 +185,27 @@ function detect_satellite_version {
         exit 1
     fi
 }
+
+if [ "x${proxy_url}" != "x" ];then
+    # Config subscription-manager for proxy
+    subscription-manager config ${config_opts}
+
+    # Config yum for proxy..
+    sed -i -e '/^proxy=/d' /etc/yum.conf
+    echo "proxy=${proxy_url}" >> /etc/yum.conf
+
+    # Handle optional username/password
+    if [ -n "${proxy_username}" ]; then
+        sed -i -e '/^proxy_username=/d' /etc/yum.conf
+        echo "proxy_username=${proxy_username}" >> /etc/yum.conf
+    fi
+
+    if [ -n "${proxy_password}" ]; then
+        sed -i -e '/^proxy_password=/d' /etc/yum.conf
+        echo "proxy_password=${proxy_password}" >> /etc/yum.conf
+    fi
+
+fi
 
 case "${REG_METHOD:-}" in
     portal)
