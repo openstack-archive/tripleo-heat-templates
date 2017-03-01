@@ -207,6 +207,11 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         dcmd.extend(['--entrypoint', sh_script])
 
         env = {}
+        # NOTE(flaper87): Always copy the DOCKER_* environment variables as
+        # they contain the access data for the docker daemon.
+        for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
+            env[k] = os.environ.get(k)
+
         if os.environ.get('NET_HOST', 'false') == 'true':
             print('NET_HOST enabled')
             dcmd.extend(['--net', 'host', '--volume',
