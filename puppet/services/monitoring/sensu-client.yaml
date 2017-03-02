@@ -63,11 +63,22 @@ outputs:
       step_config: |
         include ::tripleo::profile::base::monitoring::sensu
       upgrade_tasks:
+        - name: Check if sensu_client is deployed
+          command: systemctl is-enabled sensu-client
+          tags: common
+          ignore_errors: True
+          register: sensu_client_enabled
         - name: Check status of sensu-client service
           shell: >
             /usr/bin/systemctl show sensu-client --property ActiveState |
             grep '\bactive\b'
+          when: sensu_client_enabled.rc == 0
           tags: step0,validation
         - name: Stop sensu-client service
           tags: step1
+          when: sensu_client_enabled.rc == 0
           service: name=sensu-client state=stopped
+        - name: Install sensu package if it was disabled
+          tags: step3
+          yum: name=sensu state=latest
+          when: sensu_client.rc != 0
