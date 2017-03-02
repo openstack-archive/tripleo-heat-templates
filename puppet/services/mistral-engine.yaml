@@ -36,3 +36,22 @@ outputs:
         get_attr: [MistralBase, role_data, config_settings]
       step_config: |
         include ::tripleo::profile::base::mistral::engine
+      upgrade_tasks:
+        - name: Check if mistral engine is deployed
+          command: systemctl is-enabled openstack-mistral-engine
+          tags: common
+          ignore_errors: True
+          register: mistral_engine_enabled
+        - name: "PreUpgrade step0,validation: Check if openstack-mistral-engine is running"
+          shell: >
+            /usr/bin/systemctl show 'openstack-mistral-engine' --property ActiveState |
+            grep '\bactive\b'
+          when: mistral_engine_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop mistral_engine service
+          tags: step1
+          service: name=openstack-mistral-engine state=stopped
+        - name: Install openstack-mistral-engine package if it was disabled
+          tags: step3
+          yum: name=openstack-mistral-engine state=latest
+          when: mistral_engine_enabled.rc != 0
