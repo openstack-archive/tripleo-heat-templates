@@ -99,9 +99,6 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
     mv /var/lib/mysql $MYSQL_TEMP_UPGRADE_BACKUP_DIR
 fi
 
-# Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
-special_case_ovs_upgrade_if_needed
-
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
 
