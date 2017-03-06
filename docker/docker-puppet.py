@@ -102,6 +102,9 @@ for service in (json_data or []):
     config_image = service[3] or ''
     volumes = service[4] if len(service) > 4 else []
 
+    if not manifest or not config_image:
+        continue
+
     print('---------')
     print('config_volume %s' % config_volume)
     print('puppet_tags %s' % puppet_tags)
