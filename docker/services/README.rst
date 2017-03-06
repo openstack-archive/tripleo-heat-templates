@@ -58,8 +58,6 @@ are re-asserted when applying latter ones.
    the container itself at the /var/lib/kolla/config_files/config.json
    location and drives how kolla's external config mechanisms work.
 
- * docker_image: The full name of the docker image that will be used.
-
  * docker_config: Data that is passed to the docker-cmd hook to configure
    a container, or step of containers at each step. See the available steps
    below and the related docker-cmd hook documentation in the heat-agents
