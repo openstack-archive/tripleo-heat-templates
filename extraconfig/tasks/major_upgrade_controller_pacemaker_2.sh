@@ -41,7 +41,7 @@ done
 # https://bugzilla.redhat.com/show_bug.cgi?id=1341968
 #
 # The default is to determine automatically if upgrade is needed based
-# on mysql package versionning, but this can be overriden manually
+# on mysql package versioning, but this can be overridden manually
 # to support specific upgrade scenario
 
 # Calling this function will set the DO_MYSQL_UPGRADE variable which is used
@@ -109,7 +109,7 @@ yum -y -q update
 # We need to ensure at least those two configuration settings, otherwise
 # mariadb 10.1+ won't activate galera replication.
 # wsrep_cluster_address must only be set though, its value does not
-# matter because it's overriden by the galera resource agent.
+# matter because it's overridden by the galera resource agent.
 cat >> /etc/my.cnf.d/galera.cnf <<EOF
 [mysqld]
 wsrep_on = ON
