@@ -65,20 +65,29 @@ are re-asserted when applying latter ones.
    below and the related docker-cmd hook documentation in the heat-agents
    project.
 
- * puppet_tags: Puppet resource tag names that are used to generate config
-   files with puppet. Only the named config resources are used to generate
-   a config file. Any service that specifies tags will have the default
-   tags of 'file,concat,file_line' appended to the setting.
-   Example: keystone_config
+ * puppet_config: This section is a nested set of key value pairs
+   that drive the creation of config files using puppet.
+   Required parameters include:
 
- * config_volume: The name of the volume (directory) where config files
-   will be generated for this service. Use this as the location to
-   bind mount into the running Kolla container for configuration.
+     * puppet_tags: Puppet resource tag names that are used to generate config
+       files with puppet. Only the named config resources are used to generate
+       a config file. Any service that specifies tags will have the default
+       tags of 'file,concat,file_line' appended to the setting.
+       Example: keystone_config
 
- * config_image: The name of the docker image that will be used for
-   generating configuration files. This is often the same value as
-   'docker_image' above but some containers share a common set of
-   config files which are generated in a common base container.
+     * config_volume: The name of the volume (directory) where config files
+       will be generated for this service. Use this as the location to
+       bind mount into the running Kolla container for configuration.
+
+     * config_image: The name of the docker image that will be used for
+       generating configuration files. This is often the same container
+       that the runtime service uses. Some services share a common set of
+       config files which are generated in a common base container.
+
+     * step_config: This setting controls the manifest that is used to
+       create docker config files via puppet. The puppet tags below are
+       used along with this manifest to generate a config directory for
+       this container.
 
  * docker_puppet_tasks: This section provides data to drive the
    docker-puppet.py tool directly. The task is executed only once
