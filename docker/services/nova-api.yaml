@@ -70,20 +70,36 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/nova_api.json:
           command: /usr/bin/nova-api
+          permissions:
+            - path: /var/log/nova
+              owner: nova:nova
+              recurse: true
       docker_config:
+        # db sync runs before permissions set by kolla_config
         step_3:
-          nova_api_db_sync:
-            start_order: 1
+          nova_init_logs:
+            start_order: 0
             image: &nova_api_image
               list_join:
                 - '/'
                 - [ {get_param: DockerNamespace}, {get_param: DockerNovaApiImage} ]
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/nova:/var/log/nova
+            command: ['/bin/bash', '-c', 'chown -R nova:nova /var/log/nova']
+          nova_api_db_sync:
+            start_order: 1
+            image: *nova_api_image
             net: host
             detach: false
             volumes: &nova_api_volumes
-              - /var/lib/config-data/nova/etc/:/etc/:ro
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
             command: ['/usr/bin/nova-manage', 'api_db', 'sync']
           # FIXME: we probably want to wait on the 'cell_v2 update' in order for this
           # to be capable of upgrading a baremetal setup. This is to ensure the name
@@ -128,12 +144,7 @@ outputs:
             user: nova
             privileged: true
             restart: always
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+            volumes: *nova_api_volumes
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
@@ -147,6 +158,11 @@ outputs:
               - '/usr/bin/nova-manage'
               - 'cell_v2'
               - 'discover_hosts'
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/nova
+            state: directory
       upgrade_tasks:
         - name: Stop and disable nova_api service
           tags: step2

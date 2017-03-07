@@ -70,15 +70,20 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/gnocchi-api.json:
           command: /usr/sbin/httpd -DFOREGROUND
+          permissions:
+            - path: /var/log/gnocchi
+              owner: gnocchi:gnocchi
+              recurse: true
       docker_config:
+        # db sync runs before permissions set by kolla_config
         step_3:
           gnocchi_init_log:
             start_order: 0
             image: *gnocchi_image
             user: root
-            command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && mkdir -p /var/log/gnocchi && chown gnocchi:gnocchi /var/log/gnocchi']
             volumes:
-              - logs:/var/log
+              - /var/log/containers/gnocchi:/var/log/gnocchi
+            command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd; chown -R gnocchi:gnocchi /var/log/gnocchi']
           gnocchi_db_sync:
             start_order: 1
             image: *gnocchi_image
@@ -90,7 +95,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/config-data/gnocchi/etc/gnocchi/:/etc/gnocchi/:ro
-                  - logs:/var/log
+                  - /var/log/containers/gnocchi:/var/log/gnocchi
             command: ["/usr/bin/gnocchi-upgrade", "--skip-storage"]
         step_4:
           gnocchi_api:
@@ -106,6 +111,7 @@ outputs:
                   - /var/lib/config-data/gnocchi/etc/gnocchi/:/etc/gnocchi/:ro
                   - /var/lib/config-data/gnocchi/etc/httpd/:/etc/httpd/:ro
                   - /var/lib/config-data/gnocchi/var/www/:/var/www/:ro
+                  - /var/log/containers/gnocchi:/var/log/gnocchi
                   -
                     if:
                       - internal_tls_enabled
@@ -118,6 +124,11 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/gnocchi
+            state: directory
       upgrade_tasks:
         - name: Stop and disable httpd service
           tags: step2
