@@ -50,6 +50,7 @@ outputs:
           - get_attr: [IronicConductorBase, role_data, config_settings]
           # to avoid hard linking errors we store these on the same
           # volume/device as the ironic master_path
+          # https://github.com/docker/docker/issues/7457
           - ironic::drivers::pxe::tftp_root: /var/lib/ironic/tftpboot
           - ironic::drivers::pxe::tftp_master_path: /var/lib/ironic/tftpboot/master_images
           - ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
@@ -84,18 +85,12 @@ outputs:
              recurse: true
       docker_config:
         step_4:
-          ironic-init-dirs:
-            image: &ironic_image
+          ironic_conductor:
+            start_order: 80
+            image:
               list_join:
                 - '/'
                 - [ {get_param: DockerNamespace}, {get_param: DockerIronicConductorImage} ]
-            user: root
-            command: ['/bin/bash', '-c', 'mkdir /var/lib/ironic/httpboot && mkdir /var/lib/ironic/tftpboot']
-            volumes:
-              - ironic:/var/lib/ironic
-          ironic_conductor:
-            start_order: 80
-            image: *ironic_image
             net: host
             privileged: true
             restart: always
@@ -108,9 +103,42 @@ outputs:
               - /sys:/sys
               - /dev:/dev
               - /run:/run #shared?
-              - ironic:/var/lib/ironic
+              - /var/lib/ironic:/var/lib/ironic
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create ironic persistent data directory
+          file:
+            path: /var/lib/ironic
+            state: directory
+        - name: stat /httpboot
+          stat: path=/httpboot
+          register: stat_httpboot
+        - name: stat /tftpboot
+          stat: path=/tftpboot
+          register: stat_tftpboot
+        - name: stat /var/lib/ironic/httpboot
+          stat: path=/var/lib/ironic/httpboot
+          register: stat_ironic_httpboot
+        - name: stat /var/lib/ironic/tftpboot
+          stat: path=/var/lib/ironic/tftpboot
+          register: stat_ironic_tftpboot
+        # cannot use 'copy' module as with 'remote_src' it doesn't support recursion
+        - name: migrate /httpboot to containerized (if applicable)
+          command: /bin/cp -R /httpboot /var/lib/ironic/httpboot
+          when: stat_httpboot.stat.exists and not stat_ironic_httpboot.stat.exists
+        - name: migrate /tftpboot to containerized (if applicable)
+          command: /bin/cp -R /tftpboot /var/lib/ironic/tftpboot
+          when: stat_tftpboot.stat.exists and not stat_ironic_tftpboot.stat.exists
+        # Even if there was nothing to copy from original locations,
+        # we need to create the dirs before starting the containers
+        - name: ensure ironic pxe directories exist
+          file:
+            path: /var/lib/ironic/{{ item }}
+            state: directory
+          with_items:
+            - httpboot
+            - tftpboot
       upgrade_tasks:
         - name: Stop and disable ironic_conductor service
           tags: step2
