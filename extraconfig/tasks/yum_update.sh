@@ -70,9 +70,6 @@ if [[ "$pacemaker_status" == "active" && \
     fi
 fi
 
-# Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
-special_case_ovs_upgrade_if_needed
-
 if [[ "$pacemaker_status" == "active" ]] ; then
     echo "Pacemaker running, stopping cluster node and doing full package update"
     node_count=$(pcs status xml | grep -o "<nodes_configured.*/>" | grep -o 'number="[0-9]*"' | grep -o "[0-9]*")
