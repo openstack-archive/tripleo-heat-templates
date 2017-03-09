@@ -34,31 +34,34 @@ if [[ -n \$NOVA_COMPUTE ]]; then
     crudini  --set /etc/nova/nova.conf upgrade_levels compute auto
 fi
 
-$(declare -f special_case_ovs_upgrade_if_needed)
-special_case_ovs_upgrade_if_needed
-
-yum -y install python-zaqarclient  # needed for os-collect-config
 if [[ -n \$SWIFT_STORAGE ]]; then
     systemctl_swift stop
 fi
+
 yum -y update
+
 if [[ -n \$SWIFT_STORAGE ]]; then
     systemctl_swift start
 fi
 # Due to bug#1640177 we need to restart compute agent
 if [[ -n \$NOVA_COMPUTE ]]; then
-    echo "Restarting openstack ceilometer agent compute"
+    log_debug "Restarting openstack ceilometer agent compute"
     systemctl restart openstack-ceilometer-compute
 fi
 
 # Apply puppet manifest to converge just right after the ${ROLE} upgrade
 $(declare -f run_puppet)
 for step in 1 2 3 4 5 6; do
+    log_debug "Running puppet step \$step for ${ROLE}"
     if ! run_puppet /root/${ROLE}_puppet_config.pp ${ROLE} \${step}; then
-         echo "Puppet failure at step \${step}"
+         log_debug "Puppet failure at step \${step}"
          exit 1
     fi
+    log_debug "Completed puppet step \$step"
 done
+
+log_debug "TripleO upgrade run completed."
+
 ENDOFCAT
 
 # ensure the permissions are OK
