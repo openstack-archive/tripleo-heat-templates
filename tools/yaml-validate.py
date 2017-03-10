@@ -23,6 +23,13 @@ envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
+REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'kolla_config',
+                            'puppet_config', 'config_settings', 'step_config']
+OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
+                            'service_config_settings']
+DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'puppet_tags', 'step_config',
+                                 'config_image']
+
 
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
@@ -69,6 +76,7 @@ def validate_hci_compute_services_default(env_filename, env_tpl):
                 return 1
     return 0
 
+
 def validate_mysql_connection(settings):
     no_op = lambda *args: False
     error_status = [0]
@@ -107,6 +115,55 @@ def validate_mysql_connection(settings):
 
     search(settings, no_op, validate_mysql_uri)
     return error_status[0]
+
+
+def validate_docker_service(filename, tpl):
+    if 'outputs' in tpl and 'role_data' in tpl['outputs']:
+        if 'value' not in tpl['outputs']['role_data']:
+            print('ERROR: invalid role_data for filename: %s'
+                  % filename)
+            return 1
+        role_data = tpl['outputs']['role_data']['value']
+
+        for section_name in REQUIRED_DOCKER_SECTIONS:
+            if section_name not in role_data:
+                print('ERROR: %s is required in role_data for %s.'
+                      % (section_name, filename))
+                return 1
+
+        for section_name in role_data.keys():
+            if section_name in REQUIRED_DOCKER_SECTIONS:
+                continue
+            else:
+                if section_name in OPTIONAL_DOCKER_SECTIONS:
+                    continue
+                else:
+                    print('ERROR: %s is extra in role_data for %s.'
+                          % (section_name, filename))
+                    return 1
+
+        if 'puppet_config' in role_data:
+            puppet_config = role_data['puppet_config']
+            for key in puppet_config:
+                if key in DOCKER_PUPPET_CONFIG_SECTIONS:
+                    continue
+                else:
+                  print('ERROR: %s should not be in puppet_config section.'
+                        % key)
+                  return 1
+            for key in DOCKER_PUPPET_CONFIG_SECTIONS:
+              if key not in puppet_config:
+                  print('ERROR: %s is required in puppet_config for %s.'
+                        % (key, filename))
+                  return 1
+
+    if 'parameters' in tpl:
+        for param in required_params:
+            if param not in tpl['parameters']:
+                print('ERROR: parameter %s is required for %s.'
+                      % (param, filename))
+                return 1
+    return 0
 
 
 def validate_service(filename, tpl):
@@ -157,6 +214,10 @@ def validate(filename):
         if (filename.startswith('./puppet/services/') and
                 filename != './puppet/services/services.yaml'):
             retval = validate_service(filename, tpl)
+
+        if (filename.startswith('./docker/services/') and
+                filename != './docker/services/services.yaml'):
+            retval = validate_docker_service(filename, tpl)
 
         if filename.endswith('hyperconverged-ceph.yaml'):
             retval = validate_hci_compute_services_default(filename, tpl)
