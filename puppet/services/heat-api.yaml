@@ -38,8 +38,23 @@ parameters:
     default:
       tag: openstack.heat.api
       path: /var/log/heat/heat-api.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  heat_workers_zero: {equals : [{get_param: HeatWorkers}, 0]}
 
 resources:
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
   HeatBase:
     type: ./heat-base.yaml
     properties:
@@ -59,19 +74,32 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [HeatBase, role_data, config_settings]
-          - heat::api::workers: {get_param: HeatWorkers}
-            tripleo.heat_api.firewall_rules:
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - tripleo.heat_api.firewall_rules:
               '125 heat_api':
                 dport:
                   - 8004
                   - 13004
-            # NOTE: bind IP is found in Heat replacing the network name with the
-            # local node IP for the given network; replacement examples
-            # (eg. for internal_api):
+            heat::api::bind_host: {get_param: [ServiceNetMap, HeatApiNetwork]}
+            heat::wsgi::apache_api::ssl: {get_param: EnableInternalTLS}
+            heat::api::service_name: 'httpd'
+            # NOTE: bind IP is found in Heat replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            heat::api::bind_host: {get_param: [ServiceNetMap, HeatApiNetwork]}
+            heat::wsgi::apache_api::bind_host: {get_param: [ServiceNetMap, HeatApiNetwork]}
+            heat::wsgi::apache_api::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, HeatApiNetwork]}
+          -
+            if:
+            - heat_workers_zero
+            - {}
+            - heat::wsgi::apache_api::workers: {get_param: HeatWorkers}
       step_config: |
         include ::tripleo::profile::base::heat::api
       service_config_settings:
