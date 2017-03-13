@@ -97,17 +97,6 @@ return_code=$?
 echo "$result"
 echo "yum return code: $return_code"
 
-# Writes any changes caused by alterations to os-net-config and bounces the
-# interfaces *before* restarting the cluster.
-os-net-config -c /etc/os-net-config/config.json -v --detailed-exit-codes
-RETVAL=$?
-if [[ $RETVAL == 2 ]]; then
-    echo "os-net-config: interface configuration files updated successfully"
-elif [[ $RETVAL != 0 ]]; then
-    echo "ERROR: os-net-config configuration failed"
-    exit $RETVAL
-fi
-
 if [[ "$pacemaker_status" == "active" ]] ; then
     echo "Starting cluster node"
     pcs cluster start
