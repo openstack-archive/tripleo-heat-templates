@@ -1,0 +1,106 @@
+heat_template_version: pike
+
+description: >
+  L2 Gateway agent configured with Puppet
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  L2gwAgentOvsdbHosts:
+    default: ''
+    description: L2 gateway agent OVSDB server list.
+    type: comma_delimited_list
+  L2gwAgentEnableManager:
+    default: false
+    description: Connection can be initiated by the ovsdb server.
+    type: boolean
+  L2gwAgentManagerTableListeningPort:
+    default: 6632
+    description: port number for L2 gateway agent, so that it can listen
+    type: number
+  L2gwAgentPeriodicInterval:
+    default: 20
+    description: The L2 gateway agent checks connection state with the OVSDB
+                 servers. The interval is number of seconds between attempts.
+    type: number
+  L2gwAgentMaxConnectionRetries:
+    default: 10
+    description: The L2 gateway agent retries to connect to the OVSDB server
+    type: number
+  L2gwAgentSocketTimeout:
+    default: 30
+    description: socket timeout
+    type: number
+  MonitoringSubscriptionNeutronL2gwAgent:
+    default: 'overcloud-neutron-l2gw-agent'
+    type: string
+  NeutronL2gwAgentLoggingSource:
+    type: json
+    default:
+      tag: openstack.neutron.agent.l2gw
+      path: /var/log/neutron/l2gw-agent.log
+
+conditions:
+  internal_manager_enabled: {equals: [{get_param: L2gwAgentEnableManager}, True]}
+
+outputs:
+  role_data:
+    description: Role data for the L2 Gateway role.
+    value:
+      service_name: neutron_l2gw_agent
+      monitoring_subscription: {get_param: MonitoringSubscriptionNeutronL2gwAgent}
+      logging_source: {get_param: NeutronL2gwAgentLoggingSource}
+      logging_groups:
+        - neutron
+      config_settings:
+        map_merge:
+          - neutron::agents::l2gw::ovsdb_hosts: {get_param: L2gwAgentOvsdbHosts}
+            neutron::agents::l2gw::enable_manager: {get_param: L2gwAgentEnableManager}
+            neutron::agents::l2gw::manager_table_listening_port: {get_param: L2gwAgentManagerTableListeningPort}
+            neutron::agents::l2gw::periodic_interval: {get_param: L2gwAgentPeriodicInterval}
+            neutron::agents::l2gw::max_connection_retries: {get_param: L2gwAgentMaxConnectionRetries}
+            neutron::agents::l2gw::socket_timeout: {get_param: L2gwAgentSocketTimeout}
+          -
+            if:
+              - internal_manager_enabled
+              - tripleo.neutron_l2gw_agent.firewall_rules:
+                  '142 neutron l2gw agent input':
+                    proto: 'tcp'
+                    dport: {get_param: L2gwAgentManagerTableListeningPort}
+              - null
+
+      step_config: |
+        include tripleo::profile::base::neutron::agents::l2gw
+      upgrade_tasks:
+        - name: Check if neutron_l2gw_agent is deployed
+          command: systemctl is-enabled neutron-l2gw-agent
+          tags: common
+          ignore_errors: True
+          register: neutron_l2gw_agent_enabled
+        - name: "PreUpgrade step0,validation: Check service neutron-l2gw-agent is running"
+          shell: /usr/bin/systemctl show 'neutron-l2gw-agent' --property ActiveState | grep '\bactive\b'
+          when: neutron_l2gw_agent_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop neutron_l2gw_agent service
+          tags: step1
+          when: neutron_l2gw_agent_enabled.rc == 0
+          service: name=neutron-l2gw-agent state=stopped
