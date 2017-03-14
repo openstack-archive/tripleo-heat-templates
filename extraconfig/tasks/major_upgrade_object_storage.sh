@@ -23,9 +23,6 @@ function systemctl_swift {
     done
 }
 
-$(declare -f special_case_ovs_upgrade_if_needed)
-special_case_ovs_upgrade_if_needed
-
 systemctl_swift stop
 
 yum -y install python-zaqarclient  # needed for os-collect-config
