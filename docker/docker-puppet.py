@@ -247,9 +247,9 @@ for config_volume in configs:
     volumes = service[4] if len(service) > 4 else []
 
     if puppet_tags:
-        puppet_tags = "file,file_line,concat,%s" % puppet_tags
+        puppet_tags = "file,file_line,concat,augeas,%s" % puppet_tags
     else:
-        puppet_tags = "file,file_line,concat"
+        puppet_tags = "file,file_line,concat,augeas"
 
     process_map.append([config_volume, puppet_tags, manifest, config_image, volumes])
 
