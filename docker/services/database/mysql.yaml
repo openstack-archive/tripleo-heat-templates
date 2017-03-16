@@ -82,17 +82,29 @@ outputs:
             perm: '0644'
       docker_config:
         step_2:
-          mysql_bootstrap:
+          mysql_data_ownership:
             start_order: 0
             detach: false
             image: *mysql_image
             net: host
+            user: root
+            # Kolla does only non-recursive chown
+            command: ['chown', '-R', 'mysql:', '/var/lib/mysql']
+            volumes:
+              - /var/lib/mysql:/var/lib/mysql
+          mysql_bootstrap:
+            start_order: 1
+            detach: false
+            image: *mysql_image
+            net: host
+            # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
+            command: ['bash', '-c', 'test -e /var/lib/mysql/mysql || kolla_start']
             volumes: &mysql_volumes
               - /var/lib/kolla/config_files/mysql.json:/var/lib/kolla/config_files/config.json
               - /var/lib/config-data/mysql/:/var/lib/kolla/config_files/src:ro
               - /etc/localtime:/etc/localtime:ro
               - /etc/hosts:/etc/hosts:ro
-              - mariadb:/var/lib/mysql/
+              - /var/lib/mysql:/var/lib/mysql
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
               - KOLLA_BOOTSTRAP=True
@@ -110,7 +122,7 @@ outputs:
                             - {get_param: MysqlRootPassword}
                             - {get_param: [DefaultPasswords, mysql_root_password]}
           mysql:
-            start_order: 1
+            start_order: 2
             image: *mysql_image
             restart: always
             net: host
@@ -128,8 +140,13 @@ outputs:
               - '/'
               - [ {get_param: DockerNamespace}, {get_param: DockerMysqlImage} ]
           volumes:
-            - "mariadb:/var/lib/mysql/:ro"
+            - "/var/lib/mysql:/var/lib/mysql/:ro"
             - "/var/lib/config-data/mysql/root:/root:ro" #provides .my.cnf
+      host_prep_tasks:
+        - name: create /var/lib/mysql
+          file:
+            path: /var/lib/mysql
+            state: directory
       upgrade_tasks:
         - name: Stop and disable mysql service
           tags: step2
