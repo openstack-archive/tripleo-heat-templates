@@ -12,10 +12,10 @@ parameters:
     description: image
     default: 'centos-binary-heat-api:latest'
     type: string
-  # we configure all heat services in the same heat engine container
+  # puppet needs the heat-wsgi-api binary from centos-binary-heat-api
   DockerHeatConfigImage:
     description: image
-    default: 'centos-binary-heat-engine:latest'
+    default: 'centos-binary-heat-api:latest'
     type: string
   EndpointMap:
     default: {}
@@ -59,7 +59,7 @@ outputs:
       service_config_settings: {get_attr: [HeatBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
-        config_volume: heat
+        config_volume: heat_api
         puppet_tags: heat_config,file,concat,file_line
         step_config: *step_config
         config_image:
@@ -68,7 +68,7 @@ outputs:
             - [ {get_param: DockerNamespace}, {get_param: DockerHeatConfigImage} ]
       kolla_config:
         /var/lib/kolla/config_files/heat_api.json:
-          command: /usr/bin/heat-api --config-file /usr/share/heat/heat-dist.conf --config-file /etc/heat/heat.conf
+          command: /usr/sbin/httpd -DFOREGROUND
       docker_config:
         step_4:
           heat_api:
@@ -79,17 +79,20 @@ outputs:
             net: host
             privileged: false
             restart: always
+            # NOTE(mandre) kolla image changes the user to 'heat', we need it
+            # to be root to run httpd
+            user: root
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/kolla/config_files/heat_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/heat/etc/heat/:/etc/heat/:ro
-                  - /dev:/dev
-                  - /run:/run
+                  - /var/lib/config-data/heat_api/etc/heat/:/etc/heat/:ro
+                  - /var/lib/config-data/heat_api/etc/httpd/:/etc/httpd/:ro
+                  - /var/lib/config-data/heat_api/var/www/:/var/www/:ro
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       upgrade_tasks:
         - name: Stop and disable heat_api service
           tags: step2
-          service: name=openstack-heat-api state=stopped enabled=no
+          service: name=httpd state=stopped enabled=no
