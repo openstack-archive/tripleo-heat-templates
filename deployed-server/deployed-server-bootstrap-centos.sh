@@ -8,7 +8,8 @@ yum install -y \
     openstack-puppet-modules \
     os-net-config \
     openvswitch \
-    python-heat-agent*
+    python-heat-agent* \
+    openstack-selinux
 
 ln -s -f /usr/share/openstack-puppet/modules/* /etc/puppet/modules
 
