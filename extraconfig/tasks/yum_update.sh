@@ -113,15 +113,19 @@ if [[ "$pacemaker_status" == "active" ]] ; then
         fi
     done
 
-    tstart=$(date +%s)
-    while ! clustercheck; do
-        sleep 5
-        tnow=$(date +%s)
-        if (( tnow-tstart > galera_sync_timeout )) ; then
-            echo "ERROR galera sync timed out"
-            exit 1
-        fi
-    done
+    RETVAL=$( pcs resource show galera-master | grep wsrep_cluster_address | grep -q `crm_node -n` ; echo $? )
+
+    if [[ $RETVAL -eq 0 && -e /etc/sysconfig/clustercheck ]]; then
+        tstart=$(date +%s)
+        while ! clustercheck; do
+            sleep 5
+            tnow=$(date +%s)
+            if (( tnow-tstart > galera_sync_timeout )) ; then
+                echo "ERROR galera sync timed out"
+                exit 1
+            fi
+        done
+    fi
 
     echo "Waiting for pacemaker cluster to settle"
     if ! timeout -k 10 $cluster_settle_timeout crm_resource --wait; then
