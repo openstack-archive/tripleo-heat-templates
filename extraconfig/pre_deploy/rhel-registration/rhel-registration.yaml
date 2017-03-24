@@ -53,6 +53,12 @@ parameters:
     type: string
   rhel_reg_http_proxy_password:
     type: string
+  UpdateOnRHELRegistration:
+    type: boolean
+    default: false
+    description: |
+      When enabled, the system will perform a yum update after performing the
+      RHEL Registration process.
 
 resources:
 
@@ -133,6 +139,37 @@ resources:
       actions: ['DELETE'] # Only do this on DELETE
       input_values:
         REG_METHOD: {get_param: rhel_reg_method}
+
+  YumUpdateConfigurationAfterRHELRegistration:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        set -x
+        num_updates=$(yum list -q updates | wc -l)
+        if [ "$num_updates" -eq "0" ]; then
+           echo "No packages require updating"
+           exit 0
+        fi
+        full_command="yum -q -y update"
+        echo "Running: $full_command"
+        result=$($full_command)
+        return_code=$?
+        echo "$result"
+        echo "yum return code: $return_code"
+        exit $return_code
+
+  UpdateDeploymentAfterRHELRegistration:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: RHELRegistrationDeployment
+    conditions:
+      update_requested: {get_param: UpdateOnRHELRegistration}
+    properties:
+      name: UpdateDeploymentAfterRHELRegistration
+      config: {get_resource: YumUpdateConfigurationAfterRHELRegistration}
+      server:  {get_param: server}
+      actions: ['CREATE'] # Only do this on CREATE
 
 outputs:
   deploy_stdout:
