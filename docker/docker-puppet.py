@@ -205,7 +205,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '%s:%s:rw' % (sh_script, sh_script) ]
 
         for volume in volumes:
-            dcmd.extend(['--volume', volume])
+            if volume:
+                dcmd.extend(['--volume', volume])
 
         dcmd.extend(['--entrypoint', sh_script])
 
