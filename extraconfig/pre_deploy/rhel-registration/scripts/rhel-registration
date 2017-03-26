@@ -11,6 +11,7 @@ if [ -e $OK ] ; then
     exit 0
 fi
 
+retryCount=0
 opts=
 attach_opts=
 sat5_opts=
@@ -96,12 +97,28 @@ if [ -n "${REG_TYPE:-}" ]; then
     opts="$opts --type=$REG_TYPE"
 fi
 
+function retry() {
+  if [[ $retryCount < 3 ]]; then
+    $@
+    if ! [[ $? == 0 ]]; then
+      retryCount=$(echo $retryCount + 1 | bc)
+      echo "WARN: Failed to connect when running '$@', retrying..."
+      retry $@
+    else
+      retryCount=0
+    fi
+  else
+    echo "ERROR: Failed to connect after 3 attempts when running '$@'"
+    exit 1
+  fi
+}
+
 function detect_satellite_version {
     ping_api=$REG_SAT_URL/katello/api/ping
-    if curl -L -k -s -D - -o /dev/null $ping_api | grep "200 OK"; then
+    if curl --retry 3 --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $ping_api | grep "200 OK"; then
         echo Satellite 6 detected at $REG_SAT_URL
         satellite_version=6
-    elif curl -L -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
+    elif curl --retry 3 --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
         echo Satellite 5 detected at $REG_SAT_URL
         satellite_version=5
     else
@@ -112,29 +129,29 @@ function detect_satellite_version {
 
 case "${REG_METHOD:-}" in
     portal)
-        subscription-manager register $opts
+        retry subscription-manager register $opts
         if [ -z "${REG_AUTO_ATTACH:-}" -a -z "${REG_ACTIVATION_KEY:-}" ]; then
-            subscription-manager attach $attach_opts
+            retry subscription-manager attach $attach_opts
         fi
-        subscription-manager repos --disable '*'
-        subscription-manager $repos
+        retry subscription-manager repos --disable '*'
+        retry subscription-manager $repos
         ;;
     satellite)
         detect_satellite_version
         if [ "$satellite_version" = "6" ]; then
             repos="$repos --enable ${satellite_repo}"
-            curl -L -k -O "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm"
+            curl --retry 3 --retry-delay 10 --max-time 30 -L -k -O "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm"
             rpm -Uvh katello-ca-consumer-latest.noarch.rpm || true
-            subscription-manager register $opts
-            subscription-manager $repos
-            yum install -y katello-agent || true # needed for errata reporting to satellite6
+            retry subscription-manager register $opts
+            retry subscription-manager $repos
+            retry yum install -y katello-agent || true # needed for errata reporting to satellite6
             katello-package-upload
-            subscription-manager repos --disable ${satellite_repo}
+            retry subscription-manager repos --disable ${satellite_repo}
         else
             pushd /usr/share/rhn/
-            curl -k -O $REG_SAT_URL/pub/RHN-ORG-TRUSTED-SSL-CERT
+            curl --retry 3 --retry-delay 10 --max-time 30 -k -O $REG_SAT_URL/pub/RHN-ORG-TRUSTED-SSL-CERT
             popd
-            rhnreg_ks --serverUrl=$REG_SAT_URL/XMLRPC $sat5_opts
+            retry rhnreg_ks --serverUrl=$REG_SAT_URL/XMLRPC $sat5_opts
         fi
         ;;
     disable)
