@@ -52,14 +52,8 @@ parameters:
     type: boolean
     default: false
 
-resources:
-
-  RabbitMQTLS:
-    type: OS::TripleO::Services::RabbitMQTLS
-    properties:
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
+conditions:
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -69,7 +63,6 @@ outputs:
       monitoring_subscription: {get_param: MonitoringSubscriptionRabbitmq}
       config_settings:
         map_merge:
-          - get_attr: [RabbitMQTLS, role_data, config_settings]
           -
             rabbitmq::file_limit: {get_param: RabbitFDLimit}
             rabbitmq::default_user: {get_param: RabbitUserName}
@@ -124,6 +117,24 @@ outputs:
             # TODO(jaosorior): Remove this once we set a proper default in
             # puppet-tripleo
             tripleo::profile::base::rabbitmq::enable_internal_tls: {get_param: EnableInternalTLS}
+          -
+            if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::profile::base::rabbitmq::certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+                service_key: '/etc/pki/tls/private/rabbitmq.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+                principal:
+                  str_replace:
+                    template: "rabbitmq/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+            - {}
       step_config: |
         include ::tripleo::profile::base::rabbitmq
       upgrade_tasks:
@@ -134,4 +145,10 @@ outputs:
           tags: step4
           service: name=rabbitmq-server state=started
       metadata_settings:
-        get_attr: [RabbitMQTLS, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            - service: rabbitmq
+              network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+              type: node
+          - null
