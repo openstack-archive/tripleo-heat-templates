@@ -31,13 +31,25 @@ parameters:
     type: boolean
     default: false
 
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
-  ApacheTLS:
-    type: OS::TripleO::Services::ApacheTLS
+  ApacheNetworks:
+    type: OS::Heat::Value
     properties:
-      ServiceNetMap: {get_param: ServiceNetMap}
+      value:
+        # NOTE(jaosorior) Get unique network names to create
+        # certificates for those. We skip the tenant network since
+        # we don't need a certificate for that, and the external
+        # is for HAProxy so it isn't used for apache either.
+        yaql:
+          expression: list($.data.map.items().map($1[1])).distinct().where($ != external and $ != tenant)
+          data:
+            map:
+              get_param: ServiceNetMap
 
 outputs:
   role_data:
@@ -46,7 +58,6 @@ outputs:
       service_name: apache
       config_settings:
         map_merge:
-          - get_attr: [ApacheTLS, role_data, config_settings]
           -
             # for the given network; replacement examples (eg. for internal_api):
             # internal_api -> IP
@@ -64,8 +75,31 @@ outputs:
             apache::mod::prefork::serverlimit: { get_param: ApacheServerLimit }
             apache::mod::remoteip::proxy_ips:
               - "%{hiera('apache_remote_proxy_ips_network')}"
+          -
+            generate_service_certificates: true
+            apache_certificates_specs:
+              map_merge:
+                repeat:
+                  template:
+                    httpd-NETWORK:
+                      service_certificate: '/etc/pki/tls/certs/httpd-NETWORK.crt'
+                      service_key: '/etc/pki/tls/private/httpd-NETWORK.key'
+                      hostname: "%{hiera('fqdn_NETWORK')}"
+                      principal: "HTTP/%{hiera('fqdn_NETWORK')}"
+                  for_each:
+                    NETWORK: {get_attr: [ApacheNetworks, value]}
       metadata_settings:
-        get_attr: [ApacheTLS, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            repeat:
+              template:
+                - service: HTTP
+                  network: $NETWORK
+                  type: node
+              for_each:
+                $NETWORK: {get_attr: [ApacheNetworks, value]}
+          - null
       upgrade_tasks:
         - name: Check if httpd is deployed
           command: systemctl is-enabled httpd
