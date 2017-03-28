@@ -32,6 +32,36 @@ parameters:
   MonitoringSubscriptionNovaLibvirt:
     default: 'overcloud-nova-libvirt'
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  UseTLSTransportForLiveMigration:
+    type: boolean
+    default: true
+    description: If set to true and if EnableInternalTLS is enabled, it will
+                 set the libvirt URI's transport to tls and configure the
+                 relevant keys for libvirt.
+  LibvirtCACert:
+    type: string
+    default: '/etc/ipa/ca.crt'
+    description: This specifies the CA certificate to use for TLS in libvirt.
+                 This file will be symlinked to the default CA path in libvirt,
+                 which is /etc/pki/CA/cacert.pem. Note that due to limitations
+                 GNU TLS, which is the TLS backend for libvirt, the file must
+                 be less than 65K (so we can't use the system's CA bundle). The
+                 current default reflects TripleO's default CA, which is
+                 FreeIPA. It will only be used if internal TLS is enabled.
+
+conditions:
+
+  use_tls_for_live_migration:
+    and:
+    - equals:
+      - {get_param: EnableInternalTLS}
+      - true
+    - equals:
+      - {get_param: UseTLSTransportForLiveMigration}
+      - true
 
 resources:
   NovaBase:
@@ -71,5 +101,57 @@ outputs:
                   - '49152-49215'
                   - '5900-5999'
 
+          -
+            if:
+              - use_tls_for_live_migration
+              -
+                generate_service_certificates: true
+                tripleo::profile::base::nova::libvirt_tls: true
+                nova::migration::libvirt::live_migration_inbound_addr:
+                  str_replace:
+                    template:
+                      "%{hiera('fqdn_$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                tripleo::certmonger::ca::libvirt::origin_ca_pem:
+                  get_param: LibvirtCACert
+                tripleo::certmonger::libvirt_dirs::certificate_dir: '/etc/pki/libvirt'
+                tripleo::certmonger::libvirt_dirs::key_dir: '/etc/pki/libvirt/private'
+                libvirt_certificates_specs:
+                  libvirt-server-cert:
+                    service_certificate: '/etc/pki/libvirt/servercert.pem'
+                    service_key: '/etc/pki/libvirt/private/serverkey.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                  libvirt-client-cert:
+                    service_certificate: '/etc/pki/libvirt/clientcert.pem'
+                    service_key: '/etc/pki/libvirt/private/clientkey.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              - {}
       step_config: |
         include tripleo::profile::base::nova::libvirt
+      metadata_settings:
+        if:
+          - use_tls_for_live_migration
+          -
+            - service: libvirt
+              network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              type: node
+          - null
