@@ -42,13 +42,13 @@ parameters:
     description: The password for the nova db account
     type: string
     hidden: true
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
-resources:
+conditions:
 
-  MySQLTLS:
-    type: OS::TripleO::Services::MySQLTLS
-    properties:
-      ServiceNetMap: {get_param: ServiceNetMap}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -57,7 +57,6 @@ outputs:
       service_name: mysql
       config_settings:
         map_merge:
-          - get_attr: [MySQLTLS, role_data, config_settings]
           -
             # The Galera package should work in cluster and
             # non-cluster modes based on the config file.
@@ -102,10 +101,30 @@ outputs:
               {get_param: [ServiceNetMap, MysqlNetwork]}
             tripleo::profile::base::database::mysql::generate_dropin_file_limit:
               {get_param: MysqlIncreaseFileLimit}
+          - generate_service_certificates: true
+            tripleo::profile::base::database::mysql::certificate_specs:
+              service_certificate: '/etc/pki/tls/certs/mysql.crt'
+              service_key: '/etc/pki/tls/private/mysql.key'
+              hostname:
+                str_replace:
+                  template: "%{hiera('cloud_name_NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+              principal:
+                str_replace:
+                  template: "mysql/%{hiera('cloud_name_NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
       step_config: |
         include ::tripleo::profile::base::database::mysql
       metadata_settings:
-        get_attr: [MySQLTLS, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            - service: mysql
+              network: {get_param: [ServiceNetMap, MysqlNetwork]}
+              type: vip
+          - null
       upgrade_tasks:
         - name: Check for galera root password
           tags: step0
