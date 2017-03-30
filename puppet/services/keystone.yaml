@@ -158,6 +158,16 @@ parameters:
     description: >
         Cron to purge expired tokens - User
     default: 'keystone'
+  KeystoneLDAPDomainEnable:
+    description: Trigger to call ldap_backend puppet keystone define.
+    type: boolean
+    default: False
+  KeystoneLDAPBackendConfigs:
+    description: Hash containing the configurations for the LDAP backends
+                 configured in keystone.
+    type: json
+    default: {}
+    hidden: true
 
 resources:
 
@@ -171,6 +181,7 @@ resources:
 
 conditions:
   keystone_fernet_tokens: {equals: [{get_param: KeystoneTokenProvider}, "fernet"]}
+  keystone_ldap_domain_enabled: {equals: [{get_param: KeystoneLDAPDomainEnable}, True]}
 
 outputs:
   role_data:
@@ -293,6 +304,15 @@ outputs:
             keystone::cron::token_flush::maxdelay: {get_param: KeystoneCronTokenFlushMaxDelay}
             keystone::cron::token_flush::destination: {get_param: KeystoneCronTokenFlushDestination}
             keystone::cron::token_flush::user: {get_param: KeystoneCronTokenFlushUser}
+          -
+            if:
+            - keystone_ldap_domain_enabled
+            -
+              tripleo::profile::base::keystone::ldap_backend_enable: True
+              keystone::using_domain_config: True
+              tripleo::profile::base::keystone::ldap_backends_config:
+                get_param: KeystoneLDAPBackendConfigs
+            - {}
 
       step_config: |
         include ::tripleo::profile::base::keystone
@@ -305,6 +325,13 @@ outputs:
           keystone::db::mysql::allowed_hosts:
             - '%'
             - "%{hiera('mysql_bind_host')}"
+        horizon:
+          if:
+          - keystone_ldap_domain_enabled
+          -
+            horizon::keystone_multidomain_support: true
+            horizon::keystone_default_domain: 'Default'
+          - {}
       # Ansible tasks to handle upgrade
       upgrade_tasks:
         - name: Stop keystone service (running under httpd)
