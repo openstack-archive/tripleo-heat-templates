@@ -2,6 +2,18 @@
 
 set -eu
 
+# Some global variables that are used throughout the upgrade scripts
+# Where to backup current database if mysql need to be upgraded
+MYSQL_BACKUP_DIR=/var/tmp/mysql_upgrade_osp
+MYSQL_TEMP_UPGRADE_BACKUP_DIR=/var/lib/mysql-temp-upgrade-backup
+# Spare disk ratio for extra safety
+MYSQL_BACKUP_SIZE_RATIO=1.2
+# the /root/.my.cnf is needed because we set the mysql root
+# password from liberty onwards
+BACKUP_FLAGS="--defaults-extra-file=/root/.my.cnf -u root --flush-privileges --all-databases --single-transaction"
+
+
+
 check_cluster()
 {
     if pcs status 2>&1 | grep -E '(cluster is not currently running)|(OFFLINE:)'; then
@@ -38,12 +50,6 @@ mysql_need_update()
 
 check_disk_for_mysql_dump()
 {
-    # Where to backup current database if mysql need to be upgraded
-    MYSQL_BACKUP_DIR=/var/tmp/mysql_upgrade_osp
-    MYSQL_TEMP_UPGRADE_BACKUP_DIR=/var/lib/mysql-temp-upgrade-backup
-    # Spare disk ratio for extra safety
-    MYSQL_BACKUP_SIZE_RATIO=1.2
-
     mysql_need_update
 
     if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
@@ -59,13 +65,10 @@ check_disk_for_mysql_dump()
                 exit 1
             fi
 
-            # the /root/.my.cnf is needed because we set the mysql root
-            # password from liberty onwards
-            backup_flags="--defaults-extra-file=/root/.my.cnf -u root --flush-privileges --all-databases --single-transaction"
             # While not ideal, this step allows us to calculate exactly how much space the dump
             # will need. Our main goal here is avoiding any chance of corruption due to disk space
             # exhaustion
-            backup_size=$(mysqldump $backup_flags 2>/dev/null | wc -c)
+            backup_size=$(mysqldump $BACKUP_FLAGS 2>/dev/null | wc -c)
             database_size=$(du -cb /var/lib/mysql | tail -1 | awk '{ print $1 }')
             free_space=$(df -B1 --output=avail "$MYSQL_BACKUP_DIR" | tail -1)
 
