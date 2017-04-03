@@ -28,11 +28,14 @@ SCRIPT_NAME=$(basename $0)
 $(declare -f log_debug)
 $(declare -f manage_systemd_service)
 $(declare -f systemctl_swift)
+$(declare -f special_case_ovs_upgrade_if_needed)
 
 # pin nova messaging +-1 for the nova-compute service
 if [[ -n \$NOVA_COMPUTE ]]; then
     crudini  --set /etc/nova/nova.conf upgrade_levels compute auto
 fi
+
+special_case_ovs_upgrade_if_needed
 
 if [[ -n \$SWIFT_STORAGE ]]; then
     systemctl_swift stop
