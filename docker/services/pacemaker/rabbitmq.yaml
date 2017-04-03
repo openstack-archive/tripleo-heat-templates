@@ -1,0 +1,159 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Rabbitmq service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerRabbitmqImage:
+    description: image
+    default: 'centos-binary-rabbitmq:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RabbitCookie:
+    type: string
+    default: ''
+    hidden: true
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  RabbitmqBase:
+    type: ../../../puppet/services/rabbitmq.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Rabbitmq API role.
+    value:
+      service_name: {get_attr: [RabbitmqBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - {get_attr: [RabbitmqBase, role_data, config_settings]}
+          - rabbitmq::service_manage: false
+            tripleo::profile::pacemaker::rabbitmq_bundle::rabbitmq_docker_image: &rabbitmq_image
+              list_join:
+                - '/'
+                - - {get_param: DockerNamespace}
+                  - {get_param: DockerRabbitmqImage}
+      step_config: &step_config
+        get_attr: [RabbitmqBase, role_data, step_config]
+      service_config_settings: {get_attr: [RabbitmqBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: rabbitmq
+        puppet_tags: file
+        step_config: *step_config
+        config_image: *rabbitmq_image
+      kolla_config:
+        /var/lib/kolla/config_files/rabbitmq.json:
+          command: /usr/sbin/pacemaker_remoted
+          config_files:
+          - dest: /etc/libqb/force-filesystem-sockets
+            source: /dev/null
+            owner: root
+            perm: '0644'
+          permissions:
+           - path: /var/lib/rabbitmq
+             owner: rabbitmq:rabbitmq
+             recurse: true
+           - path: /var/log/rabbitmq
+             owner: rabbitmq:rabbitmq
+             recurse: true
+      # When using pacemaker we don't launch the container, instead that is done by pacemaker
+      # itself.
+      docker_config:
+        step_1:
+          rabbitmq_bootstrap:
+            start_order: 0
+            image: *rabbitmq_image
+            net: host
+            privileged: false
+            volumes:
+              - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/rabbitmq/etc/rabbitmq:/etc/rabbitmq:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /var/lib/rabbitmq:/var/lib/rabbitmq
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - KOLLA_BOOTSTRAP=True
+              -
+                list_join:
+                  - '='
+                  - - 'RABBITMQ_CLUSTER_COOKIE'
+                    -
+                      yaql:
+                        expression: $.data.passwords.where($ != '').first()
+                        data:
+                          passwords:
+                            - {get_param: RabbitCookie}
+                            - {get_param: [DefaultPasswords, rabbit_cookie]}
+        step_2:
+          rabbitmq_init_bundle:
+            start_order: 0
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    list_join:
+                      - '; '
+                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
+                        - "FACTER_uuid=docker puppet apply --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
+                  params:
+                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::rabbitmq_bundle'
+            image: *rabbitmq_image
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /etc/puppet:/tmp/puppet-etc:ro
+              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+              - /dev/shm:/dev/shm:rw
+      host_prep_tasks:
+        - name: create /var/lib/rabbitmq
+          file:
+            path: /var/lib/rabbitmq
+            state: directory
+        - name: stop the Erlang port mapper on the host and make sure it cannot bind to the port used by container
+          shell: |
+            echo 'export ERL_EPMD_ADDRESS=127.0.0.1' > /etc/rabbitmq/rabbitmq-env.conf
+            echo 'export ERL_EPMD_PORT=4370' >> /etc/rabbitmq/rabbitmq-env.conf
+            for pid in $(pgrep epmd); do if [ "$(lsns -o NS -p $pid)" == "$(lsns -o NS -p 1)" ]; then kill $pid; break; fi; done
+      upgrade_tasks:
+        - name: Stop and disable rabbitmq service
+          tags: step2
+          service: name=rabbitmq-server state=stopped enabled=no
