@@ -212,8 +212,10 @@ def validate(filename):
                   % filename)
             return 1
 
+        # qdr aliases rabbitmq service to provide alternative messaging backend
         if (filename.startswith('./puppet/services/') and
-                filename != './puppet/services/services.yaml'):
+                filename not in ['./puppet/services/services.yaml',
+                                 './puppet/services/qdr.yaml']):
             retval = validate_service(filename, tpl)
 
         if (filename.startswith('./docker/services/') and
