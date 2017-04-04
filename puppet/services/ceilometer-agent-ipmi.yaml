@@ -1,0 +1,77 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Ceilometer Ipmi Agent service configured with Puppet
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
+  MonitoringSubscriptionCeilometerIpmi:
+    default: 'overcloud-ceilometer-agent-ipmi'
+    type: string
+  CeilometerAgentIpmiLoggingSource:
+    type: json
+    default:
+      tag: openstack.ceilometer.agent.ipmi
+      path: /var/log/ceilometer/ipmi.log
+
+resources:
+  CeilometerServiceBase:
+    type: ./ceilometer-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Ceilometer Agent Ipmi role.
+    value:
+      service_name: ceilometer_agent_ipmi
+      monitoring_subscription: {get_param: MonitoringSubscriptionCeilometerIpmi}
+      logging_source: {get_param: CeilometerAgentIpmiLoggingSource}
+      logging_groups:
+        - ceilometer
+      config_settings:
+        map_merge:
+          - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer_redis_password: {get_param: RedisPassword}
+            ipmi_namespace: true
+      step_config: |
+        include ::tripleo::profile::base::ceilometer::agent::polling
+      upgrade_tasks:
+        - name: Check if ceilometer-agent-ipmi is deployed
+          command: systemctl is-enabled openstack-ceilometer-ipmi
+          tags: common
+          ignore_errors: True
+          register: ceilometer_ipmi_enabled
+        - name: "PreUpgrade step0,validation: Check if openstack-ceilometer-ipmi is running"
+          shell: >
+            /usr/bin/systemctl show 'openstack-ceilometer-ipmi' --property ActiveState |
+            grep '\bactive\b'
+          when: ceilometer_ipmi_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop openstack-ceilometer-ipmi service
+          tags: step1
+          when: ceilometer_ipmi_enabled.rc == 0
+          service: name=openstack-ceilometer-ipmi state=stopped
+        - name: Install openstack-ceilometer-ipmi package if it was disabled
+          tags: step3
+          yum: name=openstack-ceilometer-ipmi state=latest
+          when: ceilometer_ipmi_enabled.rc != 0
