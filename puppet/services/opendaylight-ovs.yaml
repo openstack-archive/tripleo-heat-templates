@@ -48,6 +48,10 @@ parameters:
     default: {}
     type: json
 
+resources:
+  OpenVswitchUpgrade:
+    type: ./openvswitch-upgrade.yaml
+
 outputs:
   role_data:
     description: Role data for the OpenDaylight service.
@@ -70,16 +74,22 @@ outputs:
       step_config: |
         include tripleo::profile::base::neutron::plugins::ovs::opendaylight
       upgrade_tasks:
-        - name: Check if openvswitch is deployed
-          command: systemctl is-enabled openvswitch
-          tags: common
-          ignore_errors: True
-          register: openvswitch_enabled
-        - name: "PreUpgrade step0,validation: Check service openvswitch is running"
-          shell: /usr/bin/systemctl show 'openvswitch' --property ActiveState | grep '\bactive\b'
-          when: openvswitch_enabled.rc == 0
-          tags: step0,validation
-        - name: Stop openvswitch service
-          tags: step1
-          when: openvswitch_enabled.rc == 0
-          service: name=openvswitch state=stopped
+        yaql:
+          expression: $.data.ovs_upgrade + $.data.opendaylight_upgrade
+          data:
+            ovs_upgrade:
+              get_attr: [OpenVswitchUpgrade, role_data, upgrade_tasks]
+            opendaylight_upgrade:
+              - name: Check if openvswitch is deployed
+                command: systemctl is-enabled openvswitch
+                tags: common
+                ignore_errors: True
+                register: openvswitch_enabled
+              - name: "PreUpgrade step0,validation: Check service openvswitch is running"
+                shell: /usr/bin/systemctl show 'openvswitch' --property ActiveState | grep '\bactive\b'
+                when: openvswitch_enabled.rc == 0
+                tags: step0,validation
+              - name: Stop openvswitch service
+                tags: step1
+                when: openvswitch_enabled.rc == 0
+                service: name=openvswitch state=stopped

@@ -1,0 +1,50 @@
+heat_template_version: ocata
+
+description: >
+  Openvswitch package special handling for upgrade.
+
+outputs:
+  role_data:
+    description: Upgrade task for special handling of Openvswitch (OVS) upgrade.
+    value:
+      service_name: openvswitch_upgrade
+      upgrade_tasks:
+        - name: Check openvswitch version.
+          tags: step2
+          register: ovs_version
+          ignore_errors: true
+          shell: rpm -qa | awk -F- '/^openvswitch-2/{print $2 "-" $3}'
+        - name: Check openvswitch packaging.
+          tags: step2
+          shell: rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep -q "systemctl.*try-restart"
+          register: ovs_packaging_issue
+          ignore_errors: true
+        - block:
+            - name: "Ensure empty directory: emptying."
+              file:
+                state: absent
+                path: /root/OVS_UPGRADE
+            - name: "Ensure empty directory: creating."
+              file:
+                state: directory
+                path: /root/OVS_UPGRADE
+                owner: root
+                group: root
+                mode: 0750
+            - name: Download OVS packages.
+              command: yumdownloader --destdir /root/OVS_UPGRADE --resolve openvswitch
+            - name: Get rpm list for manual upgrade of OVS.
+              shell: ls -1 /root/OVS_UPGRADE/*.rpm
+              register: ovs_list_of_rpms
+            - name: Manual upgrade of OVS
+              shell: |
+                rpm -U --test {{item}} 2>&1 | grep "already installed" || \
+                rpm -U --replacepkgs --notriggerun --nopostun {{item}};
+              args:
+                chdir: /root/OVS_UPGRADE
+              with_items:
+                - "{{ovs_list_of_rpms.stdout_lines}}"
+          tags: step2
+          when: "'2.5.0-14' in '{{ovs_version.stdout}}'
+                or
+                ovs_packaging_issue|succeeded"
