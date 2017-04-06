@@ -32,15 +32,6 @@ parameters:
     type: string
     hidden: true
 
-conditions:
-  # Conditions to disable any steps where the task list is empty
-{%- for role in roles %}
-  {{role.name}}UpgradeBatchConfigEnabled:
-    not:
-      equals:
-        - {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
-        - []
-{%- endfor %}
 
 resources:
 
@@ -98,12 +89,11 @@ resources:
   {{role.name}}UpgradeBatchConfig_Step{{step}}:
     type: OS::TripleO::UpgradeConfig
   {%- if step > 0 %}
-    condition: {{role.name}}UpgradeBatchConfigEnabled
-    {% if role.name in enabled_roles %}
+    {%- if role in enabled_roles %}
     depends_on:
       - {{role.name}}UpgradeBatch_Step{{step -1}}
     {%- endif %}
-  {% else %}
+  {%- else %}
     {% for role in roles if role.disable_upgrade_deployment|default(false) %}
       {% if deliver_script.update({'deliver': True}) %} {% endif %}
     {% endfor %}
@@ -123,13 +113,11 @@ resources:
   {%- for role in enabled_roles %}
   {{role.name}}UpgradeBatch_Step{{step}}:
     type: OS::Heat::SoftwareDeploymentGroup
-    condition: {{role.name}}UpgradeBatchConfigEnabled
     {%- if step > 0 %}
     depends_on:
-      - {{role.name}}UpgradeBatch_Step{{step -1}}
-    {% else %}
-    depends_on:
-      - {{role.name}}UpgradeBatchConfig_Step{{step}}
+      {%- for role_inside in enabled_roles %}
+      - {{role_inside.name}}UpgradeBatch_Step{{step -1}}
+      {%- endfor %}
     {%- endif %}
     update_policy:
       batch_create:
@@ -183,10 +171,10 @@ resources:
   # do, and there should be minimal performance hit (creating the
   # config is cheap compared to the time to apply the deployment).
   {%- if step > 0 %}
-    {% if role.name in enabled_roles %}
+    {%- if role in enabled_roles %}
     depends_on:
       - {{role.name}}Upgrade_Step{{step -1}}
-    {% endif %}
+    {%- endif %}
   {%- endif %}
     properties:
       UpgradeStepConfig: {get_param: [role_data, {{role.name}}, upgrade_tasks]}
@@ -204,6 +192,11 @@ resources:
     depends_on:
       {%- for role_inside in enabled_roles %}
       - {{role_inside.name}}Upgrade_Step{{step -1}}
+      {%- endfor %}
+    {%- else %}
+    depends_on:
+      {%- for role_inside in enabled_roles %}
+      - {{role_inside.name}}UpgradeBatch_Step{{batch_upgrade_steps_max -1}}
       {%- endfor %}
     {%- endif %}
     properties:
