@@ -40,11 +40,6 @@ conditions:
       equals:
         - {get_param: [role_data, {{role.name}}, upgrade_batch_tasks]}
         - []
-  {{role.name}}UpgradeConfigEnabled:
-    not:
-      equals:
-        - {get_param: [role_data, {{role.name}}, upgrade_tasks]}
-        - []
 {%- endfor %}
 
 resources:
@@ -188,7 +183,6 @@ resources:
   # do, and there should be minimal performance hit (creating the
   # config is cheap compared to the time to apply the deployment).
   {%- if step > 0 %}
-    condition: {{role.name}}UpgradeConfigEnabled
     {% if role.name in enabled_roles %}
     depends_on:
       - {{role.name}}Upgrade_Step{{step -1}}
@@ -204,9 +198,13 @@ resources:
   {{role.name}}Upgrade_Step{{step}}:
     type: OS::Heat::SoftwareDeploymentGroup
     {%- if step > 0 %}
-    condition: {{role.name}}UpgradeConfigEnabled
+    # Make sure we wait that all roles have finished their own
+    # previous step before going to the next, so we can guarantee
+    # state for each steps.
     depends_on:
-      - {{role.name}}Upgrade_Step{{step -1}}
+      {%- for role_inside in enabled_roles %}
+      - {{role_inside.name}}Upgrade_Step{{step -1}}
+      {%- endfor %}
     {%- endif %}
     properties:
       name: {{role.name}}Upgrade_Step{{step}}
