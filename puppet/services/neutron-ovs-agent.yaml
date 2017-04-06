@@ -82,6 +82,9 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
 
+  OpenVswitchUpgrade:
+    type: ./openvswitch-upgrade.yaml
+
 outputs:
   role_data:
     description: Role data for the Neutron OVS agent service.
@@ -121,16 +124,22 @@ outputs:
       step_config: |
         include ::tripleo::profile::base::neutron::ovs
       upgrade_tasks:
-        - name: Check if neutron_ovs_agent is deployed
-          command: systemctl is-enabled neutron-openvswitch-agent
-          tags: common
-          ignore_errors: True
-          register: neutron_ovs_agent_enabled
-        - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
-          shell: /usr/bin/systemctl show 'neutron-openvswitch-agent' --property ActiveState | grep '\bactive\b'
-          when: neutron_ovs_agent_enabled.rc == 0
-          tags: step0,validation
-        - name: Stop neutron_ovs_agent service
-          tags: step1
-          when: neutron_ovs_agent_enabled.rc == 0
-          service: name=neutron-openvswitch-agent state=stopped
+        yaql:
+          expression: $.data.ovs_upgrade + $.data.neutron_ovs_upgrade
+          data:
+            ovs_upgrade:
+              get_attr: [OpenVswitchUpgrade, role_data, upgrade_tasks]
+            neutron_ovs_upgrade:
+              - name: Check if neutron_ovs_agent is deployed
+                command: systemctl is-enabled neutron-openvswitch-agent
+                tags: common
+                ignore_errors: True
+                register: neutron_ovs_agent_enabled
+              - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
+                shell: /usr/bin/systemctl show 'neutron-openvswitch-agent' --property ActiveState | grep '\bactive\b'
+                when: neutron_ovs_agent_enabled.rc == 0
+                tags: step0,validation
+              - name: Stop neutron_ovs_agent service
+                tags: step1
+                when: neutron_ovs_agent_enabled.rc == 0
+                service: name=neutron-openvswitch-agent state=stopped
