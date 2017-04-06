@@ -1,0 +1,91 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Ceilometer Agent Compute service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerCeilometerComputeImage:
+    description: image
+    default: 'centos-binary-ceilometer-compute:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  CeilometerAgentComputeBase:
+    type: ../../puppet/services/ceilometer-agent-compute.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Ceilometer Agent Compute role.
+    value:
+      service_name: {get_attr: [CeilometerAgentComputeBase, role_data, service_name]}
+      config_settings: {get_attr: [CeilometerAgentComputeBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [CeilometerAgentComputeBase, role_data, step_config]
+      service_config_settings: {get_attr: [CeilometerAgentComputeBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: ceilometer
+        puppet_tags: ceilometer_config
+        step_config: *step_config
+        config_image: &ceilometer_agent_compute_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerCeilometerComputeImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/ceilometer-agent-compute.json:
+          command: /usr/bin/ceilometer-polling --polling-namespaces compute
+      docker_config:
+        step_4:
+          ceilometer_agent-compute:
+            image: *ceilometer_agent_compute_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ceilometer-agent-compute.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      upgrade_tasks:
+        - name: Stop and disable ceilometer-agent-compute service
+          tags: step2
+          service: name=openstack-ceilometer-agent-compute state=stopped enabled=no
