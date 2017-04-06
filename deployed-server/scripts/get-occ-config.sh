@@ -89,16 +89,16 @@ for role in $OVERCLOUD_ROLES; do
         done
 
         echo "======================"
-        echo "$role$i os-collect-config.conf configuration:"
+        echo "$role$i deployed-server.json configuration:"
 
-        config="
-[DEFAULT]
-collectors=request
-command=os-refresh-config
-polling_interval=30
-
-[request]
-metadata_url=$deployed_server_metadata_url"
+        config="{
+  \"os-collect-config\": {
+    \"collectors\": [\"request\", \"local\"],
+    \"request\": {
+      \"metadata_url\": \"$deployed_server_metadata_url\"
+    }
+  }
+}"
 
         echo "$config"
         echo "======================"
@@ -108,12 +108,11 @@ metadata_url=$deployed_server_metadata_url"
         host=
         eval host=\${${role}_hosts_a[i]}
         if [ -n "$host" ]; then
-            # Delete the os-collect-config.conf template so our file won't get
-            # overwritten
-            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo /bin/rm -f /usr/libexec/os-apply-config/templates/etc/os-collect-config.conf
-            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host "echo \"$config\" > os-collect-config.conf"
-            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo cp os-collect-config.conf /etc/os-collect-config.conf
-            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl restart os-collect-config
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host "echo '$config' > deployed-server.json"
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo mkdir -p -m 0700 /var/lib/os-collect-config/local-data/ || true
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo cp deployed-server.json /var/lib/os-collect-config/local-data/deployed-server.json
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl start os-collect-config
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl enable os-collect-config
         fi
 
         let i+=1
