@@ -63,10 +63,14 @@ parameters:
         Rabbit client subscriber parameter to specify
         an SSL connection to the RabbitMQ host.
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
 
   ceilometer_pipeline_enabled: {equals : [{get_param: SwiftCeilometerPipelineEnabled}, True]}
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 resources:
   SwiftBase:
@@ -75,6 +79,14 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
       EndpointMap: {get_param: EndpointMap}
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -85,7 +97,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [SwiftBase, role_data, config_settings]
-
+          - get_attr: [TLSProxyBase, role_data, config_settings]
           - swift::proxy::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
             swift::proxy::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             swift::proxy::authtoken::password: {get_param: SwiftPassword}
@@ -146,7 +158,22 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            swift::proxy::proxy_local_net_ip: {get_param: [ServiceNetMap, SwiftProxyNetwork]}
+            tripleo::profile::base::swift::proxy::tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, SwiftProxyNetwork]
+            tripleo::profile::base::swift::proxy::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, SwiftProxyNetwork]}
+            tripleo::profile::base::swift::proxy::tls_proxy_port:
+              get_param: [EndpointMap, SwiftInternal, port]
+            swift::proxy::port: {get_param: [EndpointMap, SwiftInternal, port]}
+            swift::proxy::proxy_local_net_ip:
+              if:
+              - use_tls_proxy
+              - 'localhost'
+              - {get_param: [ServiceNetMap, SwiftProxyNetwork]}
       step_config: |
         include ::tripleo::profile::base::swift::proxy
       service_config_settings:
@@ -169,3 +196,5 @@ outputs:
         - name: Stop swift_proxy service
           tags: step1
           service: name=openstack-swift-proxy state=stopped
+      metadata_settings:
+        get_attr: [TLSProxyBase, role_data, metadata_settings]
