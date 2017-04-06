@@ -259,4 +259,13 @@ for p in process_map:
 # Fire off processes to perform each configuration.  Defaults
 # to the number of CPUs on the system.
 p = multiprocessing.Pool(process_count)
-p.map(mp_puppet_config, process_map)
+returncodes = list(p.map(mp_puppet_config, process_map))
+config_volumes = [pm[0] for pm in process_map]
+success = True
+for returncode, config_volume in zip(returncodes, config_volumes):
+    if returncode != 0:
+        print('ERROR configuring %s' % config_volume)
+        success = False
+
+if not success:
+    sys.exit(1)
