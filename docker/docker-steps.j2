@@ -58,20 +58,6 @@ resources:
 # BEGIN primary_role_name docker-puppet-tasks (run only on a single node)
 {% for step in range(1, deploy_steps_max) %}
 
-  {{primary_role_name}}DockerPuppetJsonConfig{{step}}:
-      type: OS::Heat::StructuredConfig
-      properties:
-        group: json-file
-        config:
-          /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json:
-            {get_attr: [{{primary_role_name}}DockerPuppetTasks, value, 'step_{{step}}']}
-
-  {{primary_role_name}}DockerPuppetJsonDeployment{{step}}:
-    type: OS::Heat::SoftwareDeployment
-    properties:
-      server: {get_param: [servers, {{primary_role_name}}, '0']}
-      config: {get_resource: {{primary_role_name}}DockerPuppetJsonConfig{{step}}}
-
   {{primary_role_name}}DockerPuppetTasksConfig{{step}}:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -90,9 +76,8 @@ resources:
       - {{dep.name}}Deployment_Step{{step}}
       - {{dep.name}}ContainersDeployment_Step{{step}}
       {% endfor %}
-      - {{primary_role_name}}DockerPuppetJsonDeployment{{step}}
     properties:
-      name: {{primary_role_name}}DockerPuppetJsonDeployment{{step}}
+      name: {{primary_role_name}}DockerPuppetTasksDeployment{{step}}
       server: {get_param: [servers, {{primary_role_name}}, '0']}
       config: {get_resource: {{primary_role_name}}DockerPuppetTasksConfig{{step}}}
       input_values:
@@ -124,58 +109,70 @@ resources:
       input_values:
         update_identifier: {get_param: DeployIdentifier}
 
-  {{role.name}}CreateConfigDir:
-    type: OS::Heat::SoftwareConfig
-    properties:
-      group: script
-      config: {get_file: create-config-dir.sh}
-
-  {{role.name}}CreateConfigDirDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}CreateConfigDir}
-
-  {{role.name}}HostPrepAnsible:
-    type: OS::Heat::Value
-    properties:
-      value:
-        str_replace:
-          template: CONFIG
-          params:
-            CONFIG:
-              - hosts: localhost
-                connection: local
-                tasks: {get_param: [role_data, {{role.name}}, host_prep_tasks]}
-
   {{role.name}}HostPrepConfig:
     type: OS::Heat::SoftwareConfig
     properties:
       group: ansible
       options:
         modulepath: /usr/share/ansible-modules
-      config: {get_attr: [{{role.name}}HostPrepAnsible, value]}
+      config:
+        str_replace:
+          template: _PLAYBOOK
+          params:
+            _PLAYBOOK:
+              - hosts: localhost
+                connection: local
+                vars:
+                  puppet_config: {get_param: [role_data, {{role.name}}, puppet_config]}
+                  docker_puppet_script: {get_file: docker-puppet.py}
+                  docker_puppet_tasks: {get_attr: [{{primary_role_name}}DockerPuppetTasks, value]}
+                  docker_startup_configs: {get_attr: [{{role.name}}DockerConfig, value]}
+                  kolla_config: {get_param: [role_data, {{role.name}}, kolla_config]}
+                  bootstrap_server_id: {get_param: [servers, {{primary_role_name}}, '0']}
+                tasks:
+                  # Join host_prep_tasks with the other per-host configuration
+                  yaql:
+                    expression: $.data.host_prep_tasks + $.data.template_tasks
+                    data:
+                      host_prep_tasks: {get_param: [role_data, {{role.name}}, host_prep_tasks]}
+                      template_tasks:
+{%- raw %}
+                        # This is where we stack puppet configuration (for now)...
+                        - name: Create /var/lib/config-data
+                          file: path=/var/lib/config-data state=directory
+                        # This is the docker-puppet configs end in
+                        - name: Create /var/lib/docker-puppet
+                          file: path=/var/lib/docker-puppet state=directory
+                        # this creates a JSON config file for our docker-puppet.py script
+                        - name: Write docker-puppet-tasks json files
+                          copy: content="{{puppet_config | to_json}}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes
+                        # FIXME: can we move docker-puppet somewhere so it's installed via a package?
+                        - name: Write docker-puppet.py
+                          copy: content="{{docker_puppet_script}}" dest=/var/lib/docker-puppet/docker-puppet.py force=yes
+                        # Here we are dumping all the docker container startup configuration data
+                        # so that we can have access to how they are started outside of heat
+                        # and docker-cmd.  This lets us create command line tools to test containers.
+                        - name: Write docker-container-startup-configs
+                          copy: content="{{docker_startup_configs | to_json}}" dest=/var/lib/docker-container-startup-configs.json force=yes
+                        - name: Create /var/lib/kolla/config_files directory
+                          file: path=/var/lib/kolla/config_files state=directory
+                        - name: Write kolla config json files
+                          copy: content="{{item.value|to_json}}" dest="{{item.key}}" force=yes
+                          with_dict: "{{kolla_config}}"
+                        ########################################################
+                        # Bootstrap tasks, only performed on bootstrap_server_id
+                        ########################################################
+                        - name: Write docker-puppet-tasks json files
+                          copy: content="{{item.value|to_json}}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{item.key.replace("step_", "")}}.json force=yes
+                          with_dict: "{{docker_puppet_tasks}}"
+                          when: deploy_server_id == bootstrap_server_id
+{%- endraw %}
 
   {{role.name}}HostPrepDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
     properties:
       servers: {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}HostPrepConfig}
-
-  # this creates a JSON config file for our docker-puppet.py script
-  {{role.name}}GenPuppetConfig:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: json-file
-      config:
-        /var/lib/docker-puppet/docker-puppet.json:
-          {get_param: [role_data, {{role.name}}, puppet_config]}
-
-  {{role.name}}GenPuppetDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}GenPuppetConfig}
 
   {{role.name}}GenerateConfig:
     type: OS::Heat::SoftwareConfig
@@ -187,7 +184,7 @@ resources:
 
   {{role.name}}GenerateConfigDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
-    depends_on: [{{role.name}}GenPuppetDeployment, {{role.name}}ArtifactsDeploy, {{role.name}}CreateConfigDirDeployment, {{role.name}}HostPrepDeployment]
+    depends_on: [{{role.name}}ArtifactsDeploy, {{role.name}}HostPrepDeployment]
     properties:
       name: {{role.name}}GenerateConfigDeployment
       servers: {get_param: [servers, {{role.name}}]}
@@ -221,38 +218,6 @@ resources:
           data:
             service_names: {get_param: [role_data, {{role.name}}, service_names]}
             docker_config: {get_param: [role_data, {{role.name}}, docker_config]}
-
-  # Here we are dumping all the docker container startup configuration data
-  # so that we can have access to how they are started outside of heat
-  # and docker-cmd.  This lets us create command line tools to start and
-  # test these containers.
-  {{role.name}}DockerConfigJsonStartupData:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: json-file
-      config:
-        /var/lib/docker-container-startup-configs.json:
-          {get_attr: [{{role.name}}DockerConfig, value]}
-
-  {{role.name}}DockerConfigJsonStartupDataDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      config: {get_resource: {{role.name}}DockerConfigJsonStartupData}
-      servers: {get_param: [servers, {{role.name}}]}
-
-  {{role.name}}KollaJsonConfig:
-    type: OS::Heat::StructuredConfig
-    properties:
-      group: json-file
-      config:
-        {get_param: [role_data, {{role.name}}, kolla_config]}
-
-  {{role.name}}KollaJsonDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      name: {{role.name}}KollaJsonDeployment
-      config: {get_resource: {{role.name}}KollaJsonConfig}
-      servers: {get_param: [servers, {{role.name}}]}
 
   # BEGIN BAREMETAL CONFIG STEPS
 
@@ -307,12 +272,11 @@ resources:
     type: OS::Heat::StructuredDeploymentGroup
   {% if step == 1 %}
     depends_on:
-      - {{role.name}}KollaJsonDeployment
-      - {{role.name}}GenPuppetDeployment
-      - {{role.name}}GenerateConfigDeployment
         {%- for dep in roles %}
       - {{dep.name}}Deployment_Step{{step}} # baremetal steps of the same level run first
         {%- endfor %}
+      - {{role.name}}PreConfig
+      - {{role.name}}HostPrepDeployment
   {% else %}
     depends_on:
         {% for dep in roles %}
