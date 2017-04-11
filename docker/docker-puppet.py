@@ -202,6 +202,12 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro',
                 '--volume', '/var/lib/config-data/:/var/lib/config-data/:rw',
                 '--volume', 'tripleo_logs:/var/log/tripleo/',
+                # OpenSSL trusted CA injection
+                '--volume', '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
+                '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
+                '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
+                '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
+                # script injection
                 '--volume', '%s:%s:rw' % (sh_script, sh_script) ]
 
         for volume in volumes:
