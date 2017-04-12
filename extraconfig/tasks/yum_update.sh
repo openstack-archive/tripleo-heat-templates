@@ -35,9 +35,17 @@ touch "$timestamp_file"
 
 command_arguments=${command_arguments:-}
 
-list_updates=$(yum list updates)
+# yum check-update exits 100 if updates are available
+set +e
+check_update=$(yum check-update 2>&1)
+check_update_exit=$?
+set -e
 
-if [[ "$list_updates" == "" ]]; then
+if [[ "$check_update_exit" == "1" ]]; then
+    echo "Failed to check for package updates"
+    echo "$check_update"
+    exit 1
+elif [[ "$check_update_exit" != "100" ]]; then
     echo "No packages require updating"
     exit 0
 fi
