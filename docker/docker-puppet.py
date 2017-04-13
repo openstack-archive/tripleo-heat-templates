@@ -61,7 +61,10 @@ def rm_container(name):
                                stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
     print(cmd_stdout)
-    print(cmd_stderr)
+    if cmd_stderr and \
+            cmd_stderr != 'Error response from daemon: ' \
+            'No such container: {}\n'.format(name):
+        print(cmd_stderr)
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
