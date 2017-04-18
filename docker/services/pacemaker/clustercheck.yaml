@@ -1,0 +1,103 @@
+heat_template_version: pike
+
+description: >
+  MySQL HA clustercheck service deployment using puppet
+  This service is used by HAProxy in a HA scenario to report whether
+  the local galera node is synced
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerClustercheckImage:
+    description: image
+    default: 'centos-binary-mariadb:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  MysqlPuppetBase:
+    type: ../../../puppet/services/pacemaker/database/mysql.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Containerized service clustercheck using composable services.
+    value:
+      service_name: clustercheck
+      config_settings: {get_attr: [MysqlPuppetBase, role_data, config_settings]}
+      step_config: "include ::tripleo::profile::pacemaker::clustercheck"
+      # BEGIN DOCKER SETTINGS #
+      puppet_config:
+        config_volume: clustercheck
+        puppet_tags: file # set this even though file is the default
+        step_config: "include ::tripleo::profile::pacemaker::clustercheck"
+        config_image: &clustercheck_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerClustercheckImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/clustercheck.json:
+          command: /usr/sbin/xinetd -dontfork
+          config_files:
+          - dest: /etc/xinetd.conf
+            source: /var/lib/kolla/config_files/src/etc/xinetd.conf
+            owner: mysql
+            perm: '0644'
+          - dest: /etc/xinetd.d/galera-monitor
+            source: /var/lib/kolla/config_files/src/etc/xinetd.d/galera-monitor
+            owner: mysql
+            perm: '0644'
+          - dest: /etc/sysconfig/clustercheck
+            source: /var/lib/kolla/config_files/src/etc/sysconfig/clustercheck
+            owner: mysql
+            perm: '0600'
+      docker_config:
+        step_2:
+          clustercheck:
+            start_order: 1
+            image: *clustercheck_image
+            restart: always
+            net: host
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/clustercheck.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/clustercheck/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/mysql:/var/lib/mysql
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+      upgrade_tasks:
