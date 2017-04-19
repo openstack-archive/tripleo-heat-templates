@@ -48,17 +48,20 @@ outputs:
     description: Role data for the Rabbitmq API role.
     value:
       service_name: {get_attr: [RabbitmqBase, role_data, service_name]}
+      # RabbitMQ plugins initialization occurs on every node
       config_settings:
         map_merge:
           - {get_attr: [RabbitmqBase, role_data, config_settings]}
           - rabbitmq::admin_enable: false
       step_config: &step_config
-        get_attr: [RabbitmqBase, role_data, step_config]
+        list_join:
+          - "\n"
+          - - "['Rabbitmq_policy', 'Rabbitmq_user'].each |String $val| { noop_resource($val) }"
+            - get_attr: [RabbitmqBase, role_data, step_config]
       service_config_settings: {get_attr: [RabbitmqBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: rabbitmq
-        puppet_tags: file
         step_config: *step_config
         config_image: &rabbitmq_image
           list_join:
@@ -86,7 +89,7 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
               - KOLLA_BOOTSTRAP=True
-              - 
+              -
                 list_join:
                   - '='
                   - - 'RABBITMQ_CLUSTER_COOKIE'
@@ -114,6 +117,16 @@ outputs:
                     - /var/lib/rabbitmq:/var/lib/rabbitmq
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      docker_puppet_tasks:
+        # RabbitMQ users and policies initialization occurs only on single node
+        step_1:
+          config_volume: 'rabbit_init_tasks'
+          puppet_tags: 'rabbitmq_policy,rabbitmq_user'
+          step_config: 'include ::tripleo::profile::base::rabbitmq'
+          config_image: *rabbitmq_image
+          volumes:
+            - /var/lib/config-data/rabbitmq/etc/:/etc/
+            - /var/lib/rabbitmq:/var/lib/rabbitmq:ro
       host_prep_tasks:
         - name: create /var/lib/rabbitmq
           file:
