@@ -28,8 +28,9 @@ REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'service_config_settings', 'host_prep_tasks',
                             'metadata_settings', 'kolla_config']
-DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'puppet_tags', 'step_config',
-                                 'config_image']
+REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
+                                          'config_image']
+OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags' ]
 
 
 def exit_usage():
@@ -146,13 +147,16 @@ def validate_docker_service(filename, tpl):
         if 'puppet_config' in role_data:
             puppet_config = role_data['puppet_config']
             for key in puppet_config:
-                if key in DOCKER_PUPPET_CONFIG_SECTIONS:
+                if key in REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS:
                     continue
                 else:
-                  print('ERROR: %s should not be in puppet_config section.'
-                        % key)
-                  return 1
-            for key in DOCKER_PUPPET_CONFIG_SECTIONS:
+                    if key in OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS:
+                        continue
+                    else:
+                      print('ERROR: %s should not be in puppet_config section.'
+                            % key)
+                      return 1
+            for key in REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS:
               if key not in puppet_config:
                   print('ERROR: %s is required in puppet_config for %s.'
                         % (key, filename))
