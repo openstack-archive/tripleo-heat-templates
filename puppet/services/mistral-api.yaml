@@ -28,8 +28,21 @@ parameters:
       e.g. { mistral-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  mistral_workers_zero: {equals : [{get_param: MistralWorkers}, 0]}
 
 resources:
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
   MistralBase:
     type: ./mistral-base.yaml
     properties:
@@ -47,12 +60,25 @@ outputs:
           - get_attr: [MistralBase, role_data, config_settings]
           - mistral::api::api_workers: {get_param: MistralWorkers}
             mistral::api::bind_host: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            mistral::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             mistral::policy::policies: {get_param: MistralApiPolicies}
             tripleo.mistral_api.firewall_rules:
               '133 mistral':
                 dport:
                   - 8989
                   - 13989
+            mistral::api::service_name: 'httpd'
+            mistral::wsgi::apache::bind_host: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            mistral::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MistralApiNetwork]}
+          - if:
+            - mistral_workers_zero
+            - {}
+            - mistral::wsgi::apache::workers: {get_param: MistralWorkers}
       service_config_settings:
         get_attr: [MistralBase, role_data, service_config_settings]
       step_config: |
@@ -69,10 +95,16 @@ outputs:
             grep '\bactive\b'
           when: mistral_api_enabled.rc == 0
           tags: step0,validation
-        - name: Stop mistral_api service
+        - name: check for mistral_api running under apache (post upgrade)
           tags: step1
-          service: name=openstack-mistral-api state=stopped
-        - name: Install openstack-mistral-api package if it was disabled
-          tags: step3
-          yum: name=openstack-mistral-api state=latest
-          when: mistral_api_enabled.rc != 0
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q mistral_api_wsgi"
+          register: mistral_api_apache
+          ignore_errors: true
+        - name: Stop mistral_api service (running under httpd)
+          tags: step1
+          service: name=httpd state=stopped
+          when: mistral_api_apache.rc == 0
+        - name: Stop and disable mistral_api service (pre-upgrade not under httpd)
+          tags: step1
+          when: mistral_api_enabled.rc == 0
+          service: name=openstack-mistral-api state=stopped enabled=no
