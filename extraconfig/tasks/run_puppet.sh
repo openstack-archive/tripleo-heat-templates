@@ -10,7 +10,10 @@ function run_puppet {
     export FACTER_deploy_config_name="${role}Deployment_Step${step}"
     if [ -e "/etc/puppet/hieradata/heat_config_${FACTER_deploy_config_name}.json" ]; then
         set +e
-        puppet apply --detailed-exitcodes "${manifest}"
+        puppet apply --detailed-exitcodes \
+               --modulepath \
+               /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
+               "${manifest}"
         rc=$?
         echo "puppet apply exited with exit code $rc"
     else
