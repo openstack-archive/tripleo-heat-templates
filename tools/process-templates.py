@@ -32,6 +32,9 @@ def parse_opts(argv):
     parser.add_argument('-r', '--roles-data', metavar='ROLES_DATA',
                         help="""relative path to the roles_data.yaml file.""",
                         default='roles_data.yaml')
+    parser.add_argument('-n', '--network-data', metavar='NETWORK_DATA',
+                        help="""relative path to the network_data.yaml file.""",
+                        default='network_data.yaml')
     parser.add_argument('--safe',
                         action='store_true',
                         help="""Enable safe mode (do not overwrite files).""",
@@ -71,10 +74,14 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
         out_f.write(r_template)
 
 
-def process_templates(template_path, role_data_path, output_dir, overwrite):
+def process_templates(template_path, role_data_path, output_dir,
+                      network_data_path, overwrite):
 
     with open(role_data_path) as role_data_file:
         role_data = yaml.safe_load(role_data_file)
+
+    with open(network_data_path) as network_data_file:
+        network_data = yaml.safe_load(network_data_file)
 
     j2_excludes_path = os.path.join(template_path, 'j2_excludes.yaml')
     with open(j2_excludes_path) as role_data_file:
@@ -150,7 +157,8 @@ def process_templates(template_path, role_data_path, output_dir, overwrite):
                     print("jinja2 rendering normal template %s" % f)
                     with open(file_path) as j2_template:
                         template_data = j2_template.read()
-                        j2_data = {'roles': role_data}
+                        j2_data = {'roles': role_data,
+                                   'networks': network_data}
                         out_f = os.path.basename(f).replace('.j2.yaml', '.yaml')
                         out_f_path = os.path.join(out_dir, out_f)
                         _j2_render_to_file(template_data, j2_data, out_f_path,
@@ -164,5 +172,7 @@ def process_templates(template_path, role_data_path, output_dir, overwrite):
 opts = parse_opts(sys.argv)
 
 role_data_path = os.path.join(opts.base_path, opts.roles_data)
+network_data_path = os.path.join(opts.base_path, opts.network_data)
 
-process_templates(opts.base_path, role_data_path, opts.output_dir, (not opts.safe))
+process_templates(opts.base_path, role_data_path, opts.output_dir,
+                  network_data_path, (not opts.safe))
