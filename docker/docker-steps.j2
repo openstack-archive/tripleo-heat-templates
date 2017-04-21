@@ -9,6 +9,8 @@
 {%- endfor -%}
 {%- set primary_role_name = primary_role[0].name -%}
 # primary role is: {{primary_role_name}}
+{% set deploy_steps_max = 6 -%}
+
 heat_template_version: ocata
 
 description: >
@@ -45,12 +47,16 @@ resources:
       value:
         yaql:
           expression:
-            dict($.data.docker_puppet_tasks.where($1 != null).selectMany($.items()).groupBy($[0], $[1]))
+            $.data.default_tasks + dict($.data.docker_puppet_tasks.where($1 != null).selectMany($.items()).groupBy($[0], $[1]))
           data:
             docker_puppet_tasks: {get_param: [role_data, {{primary_role_name}}, docker_puppet_tasks]}
+            default_tasks:
+{%- for step in range(1, deploy_steps_max) %}
+              step_{{step}}: {}
+{%- endfor %}
 
 # BEGIN primary_role_name docker-puppet-tasks (run only on a single node)
-{% for step in range(1, 6) %}
+{% for step in range(1, deploy_steps_max) %}
 
   {{primary_role_name}}DockerPuppetJsonConfig{{step}}:
       type: OS::Heat::StructuredConfig
@@ -260,7 +266,7 @@ resources:
     properties:
       StepConfig: {get_attr: [{{role.name}}PuppetStepConfig, value]}
 
-  {% for step in range(1, 6) %}
+  {% for step in range(1, deploy_steps_max) %}
 
   {{role.name}}Deployment_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
@@ -286,7 +292,7 @@ resources:
   # END BAREMETAL CONFIG STEPS
 
   # BEGIN CONTAINER CONFIG STEPS
-  {% for step in range(1, 6) %}
+  {% for step in range(1, deploy_steps_max) %}
 
   {{role.name}}ContainersConfig_Step{{step}}:
     type: OS::Heat::StructuredConfig
