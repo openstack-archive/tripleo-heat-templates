@@ -157,7 +157,7 @@ def convert(filename):
         print("Error couldn't find run-os-net-config.sh relative to filename")
         exit_usage()
 
-    for r in six.iteritems(tpl.get('resources', {})):
+    for r in (tpl.get('resources', {})).items():
         if (r[1].get('type') == 'OS::Heat::StructuredConfig' and
             r[1].get('properties', {}).get('group') == 'os-apply-config' and
             r[1].get('properties', {}).get('config', {}).get('os_net_config')):
