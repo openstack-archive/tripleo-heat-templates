@@ -100,6 +100,12 @@ ceph osd unset noout
 ceph osd unset norebalance
 ceph osd unset nodeep-scrub
 ceph osd unset noscrub
+
+# From Ceph 10.2.4 we need to set the require_jewel_osds flag when the last OSD
+# has been upgraded, see http://ceph.com/geen-categorie/v10-2-4-jewel-released/
+if ceph health | grep "all OSDs are running jewel or later"; then
+  ceph osd set require_jewel_osds
+fi
 ENDOFCAT
 
 # ensure the permissions are OK
