@@ -25,6 +25,13 @@ parameters:
   MonitoringSubscriptionEtcd:
     default: 'overcloud-etcd'
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -33,27 +40,47 @@ outputs:
       service_name: etcd
       monitoring_subscription: {get_param: MonitoringSubscriptionEtcd}
       config_settings:
-        etcd::etcd_name:
-          str_replace:
-            template:
-              "%{hiera('fqdn_$NETWORK')}"
-            params:
-              $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
-        # NOTE: bind IP is found in Heat replacing the network name with the local node IP
-        # for the given network; replacement examples (eg. for internal_api):
-        # internal_api -> IP
-        # internal_api_uri -> [IP]
-        # internal_api_subnet - > IP/CIDR
-        tripleo::profile::base::etcd::bind_ip: {get_param: [ServiceNetMap, EtcdNetwork]}
-        tripleo::profile::base::etcd::client_port: '2379'
-        tripleo::profile::base::etcd::peer_port: '2380'
-        etcd::initial_cluster_token: {get_param: EtcdInitialClusterToken}
-        etcd::manage_package: false
-        tripleo.etcd.firewall_rules:
-          '141 etcd':
-            dport:
-              - 2379
-              - 2380
+        map_merge:
+        -
+          etcd::etcd_name:
+            str_replace:
+              template:
+                "%{hiera('fqdn_$NETWORK')}"
+              params:
+                $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+          # NOTE: bind IP is found in Heat replacing the network name with the local node IP
+          # for the given network; replacement examples (eg. for internal_api):
+          # internal_api -> IP
+          # internal_api_uri -> [IP]
+          # internal_api_subnet - > IP/CIDR
+          tripleo::profile::base::etcd::bind_ip: {get_param: [ServiceNetMap, EtcdNetwork]}
+          tripleo::profile::base::etcd::client_port: '2379'
+          tripleo::profile::base::etcd::peer_port: '2380'
+          etcd::initial_cluster_token: {get_param: EtcdInitialClusterToken}
+          etcd::manage_package: false
+          tripleo.etcd.firewall_rules:
+            '141 etcd':
+              dport:
+                - 2379
+                - 2380
+        -
+          if:
+          - internal_tls_enabled
+          - generate_service_certificates: true
+            tripleo::profile::base::etcd::certificate_specs:
+              service_certificate: '/etc/pki/tls/certs/etcd.crt'
+              service_key: '/etc/pki/tls/private/etcd.key'
+              hostname:
+                str_replace:
+                  template: "%{hiera('fqdn_NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+              principal:
+                str_replace:
+                  template: "etcd/%{hiera('fqdn_NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+          - {}
       step_config: |
         include ::tripleo::profile::base::etcd
       upgrade_tasks:
@@ -71,3 +98,11 @@ outputs:
         - name: Stop etcd service
           tags: step2
           service: name=etcd state=stopped
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: etcd
+              network: {get_param: [ServiceNetMap, EtcdNetwork]}
+              type: node
+          - null
