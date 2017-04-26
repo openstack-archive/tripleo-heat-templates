@@ -19,12 +19,20 @@
 # inside of a container.
 
 import json
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 import multiprocessing
 
+log = logging.getLogger()
+log.setLevel(logging.DEBUG)
+ch = logging.StreamHandler(sys.stdout)
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+ch.setFormatter(formatter)
+log.addHandler(ch)
 
 # this is to match what we do in deployed-server
 def short_hostname():
@@ -36,42 +44,47 @@ def short_hostname():
 
 
 def pull_image(name):
-    print('Pulling image: %s' % name)
+    log.info('Pulling image: %s' % name)
     subproc = subprocess.Popen(['/usr/bin/docker', 'pull', name],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
-    print(cmd_stdout)
-    print(cmd_stderr)
+    if cmd_stdout:
+        log.debug(cmd_stdout)
+    if cmd_stderr:
+        log.debug(cmd_stderr)
 
 
 def rm_container(name):
     if os.environ.get('SHOW_DIFF', None):
-        print('Diffing container: %s' % name)
+        log.info('Diffing container: %s' % name)
         subproc = subprocess.Popen(['/usr/bin/docker', 'diff', name],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
         cmd_stdout, cmd_stderr = subproc.communicate()
-        print(cmd_stdout)
-        print(cmd_stderr)
+        if cmd_stdout:
+            log.debug(cmd_stdout)
+        if cmd_stderr:
+            log.debug(cmd_stderr)
 
-    print('Removing container: %s' % name)
+    log.info('Removing container: %s' % name)
     subproc = subprocess.Popen(['/usr/bin/docker', 'rm', name],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
-    print(cmd_stdout)
+    if cmd_stdout:
+        log.debug(cmd_stdout)
     if cmd_stderr and \
-            cmd_stderr != 'Error response from daemon: ' \
-            'No such container: {}\n'.format(name):
-        print(cmd_stderr)
+           cmd_stderr != 'Error response from daemon: ' \
+           'No such container: {}\n'.format(name):
+        log.debug(cmd_stderr)
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
 
+log.info('Running docker-puppet')
 config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
-print('docker-puppet')
-print('CONFIG: %s' % config_file)
+log.debug('CONFIG: %s' % config_file)
 with open(config_file) as f:
     json_data = json.load(f)
 
@@ -108,16 +121,15 @@ for service in (json_data or []):
     if not manifest or not config_image:
         continue
 
-    print('---------')
-    print('config_volume %s' % config_volume)
-    print('puppet_tags %s' % puppet_tags)
-    print('manifest %s' % manifest)
-    print('config_image %s' % config_image)
-    print('volumes %s' % volumes)
+    log.debug('config_volume %s' % config_volume)
+    log.debug('puppet_tags %s' % puppet_tags)
+    log.debug('manifest %s' % manifest)
+    log.debug('config_image %s' % config_image)
+    log.debug('volumes %s' % volumes)
     # We key off of config volume for all configs.
     if config_volume in configs:
         # Append puppet tags and manifest.
-        print("Existing service, appending puppet tags and manifest\n")
+        log.info("Existing service, appending puppet tags and manifest")
         if puppet_tags:
             configs[config_volume][1] = '%s,%s' % (configs[config_volume][1],
                                                    puppet_tags)
@@ -125,22 +137,21 @@ for service in (json_data or []):
             configs[config_volume][2] = '%s\n%s' % (configs[config_volume][2],
                                                     manifest)
         if configs[config_volume][3] != config_image:
-            print("WARNING: Config containers do not match even though"
-                  " shared volumes are the same!\n")
+            log.warn("Config containers do not match even though"
+                     " shared volumes are the same!")
     else:
-        print("Adding new service\n")
+        log.info("Adding new service")
         configs[config_volume] = service
 
-print('Service compilation completed.\n')
+log.info('Service compilation completed.')
 
 def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
 
-    print('---------')
-    print('config_volume %s' % config_volume)
-    print('puppet_tags %s' % puppet_tags)
-    print('manifest %s' % manifest)
-    print('config_image %s' % config_image)
-    print('volumes %s' % volumes)
+    log.debug('config_volume %s' % config_volume)
+    log.debug('puppet_tags %s' % puppet_tags)
+    log.debug('manifest %s' % manifest)
+    log.debug('config_image %s' % config_image)
+    log.debug('volumes %s' % volumes)
     hostname = short_hostname()
     sh_script = '/var/lib/docker-puppet/docker-puppet-%s.sh' % config_volume
 
@@ -226,18 +237,21 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             env[k] = os.environ.get(k)
 
         if os.environ.get('NET_HOST', 'false') == 'true':
-            print('NET_HOST enabled')
+            log.debug('NET_HOST enabled')
             dcmd.extend(['--net', 'host', '--volume',
                          '/etc/hosts:/etc/hosts:ro'])
         dcmd.append(config_image)
+        log.debug('Running docker command: %s' % ' '.join(dcmd))
 
         subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
         cmd_stdout, cmd_stderr = subproc.communicate()
-        print(cmd_stdout)
-        print(cmd_stderr)
+        if cmd_stdout:
+            log.debug(cmd_stdout)
+        if cmd_stderr:
+            log.debug(cmd_stderr)
         if subproc.returncode != 0:
-            print('Failed running docker-puppet.py for %s' % config_volume)
+            log.error('Failed running docker-puppet.py for %s' % config_volume)
         rm_container('docker-puppet-%s' % config_volume)
         return subproc.returncode
 
@@ -263,7 +277,7 @@ for config_volume in configs:
     process_map.append([config_volume, puppet_tags, manifest, config_image, volumes])
 
 for p in process_map:
-    print '--\n%s' % p
+    log.debug('- %s' % p)
 
 # Fire off processes to perform each configuration.  Defaults
 # to the number of CPUs on the system.
@@ -273,7 +287,7 @@ config_volumes = [pm[0] for pm in process_map]
 success = True
 for returncode, config_volume in zip(returncodes, config_volumes):
     if returncode != 0:
-        print('ERROR configuring %s' % config_volume)
+        log.error('ERROR configuring %s' % config_volume)
         success = False
 
 if not success:
