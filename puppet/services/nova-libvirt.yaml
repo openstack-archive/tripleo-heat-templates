@@ -41,16 +41,23 @@ parameters:
     description: If set to true and if EnableInternalTLS is enabled, it will
                  set the libvirt URI's transport to tls and configure the
                  relevant keys for libvirt.
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
   LibvirtCACert:
     type: string
-    default: '/etc/ipa/ca.crt'
+    default: ''
     description: This specifies the CA certificate to use for TLS in libvirt.
                  This file will be symlinked to the default CA path in libvirt,
                  which is /etc/pki/CA/cacert.pem. Note that due to limitations
                  GNU TLS, which is the TLS backend for libvirt, the file must
-                 be less than 65K (so we can't use the system's CA bundle). The
-                 current default reflects TripleO's default CA, which is
-                 FreeIPA. It will only be used if internal TLS is enabled.
+                 be less than 65K (so we can't use the system's CA bundle).
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
 
 conditions:
 
@@ -62,6 +69,11 @@ conditions:
     - equals:
       - {get_param: UseTLSTransportForLiveMigration}
       - true
+
+  libvirt_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtCACert}
+      - ''
 
 resources:
   NovaBase:
@@ -113,7 +125,10 @@ outputs:
                     params:
                       $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 tripleo::certmonger::ca::libvirt::origin_ca_pem:
-                  get_param: LibvirtCACert
+                  if:
+                    - libvirt_specific_ca_unset
+                    - get_param: InternalTLSCAFile
+                    - get_param: LibvirtCACert
                 tripleo::certmonger::libvirt_dirs::certificate_dir: '/etc/pki/libvirt'
                 tripleo::certmonger::libvirt_dirs::key_dir: '/etc/pki/libvirt/private'
                 libvirt_certificates_specs:
