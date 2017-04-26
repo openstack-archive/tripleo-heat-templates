@@ -26,6 +26,13 @@ parameters:
   DefaultPasswords:
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -64,27 +71,48 @@ outputs:
             - path: /var/log/swift
               owner: swift:swift
               recurse: true
+        /var/lib/kolla/config_files/swift_proxy_tls_proxy.json:
+          command: /usr/sbin/httpd -DFOREGROUND
       docker_config:
         step_4:
-          swift_proxy:
-            image: *swift_proxy_image
-            net: host
-            user: swift
-            restart: always
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/swift_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                  # FIXME I'm mounting /etc/swift as rw.  Are the rings written to
-                  # at all during runtime?
-                  - /var/lib/config-data/swift/etc/swift:/etc/swift:rw
-                  - /run:/run
-                  - /srv/node:/srv/node
-                  - /dev:/dev
-                  - /var/log/containers/swift:/var/log/swift
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          map_merge:
+            - swift_proxy:
+                image: *swift_proxy_image
+                net: host
+                user: swift
+                restart: always
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/swift_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                      # FIXME I'm mounting /etc/swift as rw.  Are the rings written to
+                      # at all during runtime?
+                      - /var/lib/config-data/swift/etc/swift:/etc/swift:rw
+                      - /run:/run
+                      - /srv/node:/srv/node
+                      - /dev:/dev
+                      - /var/log/containers/swift:/var/log/swift
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - if:
+                - internal_tls_enabled
+                - swift_proxy_tls_proxy:
+                    image: *swift_proxy_image
+                    net: host
+                    user: root
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/swift_proxy_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/swift/etc/httpd/:/etc/httpd/:ro
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                    environment:
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                - {}
       host_prep_tasks:
         - name: create persistent directories
           file:
