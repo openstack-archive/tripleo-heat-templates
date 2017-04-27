@@ -92,21 +92,27 @@ outputs:
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       upgrade_tasks:
-        - name: Check if httpd is deployed
-          command: systemctl is-enabled httpd
-          tags: common
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check if httpd is running"
-          shell: >
-            /usr/bin/systemctl show 'httpd' --property ActiveState |
-            grep '\bactive\b'
-          when: httpd_enabled.rc == 0
-          tags: step0,validation
-        - name: Stop panko-api service (running under httpd)
-          tags: step1
-          service: name=httpd state=stopped
-          when: httpd_enabled.rc == 0
-        - name: Install openstack-panko-api package if it was not installed
-          tags: step3
-          yum: name=openstack-panko-api state=latest
+        yaql:
+          expression: $.data.apache_upgrade + $.data.panko_api_upgrade
+          data:
+            apache_upgrade:
+              get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
+            panko_api_upgrade:
+              - name: Check if httpd is deployed
+                command: systemctl is-enabled httpd
+                tags: common
+                ignore_errors: True
+                register: httpd_enabled
+              - name: "PreUpgrade step0,validation: Check if httpd is running"
+                shell: >
+                  /usr/bin/systemctl show 'httpd' --property ActiveState |
+                  grep '\bactive\b'
+                when: httpd_enabled.rc == 0
+                tags: step0,validation
+              - name: Stop panko-api service (running under httpd)
+                tags: step1
+                service: name=httpd state=stopped
+                when: httpd_enabled.rc == 0
+              - name: Install openstack-panko-api package if it was not installed
+                tags: step3
+                yum: name=openstack-panko-api state=latest
