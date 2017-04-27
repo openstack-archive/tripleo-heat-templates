@@ -54,6 +54,21 @@ def validate_endpoint_map(base_map, env_map):
     return sorted(base_map.keys()) == sorted(env_map.keys())
 
 
+def validate_hci_compute_services_default(env_filename, env_tpl):
+    env_services_list = env_tpl['parameter_defaults']['ComputeServices']
+    env_services_list.remove('OS::TripleO::Services::CephOSD')
+    roles_filename = os.path.join(os.path.dirname(env_filename),
+                                  '../roles_data.yaml')
+    roles_tpl = yaml.load(open(roles_filename).read())
+    for role in roles_tpl:
+        if role['name'] == 'Compute':
+            roles_services_list = role['ServicesDefault']
+            if sorted(env_services_list) != sorted(roles_services_list):
+                print('ERROR: ComputeServices in %s is different '
+                      'from ServicesDefault in roles_data.yaml' % env_filename)
+                return 1
+    return 0
+
 def validate_mysql_connection(settings):
     no_op = lambda *args: False
     error_status = [0]
@@ -142,6 +157,9 @@ def validate(filename):
         if (filename.startswith('./puppet/services/') and
                 filename != './puppet/services/services.yaml'):
             retval = validate_service(filename, tpl)
+
+        if filename.endswith('hyperconverged-ceph.yaml'):
+            retval = validate_hci_compute_services_default(filename, tpl)
 
     except Exception:
         print(traceback.format_exc())
