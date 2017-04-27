@@ -38,6 +38,29 @@ if [[ -a "$timestamp_file" ]]; then
 fi
 touch "$timestamp_file"
 
+pacemaker_status=""
+if hiera -c /etc/puppet/hiera.yaml service_names | grep -q pacemaker; then
+    pacemaker_status=$(systemctl is-active pacemaker)
+fi
+
+# (NB: when backporting this s/pacemaker_short_bootstrap_node_name/bootstrap_nodeid)
+# This runs before the yum_update so we are guaranteed to run it even in the absence
+# of packages to update (the check for -z "$update_identifier" guarantees that this
+# is run only on overcloud stack update -i)
+if [[ "$pacemaker_status" == "active" && \
+        "$(hiera -c /etc/puppet/hiera.yaml pacemaker_short_bootstrap_node_name)" == "$(facter hostname)" ]] ; then \
+    # OCF scripts don't cope with -eu
+    echo "Verifying if we need to fix up any IPv6 VIPs"
+    set +eu
+    fixup_wrong_ipv6_vip
+    ret=$?
+    set -eu
+    if [ $ret -ne 0 ]; then
+        echo "Fixing up IPv6 VIPs failed. Stopping here. (See https://bugs.launchpad.net/tripleo/+bug/1686357 for more info)"
+        exit 1
+    fi
+fi
+
 command_arguments=${command_arguments:-}
 
 # yum check-update exits 100 if updates are available
@@ -55,10 +78,6 @@ elif [[ "$check_update_exit" != "100" ]]; then
     exit 0
 fi
 
-pacemaker_status=""
-if hiera -c /etc/puppet/hiera.yaml service_names | grep -q pacemaker; then
-    pacemaker_status=$(systemctl is-active pacemaker)
-fi
 
 # TODO: FIXME: remove this in Pike.
 # Hack around mod_ssl update and puppet https://bugs.launchpad.net/tripleo/+bug/1682448
@@ -151,6 +170,7 @@ if [[ "$pacemaker_status" == "active" ]] ; then
     pcs status
 fi
 
-echo "Finished yum_update.sh on server $deploy_server_id at `date`"
+
+echo "Finished yum_update.sh on server $deploy_server_id at `date` with return code: $return_code"
 
 exit $return_code
