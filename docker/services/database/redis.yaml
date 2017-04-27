@@ -41,14 +41,20 @@ outputs:
     description: Role data for the Redis API role.
     value:
       service_name: {get_attr: [RedisBase, role_data, service_name]}
-      config_settings: {get_attr: [RedisBase, role_data, config_settings]}
+      config_settings:
+        map_merge:
+          - {get_attr: [RedisBase, role_data, config_settings]}
+          - redis::daemonize: false
       step_config: &step_config
         get_attr: [RedisBase, role_data, step_config]
       service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: 'redis'
-        puppet_tags: 'file'
+        # NOTE: we need the exec tag to copy /etc/redis.conf.puppet to
+        # /etc/redis.conf
+        # https://github.com/arioch/puppet-redis/commit/1c004143223e660cbd433422ff8194508aab9763
+        puppet_tags: 'exec'
         step_config: *step_config
         config_image: &redis_image
           list_join:
@@ -57,6 +63,10 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/redis.json:
           command: /usr/bin/redis-server /etc/redis.conf
+          permissions:
+            - path: /var/run/redis
+              owner: redis:redis
+              recurse: true
       docker_config:
         step_1:
           redis:
@@ -72,6 +82,11 @@ outputs:
               - logs:/var/log/kolla
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create /var/run/redis
+          file:
+            path: /var/run/redis
+            state: directory
       upgrade_tasks:
         - name: Stop and disable redis service
           tags: step2
