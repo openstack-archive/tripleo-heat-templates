@@ -12,6 +12,7 @@ CEPHSTORAGE_HOSTS=${CEPHSTORAGE_HOSTS:-""}
 SUBNODES_SSH_KEY=${SUBNODES_SSH_KEY:-"~/.ssh/id_rsa"}
 SSH_OPTIONS="-tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=Verbose -o PasswordAuthentication=no -o ConnectionAttempts=32"
 OVERCLOUD_ROLES=${OVERCLOUD_ROLES:-"Controller Compute BlockStorage ObjectStorage CephStorage"}
+STACK_NAME=${STACK_NAME:-"overcloud"}
 
 # Set the _hosts vars for the default roles based on the old var names that
 # were all caps for backwards compatibility.
@@ -53,14 +54,14 @@ function check_stack {
 
 
 for role in $OVERCLOUD_ROLES; do
-    while ! check_stack overcloud; do
+    while ! check_stack $STACK_NAME; do
         sleep $SLEEP_TIME
     done
 
-    rg_stack=$(openstack stack resource show overcloud $role -c physical_resource_id -f value)
+    rg_stack=$(openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
     while ! check_stack $rg_stack; do
         sleep $SLEEP_TIME
-        rg_stack=$(openstack stack resource show overcloud $role -c physical_resource_id -f value)
+        rg_stack=$(openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
     done
 
     stacks=$(openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
