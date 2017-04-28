@@ -104,6 +104,7 @@ special_case_ovs_upgrade_if_needed
 
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
+yum install -y mod_ssl
 
 # We need to ensure at least those two configuration settings, otherwise
 # mariadb 10.1+ won't activate galera replication.
