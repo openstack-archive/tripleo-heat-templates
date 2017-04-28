@@ -1,0 +1,65 @@
+heat_template_version: pike
+
+parameters:
+  RoleCounts:
+    type: json
+    default: {}
+  VipMap:
+    type: json
+    default: {}
+  DeployedServerPortMap:
+    type: json
+    default: {}
+  DeployedServerDeploymentSwiftDataMap:
+    type: json
+    default: {}
+  DefaultRouteIp:
+    type: string
+    default: 192.168.24.1
+
+resources:
+
+  DeployedServerPortMapParameter:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        DeployedServerPortMap:
+          map_merge:
+            - {get_param: DeployedServerPortMap}
+            - control_virtual_ip:
+                fixed_ips:
+                  - ip_address: {get_param: [VipMap, ctlplane]}
+            - redis_virtual_ip:
+                fixed_ips:
+                  - ip_address: {get_param: [VipMap, redis]}
+
+  ResourceRegistry:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+          OS::TripleO::DeployedServer::ControlPlanePort: tripleo-heat-templates/deployed-server/deployed-neutron-port.yaml
+          OS::TripleO::Network::Ports::ControlPlaneVipPort: tripleo-heat-templates/deployed-server/deployed-neutron-port.yaml
+
+  DeployedServerEnvironment:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        resource_registry:
+          {get_attr: [ResourceRegistry, value]}
+        parameter_defaults:
+          map_merge:
+            - {get_attr: [DeployedServerPortMapParameter, value]}
+            - DeploymentSwiftDataMap: {get_param: DeployedServerDeploymentSwiftDataMap}
+            - EC2MetadataIp: {get_param: DefaultRouteIp}
+            - ControlPlaneDefaultRoute: {get_param: DefaultRouteIp}
+            - {get_param: RoleCounts}
+
+outputs:
+  deployed_server_environment:
+    description:
+      Environment data that can be used as input into the services stack when
+      using split-stack.
+    value: {get_attr: [DeployedServerEnvironment, value]}
