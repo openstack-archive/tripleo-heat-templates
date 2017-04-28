@@ -50,6 +50,7 @@ fi
 if [[ -n \$NOVA_COMPUTE ]]; then
     log_debug "Restarting openstack ceilometer agent compute"
     systemctl restart openstack-ceilometer-compute
+    yum install -y openstack-nova-migration
 fi
 
 # Apply puppet manifest to converge just right after the ${ROLE} upgrade
