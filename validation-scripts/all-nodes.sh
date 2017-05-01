@@ -82,8 +82,38 @@ function fqdn_check() {
   echo "SUCCESS"
 }
 
+# Verify at least one time source is available.
+function ntp_check() {
+  NTP_SERVERS=$(hiera ntp::servers nil |tr -d '[],"')
+  if [[ "$NTP_SERVERS" != "nil" ]];then
+    echo -n "Testing NTP..."
+    NTP_SUCCESS=0
+    for NTP_SERVER in $NTP_SERVERS; do
+      set +e
+      NTPDATE_OUT=$(ntpdate -qud $NTP_SERVER 2>&1)
+      NTPDATE_EXIT=$?
+      set -e
+      if [[ "$NTPDATE_EXIT" == "0" ]];then
+        NTP_SUCCESS=1
+        break
+      else
+        NTPDATE_OUT_FULL="$NTPDATE_OUT_FULL $NTPDATE_OUT"
+      fi
+    done
+    if  [[ "$NTP_SUCCESS" == "0" ]];then
+      echo "FAILURE"
+      echo "$NTPDATE_OUT_FULL"
+      exit 1
+    fi
+    echo "SUCCESS"
+  fi
+}
+
 ping_controller_ips "$ping_test_ips"
 ping_default_gateways
 if [[ $validate_fqdn == "True" ]];then
   fqdn_check
+fi
+if [[ $validate_ntp == "True" ]];then
+  ntp_check
 fi
