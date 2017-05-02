@@ -2,6 +2,7 @@ heat_template_version: ocata
 
 description: >
   OpenStack Ceilometer Collector service configured with Puppet
+  This service is deprecated and will be removed in future releases.
 
 parameters:
   ServiceNetMap:
@@ -18,6 +19,14 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  CeilometerBackend:
+    default: 'mongodb'
+    description: The ceilometer backend type.
+    type: string
+  CeilometerPassword:
+    description: The password for the ceilometer service account.
+    type: string
+    hidden: true
   MonitoringSubscriptionCeilometerCollector:
     default: 'overcloud-ceilometer-collector'
     type: string
@@ -26,6 +35,22 @@ parameters:
     default:
       tag: openstack.ceilometer.collector
       path: /var/log/ceilometer/collector.log
+  CeilometerMeterDispatcher:
+    default: ['gnocchi']
+    description: Comma-seperated list of Dispatcher to process meter data
+                 Note that database option is deprecated and will not be
+                 supported in future.
+    type: comma_delimited_list
+    constraints:
+    - allowed_values: ['gnocchi', 'database']
+  CeilometerEventDispatcher:
+    default: ['panko', 'gnocchi']
+    description: Comma-separated list of Dispatchers to process events data
+                 Note that database option is deprecated and will not be
+                 supported in future.
+    type: comma_delimited_list
+    constraints:
+    - allowed_values: ['panko', 'gnocchi', 'database']
 
 resources:
   CeilometerServiceBase:
@@ -55,6 +80,23 @@ outputs:
         map_merge:
           - get_attr: [MongoDbBase, role_data, config_settings]
           - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer::db::database_connection:
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                - - '://ceilometer:'
+                  - {get_param: CeilometerPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/ceilometer'
+                  - '?read_default_file=/etc/my.cnf.d/tripleo.cnf&read_default_group=tripleo'
+            ceilometer_backend: {get_param: CeilometerBackend}
+            # we include db_sync class in puppet-tripleo
+            ceilometer::db::sync_db: false
+            ceilometer::db::database_db_max_retries: -1
+            ceilometer::db::database_max_retries: -1
+            ceilometer::collector::meter_dispatcher: {get_param: CeilometerMeterDispatcher}
+            ceilometer::collector::event_dispatcher: {get_param: CeilometerEventDispatcher}
       service_config_settings:
         get_attr: [CeilometerServiceBase, role_data, service_config_settings]
       step_config: |
