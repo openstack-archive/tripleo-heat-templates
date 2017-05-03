@@ -55,6 +55,10 @@ if hiera -c /etc/puppet/hiera.yaml service_names | grep -q pacemaker; then
     pacemaker_status=$(systemctl is-active pacemaker)
 fi
 
+# TODO: FIXME: remove this in Pike.
+# Hack around mod_ssl update and puppet https://bugs.launchpad.net/tripleo/+bug/1682448
+touch /etc/httpd/conf.d/ssl.conf
+
 # Fix the redis/rabbit resource start/stop timeouts. See https://bugs.launchpad.net/tripleo/+bug/1633455
 # and https://bugs.launchpad.net/tripleo/+bug/1634851
 if [[ "$pacemaker_status" == "active" && \
