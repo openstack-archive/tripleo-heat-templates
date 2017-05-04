@@ -1,0 +1,119 @@
+heat_template_version: pike
+
+description: >
+  OpenStack Sahara service configured with Puppet
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerSaharaApiImage:
+    description: image
+    default: 'centos-binary-sahara-api:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  SaharaApiPuppetBase:
+    type: ../../puppet/services/sahara-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Sahara API role.
+    value:
+      service_name: {get_attr: [SaharaApiPuppetBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [SaharaApiPuppetBase, role_data, config_settings]
+          - sahara::sync_db: false
+      step_config: &step_config
+        get_attr: [SaharaApiPuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [SaharaApiPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS #
+      puppet_config:
+        config_volume: sahara
+        puppet_tags: sahara_api_paste_ini,sahara_cluster_template,sahara_config,sahara_node_group_template
+        step_config: *step_config
+        config_image: &sahara_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerSaharaApiImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/sahara-api.json:
+          command: /usr/bin/sahara-api --config-file /etc/sahara/sahara.conf
+          permissions:
+            - path: /var/lib/sahara
+              owner: sahara:sahara
+              recurse: true
+            - path: /var/log/sahara
+              owner: sahara:sahara
+              recurse: true
+      docker_config:
+        step_3:
+          sahara_db_sync:
+            image: *sahara_image
+            net: host
+            privileged: false
+            detach: false
+            volumes: &sahara_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/sahara-api.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/sahara/etc/sahara/:/etc/sahara/:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/sahara:/var/lib/sahara
+                  - /var/log/containers/sahara:/var/log/sahara
+            command: "/usr/bin/bootstrap_host_exec sahara_api su sahara -s /bin/bash -c 'sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head'"
+        step_4:
+          sahara_api:
+            image: *sahara_image
+            net: host
+            privileged: false
+            restart: always
+            volumes: *sahara_volumes
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create /var/lib/sahara
+          file:
+            path: /var/lib/sahara
+            state: directory
+        - name: create persistent sahara logs directory
+          file:
+            path: /var/log/containers/sahara
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable sahara_api service
+          tags: step2
+          service: name=openstack-sahara-api state=stopped enabled=no
