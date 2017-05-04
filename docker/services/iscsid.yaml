@@ -1,0 +1,109 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Iscsid service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerIscsidImage:
+    description: image
+    default: 'centos-binary-iscsid:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Iscsid API role.
+    value:
+      service_name: iscsid
+      config_settings: {}
+      step_config: ''
+      service_config_settings: {}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: iscsid
+        #puppet_tags: file
+        step_config: ''
+        config_image: &iscsid_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerIscsidImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/iscsid.json:
+          command: /usr/sbin/iscsid -f
+      docker_config:
+        step_3:
+          iscsid:
+            start_order: 2
+            image: *iscsid_image
+            net: host
+            privileged: true
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/iscsid.json:/var/lib/kolla/config_files/config.json:ro
+                  - /dev/:/dev/
+                  - /run/:/run/
+                  - /sys:/sys
+                  - /lib/modules:/lib/modules:ro
+                  - /etc/iscsi:/etc/iscsi
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create /etc/iscsi
+          file:
+            path: /etc/iscsi
+            state: directory
+        - name: stat /lib/systemd/system/iscsid.socket
+          stat: path=/lib/systemd/system/iscsid.socket
+          register: stat_iscsid_socket
+        - name: Stop and disable iscsid.socket service
+          service: name=iscsid.socket state=stopped enabled=no
+          when: stat_iscsid_socket.stat.exists
+      upgrade_tasks:
+        - name: stat /lib/systemd/system/iscsid.service
+          stat: path=/lib/systemd/system/iscsid.service
+          register: stat_iscsid_service
+        - name: Stop and disable iscsid service
+          tags: step2
+          service: name=iscsid state=stopped enabled=no
+          when: stat_iscsid_service.stat.exists
+        - name: stat /lib/systemd/system/iscsid.socket
+          stat: path=/lib/systemd/system/iscsid.socket
+          register: stat_iscsid_socket
+        - name: Stop and disable iscsid.socket service
+          tags: step2
+          service: name=iscsid.socket state=stopped enabled=no
+          when: stat_iscsid_socket.stat.exists
+      metadata_settings: {}
