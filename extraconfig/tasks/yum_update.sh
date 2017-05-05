@@ -39,7 +39,8 @@ fi
 touch "$timestamp_file"
 
 pacemaker_status=""
-if hiera -c /etc/puppet/hiera.yaml service_names | grep -q pacemaker; then
+# We include word boundaries in order to not match pacemaker_remote
+if hiera -c /etc/puppet/hiera.yaml service_names | grep -q '\bpacemaker\b'; then
     pacemaker_status=$(systemctl is-active pacemaker)
 fi
 
@@ -77,7 +78,6 @@ elif [[ "$check_update_exit" != "100" ]]; then
     echo "No packages require updating"
     exit 0
 fi
-
 
 # special case https://bugs.launchpad.net/tripleo/+bug/1635205 +bug/1669714
 special_case_ovs_upgrade_if_needed
