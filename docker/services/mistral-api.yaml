@@ -66,14 +66,27 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/mistral_api.json:
           command: /usr/bin/mistral-server --config-file=/etc/mistral/mistral.conf --log-file=/var/log/mistral/api.log --server=api
+          permissions:
+            - path: /var/log/mistral
+              owner: mistral:mistral
+              recurse: true
       docker_config:
+        # db sync runs before permissions set by kolla_config
         step_3:
-          mistral_db_sync:
-            start_order: 1
+          mistral_init_logs:
+            start_order: 0
             image: &mistral_image
               list_join:
                 - '/'
                 - [ {get_param: DockerNamespace}, {get_param: DockerMistralApiImage} ]
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/mistral:/var/log/mistral
+            command: ['/bin/bash', '-c', 'chown -R mistral:mistral /var/log/mistral']
+          mistral_db_sync:
+            start_order: 1
+            image: *mistral_image
             net: host
             privileged: false
             detach: false
@@ -82,6 +95,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/config-data/mistral/etc/:/etc/:ro
+                  - /var/log/containers/mistral:/var/log/mistral
             command: ['mistral-db-manage', '--config-file', '/etc/mistral/mistral.conf', 'upgrade', 'head']
           mistral_db_populate:
             start_order: 2
@@ -94,6 +108,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/config-data/mistral/etc/:/etc/:ro
+                  - /var/log/containers/mistral:/var/log/mistral
             # NOTE: dprince this requires that we install openstack-tripleo-common into
             # the Mistral API image so that we get tripleo* actions
             command: ['mistral-db-manage', '--config-file', '/etc/mistral/mistral.conf', 'populate']
@@ -110,8 +125,14 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/mistral_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/mistral/etc/mistral/:/etc/mistral/:ro
+                  - /var/log/containers/mistral:/var/log/mistral
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/mistral
+            state: directory
       upgrade_tasks:
         - name: Stop and disable mistral_api service
           tags: step2

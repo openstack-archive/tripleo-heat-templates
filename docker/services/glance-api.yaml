@@ -64,8 +64,18 @@ outputs:
         /var/lib/kolla/config_files/glance-api.json:
           command: /usr/bin/glance-api --config-file /usr/share/glance/glance-api-dist.conf --config-file /etc/glance/glance-api.conf
       docker_config:
+        # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_3:
+          glance_init_logs:
+            start_order: 0
+            image: *glance_image
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/glance:/var/log/glance
+            command: ['/bin/bash', '-c', 'chown -R glance:glance /var/log/glance']
           glance_api_db_sync:
+            start_order: 1
             image: *glance_image
             net: host
             privileged: false
@@ -76,14 +86,13 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/glance-api.json:/var/lib/kolla/config_files/config.json
                   - /var/lib/config-data/glance_api/etc/glance/:/etc/glance/:ro
-                  - /lib/modules:/lib/modules:ro
-                  - /run:/run
-                  - /dev:/dev
+                  - /var/log/containers/glance:/var/log/glance
             environment:
               - KOLLA_BOOTSTRAP=True
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_4:
           glance_api:
+            start_order: 2
             image: *glance_image
             net: host
             privileged: false
@@ -91,6 +100,11 @@ outputs:
             volumes: *glance_volumes
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/glance
+            state: directory
       upgrade_tasks:
         - name: Stop and disable glance_api service
           tags: step2

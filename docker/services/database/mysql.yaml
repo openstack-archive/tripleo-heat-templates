@@ -76,9 +76,18 @@ outputs:
               owner: mysql:mysql
               recurse: true
       docker_config:
+        # Kolla_bootstrap runs before permissions set by kolla_config
         step_2:
-          mysql_bootstrap:
+          mysql_init_logs:
             start_order: 0
+            image: *mysql_image
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/mysql:/var/log/mariadb
+            command: ['/bin/bash', '-c', 'chown -R mysql:mysql /var/log/mariadb']
+          mysql_bootstrap:
+            start_order: 1
             detach: false
             image: *mysql_image
             net: host
@@ -90,12 +99,13 @@ outputs:
               - /etc/localtime:/etc/localtime:ro
               - /etc/hosts:/etc/hosts:ro
               - /var/lib/mysql:/var/lib/mysql
+              - /var/log/containers/mysql:/var/log/mariadb
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
               - KOLLA_BOOTSTRAP=True
               # NOTE(mandre) skip wsrep cluster status check
               - KOLLA_KUBERNETES=True
-              - 
+              -
                 list_join:
                   - '='
                   - - 'DB_ROOT_PASSWORD'
@@ -107,7 +117,7 @@ outputs:
                             - {get_param: MysqlRootPassword}
                             - {get_param: [DefaultPasswords, mysql_root_password]}
           mysql:
-            start_order: 1
+            start_order: 2
             image: *mysql_image
             restart: always
             net: host
@@ -123,12 +133,16 @@ outputs:
           config_image: *mysql_image
           volumes:
             - /var/lib/mysql:/var/lib/mysql/:ro
+            - /var/log/containers/mysql:/var/log/mariadb
             - /var/lib/config-data/mysql/root:/root:ro #provides .my.cnf
       host_prep_tasks:
-        - name: create /var/lib/mysql
+        - name: create persistent directories
           file:
-            path: /var/lib/mysql
+            path: "{{ item }}"
             state: directory
+          with_items:
+            - /var/log/containers/mysql
+            - /var/lib/mysql
       upgrade_tasks:
         - name: Stop and disable mysql service
           tags: step2

@@ -67,13 +67,27 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/neutron_api.json:
           command: /usr/bin/neutron-server --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
       docker_config:
+        # db sync runs before permissions set by kolla_config
         step_3:
-          neutron_db_sync:
+          neutron_init_logs:
+            start_order: 0
             image: &neutron_api_image
               list_join:
                 - '/'
                 - [ {get_param: DockerNamespace}, {get_param: DockerNeutronApiImage} ]
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/neutron:/var/log/neutron
+            command: ['/bin/bash', '-c', 'chown -R neutron:neutron /var/log/neutron']
+          neutron_db_sync:
+            start_order: 1
+            image: *neutron_api_image
             net: host
             privileged: false
             detach: false
@@ -86,6 +100,7 @@ outputs:
                 -
                   - /var/lib/config-data/neutron/etc/neutron:/etc/neutron:ro
                   - /var/lib/config-data/neutron/usr/share/neutron:/usr/share/neutron:ro
+                  - /var/log/containers/neutron:/var/log/neutron
             command: ['neutron-db-manage', 'upgrade', 'heads']
         step_4:
           neutron_api:
@@ -99,8 +114,14 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/neutron_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/neutron/etc/neutron/:/etc/neutron/:ro
+                  - /var/log/containers/neutron:/var/log/neutron
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/neutron
+            state: directory
       upgrade_tasks:
         - name: Stop and disable neutron_api service
           tags: step2

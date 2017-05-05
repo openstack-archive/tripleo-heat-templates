@@ -70,10 +70,23 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/rabbitmq.json:
           command: /usr/lib/rabbitmq/bin/rabbitmq-server
+          permissions:
+            - path: /var/lib/rabbitmq
+              owner: rabbitmq:rabbitmq
+              recurse: true
       docker_config:
+        # Kolla_bootstrap runs before permissions set by kolla_config
         step_1:
-          rabbitmq_bootstrap:
+          rabbitmq_init_logs:
             start_order: 0
+            image: *rabbitmq_image
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/rabbitmq:/var/log/rabbitmq
+            command: ['/bin/bash', '-c', 'chown -R rabbitmq:rabbitmq /var/log/rabbitmq']
+          rabbitmq_bootstrap:
+            start_order: 1
             image: *rabbitmq_image
             net: host
             privileged: false
@@ -84,6 +97,7 @@ outputs:
                   - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/rabbitmq/etc/rabbitmq/:/etc/rabbitmq/:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq
+                  - /var/log/containers/rabbitmq:/var/log/rabbitmq
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
               - KOLLA_BOOTSTRAP=True
@@ -99,7 +113,7 @@ outputs:
                             - {get_param: RabbitCookie}
                             - {get_param: [DefaultPasswords, rabbit_cookie]}
           rabbitmq:
-            start_order: 1
+            start_order: 2
             image: *rabbitmq_image
             net: host
             privileged: false
@@ -111,6 +125,7 @@ outputs:
                   - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/rabbitmq/etc/rabbitmq/:/etc/rabbitmq/:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq
+                  - /var/log/containers/rabbitmq:/var/log/rabbitmq
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       docker_puppet_tasks:
@@ -124,10 +139,13 @@ outputs:
             - /var/lib/config-data/rabbitmq/etc/:/etc/
             - /var/lib/rabbitmq:/var/lib/rabbitmq:ro
       host_prep_tasks:
-        - name: create /var/lib/rabbitmq
+        - name: create persistent directories
           file:
-            path: /var/lib/rabbitmq
+            path: "{{ item }}"
             state: directory
+          with_items:
+            - /var/log/containers/rabbitmq
+            - /var/lib/rabbitmq
       upgrade_tasks:
         - name: Stop and disable rabbitmq service
           tags: step2
