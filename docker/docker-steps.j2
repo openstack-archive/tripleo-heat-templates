@@ -21,6 +21,9 @@ parameters:
   servers:
     type: json
     description: Mapping of Role name e.g Controller to a list of servers
+  stack_name:
+    type: string
+    description: Name of the topmost stack
   role_data:
     type: json
     description: Mapping of Role name e.g Controller to the per-role data
@@ -35,6 +38,19 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+
+conditions:
+{% for step in range(1, deploy_steps_max) %}
+  WorkflowTasks_Step{{step}}_Enabled:
+    or:
+    {% for role in roles %}
+      - not:
+          equals:
+            - get_param: [role_data, {{role.name}}, service_workflow_tasks, step{{step}}]
+            - ''
+      - False
+    {% endfor %}
+{% endfor %}
 
 resources:
 
@@ -67,6 +83,47 @@ resources:
         - name: update_identifier
         - name: bootstrap_server_id
       config: {get_file: deploy-steps-playbook.yaml}
+
+{%- for step in range(1, deploy_steps_max) %}
+# BEGIN service_workflow_tasks handling
+  WorkflowTasks_Step{{step}}:
+    type: OS::Mistral::Workflow
+    condition: WorkflowTasks_Step{{step}}_Enabled
+    depends_on:
+    {% if step == 1 %}
+    {% for dep in roles %}
+      - {{dep.name}}PreConfig
+      - {{dep.name}}ArtifactsDeploy
+    {% endfor %}
+    {% else %}
+    {% for dep in roles %}
+      - {{dep.name}}Deployment_Step{{step -1}}
+    {% endfor %}
+    {% endif %}
+    properties:
+      name: {list_join: [".", ["tripleo", {get_param: stack_name}, "workflowtasks", "step{{step}}"]]}
+      type: direct
+      tasks:
+        yaql:
+          expression: $.data.where($ != '').select($.get('step{{step}}')).where($ != null).flatten()
+          data:
+          {% for role in roles %}
+            - get_param: [role_data, {{role.name}}, service_workflow_tasks]
+          {% endfor %}
+
+  WorkflowTasks_Step{{step}}_Execution:
+    type: OS::Mistral::ExternalResource
+    condition: WorkflowTasks_Step{{step}}_Enabled
+    depends_on: WorkflowTasks_Step{{step}}
+    properties:
+      actions:
+        CREATE:
+          workflow: { get_resource: WorkflowTasks_Step{{step}} }
+        UPDATE:
+          workflow: { get_resource: WorkflowTasks_Step{{step}} }
+      always_update: true
+# END service_workflow_tasks handling
+{% endfor %}
 
 {% for role in roles %}
   # Post deployment steps for all roles
@@ -195,14 +252,23 @@ resources:
 
   {{role.name}}Deployment_Step{{step}}:
     type: OS::Heat::StructuredDeploymentGroup
-  {% if step == 1 %}
-    depends_on: [{{role.name}}PreConfig, {{role.name}}ArtifactsDeploy]
-  {% else %}
     depends_on:
-      {% for dep in roles %}
+      - WorkflowTasks_Step{{step}}_Execution
+    # TODO(gfidente): the following if/else condition
+    # replicates what is already defined for the
+    # WorkflowTasks_StepX resource and can be remove
+    # if https://bugs.launchpad.net/heat/+bug/1700569
+    # is fixed.
+    {% if step == 1 %}
+    {% for dep in roles %}
+      - {{dep.name}}PreConfig
+      - {{dep.name}}ArtifactsDeploy
+    {% endfor %}
+    {% else %}
+    {% for dep in roles %}
       - {{dep.name}}Deployment_Step{{step -1}}
-      {% endfor %}
-  {% endif %}
+    {% endfor %}
+    {% endif %}
     properties:
       name: {{role.name}}Deployment_Step{{step}}
       servers: {get_param: [servers, {{role.name}}]}
