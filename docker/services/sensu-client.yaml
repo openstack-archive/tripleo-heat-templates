@@ -1,0 +1,131 @@
+heat_template_version: pike
+
+description: >
+  Containerized Sensu client service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerSensuClientImage:
+    description: image
+    default: 'centos-binary-sensu-client:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  SensuDockerCheckCommand:
+    type: string
+    default: |
+      for i in $(docker ps --format '{{.ID}}'); do
+        if result=$(docker inspect --format='{{.State.Health.Status}}' $i 2>/dev/null); then
+          if [ "$result" != 'healthy' ]; then
+            echo "$(docker inspect --format='{{.Name}}' $i) ($i): $(docker inspect --format='{{json .State}}' $i)" && exit 2;
+          fi
+        fi
+      done
+  SensuDockerCheckInterval:
+    type: number
+    description: The frequency in seconds the docker health check is executed.
+    default: 10
+  SensuDockerCheckHandlers:
+    default: []
+    description: The Sensu event handler to use for events
+                 created by the docker health check.
+    type: comma_delimited_list
+  SensuDockerCheckOccurrences:
+    type: number
+    description: The number of event occurrences before sensu-plugin-aware handler should take action.
+    default: 3
+  SensuDockerCheckRefresh:
+    type: number
+    description: The number of seconds sensu-plugin-aware handlers should wait before taking second action.
+    default: 90
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  SensuClientBase:
+    type: ../../puppet/services/monitoring/sensu-client.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Sensu client role.
+    value:
+      service_name: {get_attr: [SensuClientBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [SensuClientBase, role_data, config_settings]
+          - sensu::checks:
+              check-docker-health:
+                standalone: true
+                command: {get_param: SensuDockerCheckCommand}
+                interval: {get_param: SensuDockerCheckInterval}
+                handlers: {get_param: SensuDockerCheckHandlers}
+                occurrences: {get_param: SensuDockerCheckOccurrences}
+                refresh: {get_param: SensuDockerCheckRefresh}
+      step_config: &step_config
+        get_attr: [SensuClientBase, role_data, step_config]
+      service_config_settings: {get_attr: [SensuClientBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: sensu
+        puppet_tags:  sensu_rabbitmq_config,sensu_client_config,sensu_check_config,sensu_check
+        step_config: *step_config
+        config_image: &sensu_client_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerSensuClientImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/sensu-client.json:
+          command: /usr/bin/sensu-client -d /etc/sensu/conf.d/
+      docker_config:
+        step_3:
+          sensu_client:
+            image: *sensu_client_image
+            net: host
+            privileged: true
+            # NOTE(mmagr) kolla image changes the user to 'sensu', we need it
+            # to be root have rw permission to docker.sock to run successfully
+            # "docker inspect" command
+            user: root
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/run/docker.sock:/var/run/docker.sock:rw
+                  - /var/lib/kolla/config_files/sensu-client.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/sensu/etc/sensu/:/etc/sensu/:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      upgrade_tasks:
+        - name: Stop and disable sensu-client service
+          tags: step2
+          service: name=sensu-client.service state=stopped enabled=no
