@@ -152,8 +152,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
     log.debug('manifest %s' % manifest)
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
-    hostname = short_hostname()
-    sh_script = '/var/lib/docker-puppet/docker-puppet-%s.sh' % config_volume
+    sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
 
     with open(sh_script, 'w') as script_file:
         os.chmod(script_file.name, 0755)
@@ -162,43 +161,40 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         mkdir -p /etc/puppet
         cp -a /tmp/puppet-etc/* /etc/puppet
         rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-        echo '{"step": %(step)s}' > /etc/puppet/hieradata/docker.json
+        echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
         TAGS=""
-        if [ -n "%(puppet_tags)s" ]; then
-            TAGS='--tags "%(puppet_tags)s"'
+        if [ -n "$PUPPET_TAGS" ]; then
+            TAGS="--tags \"$PUPPET_TAGS\""
         fi
-        FACTER_hostname=%(hostname)s FACTER_uuid=docker /usr/bin/puppet apply --verbose $TAGS /etc/config.pp
+        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --verbose $TAGS /etc/config.pp
 
         # Disables archiving
-        if [ -z "%(no_archive)s" ]; then
-            rm -Rf /var/lib/config-data/%(name)s
+        if [ -z "$NO_ARCHIVE" ]; then
+            rm -Rf /var/lib/config-data/${NAME}
 
             # copying etc should be enough for most services
-            mkdir -p /var/lib/config-data/%(name)s/etc
-            cp -a /etc/* /var/lib/config-data/%(name)s/etc/
+            mkdir -p /var/lib/config-data/${NAME}/etc
+            cp -a /etc/* /var/lib/config-data/${NAME}/etc/
 
             if [ -d /root/ ]; then
-              cp -a /root/ /var/lib/config-data/%(name)s/root/
+              cp -a /root/ /var/lib/config-data/${NAME}/root/
             fi
             if [ -d /var/lib/ironic/tftpboot/ ]; then
-              mkdir -p /var/lib/config-data/%(name)s/var/lib/ironic/
-              cp -a /var/lib/ironic/tftpboot/ /var/lib/config-data/%(name)s/var/lib/ironic/tftpboot/
+              mkdir -p /var/lib/config-data/${NAME}/var/lib/ironic/
+              cp -a /var/lib/ironic/tftpboot/ /var/lib/config-data/${NAME}/var/lib/ironic/tftpboot/
             fi
             if [ -d /var/lib/ironic/httpboot/ ]; then
-              mkdir -p /var/lib/config-data/%(name)s/var/lib/ironic/
-              cp -a /var/lib/ironic/httpboot/ /var/lib/config-data/%(name)s/var/lib/ironic/httpboot/
+              mkdir -p /var/lib/config-data/${NAME}/var/lib/ironic/
+              cp -a /var/lib/ironic/httpboot/ /var/lib/config-data/${NAME}/var/lib/ironic/httpboot/
             fi
 
             # apache services may files placed in /var/www/
             if [ -d /var/www/ ]; then
-             mkdir -p /var/lib/config-data/%(name)s/var/www
-             cp -a /var/www/* /var/lib/config-data/%(name)s/var/www/
+             mkdir -p /var/lib/config-data/${NAME}/var/www
+             cp -a /var/www/* /var/lib/config-data/${NAME}/var/www/
             fi
         fi
-        """ % {'puppet_tags': puppet_tags, 'name': config_volume,
-               'hostname': hostname,
-               'no_archive': os.environ.get('NO_ARCHIVE', ''),
-               'step': os.environ.get('STEP', '6')})
+        """)
 
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
@@ -211,6 +207,11 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         dcmd = ['/usr/bin/docker', 'run',
                 '--user', 'root',
                 '--name', 'docker-puppet-%s' % config_volume,
+                '--env', 'PUPPET_TAGS=%s' % puppet_tags,
+                '--env', 'NAME=%s' % config_volume,
+                '--env', 'HOSTNAME=%s' % short_hostname(),
+                '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
+                '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
                 '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro',
