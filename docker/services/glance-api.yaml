@@ -26,6 +26,13 @@ parameters:
   DefaultPasswords:
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -63,6 +70,8 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/glance-api.json:
           command: /usr/bin/glance-api --config-file /usr/share/glance/glance-api-dist.conf --config-file /etc/glance/glance-api.conf
+        /var/lib/kolla/config_files/glance_api_tls_proxy.json:
+          command: /usr/sbin/httpd -DFOREGROUND
       docker_config:
         # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_3:
@@ -91,15 +100,35 @@ outputs:
               - KOLLA_BOOTSTRAP=True
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_4:
-          glance_api:
-            start_order: 2
-            image: *glance_image
-            net: host
-            privileged: false
-            restart: always
-            volumes: *glance_volumes
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          map_merge:
+            - glance_api:
+                start_order: 2
+                image: *glance_image
+                net: host
+                privileged: false
+                restart: always
+                volumes: *glance_volumes
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - if:
+                - internal_tls_enabled
+                - glance_api_tls_proxy:
+                    start_order: 2
+                    image: *glance_image
+                    net: host
+                    user: root
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/glance_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/glance_api/etc/httpd/:/etc/httpd/:ro
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                    environment:
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                - {}
       host_prep_tasks:
         - name: create persistent logs directory
           file:
