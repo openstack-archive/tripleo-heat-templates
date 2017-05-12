@@ -138,6 +138,20 @@ parameters:
       major-upgrade-composable-steps.yaml and major-upgrade-converge.yaml
       environment files.
     default: ''
+  DeploymentServerBlacklistDict:
+    default: {}
+    type: json
+    description: >
+      Map of server hostnames to blacklist from any triggered
+      deployments. If the value is 1, the server will be blacklisted. This
+      parameter is generated from the parent template.
+
+conditions:
+  server_not_blacklisted:
+    not:
+      equals:
+        - {get_param: [DeploymentServerBlacklistDict, {get_param: Hostname}]}
+        - 1
 
 resources:
   CephStorage:
@@ -368,6 +382,7 @@ resources:
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
     depends_on: PreNetworkConfig
+    condition: server_not_blacklisted
     properties:
       name: NetworkDeployment
       config: {get_resource: NetworkConfig}
@@ -391,6 +406,7 @@ resources:
   CephStorageUpgradeInitDeployment:
     type: OS::Heat::SoftwareDeployment
     depends_on: NetworkDeployment
+    condition: server_not_blacklisted
     properties:
       name: CephStorageUpgradeInitDeployment
       server: {get_resource: CephStorage}
@@ -399,6 +415,7 @@ resources:
   CephStorageDeployment:
     type: OS::Heat::StructuredDeployment
     depends_on: CephStorageUpgradeInitDeployment
+    condition: server_not_blacklisted
     properties:
       name: CephStorageDeployment
       config: {get_resource: CephStorageConfig}
@@ -471,6 +488,7 @@ resources:
   UpdateDeployment:
     type: OS::Heat::SoftwareDeployment
     depends_on: NetworkDeployment
+    condition: server_not_blacklisted
     properties:
       config: {get_resource: UpdateConfig}
       server: {get_resource: CephStorage}
@@ -566,6 +584,7 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
     description: Heat resource handle for the ceph storage server
     value:
       {get_resource: CephStorage}
+    condition: server_not_blacklisted
   external_ip_address:
     description: IP address of the server in the external network
     value: {get_attr: [ExternalPort, ip_address]}

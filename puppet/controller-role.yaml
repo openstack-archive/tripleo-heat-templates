@@ -164,12 +164,27 @@ parameters:
       major-upgrade-composable-steps.yaml and major-upgrade-converge.yaml
       environment files.
     default: ''
+  DeploymentServerBlacklistDict:
+    default: {}
+    type: json
+    description: >
+      Map of server hostnames to blacklist from any triggered
+      deployments. If the value is 1, the server will be blacklisted. This
+      parameter is generated from the parent template.
 
 parameter_groups:
 - label: deprecated
   description: Do not use deprecated params, they will be removed.
   parameters:
   - controllerExtraConfig
+
+conditions:
+  server_not_blacklisted:
+    not:
+      equals:
+        - {get_param: [DeploymentServerBlacklistDict, {get_param: Hostname}]}
+        - 1
+
 
 resources:
 
@@ -400,6 +415,7 @@ resources:
 
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
+    condition: server_not_blacklisted
     depends_on: PreNetworkConfig
     properties:
       name: NetworkDeployment
@@ -441,6 +457,7 @@ resources:
   # but https://bugs.launchpad.net/heat/+bug/1649900 needs fixing first
   ControllerUpgradeInitDeployment:
     type: OS::Heat::SoftwareDeployment
+    condition: server_not_blacklisted
     depends_on: NetworkDeployment
     properties:
       name: ControllerUpgradeInitDeployment
@@ -449,6 +466,7 @@ resources:
 
   ControllerDeployment:
     type: OS::TripleO::SoftwareDeployment
+    condition: server_not_blacklisted
     depends_on: ControllerUpgradeInitDeployment
     properties:
       name: ControllerDeployment
@@ -532,6 +550,7 @@ resources:
 
   UpdateDeployment:
     type: OS::Heat::SoftwareDeployment
+    condition: server_not_blacklisted
     depends_on: NetworkDeployment
     properties:
       name: UpdateDeployment
@@ -649,6 +668,7 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
     description: Heat resource handle for the Nova compute server
     value:
       {get_resource: Controller}
+    condition: server_not_blacklisted
   tls_key_modulus_md5:
     description: MD5 checksum of the TLS Key Modulus
     value: {get_attr: [NodeTLSData, key_modulus_md5]}
