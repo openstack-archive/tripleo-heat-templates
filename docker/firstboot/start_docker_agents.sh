@@ -36,7 +36,8 @@ AGENT_COMMAND_MOUNTS="\
 -v /usr/lib64/libseccomp.so.2:/usr/lib64/libseccomp.so.2 \
 -v /usr/bin/docker:/usr/bin/docker \
 -v /usr/bin/docker-current:/usr/bin/docker-current \
--v /var/lib/os-collect-config:/var/lib/os-collect-config"
+-v /var/lib/os-collect-config:/var/lib/os-collect-config \
+-v /etc/ssh:/etc/ssh"
 
 # heat-docker-agents service
 cat <<EOF > /etc/systemd/system/heat-docker-agents.service
