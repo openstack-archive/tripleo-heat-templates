@@ -19,21 +19,35 @@ environment to set per service parameters.
 Apart from sevice specific inputs, there are few default parameters for all
 the services. Following are the list of default parameters:
 
- * ServiceNetMap: Mapping of service_name -> network name. Typically set via
-   parameter_defaults in the resource registry.  This mapping overrides those
-   in ServiceNetMapDefaults.
+ * ServiceNetMap: Mapping of service_name -> network name. Default mappings
+   for service to network names are defined in
+   ../network/service_net_map.j2.yaml, which may be overridden via
+   ServiceNetMap values added to a user environment file via
+   parameter_defaults.
 
- * EndpointMap: Mapping of service endpoint -> protocol. Typically set via
-   parameter_defaults in the resource registry.
+ * EndpointMap: Mapping of service endpoint -> protocol. Contains a mapping of
+   endpoint data generated for all services, based on the data included in
+   ../network/endpoints/endpoint_data.yaml.
 
- * DefaultPasswords: Mapping of service -> default password. Used to help pass
-   top level passwords managed by Heat into services.
+ * DefaultPasswords: Mapping of service -> default password. Used to pass some
+   passwords from the parent templates, this is a legacy interface and should
+   not be used by new services.
 
  * RoleName: Name of the role on which this service is deployed. A service can
-   be deployed in multiple roles.
+   be deployed in multiple roles. This is an internal parameter (should not be
+   set via environment file), which is fetched from the name attribute of the
+   roles_data.yaml template.
 
  * RoleParameters: Parameter specific to a role on which the service is
-   applied.
+   applied. Using the format "<RoleName>Parameters" in the parameter_defaults
+   of user environment file, parameters can be provided for a specific role.
+   For example, in order to provide a parameter specific to "Compute" role,
+   below is the format::
+
+      parameter_defaults:
+        ComputeParameters:
+          Param1: value
+
 
 Config Settings
 ---------------
