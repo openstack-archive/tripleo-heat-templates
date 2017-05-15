@@ -17,7 +17,8 @@ import traceback
 import yaml
 
 
-required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords']
+required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
+                   'RoleName', 'RoleParameters']
 
 envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
