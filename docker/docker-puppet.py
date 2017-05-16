@@ -253,7 +253,9 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             log.debug(cmd_stderr)
         if subproc.returncode != 0:
             log.error('Failed running docker-puppet.py for %s' % config_volume)
-        rm_container('docker-puppet-%s' % config_volume)
+        else:
+            # only delete successful runs, for debugging
+            rm_container('docker-puppet-%s' % config_volume)
         return subproc.returncode
 
 # Holds all the information for each process to consume.
