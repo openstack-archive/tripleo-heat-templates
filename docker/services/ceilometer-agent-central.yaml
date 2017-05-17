@@ -1,0 +1,113 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Ceilometer Agent Central service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerCeilometerCentralImage:
+    description: image
+    default: 'centos-binary-ceilometer-central:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+   type: ./containers-common.yaml
+
+  CeilometerAgentCentralBase:
+    type: ../../puppet/services/ceilometer-agent-central.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Ceilometer Agent Central role.
+    value:
+      service_name: {get_attr: [CeilometerAgentCentralBase, role_data, service_name]}
+      config_settings: {get_attr: [CeilometerAgentCentralBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [CeilometerAgentCentralBase, role_data, step_config]
+      service_config_settings: {get_attr: [CeilometerAgentCentralBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: ceilometer
+        puppet_tags: ceilometer_config
+        step_config: *step_config
+        config_image: &ceilometer_agent_central_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerCeilometerCentralImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/ceilometer-agent-central.json:
+          command: /usr/bin/ceilometer-polling --polling-namespaces central
+      docker_config:
+        step_3:
+          ceilometer_init_log:
+            start_order: 0
+            image: *ceilometer_agent_central_image
+            user: root
+            command: ['/bin/bash', '-c', 'chown -R ceilometer:ceilometer /var/log/ceilometer']
+            volumes:
+              - /var/log/containers/ceilometer:/var/log/ceilometer
+        step_4:
+          ceilometer_agent_central:
+            image: *ceilometer_agent_central_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ceilometer-agent-central.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_5:
+          ceilometer_gnocchi_upgrade:
+            start_order: 1
+            image: *ceilometer_agent_central_image
+            net: host
+            detach: false
+            privileged: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
+                  - /var/log/containers/ceilometer:/var/log/ceilometer
+            command: ["/usr/bin/ceilometer-upgrade", "--skip-metering-database"]
+      upgrade_tasks:
+        - name: Stop and disable ceilometer agent central service
+          tags: step2
+          service: name=openstack-ceilometer-agent-central state=stopped enabled=no
