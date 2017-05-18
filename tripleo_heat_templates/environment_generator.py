@@ -22,7 +22,7 @@ import yaml
 
 _PARAM_FORMAT = u"""  # %(description)s
   %(mandatory)s# Type: %(type)s
-  %(name)s: %(default)s
+  %(name)s:%(default)s
 """
 _STATIC_MESSAGE_START = (
     '  # ******************************************************\n'
@@ -44,7 +44,14 @@ _FILE_HEADER = (
     )
 # Certain parameter names can't be changed, but shouldn't be shown because
 # they are never intended for direct user input.
-_PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex']
+_PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex', 'DefaultPasswords']
+# Hidden params are not included by default when the 'all' option is used,
+# but can be explicitly included by referencing them in sample_defaults or
+# static.  This allows us to generate sample environments using them when
+# necessary, but they won't be improperly included by accident.
+_HIDDEN_PARAMS = ['EndpointMap', 'RoleName', 'RoleParameters',
+                  'ServiceNetMap',
+                  ]
 
 
 def _create_output_dir(target_file):
@@ -64,6 +71,8 @@ def _generate_environment(input_env, parent_env=None):
     env.update(input_env)
     parameter_defaults = {}
     param_names = []
+    sample_values = env.get('sample_values', {})
+    static_names = env.get('static', [])
     for template_file, template_data in env['files'].items():
         with open(template_file) as f:
             f_data = yaml.safe_load(f)
@@ -71,6 +80,10 @@ def _generate_environment(input_env, parent_env=None):
             parameter_defaults.update(f_params)
             if template_data['parameters'] == 'all':
                 new_names = [k for k, v in f_params.items()]
+                for hidden in _HIDDEN_PARAMS:
+                    if (hidden not in (static_names + sample_values.keys()) and
+                            hidden in new_names):
+                        new_names.remove(hidden)
             else:
                 new_names = template_data['parameters']
             missing_params = [name for name in new_names
@@ -82,7 +95,6 @@ def _generate_environment(input_env, parent_env=None):
                                     env['name']))
             param_names += new_names
 
-    static_names = env.get('static', [])
     static_defaults = {k: v for k, v in parameter_defaults.items()
                        if k in param_names and
                        k in static_names
@@ -93,7 +105,8 @@ def _generate_environment(input_env, parent_env=None):
                           not k.startswith('_') and
                           k not in static_names
                           }
-    for k, v in env.get('sample_values', {}).items():
+
+    for k, v in sample_values.items():
         if k in parameter_defaults:
             parameter_defaults[k]['sample'] = v
         if k in static_defaults:
@@ -108,17 +121,18 @@ def _generate_environment(input_env, parent_env=None):
             default = '<None>'
         if value.get('sample') is not None:
             default = value['sample']
+        # We ultimately cast this to str for output anyway
+        default = str(default)
         if default == '':
             default = "''"
-        try:
-            # If the default value is something like %index%, yaml won't
-            # parse the output correctly unless we wrap it in quotes.
-            # However, not all default values can be wrapped so we need to
-            # do it conditionally.
-            if default.startswith('%'):
-                default = "'%s'" % default
-        except AttributeError:
-            pass
+        # If the default value is something like %index%, yaml won't
+        # parse the output correctly unless we wrap it in quotes.
+        # However, not all default values can be wrapped so we need to
+        # do it conditionally.
+        if default.startswith('%'):
+            default = "'%s'" % default
+        if not default.startswith('\n'):
+            default = ' ' + default
 
         values = {'name': name,
                   'type': value['type'],
