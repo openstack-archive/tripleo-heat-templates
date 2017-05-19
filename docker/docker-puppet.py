@@ -18,9 +18,11 @@
 # that can be used to generate config files or run ad-hoc puppet modules
 # inside of a container.
 
+import glob
 import json
 import logging
 import os
+import sys
 import subprocess
 import sys
 import tempfile
@@ -53,6 +55,28 @@ def pull_image(name):
         log.debug(cmd_stdout)
     if cmd_stderr:
         log.debug(cmd_stderr)
+
+
+def match_config_volume(prefix, config):
+    # Match the mounted config volume - we can't just use the
+    # key as e.g "novacomute" consumes config-data/nova
+    volumes = config.get('volumes', [])
+    config_volume=None
+    for v in volumes:
+        if v.startswith(prefix):
+            config_volume =  os.path.relpath(
+                v.split(":")[0], prefix).split("/")[0]
+            break
+    return config_volume
+
+
+def get_config_hash(prefix, config_volume):
+    hashfile = os.path.join(prefix, "%s.md5sum" % config_volume)
+    hash_data = None
+    if os.path.isfile(hashfile):
+        with open(hashfile) as f:
+            hash_data = f.read().rstrip()
+    return hash_data
 
 
 def rm_container(name):
@@ -197,6 +221,10 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
              mkdir -p /var/lib/config-data/${NAME}/var/www
              cp -a /var/www/* /var/lib/config-data/${NAME}/var/www/
             fi
+
+            # Write a checksum of the config-data dir, this is used as a
+            # salt to trigger container restart when the config changes
+            tar cf - /var/lib/config-data/${NAME} | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
         fi
         """)
 
@@ -296,6 +324,31 @@ for returncode, config_volume in zip(returncodes, config_volumes):
     if returncode != 0:
         log.error('ERROR configuring %s' % config_volume)
         success = False
+
+
+# Update the startup configs with the config hash we generated above
+config_volume_prefix = os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data')
+log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
+startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
+log.debug('STARTUP_CONFIG_PATTERN: %s' % startup_configs)
+infiles = glob.glob('/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
+for infile in infiles:
+    with open(infile) as f:
+        infile_data = json.load(f)
+
+    for k, v in infile_data.iteritems():
+        config_volume = match_config_volume(config_volume_prefix, v)
+        if config_volume:
+            config_hash = get_config_hash(config_volume_prefix, config_volume)
+            if config_hash:
+                env = v.get('environment', [])
+                env.append("TRIPLEO_CONFIG_HASH=%s" % config_hash)
+                log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (k, config_volume, config_hash))
+                infile_data[k]['environment'] = env
+
+    outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
+    with open(outfile, 'w') as out_f:
+        json.dump(infile_data, out_f)
 
 if not success:
     sys.exit(1)
