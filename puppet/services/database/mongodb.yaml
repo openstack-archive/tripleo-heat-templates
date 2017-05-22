@@ -40,6 +40,13 @@ parameters:
       format: >-
         /(?<time>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d+\+\d{4})
         (?<message>.*)$/
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
   MongoDbBase:
@@ -79,6 +86,28 @@ outputs:
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
             mongodb::server::bind_ip: {get_param: [ServiceNetMap, MongodbNetwork]}
+          -
+            if:
+              - internal_tls_enabled
+              -
+                generate_service_certificates: true
+                mongodb::server::ssl: true
+                mongodb::server::ssl_key: '/etc/pki/tls/certs/mongodb.pem'
+                mongodb_certificate_specs:
+                  service_pem: '/etc/pki/tls/certs/mongodb.pem'
+                  service_certificate: '/etc/pki/tls/certs/mongodb.crt'
+                  service_key: '/etc/pki/tls/private/mongodb.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, MongodbNetwork]}
+                  principal:
+                    str_replace:
+                      template: "mongodb/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, MongodbNetwork]}
+              - {}
       step_config: |
         include ::tripleo::profile::base::database::mongodb
       upgrade_tasks:
@@ -88,3 +117,11 @@ outputs:
         - name: Start mongodb service
           tags: step4
           service: name=mongod state=started
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: mongodb
+              network: {get_param: [ServiceNetMap, MongodbNetwork]}
+              type: node
+          - null
