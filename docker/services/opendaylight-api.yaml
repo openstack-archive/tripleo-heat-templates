@@ -1,0 +1,116 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized OpenDaylight API service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerOpendaylightApiImage:
+    description: image
+    default: 'centos-binary-opendaylight:latest'
+    type: string
+  DockerOpendaylightConfigImage:
+    description: image
+    default: 'centos-binary-opendaylight:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  OpenDaylightBase:
+    type: ../../puppet/services/opendaylight-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the OpenDaylight API role.
+    value:
+      service_name: {get_attr: [OpenDaylightBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [OpenDaylightBase, role_data, config_settings]
+      step_config: &step_config
+        list_join:
+          - "\n"
+          - - get_attr: [OpenDaylightBase, role_data, step_config]
+            - "include tripleo::profile::base::neutron::opendaylight::create_cluster"
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: opendaylight
+        # 'file,concat,file_line,augeas' are included by default
+        puppet_tags: odl_user,tripleo::profile::base::neutron::opendaylight::configure_cluster
+        step_config: *step_config
+        config_image:
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerOpendaylightConfigImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/opendaylight_api.json:
+          command: /opt/opendaylight/bin/karaf
+          permissions:
+            - path: /opt/opendaylight
+              owner: odl:odl
+              recurse: true
+      docker_config:
+        step_1:
+          opendaylight_api:
+            start_order: 0
+            image: &odl_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerOpendaylightApiImage} ]
+            privileged: false
+            net: host
+            detach: true
+            user: odl
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/opendaylight_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/data/idmlight.db.mv.db:/opt/opendaylight/data/idmlight.db.mv.db
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/configuration/initial/:/opt/opendaylight/configuration/initial/
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/etc/jetty.xml:/opt/opendaylight/etc/jetty.xml:ro
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/etc/org.apache.karaf.features.cfg:/opt/opendaylight/etc/org.apache.karaf.features.cfg:ro
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/etc/org.ops4j.pax.logging.cfg:/opt/opendaylight/etc/org.ops4j.pax.logging.cfg:ro
+                  - /var/lib/config-data/opendaylight/opt/opendaylight/etc/org.opendaylight.groupbasedpolicy.neutron.vpp.mapper.startup.cfg:/opt/opendaylight/etc/org.opendaylight.groupbasedpolicy.neutron.vpp.mapper.startup.cfg:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+
+      upgrade_tasks:
+        - name: Stop and disable opendaylight_api service
+          tags: step2
+          service: name=opendaylight state=stopped enabled=no
