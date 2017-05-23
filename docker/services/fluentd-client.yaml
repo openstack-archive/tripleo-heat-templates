@@ -1,0 +1,121 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized fluentd services
+
+parameters:
+  DockerFluentdClientImage:
+    description: image
+    type: string
+  DockerFluentdConfigImage:
+    description: The container image to use fluentd config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  FluentdClientBase:
+    type: ../../puppet/services/logging/fluentd-client.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the fluentd role.
+    value:
+      service_name: {get_attr: [FluentdClientBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - {get_attr: [FluentdClientBase, role_data, config_settings]}
+          - tripleo::profile::base::logging::fluentd::fluentd_path_transform:
+              - /var/log/
+              - /var/log/containers/
+      step_config: &step_config
+        get_attr: [FluentdClientBase, role_data, step_config]
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: fluentd
+        puppet_tags: config
+        step_config: *step_config
+        config_image: {get_param: DockerFluentdConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/fluentd.json:
+          command: /usr/bin/fluentd -c /etc/fluentd/fluent.conf -o /var/log/fluentd/fluentd.log
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/fluentd
+              owner: fluentd:fluentd
+              recurse: true
+            - path: /var/log/fluentd
+              owner: fluentd:fluentd
+              recurse: true
+      docker_config:
+        step_3:
+          fluentd_client:
+            image: {get_param: DockerFluentdClientImage}
+            net: host
+            privileged: true
+            user: root
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/cache/containers/fluentd:/var/cache/fluentd:rw
+                  - /var/lib/kolla/config_files/fluentd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/fluentd/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers:/var/log/containers:ro
+                  - /var/log/containers/fluentd:/var/log/fluentd:rw
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory for fluentd
+          file:
+            path: /var/log/containers/fluentd
+            state: directory
+        - name: create persistent cache directory
+          file:
+            path: /var/cache/containers/fluentd
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable fluentd service
+          tags: step2
+          service: name=fluentd.service state=stopped enabled=no
+
