@@ -31,6 +31,7 @@ envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
+OPTIONAL_SECTIONS = ['service_workflow_tasks']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings', 'step_config']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
@@ -270,6 +271,8 @@ def validate_docker_service(filename, tpl):
                 continue
             else:
                 if section_name in OPTIONAL_DOCKER_SECTIONS:
+                    continue
+                elif section_name in OPTIONAL_SECTIONS:
                     continue
                 else:
                     print('ERROR: %s is extra in role_data for %s.'
