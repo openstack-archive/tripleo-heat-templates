@@ -293,6 +293,14 @@ resources:
       RoleName: {{role.name}}
       RoleParameters: {get_param: {{role.name}}Parameters}
 
+  # Lookup of role_data via heat outputs is slow, so workaround this by caching
+  # the value in an OS::Heat::Value resource
+  {{role.name}}ServiceChainRoleData:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value: {get_attr: [{{role.name}}ServiceChain, role_data]}
+
   # Filter any null/None service_names which may be present due to mapping
   # of services to OS::Heat::None
   {{role.name}}ServiceNames:
@@ -303,7 +311,7 @@ resources:
       value:
         yaql:
           expression: coalesce($.data, []).where($ != null)
-          data: {get_attr: [{{role.name}}ServiceChain, role_data, service_names]}
+          data: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_names]}
 
   {{role.name}}HostsDeployment:
     type: OS::Heat::StructuredDeployments
@@ -403,7 +411,7 @@ resources:
   {% endif %}
           ServiceConfigSettings:
             map_merge:
-              -  get_attr: [{{role.name}}ServiceChain, role_data, config_settings]
+              -  get_attr: [{{role.name}}ServiceChainRoleData, value, config_settings]
           {% for r in roles %}
               - get_attr: [{{r.name}}ServiceChain, role_data, global_config_settings]
           {% endfor %}
@@ -423,8 +431,8 @@ resources:
                         {% endfor %}
                     services: {get_attr: [{{role.name}}ServiceNames, value]}
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
-          MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChain, role_data, monitoring_subscriptions]}
-          ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChain, role_data, service_metadata_settings]}
+          MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChainRoleData, value, monitoring_subscriptions]}
+          ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_metadata_settings]}
 {% endfor %}
 
   hostsConfig:
@@ -465,7 +473,7 @@ resources:
           data:
             groups:
 {% for role in roles %}
-              - {get_attr: [{{role.name}}ServiceChain, role_data, logging_groups]}
+              - {get_attr: [{{role.name}}ServiceChainRoleData, value, logging_groups]}
 {% endfor %}
       logging_sources:
         yaql:
@@ -474,7 +482,7 @@ resources:
           data:
             sources:
 {% for role in roles %}
-              - {get_attr: [{{role.name}}ServiceChain, role_data, logging_sources]}
+              - {get_attr: [{{role.name}}ServiceChainRoleData, value, logging_sources]}
 {% endfor %}
       controller_ips: {get_attr: [{{primary_role_name}}, ip_address]}
       controller_names: {get_attr: [{{primary_role_name}}, hostname]}
@@ -686,7 +694,7 @@ resources:
       EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
       role_data:
 {% for role in roles %}
-        {{role.name}}: {get_attr: [{{role.name}}ServiceChain, role_data]}
+        {{role.name}}: {get_attr: [{{role.name}}ServiceChainRoleData, value]}
 {% endfor %}
 
 outputs:
@@ -725,7 +733,7 @@ outputs:
     description: The configuration data associated with each role
     value:
 {% for role in roles %}
-      {{role.name}}: {get_attr: [{{role.name}}ServiceChain, role_data]}
+      {{role.name}}: {get_attr: [{{role.name}}ServiceChainRoleData, value]}
 {% endfor %}
   RoleNetIpMap:
     description: Mapping of each network to a list of IPs for each role
