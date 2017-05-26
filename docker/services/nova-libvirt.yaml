@@ -18,6 +18,10 @@ parameters:
     description: image
     default: 'centos-binary-nova-compute:latest'
     type: string
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation
+    type: boolean
   ServiceNetMap:
     default: {}
     description: Mapping of service_name -> network name. Typically set
@@ -112,6 +116,7 @@ outputs:
                   - /var/run/libvirt:/var/run/libvirt
                   - /var/lib/libvirt:/var/lib/libvirt
                   - /etc/libvirt/qemu:/etc/libvirt/qemu
+                  - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
                   - /var/log/containers/nova:/var/log/nova
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
@@ -124,6 +129,22 @@ outputs:
             - /etc/libvirt/qemu
             - /var/lib/libvirt
             - /var/log/containers/nova
+        - name: set enable_package_install fact
+          set_fact:
+            enable_package_install: {get_param: EnablePackageInstall}
+        # We use virtlogd on host, so when using Deployed Server
+        # feature, we need to ensure libvirt is installed.
+        - name: install libvirt-daemon
+          package:
+            name: libvirt-daemon
+            state: present
+          when: enable_package_install
+        - name: start virtlogd socket
+          service:
+            name: virtlogd.socket
+            state: started
+            enabled: yes
+          when: enable_package_install
       upgrade_tasks:
         - name: Stop and disable libvirtd service
           tags: step2
