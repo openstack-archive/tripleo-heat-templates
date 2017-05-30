@@ -1,7 +1,7 @@
 heat_template_version: pike
 
 description: >
-  OpenStack Neutron SR-IOV nic agent configured with Puppet
+  OpenStack Neutron SR-IOV host configuration
 
 parameters:
   ServiceData:
@@ -31,25 +31,6 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  NeutronPhysicalDevMappings:
-    description: >
-      List of <physical_network>:<physical device>
-      All physical networks listed in network_vlan_ranges
-      on the server should have mappings to appropriate
-      interfaces on each agent.
-      Example "tenant0:ens2f0,tenant1:ens2f1"
-    type: comma_delimited_list
-    default: ""
-  NeutronExcludeDevices:
-    description: >
-      List of <network_device>:<excluded_devices> mapping
-      network_device to the agent's node-specific list of virtual functions
-      that should not be used for virtual networking. excluded_devices is a
-      semicolon separated list of virtual functions to exclude from
-      network_device. The network_device in the mapping should appear in the
-      physical_device_mappings list.
-    type: comma_delimited_list
-    default: ""
   NeutronSriovNumVFs:
     description: >
       Provide the list of VFs to be reserved for each SR-IOV interface.
@@ -79,37 +60,19 @@ resources:
       value:
         map_replace:
           - map_replace:
-            - neutron::agents::ml2::sriov::physical_device_mappings: NeutronPhysicalDevMappings
-              neutron::agents::ml2::sriov::exclude_devices: NeutronExcludeDevices
-              tripleo::host::sriov::number_of_vfs: NeutronSriovNumVFs
+            - tripleo::host::sriov::number_of_vfs: NeutronSriovNumVFs
             - values: {get_param: [RoleParameters]}
           - values:
-              NeutronPhysicalDevMappings: {get_param: NeutronPhysicalDevMappings}
-              NeutronExcludeDevices: {get_param: NeutronExcludeDevices}
               NeutronSriovNumVFs: {get_param: NeutronSriovNumVFs}
 
 outputs:
   role_data:
     description: Role data for the Neutron SR-IOV nic agent service.
     value:
-      service_name: neutron_sriov_agent
+      service_name: neutron_sriov_host_config
       config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
       step_config: |
-        include ::tripleo::profile::base::neutron::sriov
-      upgrade_tasks:
-        - name: Check if neutron_sriov_agent is deployed
-          command: systemctl is-enabled neutron-sriov-nic-agent
-          tags: common
-          ignore_errors: True
-          register: neutron_sriov_nic_agent_enabled
-        - name: "PreUpgrade step0,validation: Check service neutron-server is running"
-          shell: /usr/bin/systemctl show 'neutron-sriov-nic-agent' --property ActiveState | grep '\bactive\b'
-          when: neutron_sriov_nic_agent_enabled.rc == 0
-          tags: step0,validation
-        - name: Stop neutron_sriov_nic_agent service
-          tags: step1
-          when: neutron_sriov_nic_agent_enabled.rc == 0
-          service: name=neutron-sriov-nic-agent state=stopped
+        include ::tripleo::host::sriov
