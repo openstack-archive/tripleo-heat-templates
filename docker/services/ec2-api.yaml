@@ -1,0 +1,153 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized EC2 API service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerEc2ApiImage:
+    description: image
+    default: 'centos-binary-ec2-api:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  Ec2ApiPuppetBase:
+      type: ../../puppet/services/ec2-api.yaml
+      properties:
+        EndpointMap: {get_param: EndpointMap}
+        ServiceNetMap: {get_param: ServiceNetMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+        RoleName: {get_param: RoleName}
+        RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the EC2 API role.
+    value:
+      service_name: {get_attr: [Ec2ApiPuppetBase, role_data, service_name]}
+      config_settings: {get_attr: [Ec2ApiPuppetBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [Ec2ApiPuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [Ec2ApiPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: ec2api
+        puppet_tags: ec2api_api_paste_ini,ec2api_config
+        step_config: *step_config
+        config_image: &ec2_api_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerEc2ApiImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/ec2_api.json:
+          command: /usr/bin/ec2-api
+          permissions:
+            - path: /var/log/ec2api
+              owner: ec2api:ec2api
+              recurse: true
+        /var/lib/kolla/config_files/ec2_api_metadata.json:
+          command: /usr/bin/ec2-api-metadata
+          permissions:
+            - path: /var/log/ec2api # default log dir for metadata service as well
+              owner: ec2api:ec2api
+              recurse: true
+      docker_config:
+        # db sync runs before permissions set by kolla_config
+        step_2:
+          ec2_api_init_logs:
+            image: *ec2_api_image
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/ec2_api:/var/log/ec2api
+              # mount ec2_api_metadata to "ec2api-metadata" only here to fix
+              # permissions of both directories in one go
+              - /var/log/containers/ec2_api_metadata:/var/log/ec2api-metadata
+            command: ['/bin/bash', '-c', 'chown -R ec2api:ec2api /var/log/ec2api /var/log/ec2api-metadata']
+        step_3:
+          ec2_api_db_sync:
+            image: *ec2_api_image
+            net: host
+            detach: false
+            privileged: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/ec2_api/etc/ec2api/:/etc/ec2api/:ro
+                  - /var/log/containers/ec2_api:/var/log/ec2api
+            command: "/usr/bin/bootstrap_host_exec ec2_api su ec2api -s /bin/bash -c '/usr/bin/ec2-api-manage db_sync'"
+        step_4:
+          ec2_api:
+            image: *ec2_api_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ec2_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ec2_api/etc/ec2api/:/etc/ec2api/:ro
+                  - /var/log/containers/ec2_api:/var/log/ec2api
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          ec2_api_metadata:
+            image: *ec2_api_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ec2_api_metadata.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ec2_api/etc/ec2api/:/etc/ec2api/:ro
+                  - /var/log/containers/ec2_api_metadata:/var/log/ec2api
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent log directories
+          file:
+            path: /var/log/containers/{{ item }}
+            state: directory
+          with_items:
+            - ec2_api
+            - ec2_api_metadata
+      upgrade_tasks:
+        - name: Stop and disable EC2-API services
+          tags: step2
+          service: name={{ item }} state=stopped enabled=no
+          with_items:
+            - openstack-ec2-api
+            - openstack-ec2-api-metadata
