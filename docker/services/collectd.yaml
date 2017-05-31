@@ -1,0 +1,94 @@
+heat_template_version: pike
+
+description: >
+  Containerized collectd service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerCollectdImage:
+    description: image
+    default: 'centos-binary-collectd:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  CollectdBase:
+    type: ../../puppet/services/metrics/collectd.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the collectd role.
+    value:
+      service_name: {get_attr: [CollectdBase, role_data, service_name]}
+      config_settings: {get_attr: [CollectdBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [CollectdBase, role_data, step_config]
+      service_config_settings: {get_attr: [CollectdBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: collectd
+        puppet_tags:  collectd_client_config
+        step_config: *step_config
+        config_image: &collectd_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerCollectdImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/collectd.json:
+          command: /usr/sbin/collectd -f
+      docker_config:
+        step_3:
+          collectd:
+            image: *collectd_image
+            net: host
+            privileged: true
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/run/docker.sock:/var/run/docker.sock:rw
+                  - /var/lib/kolla/config_files/collectd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/collectd/etc/collectd/:/etc/collectd/:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      upgrade_tasks:
+        - name: Stop and disable collectd service
+          tags: step2
+          service: name=collectd.service state=stopped enabled=no
+
