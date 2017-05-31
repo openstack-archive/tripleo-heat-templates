@@ -1,0 +1,213 @@
+heat_template_version: queens
+
+description: >
+  OpenStack containerized novajoin service
+
+parameters:
+  DockerNovajoinServerImage:
+    description: image
+    type: string
+  DockerNovajoinNotifierImage:
+    description: image
+    type: string
+  DockerNovajoinConfigImage:
+    description: image
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  NovajoinPassword:
+    description: The password for the Novajoin service account.
+    type: string
+    hidden: true
+  NovaPassword:
+    description: The password for the nova service and db account
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  RabbitClientPort:
+    default: 5672
+    description: Set rabbit subscriber port, change this if using SSL
+    type: number
+  RabbitClientUseSSL:
+    default: false
+    description: >
+        Rabbit client subscriber parameter to specify
+        an SSL connection to the RabbitMQ host.
+    type: string
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  NovajoinIpaOtp:
+    default: ''
+    description: The OTP to use to enroll to FreeIPA
+    type: string
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the novajoin API role.
+    value:
+      service_name: novajoin
+      config_settings:
+        tripleo::profile::base::novajoin::oslomsg_rpc_password: {get_param: RabbitPassword}
+        tripleo::profile::base::novajoin::oslomsg_rpc_port: {get_param: RabbitClientPort}
+        tripleo::profile::base::novajoin::oslomsg_rpc_username: {get_param: RabbitUserName}
+        tripleo::profile::base::novajoin::oslomsg_use_ssl: {get_param: RabbitClientUseSSL}
+        tripleo::profile::base::novajoin::service_password: {get_param: NovajoinPassword}
+        nova::metadata::novajoin::api::bind_address: {get_param: [ServiceNetMap, NovajoinNetwork]}
+        nova::metadata::novajoin::api::join_listen_port: 9090
+        nova::metadata::novajoin::api::keystone_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        # We will rely on the host being enrolled for this
+        nova::metadata::novajoin::api::enable_ipa_client_install: false
+        # Since we rely on the host to be enrolled, we need to configure
+        # kerberos via puppet.
+        nova::metadata::novajoin::api::configure_kerberos: true
+        nova::metadata::novajoin::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        nova::metadata::novajoin::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        nova::metadata::novajoin::authtoken::password: {get_param: NovajoinPassword}
+        nova::metadata::novajoin::authtoken::project_name: 'service'
+        tripleo.novajoin.firewall_rules:
+          '119 novajoin':
+            dport:
+              - 9090
+      step_config: &step_config |
+        include ::tripleo::profile::base::novajoin
+      service_config_settings:
+        keystone:
+          nova::metadata::novajoin::auth::tenant: 'service'
+          nova::metadata::novajoin::auth::password: {get_param: NovajoinPassword}
+          nova::metadata::novajoin::auth::region: {get_param: KeystoneRegion}
+        # FIXME: What other nova roles should contain this info? Do the
+        # controllers need the notification_topics and notify_on_state_change
+        # hieradata? This should work in a containerized undercloud though,
+        # since the hieradata is shared and it's only one node.
+        nova_api:
+          novajoin_address:
+            str_replace:
+               template:
+                 "%{hiera('$NETWORK')}"
+               params:
+                 $NETWORK:  {get_param: [ServiceNetMap, NovajoinNetwork]}
+          nova::api::vendordata_jsonfile_path: '/etc/nova/cloud-config-novajoin.json'
+          nova::api::vendordata_providers: ['StaticJSON', 'DynamicJSON']
+          # TODO(jaosorior): Add TLS support here. Novajoin is currently not
+          # accessed behind haproxy, but is accessed directly instead. For this
+          # reason, we don't use the make_url function. Also note that for now
+          # this is only meant to be used in a single node containerized
+          # undercloud. Multinode support will come later.
+          nova::api::vendordata_dynamic_targets:
+            - "join@http://%{hiera('novajoin_address')}:9090/v1/"
+          nova::api::vendordata_dynamic_failure_fatal: true
+          nova::api::vendordata_dynamic_auth_auth_type: 'password'
+          nova::api::vendordata_dynamic_auth_auth_url:
+            get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]
+          nova::api::vendordata_dynamic_auth_os_region_name:
+            get_param: KeystoneRegion
+          nova::api::vendordata_dynamic_auth_username: 'nova'
+          nova::api::vendordata_dynamic_auth_project_name: 'service'
+          nova::api::vendordata_dynamic_auth_project_domain_name: 'Default'
+          nova::api::vendordata_dynamic_auth_user_domain_name: 'Default'
+          nova::api::vendordata_dynamic_auth_password: {get_param: NovaPassword}
+          nova::notification_topics: ['notifications', 'novajoin_notifications']
+          nova::notify_on_state_change: 'vm_state'
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: novajoin
+        puppet_tags: novajoin_config
+        step_config: *step_config
+        config_image: {get_param: DockerNovajoinConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/novajoin_server.json:
+          command: novajoin-server --log-file /dev/stdout --config-file /etc/novajoin/join.conf
+        /var/lib/kolla/config_files/novajoin_notifier.json:
+          command: novajoin-notify --log-file /dev/stdout --config-file /etc/novajoin/join.conf
+      docker_config:
+        step_4:
+          novajoin_server:
+            start_order: 0
+            image: {get_param: DockerNovajoinServerImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/novajoin_server.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/novajoin/etc/novajoin/join.conf:/etc/novajoin/join.conf:Z
+                  - /etc/ipa/:/etc/ipa/:ro
+                  - /etc/novajoin/krb5.keytab:/etc/novajoin/krb5.keytab:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - KRB5_CONFIG=/etc/novajoin/krb5.conf
+          novajoin_notifier:
+            start_order: 1
+            image: {get_param: DockerNovajoinNotifierImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/novajoin_notifier.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/novajoin/etc/novajoin/join.conf:/etc/novajoin/join.conf:Z
+                  - /etc/ipa/:/etc/ipa/:ro
+                  - /etc/novajoin/krb5.keytab:/etc/novajoin/krb5.keytab:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - KRB5_CONFIG=/etc/novajoin/krb5.conf
+      host_prep_tasks:
+        - name: Ensure FreeIPA Client package is present
+          package:
+            name: ipa-client
+            state: present
+        - name: Set FreeIPA OTP fact
+          set_fact:
+            ipa_otp: {get_param: NovajoinIpaOtp}
+          no_log: true
+        - name: Enroll to FreeIPA
+          command: ipa-client-install -U --password={{ ipa_otp }}
+          args:
+            creates: /etc/ipa/default.conf
+          when: ipa_otp != ''
+        - name: Request kerberos keytab
+          shell: "/usr/bin/kinit -kt /etc/krb5.keytab && ipa-getkeytab -s $(grep xmlrpc_uri /etc/ipa/default.conf  | cut -d/ -f3) -p nova/{{ ansible_nodename }} -k /etc/novajoin/krb5.keytab"
+          args:
+            creates: /etc/novajoin/krb5.keytab
