@@ -146,13 +146,15 @@ def process_templates(template_path, role_data_path, output_dir,
                             out_f_path = os.path.join(out_dir, out_f)
                             if not (out_f_path in excl_templates):
                                 if '{{role.name}}' in template_data:
-                                    j2_data = {'role': r_map[role]}
+                                    j2_data = {'role': r_map[role],
+                                               'networks': network_data}
                                     _j2_render_to_file(template_data, j2_data,
                                                        out_f_path, overwrite)
                                 else:
                                     # Backwards compatibility with templates
                                     # that specify {{role}} vs {{role.name}}
-                                    j2_data = {'role': role}
+                                    j2_data = {'role': role,
+                                               'networks': network_data}
                                     # (dprince) For the undercloud installer we
                                     # don'twant to have heat check nova/glance
                                     # API's
