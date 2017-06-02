@@ -197,6 +197,12 @@ parameters:
     description: >
       Set to true to append per network Vips to /etc/hosts on each node.
 
+  DeploymentServerBlacklist:
+    default: []
+    type: comma_delimited_list
+    description: >
+      List of server hostnames to blacklist from any triggered deployments.
+
 conditions:
   add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
 
@@ -318,14 +324,14 @@ resources:
     properties:
       name: {{role.name}}HostsDeployment
       config: {get_attr: [hostsConfig, config_id]}
-      servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+      servers: {get_attr: [{{role.name}}Servers, value]}
 
   {{role.name}}SshKnownHostsDeployment:
     type: OS::Heat::StructuredDeployments
     properties:
       name: {{role.name}}SshKnownHostsDeployment
       config: {get_resource: SshKnownHostsConfig}
-      servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+      servers: {get_attr: [{{role.name}}Servers, value]}
 
   {{role.name}}AllNodesDeployment:
     type: OS::Heat::StructuredDeployments
@@ -336,7 +342,7 @@ resources:
     properties:
       name: {{role.name}}AllNodesDeployment
       config: {get_attr: [allNodesConfig, config_id]}
-      servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+      servers: {get_attr: [{{role.name}}Servers, value]}
       input_values:
         # Note we have to use yaql to look up the first hostname/ip in the
         # list because heat path based attributes operate on the attribute
@@ -358,7 +364,7 @@ resources:
     properties:
       name: {{role.name}}AllNodesValidationDeployment
       config: {get_resource: AllNodesValidationConfig}
-      servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+      servers: {get_attr: [{{role.name}}Servers, value]}
 
   {{role.name}}IpListMap:
     type: OS::TripleO::Network::Ports::NetIpListMap
@@ -439,7 +445,38 @@ resources:
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChainRoleData, value, monitoring_subscriptions]}
           ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_metadata_settings]}
+          DeploymentServerBlacklistDict: {get_attr: [DeploymentServerBlacklistDict, value]}
 {% endfor %}
+
+{% for role in roles %}
+  {{role.name}}Servers:
+    type: OS::Heat::Value
+    depends_on: {{role.name}}
+    properties:
+      type: json
+      value:
+        yaql:
+          expression: let(servers=>switch(isDict($.data.servers) => $.data.servers, true => {})) -> $servers.deleteAll($servers.keys().where($servers[$] = null))
+          data:
+            servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+{% endfor %}
+
+  # This resource just creates a dict out of the DeploymentServerBlacklist,
+  # which is a list. The dict is used in the role templates to set a condition
+  # on whether to create the deployment resources. We can't use the list
+  # directly because there is no way to ask Heat if a list contains a specific
+  # value.
+  DeploymentServerBlacklistDict:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+          repeat:
+            template:
+              hostname: 1
+            for_each:
+              hostname: {get_param: DeploymentServerBlacklist}
 
   hostsConfig:
     type: OS::TripleO::Hosts::SoftwareConfig
@@ -663,7 +700,7 @@ resources:
     properties:
       servers:
 {% for role in roles %}
-        {{role.name}}: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+        {{role.name}}: {get_attr: [{{role.name}}Servers, value]}
 {% endfor %}
       input_values:
         deploy_identifier: {get_param: DeployIdentifier}
@@ -681,7 +718,7 @@ resources:
     properties:
       servers:
 {% for role in roles %}
-        {{role.name}}: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+        {{role.name}}: {get_attr: [{{role.name}}Servers, value]}
 {% endfor %}
 
   # Post deployment steps for all roles
@@ -695,7 +732,7 @@ resources:
     properties:
       servers:
 {% for role in roles %}
-        {{role.name}}: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
+        {{role.name}}: {get_attr: [{{role.name}}Servers, value]}
 {% endfor %}
       EndpointMap: {get_attr: [EndpointMap, endpoint_map]}
       role_data:
