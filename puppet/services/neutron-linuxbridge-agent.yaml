@@ -1,0 +1,83 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Neutron Linuxbridge agent configured with Puppet.
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  PhysicalInterfaceMapping:
+    description: List of  <physical_network>:<physical_interface> tuples
+                 mapping physical network names to agent's node-specific
+                 physical network interfaces. Defaults to empty list.
+    type: comma_delimited_list
+    default: ''
+  NeutronLinuxbridgeFirewallDriver:
+    default: ''
+    description: Configure the classname of the firewall driver to  use  for
+                 implementing security groups.  Possible  values  depend  on
+                 system  configuration. The default value of an empty string
+                 will result in a default supported configuration.
+    type: string
+  NeutronEnableL2Pop:
+    type: string
+    description: Enable/disable the L2 population feature in the Neutron agents.
+    default: 'False'
+  NeutronTunnelTypes:
+    default: 'vxlan'
+    description: The tunnel types for the Neutron tenant network.
+    type: comma_delimited_list
+
+conditions:
+  no_firewall_driver: {equals : [{get_param: NeutronLinuxbridgeFirewallDriver}, '']}
+
+resources:
+
+  NeutronBase:
+    type: ./neutron-base.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+
+outputs:
+  role_data:
+    description: Role data for the Neutron Linuxbridge agent service.
+    value:
+      service_name: neutron_linuxbridge_agent
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - neutron::agents::ml2::linuxbridge::physical_interface_mappings: {get_param: PhysicalInterfaceMapping}
+            neutron::agents::ml2::linuxbridge::l2_population: {get_param: NeutronEnableL2Pop}
+            neutron::agents::ml2::linuxbridge::tunnel_types: {get_param: NeutronTunnelTypes}
+            neutron::agents::ml2::linuxbridge::local_ip: {get_param: [ServiceNetMap, NeutronTenantNetwork]}
+            neutron::agents::dhcp::interface_driver: 'neutron.agent.linux.interface.BridgeInterfaceDriver'
+            neutron::agents::dhcp::dhcp_driver: 'neutron.agent.linux.dhcp.Dnsmasq'
+          -
+            if:
+            - no_firewall_driver
+            - {}
+            - neutron::agents::ml2::linuxbridge::firewall_driver: {get_param: NeutronLinuxbridgeFirewallDriver}
+      step_config: |
+        include ::tripleo::profile::base::neutron::linuxbridge
