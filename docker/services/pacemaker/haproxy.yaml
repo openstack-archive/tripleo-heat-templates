@@ -1,0 +1,116 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized HAproxy service for pacemaker
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerHAProxyImage:
+    description: image
+    default: 'centos-binary-haproxy:latest'
+    type: string
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  HAProxyBase:
+    type: ../../../puppet/services/pacemaker/haproxy.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the HAproxy role.
+    value:
+      service_name: {get_attr: [HAProxyBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [HAProxyBase, role_data, config_settings]
+          - tripleo::haproxy::haproxy_daemon: false
+            haproxy_docker: true
+            tripleo::profile::pacemaker::haproxy_bundle::haproxy_docker_image: &haproxy_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerHAProxyImage} ]
+      step_config:
+          list_join:
+            - "\n"
+            - - &noop_pcmk "['pcmk_bundle', 'pcmk_resource', 'pcmk_property', 'pcmk_constraint', 'pcmk_resource_default'].each |String $val| { noop_resource($val) }"
+              - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
+      service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: haproxy
+        puppet_tags: haproxy_config
+        step_config:
+          list_join:
+            - "\n"
+            - - "exec {'wait-for-settle': command => '/bin/true' }"
+              - &noop_firewall "class tripleo::firewall(){}; define tripleo::firewall::rule( $port = undef, $dport = undef, $sport = undef, $proto = undef, $action = undef, $state = undef, $source = undef, $iniface = undef, $chain = undef, $destination = undef, $extras = undef){}"
+              - *noop_pcmk
+              - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
+        config_image: *haproxy_image
+      kolla_config:
+        /var/lib/kolla/config_files/haproxy.json:
+          command: haproxy -f /etc/haproxy/haproxy.cfg
+      docker_config:
+        step_2:
+          haproxy_init_bundle:
+            start_order: 3
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    list_join:
+                      - '; '
+                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
+                        - "FACTER_uuid=docker puppet apply --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
+                  params:
+                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    CONFIG:
+                      list_join:
+                        - ';'
+                        - - *noop_firewall
+                          - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::haproxy_bundle'
+            image: *haproxy_image
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /etc/puppet:/tmp/puppet-etc:ro
+              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+              - /dev/shm:/dev/shm:rw
+      metadata_settings:
+        get_attr: [HAProxyBase, role_data, metadata_settings]
