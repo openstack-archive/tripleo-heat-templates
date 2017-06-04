@@ -1,0 +1,140 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Redis services
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerRedisImage:
+    description: image
+    default: 'centos-binary-redis:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  RedisBase:
+    type: ../../../../puppet/services/database/redis.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Redis API role.
+    value:
+      service_name: {get_attr: [RedisBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - {get_attr: [RedisBase, role_data, config_settings]}
+          - redis::service_manage: false
+            redis::notify_service: false
+            redis::managed_by_cluster_manager: true
+            tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image
+              list_join:
+                - '/'
+                - - {get_param: DockerNamespace}
+                  - {get_param: DockerRedisImage}
+
+      step_config: ""
+      service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: 'redis'
+        # NOTE: we need the exec tag to copy /etc/redis.conf.puppet to
+        # /etc/redis.conf
+        # https://github.com/arioch/puppet-redis/commit/1c004143223e660cbd433422ff8194508aab9763
+        puppet_tags: 'exec'
+        step_config:
+          get_attr: [RedisBase, role_data, step_config]
+        config_image: *redis_image
+      kolla_config:
+        /var/lib/kolla/config_files/redis.json:
+          command: /usr/sbin/pacemaker_remoted
+          config_files:
+            - dest: /etc/libqb/force-filesystem-sockets
+              source: /dev/null
+              owner: root
+              perm: '0644'
+          permissions:
+            - path: /var/run/redis
+              owner: redis:redis
+              recurse: true
+            - path: /var/lib/redis
+              owner: redis:redis
+              recurse: true
+            - path: /var/log/redis
+              owner: redis:redis
+              recurse: true
+      docker_config:
+        step_2:
+          redis_init_bundle:
+            start_order: 2
+            detach: false
+            net: host
+            user: root
+            config_volume: 'redis_init_bundle'
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    list_join:
+                      - '; '
+                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
+                        - "FACTER_uuid=docker puppet apply --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
+                  params:
+                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::redis_bundle'
+            image: *redis_image
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /etc/puppet:/tmp/puppet-etc:ro
+              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+              - /dev/shm:/dev/shm:rw
+      host_prep_tasks:
+        - name: create /var/run/redis
+          file:
+            path: /var/run/redis
+            state: directory
+        - name: create /var/log/redis
+          file:
+            path: /var/log/redis
+            state: directory
+        - name: create /var/lib/redis
+          file:
+            path: /var/lib/redis
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable redis service
+          tags: step2
+          service: name=redis state=stopped enabled=no
