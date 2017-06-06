@@ -100,7 +100,7 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
 fi
 
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1669714
-special_case_ovs_upgrade_if_needed
+update_network
 
 if grep -q '^pipeline = ssl_header_handler faultwrap osvolumeversionapp' /etc/cinder/api-paste.ini; then
     # Revert back cinder SSL setup as it's going to be handled by wsgi.
