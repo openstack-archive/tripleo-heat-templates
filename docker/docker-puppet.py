@@ -176,6 +176,10 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             mkdir -p /var/lib/config-data/${NAME}/etc
             cp -a /etc/* /var/lib/config-data/${NAME}/etc/
 
+            # workaround LP1696283
+            mkdir -p /var/lib/config-data/${NAME}/etc/ssh
+            touch /var/lib/config-data/${NAME}/etc/ssh/ssh_known_hosts
+
             if [ -d /root/ ]; then
               cp -a /root/ /var/lib/config-data/${NAME}/root/
             fi
