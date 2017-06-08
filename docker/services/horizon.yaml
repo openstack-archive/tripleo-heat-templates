@@ -1,0 +1,128 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Horizon service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerHorizonImage:
+    description: image
+    default: 'centos-binary-horizon:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  HorizonBase:
+    type: ../../puppet/services/horizon.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Horizon API role.
+    value:
+      service_name: {get_attr: [HorizonBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [HorizonBase, role_data, config_settings]
+          - horizon::vhost_extra_params:
+              add_listen: true
+              priority: 10
+              access_log_format: '%a %l %u %t \"%r\" %>s %b \"%%{}{Referer}i\" \"%%{}{User-Agent}i\"'
+              options: ['FollowSymLinks','MultiViews']
+          - horizon::secure_cookies: false
+      step_config: {get_attr: [HorizonBase, role_data, step_config]}
+      service_config_settings: {get_attr: [HorizonBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: horizon
+        puppet_tags: horizon_config
+        step_config: {get_attr: [HorizonBase, role_data, step_config]}
+        config_image: &horizon_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerHorizonImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/horizon.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          permissions:
+            - path: /var/log/horizon/
+              owner: apache:apache
+              recurse: true
+            # FIXME Apache tries to write a .lock file there
+            - path: /usr/share/openstack-dashboard/openstack_dashboard/local/
+              owner: apache:apache
+              recurse: false
+      docker_config:
+        step_3:
+          horizon_fix_perms:
+            image: *horizon_image
+            user: root
+            # NOTE Set ownership for /var/log/horizon/horizon.log file here,
+            # otherwise it's created by root when generating django cache.
+            # FIXME Apache needs to read files in /etc/openstack-dashboard
+            # Need to set permissions to match the BM case,
+            # http://paste.openstack.org/show/609819/
+            command: ['/bin/bash', '-c', 'touch /var/log/horizon/horizon.log && chown -R apache:apache /var/log/horizon && chmod -R a+rx /etc/openstack-dashboard']
+            volumes:
+              - /var/log/containers/horizon:/var/log/horizon
+              - /var/lib/config-data/horizon/etc/:/etc/
+          horizon:
+            start_order: 1
+            image: *horizon_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/horizon.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/horizon/etc/httpd:/etc/httpd:ro
+                  - /var/lib/config-data/horizon/etc/openstack-dashboard:/etc/openstack-dashboard:ro
+                  - /var/log/containers/horizon:/var/log/horizon
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/horizon
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable horizon service (running under httpd)
+          tags: step2
+          service: name=httpd state=stopped enabled=no
+      metadata_settings:
+        get_attr: [HorizonBase, role_data, metadata_settings]
