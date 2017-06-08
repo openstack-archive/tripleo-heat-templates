@@ -54,6 +54,9 @@ A description of the directory layout in TripleO Heat Templates.
  * validation-scripts: validation scripts useful to all deployment
                        configurations
 
+ * roles: example roles that can be used with the tripleoclient to generate
+          a roles_data.yaml for a deployment See the
+          `roles/README.rst <roles/README.rst>`_ for additional details.
 
 Service testing matrix
 ----------------------
