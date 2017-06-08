@@ -219,12 +219,10 @@ def validate(filename):
 
         # qdr aliases rabbitmq service to provide alternative messaging backend
         if (filename.startswith('./puppet/services/') and
-                filename not in ['./puppet/services/services.yaml',
-                                 './puppet/services/qdr.yaml']):
+                filename not in ['./puppet/services/qdr.yaml']):
             retval = validate_service(filename, tpl)
 
-        if (filename.startswith('./docker/services/') and
-                filename != './docker/services/services.yaml'):
+        if filename.startswith('./docker/services/'):
             retval = validate_docker_service(filename, tpl)
 
         if filename.endswith('hyperconverged-ceph.yaml'):
