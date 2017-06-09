@@ -337,6 +337,8 @@ param_map = {}
 for base_path in path_args:
     if os.path.isdir(base_path):
         for subdir, dirs, files in os.walk(base_path):
+            if '.tox' in dirs:
+                dirs.remove('.tox')
             for f in files:
                 if f.endswith('.yaml') and not f.endswith('.j2.yaml'):
                     file_path = os.path.join(subdir, f)
