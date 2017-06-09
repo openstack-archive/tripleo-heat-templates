@@ -105,6 +105,22 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - nova::compute::vcpu_pin_set: NovaVcpuPinSet
+              nova::compute::reserved_host_memory: NovaReservedHostMemory
+            - values: {get_param: [RoleParameters]}
+          - values:
+              NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
+              NovaReservedHostMemory: {get_param: NovaReservedHostMemory}
+
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
@@ -117,14 +133,18 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [NovaBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           - nova::compute::libvirt::manage_libvirt_services: false
             nova::compute::pci_passthrough:
               str_replace:
                 template: "JSON_PARAM"
                 params:
-                  JSON_PARAM: {get_param: NovaPCIPassthrough}
-            nova::compute::vcpu_pin_set: {get_param: NovaVcpuPinSet}
-            nova::compute::reserved_host_memory: {get_param: NovaReservedHostMemory}
+                  map_replace:
+                    - map_replace:
+                      - JSON_PARAM: NovaPCIPassthrough
+                      - values: {get_param: [RoleParameters]}
+                    - values:
+                        NovaPCIPassthrough: {get_param: NovaPCIPassthrough}
             # we manage migration in nova common puppet profile
             nova::compute::libvirt::migration_support: false
             tripleo::profile::base::nova::manage_migration: true
