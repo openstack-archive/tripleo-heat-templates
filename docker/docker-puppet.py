@@ -28,17 +28,25 @@ import sys
 import tempfile
 import multiprocessing
 
-log = logging.getLogger()
-ch = logging.StreamHandler(sys.stdout)
-if os.environ.get('DEBUG', False):
-    log.setLevel(logging.DEBUG)
-    ch.setLevel(logging.DEBUG)
-else:
-    log.setLevel(logging.INFO)
-    ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-ch.setFormatter(formatter)
-log.addHandler(ch)
+logger = None
+
+def get_logger():
+    global logger
+    if logger is None:
+        logger = logging.getLogger()
+        ch = logging.StreamHandler(sys.stdout)
+        if os.environ.get('DEBUG', False):
+            logger.setLevel(logging.DEBUG)
+            ch.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
+            ch.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s %(levelname)s: '
+                                      '%(process)s -- %(message)s')
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+    return logger
+
 
 # this is to match what we do in deployed-server
 def short_hostname():
@@ -109,7 +117,7 @@ def rm_container(name):
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
-
+log = get_logger()
 log.info('Running docker-puppet')
 config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
 log.debug('CONFIG: %s' % config_file)
@@ -174,7 +182,8 @@ for service in (json_data or []):
 log.info('Service compilation completed.')
 
 def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
-
+    log = get_logger()
+    log.info('Started processing puppet configs')
     log.debug('config_volume %s' % config_volume)
     log.debug('puppet_tags %s' % puppet_tags)
     log.debug('manifest %s' % manifest)
@@ -201,7 +210,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         touch /tmp/the_origin_of_time
         sync
 
-        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --verbose $TAGS /etc/config.pp
+        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply \
+        --color=false --logdest syslog $TAGS /etc/config.pp
 
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
@@ -248,6 +258,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro',
                 '--volume', '/var/lib/config-data/:/var/lib/config-data/:rw',
                 '--volume', 'tripleo_logs:/var/log/tripleo/',
+                # Syslog socket for puppet logs
+                '--volume', '/dev/log:/dev/log',
                 # OpenSSL trusted CA injection
                 '--volume', '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
@@ -291,6 +303,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 log.debug(cmd_stderr)
             # only delete successful runs, for debugging
             rm_container('docker-puppet-%s' % config_volume)
+
+        log.info('Finished processing puppet configs')
         return subproc.returncode
 
 # Holds all the information for each process to consume.
