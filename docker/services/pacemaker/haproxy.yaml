@@ -60,11 +60,7 @@ outputs:
               list_join:
                 - '/'
                 - [ {get_param: DockerNamespace}, {get_param: DockerHAProxyImage} ]
-      step_config:
-          list_join:
-            - "\n"
-            - - &noop_pcmk "['pcmk_bundle', 'pcmk_resource', 'pcmk_property', 'pcmk_constraint', 'pcmk_resource_default'].each |String $val| { noop_resource($val) }"
-              - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
+      step_config: ""
       service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -74,8 +70,8 @@ outputs:
           list_join:
             - "\n"
             - - "exec {'wait-for-settle': command => '/bin/true' }"
-              - &noop_firewall "class tripleo::firewall(){}; define tripleo::firewall::rule( $port = undef, $dport = undef, $sport = undef, $proto = undef, $action = undef, $state = undef, $source = undef, $iniface = undef, $chain = undef, $destination = undef, $extras = undef){}"
-              - *noop_pcmk
+              - "class tripleo::firewall(){}; define tripleo::firewall::rule( $port = undef, $dport = undef, $sport = undef, $proto = undef, $action = undef, $state = undef, $source = undef, $iniface = undef, $chain = undef, $destination = undef, $extras = undef){}"
+              - "['pcmk_bundle', 'pcmk_resource', 'pcmk_property', 'pcmk_constraint', 'pcmk_resource_default'].each |String $val| { noop_resource($val) }"
               - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
         config_image: *haproxy_image
       kolla_config:
@@ -88,6 +84,7 @@ outputs:
             detach: false
             net: host
             user: root
+            privileged: true
             command:
               - '/bin/bash'
               - '-c'
@@ -98,14 +95,20 @@ outputs:
                       - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
                         - "FACTER_uuid=docker puppet apply --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
                   params:
-                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    TAGS: 'tripleo::firewall::rule,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                     CONFIG:
                       list_join:
                         - ';'
-                        - - *noop_firewall
-                          - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::haproxy_bundle'
+                        - - 'include ::tripleo::profile::base::pacemaker'
+                          - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
             image: *haproxy_image
             volumes:
+              # puppet saves iptables rules in /etc/sysconfig
+              - /etc/sysconfig:/etc/sysconfig:rw
+              # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
+              # the necessary bit and prevent systemd to try to reload the service in the container
+              - /usr/libexec/iptables:/usr/libexec/iptables:ro
+              - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
               - /etc/hosts:/etc/hosts:ro
               - /etc/localtime:/etc/localtime:ro
               - /etc/puppet:/tmp/puppet-etc:ro
