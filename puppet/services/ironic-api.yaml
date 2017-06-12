@@ -43,8 +43,21 @@ parameters:
       e.g. { ironic-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 resources:
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
   IronicBase:
     type: ./ironic-base.yaml
     properties:
@@ -63,6 +76,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - ironic::api::authtoken::password: {get_param: IronicPassword}
             ironic::api::authtoken::project_name: 'service'
             ironic::api::authtoken::user_domain_name: 'Default'
@@ -80,7 +94,17 @@ outputs:
             ironic::api::port: {get_param: [EndpointMap, IronicInternal, port]}
             # This is used to build links in responses
             ironic::api::public_endpoint: {get_param: [EndpointMap, IronicPublic, uri_no_suffix]}
+            ironic::api::service_name: 'httpd'
             ironic::policy::policies: {get_param: IronicApiPolicies}
+            ironic::wsgi::apache::bind_host: {get_param: [ServiceNetMap, IronicApiNetwork]}
+            ironic::wsgi::apache::port: {get_param: [EndpointMap, IronicInternal, port]}
+            ironic::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, IronicApiNetwork]}
+            ironic::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             tripleo.ironic_api.firewall_rules:
               '133 ironic api':
                 dport:
@@ -106,6 +130,9 @@ outputs:
             - '%'
             - "%{hiera('mysql_bind_host')}"
       upgrade_tasks:
-        - name: Stop ironic_api service
+        - name: Stop ironic_api service (before httpd support)
           tags: step1
-          service: name=openstack-ironic-api state=stopped
+          service: name=openstack-ironic-api state=stopped enabled=no
+        - name: Stop ironic_api service (running under httpd)
+          tags: step1
+          service: name=httpd state=stopped
