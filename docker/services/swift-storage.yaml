@@ -46,6 +46,11 @@ parameters:
                  via parameter_defaults in the resource registry.  This
                  mapping overrides those in ServiceNetMapDefaults.
     type: json
+  SwiftRawDisks:
+    default: {}
+    description: 'A hash of additional raw devices to use as Swift backend (eg. {sdb: {}})'
+    type: json
+
 
 resources:
 
@@ -66,7 +71,11 @@ outputs:
     description: Role data for the swift storage services.
     value:
       service_name: {get_attr: [SwiftStorageBase, role_data, service_name]}
-      config_settings: {get_attr: [SwiftStorageBase, role_data, config_settings]}
+      config_settings:
+        map_merge:
+          - {get_attr: [SwiftStorageBase, role_data, config_settings]}
+          # FIXME (cschwede): re-enable this once checks works inside containers
+          - swift::storage::all::mount_check: false
       step_config: &step_config
         get_attr: [SwiftStorageBase, role_data, step_config]
       service_config_settings: {get_attr: [SwiftStorageBase, role_data, service_config_settings]}
@@ -348,6 +357,18 @@ outputs:
           with_items:
             - /var/log/containers/swift
             - /srv/node
+        - name: Format and mount devices defined in SwiftRawDisks
+          mount:
+            name: /srv/node/{{ item }}
+            src: /dev/{{ item }}
+            fstype: xfs
+            opts: noatime
+            state: mounted
+          with_items:
+            - repeat:
+                template: 'DEVICE'
+                for_each:
+                  DEVICE: {get_param: SwiftRawDisks}
       upgrade_tasks:
         - name: Stop and disable swift storage services
           tags: step2
