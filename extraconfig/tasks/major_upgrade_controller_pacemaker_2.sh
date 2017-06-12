@@ -102,6 +102,16 @@ fi
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1669714
 special_case_ovs_upgrade_if_needed
 
+if grep -q '^pipeline = ssl_header_handler faultwrap osvolumeversionapp' /etc/cinder/api-paste.ini; then
+    # Revert back cinder SSL setup as it's going to be handled by wsgi.
+    echo "Removing default ssl configuration for rpm configuration upgrade."
+    crudini --del /etc/cinder/api-paste.ini filter:ssl_header_handler
+    crudini --set /etc/cinder/api-paste.ini pipeline:apiversions pipeline 'cors http_proxy_to_wsgi faultwrap osvolumeversionapp'
+    ## remove empty line at eof if present.
+    sed -i '$ { /^$/d }' /etc/cinder/api-paste.ini
+fi
+
+
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
 
