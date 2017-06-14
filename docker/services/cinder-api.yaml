@@ -1,0 +1,155 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Cinder API service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerCinderApiImage:
+    description: image
+    default: 'centos-binary-cinder-api:latest'
+    type: string
+  # we configure all cinder services in the same cinder base container
+  DockerCinderConfigImage:
+    description: image
+    default: 'centos-binary-cinder-api:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  CinderBase:
+    type: ../../puppet/services/cinder-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Cinder API role.
+    value:
+      service_name: {get_attr: [CinderBase, role_data, service_name]}
+      config_settings: {get_attr: [CinderBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [CinderBase, role_data, step_config]
+      service_config_settings: {get_attr: [CinderBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: cinder
+        puppet_tags: cinder_config,file,concat,file_line
+        step_config: *step_config
+        config_image:
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerCinderConfigImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/cinder_api.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          permissions:
+            - path: /var/log/cinder
+              owner: cinder:cinder
+              recurse: true
+      docker_config:
+        step_3:
+          cinder_api_init_logs:
+            start_order: 0
+            image: &cinder_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerCinderApiImage} ]
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/cinder:/var/log/cinder
+            command: ['/bin/bash', '-c', 'chown -R cinder:cinder /var/log/cinder']
+          cinder_api_db_sync:
+            image: *cinder_api_image
+            net: host
+            privileged: false
+            detach: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+            command:
+              - '/usr/bin/bootstrap_host_exec'
+              - 'cinder_api'
+              - "su cinder -s /bin/bash -c 'cinder-manage db sync'"
+        step_4:
+          cinder_api:
+            image: *cinder_api_image
+            net: host
+            privileged: false
+            restart: always
+            # NOTE(mandre) kolla image changes the user to 'cinder', we need it
+            # to be root to run httpd
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/cinder_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+                  - /var/lib/config-data/cinder/etc/httpd/:/etc/httpd/:ro
+                  - /var/lib/config-data/cinder/var/www/:/var/www/:ro
+                  - /var/log/containers/cinder:/var/log/cinder
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/cinder
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable cinder_api service
+          tags: step2
+          service: name=httpd state=stopped enabled=no
