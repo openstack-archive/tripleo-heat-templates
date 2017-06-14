@@ -1,0 +1,108 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Nova Vncproxy service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerNovaVncProxyImage:
+    description: image
+    default: 'centos-binary-nova-novncproxy:latest'
+    type: string
+  DockerNovaConfigImage:
+    description: image
+    default: 'centos-binary-nova-base:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  NovaVncProxyPuppetBase:
+    type: ../../puppet/services/nova-vnc-proxy.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Nova Vncproxy service.
+    value:
+      service_name: {get_attr: [NovaVncProxyPuppetBase, role_data, service_name]}
+      config_settings: {get_attr: [NovaVncProxyPuppetBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [NovaVncProxyPuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [NovaVncProxyPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: nova
+        puppet_tags: nova_config
+        step_config: *step_config
+        config_image:
+          list_join:
+          - '/'
+          - [ {get_param: DockerNamespace}, {get_param: DockerNovaConfigImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/nova_vnc_proxy.json:
+          command: /usr/bin/nova-novncproxy --web /usr/share/novnc/
+          permissions:
+            - path: /var/log/nova
+              owner: nova:nova
+              recurse: true
+      docker_config:
+        step_4:
+          nova_vnc_proxy:
+            image:
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerNovaVncProxyImage} ]
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/nova_vnc_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/nova
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable nova_vnc_proxy service
+          tags: step2
+          service: name=openstack-nova-novncproxy state=stopped enabled=no
