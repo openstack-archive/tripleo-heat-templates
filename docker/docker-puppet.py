@@ -190,37 +190,23 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         if [ -n "$PUPPET_TAGS" ]; then
             TAGS="--tags \"$PUPPET_TAGS\""
         fi
+
+        # workaround LP1696283
+        mkdir -p /etc/ssh
+        touch /etc/ssh/ssh_known_hosts
+
         FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --verbose $TAGS /etc/config.pp
 
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
-            rm -Rf /var/lib/config-data/${NAME}
-
-            # copying etc should be enough for most services
-            mkdir -p /var/lib/config-data/${NAME}/etc
-            cp -a /etc/* /var/lib/config-data/${NAME}/etc/
-
-            # workaround LP1696283
-            mkdir -p /var/lib/config-data/${NAME}/etc/ssh
-            touch /var/lib/config-data/${NAME}/etc/ssh/ssh_known_hosts
-
-            if [ -d /root/ ]; then
-              cp -a /root/ /var/lib/config-data/${NAME}/root/
-            fi
-            if [ -d /var/lib/ironic/tftpboot/ ]; then
-              mkdir -p /var/lib/config-data/${NAME}/var/lib/ironic/
-              cp -a /var/lib/ironic/tftpboot/ /var/lib/config-data/${NAME}/var/lib/ironic/tftpboot/
-            fi
-            if [ -d /var/lib/ironic/httpboot/ ]; then
-              mkdir -p /var/lib/config-data/${NAME}/var/lib/ironic/
-              cp -a /var/lib/ironic/httpboot/ /var/lib/config-data/${NAME}/var/lib/ironic/httpboot/
-            fi
-
-            # apache services may files placed in /var/www/
-            if [ -d /var/www/ ]; then
-             mkdir -p /var/lib/config-data/${NAME}/var/www
-             cp -a /var/www/* /var/lib/config-data/${NAME}/var/www/
-            fi
+            archivedirs=("/etc" "/root" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www")
+            rsync_srcs=""
+            for d in "${archivedirs[@]}"; do
+                if [ -d "$d" ]; then
+                    rsync_srcs+=" $d"
+                fi
+            done
+            rsync -a -R --delay-updates --delete-after $rsync_srcs /var/lib/config-data/${NAME}
 
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
