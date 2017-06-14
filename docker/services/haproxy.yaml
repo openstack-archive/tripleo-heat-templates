@@ -85,6 +85,7 @@ outputs:
         map_merge:
           - get_attr: [HAProxyBase, role_data, config_settings]
           - tripleo::haproxy::haproxy_daemon: false
+            tripleo::haproxy::haproxy_service_manage: false
       step_config: &step_config
         get_attr: [HAProxyBase, role_data, step_config]
       service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
@@ -92,7 +93,8 @@ outputs:
       puppet_config:
         config_volume: haproxy
         puppet_tags: haproxy_config
-        step_config: *step_config
+        step_config:
+          "class {'::tripleo::profile::base::haproxy': manage_firewall => false}"
         config_image: {get_param: DockerHAProxyConfigImage}
         volumes: &deployed_cert_mount
           - list_join:
@@ -110,10 +112,44 @@ outputs:
               preserve_properties: true
       docker_config:
         step_1:
+          haproxy_firewall:
+            detach: false
+            image: {get_param: DockerHAProxyImage}
+            net: host
+            user: root
+            privileged: true
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    list_join:
+                      - '; '
+                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 1}' > /etc/puppet/hieradata/docker.json"
+                        - "FACTER_uuid=docker puppet apply --tags TAGS -v -e 'CONFIG'"
+                  params:
+                    TAGS: 'tripleo::firewall::rule'
+                    CONFIG: *step_config
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - *deployed_cert_mount
+                -
+                  - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
+                  # puppet saves iptables rules in /etc/sysconfig
+                  - /etc/sysconfig:/etc/sysconfig:rw
+                  # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
+                  # the necessary bit and prevent systemd to try to reload the service in the container
+                  - /usr/libexec/iptables:/usr/libexec/iptables:ro
+                  - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
+                  - /etc/puppet:/tmp/puppet-etc:ro
+                  - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           haproxy:
             image: {get_param: DockerHAProxyImage}
             net: host
-            privileged: false
             restart: always
             volumes:
               list_concat:
