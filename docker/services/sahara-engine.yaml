@@ -1,0 +1,110 @@
+heat_template_version: pike
+
+description: >
+  OpenStack Sahara service configured with Puppet
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerSaharaEngineImage:
+    description: image
+    default: 'centos-binary-sahara-engine:latest'
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  SaharaEnginePuppetBase:
+    type: ../../puppet/services/sahara-engine.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+
+outputs:
+  role_data:
+    description: Role data for the Sahara Engine role.
+    value:
+      service_name: {get_attr: [SaharaEnginePuppetBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [SaharaEnginePuppetBase, role_data, config_settings]
+          - sahara::sync_db: false
+      step_config: &step_config
+        get_attr: [SaharaEnginePuppetBase, role_data, step_config]
+      service_config_settings: {get_attr: [SaharaEnginePuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS #
+      puppet_config:
+        config_volume: sahara
+        puppet_tags: sahara_engine_paste_ini,sahara_cluster_template,sahara_config,sahara_node_group_template
+        step_config: *step_config
+        config_image: &sahara_image
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerSaharaEngineImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/sahara-engine.json:
+          command: /usr/bin/sahara-engine --config-file /etc/sahara/sahara.conf
+          permissions:
+            - path: /var/lib/sahara
+              owner: sahara:sahara
+              recurse: true
+            - path: /var/log/sahara
+              owner: sahara:sahara
+              recurse: true
+      docker_config:
+        step_4:
+          sahara_engine:
+            image: *sahara_image
+            net: host
+            privileged: false
+            restart: always
+            volumes: &sahara_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/sahara-engine.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/sahara/etc/sahara/:/etc/sahara/:ro
+                  - /var/lib/sahara:/var/lib/sahara
+                  - /var/log/containers/sahara:/var/log/sahara
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create /var/lib/sahara
+          file:
+            path: /var/lib/sahara
+            state: directory
+        - name: create persistent sahara logs directory
+          file:
+            path: /var/log/containers/sahara
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable sahara_engine service
+          tags: step2
+          service: name=openstack-sahara-engine state=stopped enabled=no
