@@ -1,6 +1,6 @@
 heat_template_version: pike
 description: >
-  Software Config to drive os-net-config with 2 bonded nics on a bridge with VLANs attached for the compute role.
+  Software Config to drive os-net-config with OVS-DPDK bond in addition to the 2 bonded NICs with VLANs attached for the compute role.
 parameters:
   ControlPlaneIp:
     default: ''
@@ -32,9 +32,8 @@ parameters:
     type: string
   BondInterfaceOvsOptions:
     default: ''
-    description: 'The ovs_options or bonding_options string for the bond
-      interface. Set things like lacp=active and/or bond_mode=balance-slb
-      for OVS bonds or like mode=4 for Linux bonds using this option.'
+    description: The bonding_options string for the bond interface. Set things like lacp=active and/or bond_mode=balance-slb using
+      this option. The default mode is active-backup.
     type: string
   ExternalNetworkVlanID:
     default: 10
@@ -82,6 +81,10 @@ parameters:
   EC2MetadataIp: # Override this via parameter_defaults
     description: The IP address of the EC2 metadata server.
     type: string
+  NumDpdkInterfaceRxQueues:
+    description: Number of Rx Queues required for DPDK bond or DPDK ports
+    default: 1
+    type: number
 resources:
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
@@ -112,59 +115,66 @@ resources:
                 - default: true
                   next_hop:
                     get_param: ControlPlaneDefaultRoute
-              - type: ovs_bridge
-                name: bridge_name
+              - type: linux_bond
+                name: bond_api
+                bonding_options:
+                  get_param: BondInterfaceOvsOptions
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
                 members:
-                - type: ovs_bond
-                  name: bond1
-                  ovs_options:
-                    get_param: BondInterfaceOvsOptions
-                  members:
-                  - type: interface
-                    name: nic2
-                    primary: true
-                  - type: interface
-                    name: nic3
-                - type: vlan
-                  device: bond1
-                  vlan_id:
-                    get_param: InternalApiNetworkVlanID
-                  addresses:
-                  - ip_netmask:
-                      get_param: InternalApiIpSubnet
-                - type: vlan
-                  device: bond1
-                  vlan_id:
-                    get_param: StorageNetworkVlanID
-                  addresses:
-                  - ip_netmask:
-                      get_param: StorageIpSubnet
-                - type: vlan
-                  device: bond1
-                  vlan_id:
-                    get_param: TenantNetworkVlanID
-                  addresses:
-                  - ip_netmask:
-                      get_param: TenantIpSubnet
-                # Uncomment when including environments/network-management.yaml
-                # If setting default route on the Management interface, comment
-                # out the default route on the Control Plane.
-                #-
-                #  type: vlan
-                #  device: bond1
-                #  vlan_id: {get_param: ManagementNetworkVlanID}
-                #  addresses:
-                #    -
-                #      ip_netmask: {get_param: ManagementIpSubnet}
-                #  routes:
-                #    -
-                #      default: true
-                #      next_hop: {get_param: ManagementInterfaceDefaultRoute}
+                - type: interface
+                  name: nic2
+                  primary: true
+                - type: interface
+                  name: nic3
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: InternalApiNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: InternalApiIpSubnet
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: StorageNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: StorageIpSubnet
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: TenantNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: TenantIpSubnet
+              # Uncomment when including environments/network-management.yaml
+              # If setting default route on the Management interface, comment
+              # out the default route on the Control Plane.
+              #-
+              #  type: vlan
+              #  device: bond_api
+              #  vlan_id:
+              #    get_param: ManagementNetworkVlanID
+              #  addresses:
+              #    -
+              #      ip_netmask:
+              #        get_param: ManagementIpSubnet
+              #  routes:
+              #    -
+              #      default: true
+              #      next_hop:
+              #        get_param: ManagementInterfaceDefaultRoute
+
+              # Used as a provider network with external DHCP
               - type: ovs_user_bridge
-                name: br-link
+                name: br-dpdk0
                 members:
                 - type: ovs_dpdk_bond
                   name: dpdkbond0
+                  rx_queue:
+                    get_param: NumDpdkInterfaceRxQueues
                   members:
                   - type: ovs_dpdk_port
                     name: dpdk0
