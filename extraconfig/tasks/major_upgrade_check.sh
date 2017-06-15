@@ -52,7 +52,7 @@ check_disk_for_mysql_dump()
 {
     mysql_need_update
 
-    if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+    if [[ -n $(is_bootstrap_node) ]]; then
         if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
 
             if [ -d "$MYSQL_BACKUP_DIR" ]; then

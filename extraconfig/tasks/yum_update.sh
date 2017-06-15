@@ -74,7 +74,7 @@ touch /etc/httpd/conf.d/ssl.conf
 # Fix the redis/rabbit resource start/stop timeouts. See https://bugs.launchpad.net/tripleo/+bug/1633455
 # and https://bugs.launchpad.net/tripleo/+bug/1634851
 if [[ "$pacemaker_status" == "active" && \
-      "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]] ; then
+      -n $(is_bootstrap_node) ]] ; then
     if pcs resource show rabbitmq | grep -E "start.*timeout=100"; then
         pcs resource update rabbitmq op start timeout=200s
     fi
@@ -160,7 +160,7 @@ fi
 # a performance impairment. So, as a stop-gap-solution we run it here on the
 # first controller node, which is a noop if there is nothing to do.
 if hiera -c /etc/puppet/hiera.yaml service_names | grep -q nova_api && \
-  [[ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]] ; then
+  [[ -n $(is_bootstrap_node) ]] ; then
     /usr/bin/nova-manage db online_data_migrations
 fi
 

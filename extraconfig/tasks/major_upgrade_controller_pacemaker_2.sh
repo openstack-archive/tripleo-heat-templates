@@ -156,7 +156,7 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
     mysql_install_db --datadir=/var/lib/mysql --user=mysql
     chown -R mysql:mysql /var/lib/mysql/
 
-    if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+    if [[ -n $(is_bootstrap_node) ]]; then
         mysqld_safe --wsrep-new-cluster &
         # We have a populated /root/.my.cnf with root/password here so
         # we need to temporarily rename it because the newly created
