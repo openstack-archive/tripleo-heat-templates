@@ -49,7 +49,7 @@ fi
 # of packages to update (the check for -z "$update_identifier" guarantees that this
 # is run only on overcloud stack update -i)
 if [[ "$pacemaker_status" == "active" && \
-        "$(hiera -c /etc/puppet/hiera.yaml pacemaker_short_bootstrap_node_name)" == "$(facter hostname)" ]] ; then \
+        "$(hiera -c /etc/puppet/hiera.yaml pacemaker_short_bootstrap_node_name | tr '[:upper:]' '[:lower:]')" == "$(facter hostname | tr '[:upper:]' '[:lower:]')" ]] ; then \
     # OCF scripts don't cope with -eu
     echo "Verifying if we need to fix up any IPv6 VIPs"
     set +eu
