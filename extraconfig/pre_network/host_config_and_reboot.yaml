@@ -1,76 +1,51 @@
 heat_template_version: pike
 
 description: >
-  Do some configuration, then reboot - sometimes needed for early-boot
-  changes such as modifying kernel configuration
+  All configurations which require reboot should be initiated via PreNetworkConfig. After
+  this configuration is completed, the corresponding node will be rebooted.
 
 parameters:
   server:
     type: string
-  # Deprecated Parameters, these configuration are deprecated in favor or role-specific parameters.
-  # Use: extraconfig/pre_network/host_config_and_reboot.yaml.
-  # Deprecated in Pike and will be removed in Queens.
-  {{role}}KernelArgs:
-    type: string
-    default: ""
-  {{role}}TunedProfileName:
-    type: string
-    default: ""
-  {{role}}HostCpusList:
-    type: string
-    default: ""
-
-parameter_group:
-  - label: deprecated
-    parameters:
-      - {{role}}KernelArgs
-      - {{role}}TunedProfileName
-      - {{role}}HostCpusList
+  RoleParameters:
+    type: json
+    description: Role Specific parameters
+    default: {}
 
 conditions:
-  param_exists:
-    or:
-      - not:
-          equals:
-          - get_param: {{role}}KernelArgs
-          - ""
-      - not:
-          equals:
-          - get_param: {{role}}TunedProfileName
-          - ""
+  is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
 
 resources:
-
   HostParametersConfig:
     type: OS::Heat::SoftwareConfig
-    condition: param_exists
+    condition: is_host_config_required
     properties:
       group: ansible
       inputs:
         - name: _KERNEL_ARGS_
         - name: _TUNED_PROFILE_NAME_
-        - name: _HOST_CPUS_LIST_
+        - name: _TUNED_CORES_
       outputs:
         - name: result
       config:
-        get_file: ansible_host_config.ansible
+        get_file: ansible_host_config.yaml
 
   HostParametersDeployment:
     type: OS::Heat::SoftwareDeployment
-    condition: param_exists
+    condition: is_host_config_required
     properties:
       name: HostParametersDeployment
       server:  {get_param: server}
       config: {get_resource: HostParametersConfig}
       actions: ['CREATE'] # Only do this on CREATE
       input_values:
-        _KERNEL_ARGS_: {get_param: {{role}}KernelArgs}
-        _TUNED_PROFILE_NAME_: {get_param: {{role}}TunedProfileName}
-        _HOST_CPUS_LIST_: {get_param: {{role}}HostCpusList}
+        _KERNEL_ARGS_: {get_param: [RoleParameters, KernelArgs]}
+        _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
+        _TUNED_CORES_: {get_param: [RoleParameters, HostIsolatedCoreList]}
 
   RebootConfig:
     type: OS::Heat::SoftwareConfig
-    condition: param_exists
+    condition: is_host_config_required
     properties:
       group: script
       config: |
@@ -82,8 +57,8 @@ resources:
 
   RebootDeployment:
     type: OS::Heat::SoftwareDeployment
-    condition: param_exists
     depends_on: HostParametersDeployment
+    condition: is_host_config_required
     properties:
       name: RebootDeployment
       server:  {get_param: server}
@@ -93,18 +68,18 @@ resources:
 
 outputs:
   result:
+    condition: is_host_config_required
     value:
       get_attr: [HostParametersDeployment, result]
-    condition: param_exists
   stdout:
+    condition: is_host_config_required
     value:
       get_attr: [HostParametersDeployment, deploy_stdout]
-    condition: param_exists
   stderr:
+    condition: is_host_config_required
     value:
       get_attr: [HostParametersDeployment, deploy_stderr]
-    condition: param_exists
   status_code:
+    condition: is_host_config_required
     value:
       get_attr: [HostParametersDeployment, deploy_status_code]
-    condition: param_exists
