@@ -208,6 +208,13 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             done
             rsync -a -R --delay-updates --delete-after $rsync_srcs /var/lib/config-data/${NAME}
 
+            # Also make a copy of files modified during puppet run
+            # This is useful for debugging
+            mkdir -p /var/lib/config-data/puppet-generated/${NAME}
+            rsync -a -R -0 --delay-updates --delete-after \
+                          --files-from=<(find $rsync_srcs -newer /etc/ssh/ssh_known_hosts -print0) \
+                          / /var/lib/config-data/puppet-generated/${NAME}
+
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
             tar cf - /var/lib/config-data/${NAME} | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
