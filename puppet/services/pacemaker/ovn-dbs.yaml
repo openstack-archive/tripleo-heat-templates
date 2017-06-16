@@ -1,7 +1,7 @@
-heat_template_version: pike
+heat_template_version: ocata
 
 description: >
-  OVN databases configured with puppet
+  OVN databases configured with puppet in HA mode
 
 parameters:
   ServiceNetMap:
@@ -35,21 +35,27 @@ parameters:
     type: number
     default: 6642
 
+resources:
+
+  OVNDBsBase:
+    type: ../ovn-dbs.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
     description: Role data for the OVN northd service
     value:
       service_name: ovn_dbs
       config_settings:
-          ovn::northbound::port: {get_param: OVNNorthboundServerPort}
-          ovn::southbound::port: {get_param: OVNSouthboundServerPort}
-          ovn::northd::dbs_listen_ip: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-          tripleo::haproxy::ovn_dbs_manage_lb: true
-          tripleo.ovn_dbs.firewall_rules:
-            '121 OVN DB server ports':
-              proto: 'tcp'
-              dport:
-                - {get_param: OVNNorthboundServerPort}
-                - {get_param: OVNSouthboundServerPort}
+        map_merge:
+          - get_attr: [OVNDBsBase, role_data, config_settings]
+          - tripleo::haproxy::ovn_dbs_manage_lb: false
+            tripleo::profile::pacemaker::ovn_northd::nb_db_port: {get_param: OVNNorthboundServerPort}
+            tripleo::profile::pacemaker::ovn_northd::sb_db_port: {get_param: OVNSouthboundServerPort}
       step_config: |
-        include ::tripleo::profile::base::neutron::ovn_northd
+        include ::tripleo::profile::pacemaker::ovn_northd
