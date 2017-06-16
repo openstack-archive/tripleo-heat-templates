@@ -101,6 +101,42 @@ function services_to_migrate {
     echo $PCMK_RESOURCE_TODELETE
 }
 
+# Those are oneshot type services.
+function neutron_cleanup_services {
+    echo "
+    neutron-netns-cleanup-clone
+    neutron-ovs-cleanup-clone
+    "
+}
+
+function deactivate_cleanup_services {
+    for service in $(neutron_cleanup_services); do
+        log_debug "Changing ocf configuration for '${service}'"
+        # We prevent any stop action by changing the exec to a noop.
+        local sysconfig_name=${service%-clone}
+        # This is loaded by /usr/lib/ocf/lib/neutron/neutron-{ovs,netns}-cleanup
+        echo "exec=/bin/echo" >> /etc/sysconfig/${sysconfig_name}
+        sed -i.orig -e 's/clean --force/clean/' /usr/lib/ocf/lib/neutron/neutron-netns-cleanup
+    done
+}
+
+function restore_cleanup_service_definition {
+    for service in $(neutron_cleanup_services); do
+        log_debug "Restoring original ocf configuration for '${service}'"
+        local sysconfig_file=/etc/sysconfig/${service%-clone}
+        if [ -e "${sysconfig_file}" ]; then
+            sed -e '/exec=\/bin\/echo/d' $sysconfig_file | \
+                sed -e '/^ *$/d' > /tmp/$service
+            if test -s /tmp/$service; then
+                cp /tmp/$service $sysconfig_file
+            else
+                rm -f $sysconfig_file
+            fi
+            [ ! -e /tmp/$service ] || rm -f /tmp/$service
+        fi
+    done
+    mv /usr/lib/ocf/lib/neutron/neutron-netns-cleanup{.orig,}
+}
 # This function will migrate a mitaka system where all the resources are managed
 # via pacemaker to a newton setup where only a few services will be managed by pacemaker
 # On a high-level it will operate as follows:
@@ -148,7 +184,7 @@ function migrate_full_to_ng_ha {
         # that will move to systemd.
         # We want the systemd resources be stopped before doing "yum update",
         # that way "systemctl try-restart <service>" is no-op because the
-        # service was down already 
+        # service was down already
         PCS_STATUS_OUTPUT="$(pcs status)"
         for resource in $(services_to_migrate) "delay-clone" "openstack-core-clone"; do
              if echo "$PCS_STATUS_OUTPUT" | grep "$resource"; then
