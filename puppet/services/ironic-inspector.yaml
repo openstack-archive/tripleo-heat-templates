@@ -1,0 +1,151 @@
+heat_template_version: ocata
+
+description: >
+  OpenStack Ironic Inspector configured with Puppet (EXPERIMENTAL)
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MonitoringSubscriptionIronicInspector:
+    default: 'overcloud-ironic-inspector'
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  Debug:
+    default: ''
+    description: Set to True to enable debugging on all services.
+    type: string
+  IronicInspectorInterface:
+    default: br-ex
+    description: |
+      Network interface on which inspection dnsmasq will listen. Should allow
+      access to untagged traffic from nodes booted for inspection. The default
+      value only makes sense if you don't modify any networking configuration.
+    type: string
+  IronicInspectorIPXEEnabled:
+    default: true
+    description: Whether to use iPXE for inspection.
+    type: boolean
+  IronicInspectorIpRange:
+    description: |
+        Temporary IP range that will be given to nodes during the inspection
+        process. This should not overlap with any range that Neutron's DHCP
+        gives away, but it has to be routeable back to ironic-inspector API.
+        This option has no meaningful defaults, and thus is required.
+    type: string
+  IronicInspectorUseSwift:
+    default: true
+    description: Whether to use Swift for storing introspection data.
+    type: boolean
+  IronicIPXEPort:
+    default: 8088
+    description: Port to use for serving images when iPXE is used.
+    type: string
+  IronicPassword:
+    description: The password for the Ironic service and db account, used by the Ironic services
+    type: string
+    hidden: true
+
+conditions:
+  enable_ipxe: {equals : [{get_param: IronicInspectorIPXEEnabled}, true]}
+  use_swift: {equals : [{get_param: IronicInspectorUseSwift}, true]}
+
+outputs:
+  role_data:
+    description: Role data for the Ironic Inspector role.
+    value:
+      service_name: ironic_inspector
+      monitoring_subscription: {get_param: MonitoringSubscriptionIronicInspector}
+      config_settings:
+        map_merge:
+          - ironic::inspector::listen_address: {get_param: [ServiceNetMap, IronicInspectorNetwork]}
+            ironic::inspector::dnsmasq_local_ip: {get_param: [ServiceNetMap, IronicInspectorNetwork]}
+            ironic::inspector::dnsmasq_ip_range: {get_param: IronicInspectorIpRange}
+            ironic::inspector::dnsmasq_interface: {get_param: IronicInspectorInterface}
+            ironic::inspector::debug: {get_param: Debug}
+            ironic::inspector::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            ironic::inspector::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            ironic::inspector::authtoken::username: 'ironic'
+            ironic::inspector::authtoken::password: {get_param: IronicPassword}
+            ironic::inspector::authtoken::project_name: 'service'
+            ironic::inspector::authtoken::user_domain_name: 'Default'
+            ironic::inspector::authtoken::project_domain_name: 'Default'
+            tripleo.ironic_inspector.firewall_rules:
+              '137 ironic-inspector':
+                dport:
+                  - 5050
+            ironic::inspector::ironic_username: 'ironic'
+            ironic::inspector::ironic_password: {get_param: IronicPassword}
+            ironic::inspector::ironic_tenant_name: 'service'
+            ironic::inspector::ironic_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            ironic::inspector::ironic_max_retries: 6
+            ironic::inspector::ironic_retry_interval: 10
+            ironic::inspector::ironic_user_domain_name: 'Default'
+            ironic::inspector::ironic_project_domain_name: 'Default'
+            ironic::inspector::http_port: {get_param: IronicIPXEPort}
+            ironic::inspector::db::database_connection:
+              list_join:
+                - ''
+                - - {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  - '://ironic-inspector:'
+                  - {get_param: IronicPassword}
+                  - '@'
+                  - {get_param: [EndpointMap, MysqlInternal, host]}
+                  - '/ironic-inspector'
+                  - '?read_default_file=/etc/my.cnf.d/tripleo.cnf&read_default_group=tripleo'
+          -
+            if:
+            - enable_ipxe
+            - ironic::inspector::pxe_transfer_protocol: 'http'
+            - {}
+          -
+            if:
+            - use_swift
+            - ironic::inspector::store_data: 'swift'
+              ironic::inspector::swift_username: 'ironic'
+              ironic::inspector::swift_password: {get_param: IronicPassword}
+              ironic::inspector::swift_tenant_name: 'service'
+              ironic::inspector::swift_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              ironic::inspector::swift_user_domain_name: 'Default'
+              ironic::inspector::swift_project_domain_name: 'Default'
+            - {}
+      step_config: |
+        include ::tripleo::profile::base::ironic_inspector
+      service_config_settings:
+        keystone:
+          ironic::keystone::auth_inspector::tenant: 'service'
+          ironic::keystone::auth_inspector::public_url: {get_param: [EndpointMap, IronicInspectorPublic, uri]}
+          ironic::keystone::auth_inspector::internal_url: {get_param: [EndpointMap, IronicInspectorInternal, uri]}
+          ironic::keystone::auth_inspector::admin_url: {get_param: [EndpointMap, IronicInspectorAdmin, uri]}
+          ironic::keystone::auth_inspector::password: {get_param: IronicPassword}
+          ironic::keystone::auth_inspector::region: {get_param: KeystoneRegion}
+        mysql:
+          ironic::inspector::db::mysql::password: {get_param: IronicPassword}
+          ironic::inspector::db::mysql::user: ironic-inspector
+          ironic::inspector::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          ironic::inspector::db::mysql::dbname: ironic-inspector
+          ironic::inspector::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
