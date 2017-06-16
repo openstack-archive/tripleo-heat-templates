@@ -322,3 +322,26 @@ function special_case_ovs_upgrade_if_needed {
 
 }
 
+# update os-net-config before ovs see https://bugs.launchpad.net/tripleo/+bug/1695893
+function update_network() {
+    set +e
+    yum -q -y update os-net-config
+    return_code=$?
+    echo "yum update os-net-config return code: $return_code"
+
+    # Writes any changes caused by alterations to os-net-config and bounces the
+    # interfaces *before* restarting the cluster.
+    os-net-config -c /etc/os-net-config/config.json -v --detailed-exit-codes
+
+    RETVAL=$?
+    if [[ $RETVAL == 2 ]]; then
+        echo "os-net-config: interface configuration files updated successfully"
+    elif [[ $RETVAL != 0 ]]; then
+        echo "ERROR: os-net-config configuration failed"
+        exit $RETVAL
+    fi
+    set -e
+
+    # special case https://bugs.launchpad.net/tripleo/+bug/1635205 +bug/1669714
+    special_case_ovs_upgrade_if_needed
+}

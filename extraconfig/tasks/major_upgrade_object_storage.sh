@@ -24,7 +24,8 @@ function systemctl_swift {
 }
 
 $(declare -f special_case_ovs_upgrade_if_needed)
-special_case_ovs_upgrade_if_needed
+$(declare -f update_network)
+update_network
 
 systemctl_swift stop
 

@@ -9,6 +9,7 @@ set -o pipefail
 UPGRADE_SCRIPT=/root/tripleo_upgrade_node.sh
 
 declare -f special_case_ovs_upgrade_if_needed > $UPGRADE_SCRIPT
+declare -f update_network >> $UPGRADE_SCRIPT
 # use >> here so we don't lose the declaration we added above
 cat >> $UPGRADE_SCRIPT << 'ENDOFCAT'
 #!/bin/bash
@@ -51,7 +52,7 @@ timeout 60 bash -c "while kill -0 ${OSD_PIDS} 2> /dev/null; do
   sleep 2;
 done"
 
-special_case_ovs_upgrade_if_needed
+update_network
 
 # Update (Ceph to Jewel)
 yum -y install python-zaqarclient  # needed for os-collect-config
