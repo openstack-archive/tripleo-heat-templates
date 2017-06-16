@@ -11,7 +11,7 @@ function log_debug {
 }
 
 function is_bootstrap_node {
-  if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)" = "$(facter hostname)" ]; then
+  if [ "$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid | tr '[:upper:]' '[:lower:]')" = "$(facter hostname | tr '[:upper:]' '[:lower:]')" ]; then
     log_debug "Node is bootstrap"
     echo "true"
   fi
