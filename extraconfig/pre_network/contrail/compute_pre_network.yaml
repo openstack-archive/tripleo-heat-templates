@@ -1,0 +1,162 @@
+heat_template_version: pike
+
+# NOTE: You don't need to pass the parameter explicitly from the
+# parent template, it can be specified via the parameter_defaults
+# in the resource_registry instead, if you want to override the default
+# and/or share values with other templates in the tree.
+parameters:
+  ContrailRepo:
+    type: string
+    default: ''
+  ContrailVrouterPhysicalInterface:
+    default: 'eth0'
+    description: vRouter physical interface
+    type: string
+  ContrailVlanParentInterface:
+    default: ''
+    description: Parent interface of vlan interface
+    type: string
+  ContrailBondInterface:
+    default: ''
+    description: Bond interface name
+    type: string
+  ContrailBondInterfaceMembers:
+    default: ''
+    description: Bond interface members
+    type: string
+  ContrailBondMode:
+    default: '4'
+    description: Bond Mode
+    type: string
+  ContrailBondPolicy:
+    default: '1'
+    description: Bond Policy
+    type: string
+  RoleParameters:
+    type: json
+    description: Role Specific parameters
+    default: {}
+  ServiceNames:
+    type: comma_delimited_list
+    default: []
+  server:
+    type: string
+
+description: >
+  This template installs the Contrail kernel module  packages in order
+  to bring vhost0 interface up. Vhost0 interface must be up before
+  os-net-config takes over.
+
+resources:
+
+  ContrailVrouterModuleDeployment:
+    type: OS::Heat::SoftwareDeployment
+    properties:
+      name: ContrailVrouterModuleDeployment
+      server:  {get_param: server}
+      config: {get_resource: ContrailVrouterModuleConfig}
+      input_values:
+        phy_int: {get_param: ContrailVrouterPhysicalInterface}
+        bond_int: {get_param: ContrailBondInterface}
+        bond_int_members: {get_param: ContrailBondInterfaceMembers}
+        vlan_parent: {get_param: ContrailVlanParentInterface}
+        contrail_repo: {get_param: ContrailRepo}
+        bond_mode: {get_param: ContrailBondMode}
+        bond_policy: {get_param: ContrailBondPolicy}
+      actions: ['CREATE'] # Only do this on CREATE
+
+  ContrailVrouterModuleConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: phy_int
+      - name: bond_int
+      - name: bond_int_members
+      - name: vlan_parent
+      - name: contrail_repo
+      - name: bond_mode
+      - name: bond_policy
+      config: |
+        #!/bin/bash
+        phy_int=$phy_int
+        bond_int=$bond_int
+        bond_int_members=$bond_int_members
+        bond_mode=$bond_mode
+        bond_policy=$bond_policy
+        vlan_parent=$vlan_parent
+        contrail_repo=$contrail_repo
+        if [[ ${contrail_repo} ]]; then
+          yum install -y contrail-vrouter-utils
+        fi
+        function pkt_setup () {
+            for f in /sys/class/net/$1/queues/rx-*
+            do
+                q="$(echo $f | cut -d '-' -f2)"
+                r=$(($q%32))
+                s=$(($q/32))
+                ((mask=1<<$r))
+                str=(`printf "%x" $mask`)
+                if [ $s -gt 0 ]; then
+                    for ((i=0; i < $s; i++))
+                    do
+                        str+=,00000000
+                    done
+                fi
+                echo $str > $f/rps_cpus
+            done
+            ifconfig $1 up
+        }
+        function insert_vrouter() {
+            if [ -f /sys/class/net/pkt1/queues/rx-0/rps_cpus ]; then
+                pkt_setup pkt1
+            fi
+            if [ -f /sys/class/net/pkt2/queues/rx-0/rps_cpus ]; then
+                pkt_setup pkt2
+            fi
+            if [ -f /sys/class/net/pkt3/queues/rx-0/rps_cpus ]; then
+                pkt_setup pkt3
+            fi
+            DEV_MAC=$(cat /sys/class/net/${phy_int}/address)
+            vif --create vhost0 --mac $DEV_MAC
+            vif --add ${phy_int} --mac $DEV_MAC --vrf 0 --vhost-phys --type physical
+            vif --add vhost0 --mac $DEV_MAC --vrf 0 --type vhost --xconnect ${phy_int}
+            ip link set vhost0 up
+            return 0
+        }
+        if [[ ${bond_int} ]]; then
+           bond_int_member_list=$(echo ${bond_int_members} | tr "," "\n")
+           ip link add name ${bond_int} type bond
+           echo ${bond_mode} > /sys/class/net/${bond_int}/bonding/mode
+           echo ${bond_policy} > /sys/class/net/${bond_int}/bonding/xmit_hash_policy
+           for member in ${bond_int_member_list}; do
+               ip link set dev $member master ${bond_int}
+           done
+        fi
+        if [[ ${vlan_parent} ]]; then
+            vlanId=`echo ${phy_int} | awk -F"vlan" '{print $2}'`
+            ip link add name ${phy_int} link ${vlan_parent} type vlan id ${vlanId}
+        fi
+        if [[ ${contrail_repo} ]]; then
+          yumdownloader contrail-vrouter --destdir /tmp
+          cd /tmp
+          rpm2cpio /tmp/contrail-vrouter*.rpm | cpio -idmv
+          cp `find /tmp/lib/modules -name vrouter.ko |tail -1` /tmp
+          insmod /tmp/vrouter.ko
+        else
+          modprobe vrouter
+        fi
+        insert_vrouter
+        if [[ `ifconfig ${phy_int} |grep "inet "` ]]; then
+          def_gw=''
+          if [[ `ip route show |grep default|grep ${phy_int}` ]]; then
+            def_gw=`ip route show |grep default|grep ${phy_int}|awk '{print $3}'`
+          fi
+          ip=`ifconfig ${phy_int} |grep "inet "|awk '{print $2}'`
+          mask=`ifconfig ${phy_int} |grep "inet "|awk '{print $4}'`
+          ip address delete $ip/$mask dev ${phy_int}
+          ip address add $ip/$mask dev vhost0
+          if [[ $def_gw ]]; then
+            ip route add default via $def_gw
+          fi
+        fi
