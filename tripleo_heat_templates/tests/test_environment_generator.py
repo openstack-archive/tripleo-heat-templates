@@ -89,6 +89,7 @@ class GeneratorTestCase(base.BaseTestCase):
         ('basic',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -115,6 +116,7 @@ parameter_defaults:
         ('basic-one-param',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -138,6 +140,7 @@ parameter_defaults:
         ('basic-static-param',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -173,6 +176,7 @@ parameter_defaults:
         ('basic-static-param-sample',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -211,6 +215,7 @@ parameter_defaults:
         ('basic-private',
          {'template': basic_private_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -233,6 +238,7 @@ parameter_defaults:
         ('mandatory',
          {'template': mandatory_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -256,6 +262,7 @@ parameter_defaults:
         ('basic-sample',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -284,6 +291,7 @@ parameter_defaults:
         ('basic-resource-registry',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -314,6 +322,7 @@ resource_registry:
         ('basic-hidden',
          {'template': basic_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -349,6 +358,7 @@ parameter_defaults:
         ('missing-param',
          {'template': basic_template,
           'exception': RuntimeError,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -364,6 +374,7 @@ parameter_defaults:
         ('percent-index',
          {'template': index_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -383,9 +394,49 @@ parameter_defaults:
 
 ''',
           }),
+        ('nested',
+         {'template': multiline_template,
+          'exception': None,
+          'input_file': '''environments:
+  -
+    name: basic
+    title: Basic Environment
+    description: Basic description
+    files:
+      foo.yaml:
+        parameters: all
+    children:
+      - name: nested
+        title: Nested Environment
+        description: Nested description
+        sample_values:
+          FooParam: bar
+''',
+          'expected_output': '''# title: Basic Environment
+# description: |
+#   Basic description
+parameter_defaults:
+  # Parameter with
+  # multi-line description
+  # Type: string
+  FooParam: ''
+
+''',
+          'nested_output': '''# title: Nested Environment
+# description: |
+#   Nested description
+parameter_defaults:
+  # Parameter with
+  # multi-line description
+  # Type: string
+  FooParam: bar
+
+''',
+          }),
         ('multi-line-desc',
          {'template': multiline_template,
           'exception': None,
+          'nested_output': '',
           'input_file': '''environments:
   -
     name: basic
@@ -420,7 +471,14 @@ parameter_defaults:
         fake_output = open(fake_output_path, 'w')
         with mock.patch('tripleo_heat_templates.environment_generator.open',
                         create=True) as mock_open:
-            mock_open.side_effect = [fake_input, fake_template, fake_output]
+            mock_se = [fake_input, fake_template, fake_output]
+            if self.nested_output:
+                _, fake_nested_output_path = tempfile.mkstemp()
+                fake_nested_output = open(fake_nested_output_path, 'w')
+                fake_template2 = io.StringIO(six.text_type(self.template))
+                mock_se = [fake_input, fake_template, fake_output,
+                           fake_template2, fake_nested_output]
+            mock_open.side_effect = mock_se
             if not self.exception:
                 environment_generator.generate_environments('ignored.yaml')
             else:
@@ -431,5 +489,10 @@ parameter_defaults:
         expected = environment_generator._FILE_HEADER + self.expected_output
         with open(fake_output_path) as f:
             self.assertEqual(expected, f.read())
+        if self.nested_output:
+            with open(fake_nested_output_path) as f:
+                expected = (environment_generator._FILE_HEADER +
+                            self.nested_output)
+                self.assertEqual(expected, f.read())
 
 GeneratorTestCase.generate_scenarios()

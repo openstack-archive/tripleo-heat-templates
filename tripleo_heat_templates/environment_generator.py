@@ -68,6 +68,7 @@ def _generate_environment(input_env, parent_env=None):
     if parent_env is None:
         parent_env = {}
     env = dict(parent_env)
+    env.pop('children', None)
     env.update(input_env)
     parameter_defaults = {}
     param_names = []

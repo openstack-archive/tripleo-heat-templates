@@ -23,6 +23,11 @@ appropriate file in the ``sample-env-generator/`` directory.  The existing
 entries in the files can be used as examples, and a more detailed
 explanation of the different available keys is below:
 
+Top-level:
+- **environments**: This is the top-level key in the file.  All other keys
+  below should appear in a list of dictionaries that define environments.
+
+Environment-specific:
 - **name**: the output file will be this name + .yaml, in the
   ``environments`` directory.
 - **title**: a human-readable title for the environment.
@@ -52,6 +57,12 @@ explanation of the different available keys is below:
 - **resource_registry**: Many environments also need to pass
   resource_registry entries when they are used.  This can be used
   to specify that in the configuration file.
+- **children**: For environments that share a lot of common values but may
+  need minor variations for different use cases, sample environment entries
+  can be nested.  ``children`` takes a list of environments with the same
+  structure as the top-level ``environments`` key.  The main difference is
+  that all keys are optional, and any that are omitted will be inherited from
+  the parent environment definition.
 
 Some behavioral notes:
 
