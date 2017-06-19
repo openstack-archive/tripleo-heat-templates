@@ -386,6 +386,7 @@ resources:
     properties:
       server: {get_resource: NovaCompute}
       RoleParameters: {get_param: RoleParameters}
+      deployment_actions: {get_attr: [DeploymentActions, value]}
 
   NetworkConfig:
     type: OS::TripleO::Compute::Net::SoftwareConfig
@@ -512,6 +513,9 @@ resources:
   ComputeExtraConfigPre:
     depends_on: NovaComputeDeployment
     type: OS::TripleO::ComputeExtraConfigPre
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: NovaCompute}
 
@@ -520,6 +524,9 @@ resources:
   NodeExtraConfig:
     depends_on: [ComputeExtraConfigPre, NodeTLSCAData]
     type: OS::TripleO::NodeExtraConfig
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: NovaCompute}
 
@@ -542,11 +549,21 @@ resources:
         update_identifier:
           get_param: UpdateIdentifier
 
+  DeploymentActions:
+    type: OS::Heat::Value
+    properties:
+      value:
+        if:
+          - server_not_blacklisted
+          - ['CREATE', 'UPDATE']
+          - []
+
   SshHostPubKey:
     type: OS::TripleO::Ssh::HostPubKey
     depends_on: NovaComputeDeployment
     properties:
         server: {get_resource: NovaCompute}
+        deployment_actions: {get_attr: [DeploymentActions, value]}
 
 outputs:
   ip_address:
