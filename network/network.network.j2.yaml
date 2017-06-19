@@ -1,0 +1,92 @@
+heat_template_version: pike
+
+description: >
+  {{network.name}} network definition (automatically generated).
+
+parameters:
+  # the defaults here work for static IP assignment (IPAM) only
+  {{network.name}}NetCidr:
+    default: {{network.ip_subnet|default("")}}
+    description: Cidr for the {{network.name_lower}} network.
+    type: string
+  {{network.name}}NetValueSpecs:
+    default: {'provider:physical_network': '{{network.name_lower}}', 'provider:network_type': 'flat'}
+    description: Value specs for the {{network.name_lower}} network.
+    type: json
+  {{network.name}}NetAdminStateUp:
+    default: false
+    description: This admin state of the network.
+    type: boolean
+  {{network.name}}NetEnableDHCP:
+    default: false
+    description: Whether to enable DHCP on the associated subnet.
+    type: boolean
+  {{network.name}}NetShared:
+    default: false
+    description: Whether this network is shared across all tenants.
+    type: boolean
+  {{network.name}}NetName:
+    default: {{network.name_lower}}
+    description: The name of the  {{network.name_lower}} network.
+    type: string
+  {{network.name}}SubnetName:
+    default: {{network.name_lower}}_subnet
+    description: The name of the {{network.name_lower}} subnet in Neutron.
+    type: string
+  {{network.name}}AllocationPools:
+    default: {{network.allocation_pools|default([])}}
+    description: Ip allocation pool range for the {{network.name_lower}} network.
+    type: json
+  {{network.name}}InterfaceDefaultRoute:
+    default: {{network.gateway_ip|default("not_defined")}}
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- if network.vlan %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan}}
+    description: Vlan ID for the {{network.name}} network traffic.
+    type: number
+{%- endif %}
+{%- if network.ipv6 %}
+  IPv6AddressMode:
+    default: dhcpv6-stateful
+    description: Neutron subnet IPv6 address mode
+    type: string
+  IPv6RAMode:
+    default: dhcpv6-stateful
+    description: Neutron subnet IPv6 router advertisement mode
+    type: string
+{%- endif %}
+
+resources:
+  {{network.name}}Network:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: {get_param: {{network.name}}NetAdminStateUp}
+      name: {get_param: {{network.name}}NetName}
+      shared: {get_param: {{network.name}}NetShared}
+      value_specs: {get_param: {{network.name}}NetValueSpecs}
+
+  {{network.name}}Subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      cidr: {get_param: {{network.name}}NetCidr}
+      name: {get_param: {{network.name}}SubnetName}
+      network: {get_resource: {{network.name}}Network}
+      allocation_pools: {get_param: {{network.name}}AllocationPools}
+      gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute}
+{%-  if network.ipv6 %}
+      ip_version: 6
+      ipv6_address_mode: {get_param: IPv6AddressMode}
+      ipv6_ra_mode: {get_param: IPv6RAMode}
+{%- else %}
+      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
+{%- endif %}
+
+outputs:
+  OS::stack_id:
+    description: {{network.name_lower}} network
+    value: {get_resource: {{network.name}}Network}
+  subnet_cidr:
+    value: {get_attr: {{network.name}}Subnet, cidr}
+
