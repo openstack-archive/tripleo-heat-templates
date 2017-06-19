@@ -34,6 +34,10 @@ parameters:
     default: 42
     description: Bar description
     type: number
+  EndpointMap:
+    default: {}
+    description: Parameter that should not be included by default
+    type: json
 resources:
   # None
 '''
@@ -305,6 +309,41 @@ parameter_defaults:
 
 resource_registry:
   OS::TripleO::FakeResource: fake-filename.yaml
+''',
+          }),
+        ('basic-hidden',
+         {'template': basic_template,
+          'exception': None,
+          'input_file': '''environments:
+  -
+    name: basic
+    title: Basic Environment
+    description: Basic description
+    files:
+      foo.yaml:
+        parameters: all
+    sample_values:
+      EndpointMap: |-2
+
+            foo: bar
+''',
+          'expected_output': '''# title: Basic Environment
+# description: |
+#   Basic description
+parameter_defaults:
+  # Bar description
+  # Type: number
+  BarParam: 42
+
+  # Parameter that should not be included by default
+  # Type: json
+  EndpointMap:
+    foo: bar
+
+  # Foo description
+  # Type: string
+  FooParam: foo
+
 ''',
           }),
         ('missing-param',
