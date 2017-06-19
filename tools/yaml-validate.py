@@ -20,7 +20,14 @@ import yaml
 required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
                    'RoleName', 'RoleParameters']
 
+# NOTE(bnemec): The duplication in this list is intentional.  For the
+# transition to generated environments we have two copies of these files,
+# so they need to be listed twice.  Once the deprecated version can be removed
+# the duplicate entries can be as well.
 envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
+                                'tls-endpoints-public-ip.yaml',
+                                'tls-everywhere-endpoints-dns.yaml',
+                                'tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
@@ -292,9 +299,9 @@ if base_endpoint_map and \
         else:
             print("%s matches base endpoint map" % env_endpoint_map['file'])
 else:
-    print("ERROR: Can't validate endpoint maps since a file is missing. "
-          "If you meant to delete one of these files you should update this "
-          "tool as well.")
+    print("ERROR: Did not find expected number of environments containing the "
+          "EndpointMap parameter.  If you meant to add or remove one of these "
+          "environments then you also need to update this tool.")
     if not base_endpoint_map:
         failed_files.append(ENDPOINT_MAP_FILE)
     if len(env_endpoint_maps) != len(envs_containing_endpoint_map):
