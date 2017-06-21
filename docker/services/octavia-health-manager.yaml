@@ -75,6 +75,11 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/octavia_health_manager.json:
           command: /usr/bin/octavia-health-manager --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/health-manager.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-health-manager
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         step_2:
           octavia_health_manager_init_dirs:
@@ -85,7 +90,12 @@ outputs:
                 - [ {get_param: DockerNamespace}, {get_param: DockerOctaviaHealthManagerImage} ]
             user: root
             volumes:
-              - /var/lib/config-data/octavia/etc/octavia:/etc/octavia/
+              # NOTE(mandre) we need extra dir for the service in /etc/octavia/conf.d
+              # It is normally created as part of the RPM install, but it is
+              # missing here because we use the same config_volume for all
+              # octavia services, hence the same container image to generate
+              # configuration.
+              - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/
             command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-health-manager; chown -R octavia:octavia /etc/octavia/conf.d/octavia-health-manager']
         step_4:
           octavia_health_manager:
@@ -99,7 +109,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/kolla/config_files/octavia_health_manager.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/octavia/etc/octavia/:/etc/octavia/:ro
+                  - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/octavia:/var/log/octavia
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS

@@ -83,6 +83,11 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/nova_api.json:
           command: /usr/bin/nova-api
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
           permissions:
             - path: /var/log/nova
               owner: nova:nova
@@ -107,11 +112,10 @@ outputs:
             net: host
             detach: false
             user: root
-            volumes: &nova_api_volumes
+            volumes: &nova_api_bootstrap_volumes
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
                   - /var/log/containers/nova:/var/log/nova
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
@@ -124,14 +128,14 @@ outputs:
             net: host
             detach: false
             user: root
-            volumes: *nova_api_volumes
+            volumes: *nova_api_bootstrap_volumes
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0'"
           nova_api_create_default_cell:
             start_order: 2
             image: *nova_api_image
             net: host
             detach: false
-            volumes: *nova_api_volumes
+            volumes: *nova_api_bootstrap_volumes
             # NOTE: allowing the exit code 2 is a dirty way of making
             # this idempotent (if the resource already exists a conflict
             # is raised)
@@ -143,7 +147,7 @@ outputs:
             image: *nova_api_image
             net: host
             detach: false
-            volumes: *nova_api_volumes
+            volumes: *nova_api_bootstrap_volumes
             user: root
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db sync'"
         step_4:
@@ -154,7 +158,13 @@ outputs:
             user: nova
             privileged: true
             restart: always
-            volumes: *nova_api_volumes
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/nova:/var/log/nova
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
@@ -163,7 +173,7 @@ outputs:
             image: *nova_api_image
             net: host
             detach: false
-            volumes: *nova_api_volumes
+            volumes: *nova_api_bootstrap_volumes
             user: root
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 discover_hosts'"
       host_prep_tasks:
