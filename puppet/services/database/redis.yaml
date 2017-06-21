@@ -52,3 +52,23 @@ outputs:
                   - 26379
       step_config: |
         include ::tripleo::profile::base::database::redis
+      upgrade_tasks:
+        - name: Check if redis is deployed
+          command: systemctl is-enabled redis
+          tags: common
+          ignore_errors: True
+          register: redis_enabled
+        - name: "PreUpgrade step0,validation: Check if redis is running"
+          shell: >
+            /usr/bin/systemctl show 'redis' --property ActiveState |
+            grep '\bactive\b'
+          when: redis_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop redis service
+          tags: step1
+          when: redis_enabled.rc == 0
+          service: name=redis state=stopped
+        - name: Install redis package if it was disabled
+          tags: step3
+          yum: name=redis state=latest
+          when: redis_enabled.rc != 0
