@@ -16,7 +16,7 @@ if [ -n "$artifact_urls" ]; then
       tar xvzf $TMP_DATA/file_data
       popd
     else
-      echo "ERROR: Unsupported file format."
+      echo "ERROR: Unsupported file format: $URL"
       exit 1
     fi
     rm $TMP_DATA/file_data
