@@ -110,7 +110,7 @@ EOF_CAT
 }
 
 if [ -n '$network_config' ]; then
-    if [ -z "${disable_configure_safe_defaults:-''}" ]; then
+    if [ -z "${disable_configure_safe_defaults:-}" ]; then
         trap configure_safe_defaults EXIT
     fi
 
