@@ -33,6 +33,15 @@ if [[ -a "$timestamp_file" ]]; then
 fi
 touch "$timestamp_file"
 
+# install openstack-nova-migration on computes prior to checking for updates
+if hiera -c /etc/puppet/hiera.yaml service_names | grep -q nova_compute; then
+    echo "Checking openstack-nova-migration is installed"
+    if ! yum -q list installed openstack-nova-migration > /dev/null 2>&1; then
+        echo "Installing openstack-nova-migration"
+        yum -q -y install openstack-nova-migration
+    fi
+fi
+
 command_arguments=${command_arguments:-}
 
 # yum check-update exits 100 if updates are available
