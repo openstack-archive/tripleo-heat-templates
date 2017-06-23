@@ -12,6 +12,10 @@ parameters:
     description: image
     default: 'centos-binary-octavia-api:latest'
     type: string
+  DockerOctaviaConfigImage:
+    description: The container image to use for the octavia config_volume
+    default: 'centos-binary-octavia-api:latest'
+    type: string
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -71,10 +75,10 @@ outputs:
         config_volume: octavia
         puppet_tags: octavia_config
         step_config: *step_config
-        config_image: &octavia_image
+        config_image:
           list_join:
             - '/'
-            - [ {get_param: DockerNamespace}, {get_param: DockerOctaviaApiImage} ]
+            - [ {get_param: DockerNamespace}, {get_param: DockerOctaviaConfigImage} ]
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
           command: /usr/bin/octavia-api --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/api.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-api
@@ -85,7 +89,10 @@ outputs:
         step_2:
           octavia_api_init_dirs:
             start_order: 0
-            image: *octavia_image
+            image: &octavia_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerOctaviaApiImage} ]
             user: root
             volumes:
               - /var/lib/config-data/octavia/etc/octavia:/etc/octavia/
@@ -94,7 +101,7 @@ outputs:
         step_3:
           octavia_db_sync:
             start_order: 0
-            image: *octavia_image
+            image: *octavia_api_image
             net: host
             privileged: false
             detach: false
@@ -111,7 +118,7 @@ outputs:
           map_merge:
             - octavia_api:
                 start_order: 2
-                image: *octavia_image
+                image: *octavia_api_image
                 net: host
                 privileged: false
                 restart: always
@@ -122,7 +129,7 @@ outputs:
                 - internal_tls_enabled
                 - octavia_api_tls_proxy:
                     start_order: 2
-                    image: *octavia_image
+                    image: *octavia_api_image
                     net: host
                     user: root
                     restart: always

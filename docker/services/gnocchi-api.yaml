@@ -12,6 +12,10 @@ parameters:
     description: image
     default: 'centos-binary-gnocchi-api:latest'
     type: string
+  DockerGnocchiConfigImage:
+    description: The container image to use for the gnocchi config_volume
+    default: 'centos-binary-gnocchi-api:latest'
+    type: string
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -73,10 +77,10 @@ outputs:
         config_volume: gnocchi
         puppet_tags: gnocchi_api_paste_ini,gnocchi_config
         step_config: *step_config
-        config_image: &gnocchi_image
+        config_image:
           list_join:
             - '/'
-            - [ {get_param: DockerNamespace}, {get_param: DockerGnocchiApiImage} ]
+            - [ {get_param: DockerNamespace}, {get_param: DockerGnocchiConfigImage} ]
       kolla_config:
         /var/lib/kolla/config_files/gnocchi_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -88,14 +92,17 @@ outputs:
         # db sync runs before permissions set by kolla_config
         step_2:
           gnocchi_init_log:
-            image: *gnocchi_image
+            image: &gnocchi_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerGnocchiApiImage} ]
             user: root
             volumes:
               - /var/log/containers/gnocchi:/var/log/gnocchi
             command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd; chown -R gnocchi:gnocchi /var/log/gnocchi']
         step_3:
           gnocchi_db_sync:
-            image: *gnocchi_image
+            image: *gnocchi_api_image
             net: host
             detach: false
             privileged: false
@@ -109,7 +116,7 @@ outputs:
             command: "/usr/bin/bootstrap_host_exec gnocchi_api su gnocchi -s /bin/bash -c '/usr/bin/gnocchi-upgrade --skip-storage'"
         step_4:
           gnocchi_api:
-            image: *gnocchi_image
+            image: *gnocchi_api_image
             net: host
             privileged: false
             restart: always

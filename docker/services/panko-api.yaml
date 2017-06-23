@@ -14,6 +14,10 @@ parameters:
     description: image
     default: 'centos-binary-panko-api:latest'
     type: string
+  DockerPankoConfigImage:
+    description: The container image to use for the panko config_volume
+    default: 'centos-binary-panko-api:latest'
+    type: string
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -75,10 +79,10 @@ outputs:
         config_volume: panko
         puppet_tags: panko_api_paste_ini,panko_config
         step_config: *step_config
-        config_image: &panko_image
+        config_image:
           list_join:
             - '/'
-            - [ {get_param: DockerNamespace}, {get_param: DockerPankoApiImage} ]
+            - [ {get_param: DockerNamespace}, {get_param: DockerPankoConfigImage} ]
       kolla_config:
         /var/lib/kolla/config_files/panko_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -89,14 +93,17 @@ outputs:
       docker_config:
         step_2:
           panko_init_log:
-            image: *panko_image
+            image: &panko_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerPankoApiImage} ]
             user: root
             volumes:
               - /var/log/containers/panko:/var/log/panko
             command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd; chown -R panko:panko /var/log/panko']
         step_3:
           panko_db_sync:
-            image: *panko_image
+            image: *panko_api_image
             net: host
             detach: false
             privileged: false
@@ -111,7 +118,7 @@ outputs:
         step_4:
           panko_api:
             start_order: 2
-            image: *panko_image
+            image: *panko_api_image
             net: host
             privileged: false
             restart: always

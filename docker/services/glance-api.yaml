@@ -12,6 +12,10 @@ parameters:
     description: image
     default: 'centos-binary-glance-api:latest'
     type: string
+  DockerGlanceApiConfigImage:
+    description: The container image to use for the glance_api config_volume
+    default: 'centos-binary-glance-api:latest'
+    type: string
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -74,10 +78,10 @@ outputs:
         config_volume: glance_api
         puppet_tags: glance_api_config,glance_api_paste_ini,glance_swift_config,glance_cache_config
         step_config: *step_config
-        config_image: &glance_image
+        config_image:
           list_join:
             - '/'
-            - [ {get_param: DockerNamespace}, {get_param: DockerGlanceApiImage} ]
+            - [ {get_param: DockerNamespace}, {get_param: DockerGlanceApiConfigImage} ]
       kolla_config:
         /var/lib/kolla/config_files/glance_api.json:
           command: /usr/bin/glance-api --config-file /usr/share/glance/glance-api-dist.conf --config-file /etc/glance/glance-api.conf
@@ -87,7 +91,10 @@ outputs:
         # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_2:
           glance_init_logs:
-            image: *glance_image
+            image: &glance_api_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerGlanceApiImage} ]
             privileged: false
             user: root
             volumes:
@@ -95,7 +102,7 @@ outputs:
             command: ['/bin/bash', '-c', 'chown -R glance:glance /var/log/glance']
         step_3:
           glance_api_db_sync:
-            image: *glance_image
+            image: *glance_api_image
             net: host
             privileged: false
             detach: false
@@ -115,7 +122,7 @@ outputs:
           map_merge:
             - glance_api:
                 start_order: 2
-                image: *glance_image
+                image: *glance_api_image
                 net: host
                 privileged: false
                 restart: always
@@ -126,7 +133,7 @@ outputs:
                 - internal_tls_enabled
                 - glance_api_tls_proxy:
                     start_order: 2
-                    image: *glance_image
+                    image: *glance_api_image
                     net: host
                     user: root
                     restart: always
