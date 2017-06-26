@@ -1,0 +1,152 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Cinder Backup service
+
+parameters:
+  DockerNamespace:
+    description: namespace
+    default: 'tripleoupstream'
+    type: string
+  DockerCinderBackupImage:
+    description: image
+    default: 'centos-binary-cinder-backup:latest'
+    type: string
+  # we configure all cinder services in the same cinder base container
+  DockerCinderConfigImage:
+    description: image
+    default: 'centos-binary-cinder-api:latest'
+    type: string
+  CinderBackupBackend:
+    default: swift
+    description: The short name of the Cinder Backup backend to use.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'ceph']
+  CinderBackupRbdPoolName:
+    default: backups
+    type: string
+  CephClientUserName:
+    default: openstack
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+
+resources:
+
+  CinderBackupBase:
+    type: ../../../puppet/services/cinder-backup.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      CinderBackupBackend: {get_param: CinderBackupBackend}
+      CinderBackupRbdPoolName: {get_param: CinderBackupRbdPoolName}
+      CephClientUserName: {get_param: CephClientUserName}
+
+outputs:
+  role_data:
+    description: Role data for the Cinder Backup role.
+    value:
+      service_name: {get_attr: [CinderBackupBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [CinderBackupBase, role_data, config_settings]
+          - tripleo::profile::pacemaker::cinder::backup_bundle::cinder_backup_docker_image: &cinder_backup_image
+              list_join:
+                - '/'
+                - [ {get_param: DockerNamespace}, {get_param: DockerCinderBackupImage} ]
+            cinder::backup::manage_service: false
+            cinder::backup::enabled: false
+      step_config: ""
+      service_config_settings: {get_attr: [CinderBackupBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: cinder
+        puppet_tags: cinder_config,file,concat,file_line
+        step_config: {get_attr: [CinderBackupBase, role_data, step_config]}
+        config_image:
+          list_join:
+            - '/'
+            - [ {get_param: DockerNamespace}, {get_param: DockerCinderConfigImage} ]
+      kolla_config:
+        /var/lib/kolla/config_files/cinder_backup.json:
+          command: /usr/bin/cinder-backup --config-file /usr/share/cinder/cinder-dist.conf --config-file /etc/cinder/cinder.conf
+          permissions:
+            - path: /var/lib/cinder
+              owner: cinder:cinder
+              recurse: true
+            - path: /var/log/cinder
+              owner: cinder:cinder
+              recurse: true
+      docker_config:
+        step_3:
+          cinder_backup_init_logs:
+            start_order: 0
+            image: *cinder_backup_image
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/cinder:/var/log/cinder
+            command: ['/bin/bash', '-c', 'chown -R cinder:cinder /var/log/cinder']
+        step_5:
+          cinder_backup_init_bundle:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    list_join:
+                      - '; '
+                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 5}' > /etc/puppet/hieradata/docker.json"
+                        - "FACTER_uuid=docker puppet apply --tags file_line,concat,augeas,TAGS --debug -v -e 'CONFIG'"
+                  params:
+                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
+                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::cinder::backup_bundle'
+            image: *cinder_backup_image
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /etc/puppet:/tmp/puppet-etc:ro
+              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+              - /dev/shm:/dev/shm:rw
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/lib/cinder
+            - /var/log/containers/cinder
+      upgrade_tasks:
+        - name: Stop and disable cinder_backup service
+          tags: step2
+          service: name=openstack-cinder-backup state=stopped enabled=no
