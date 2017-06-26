@@ -219,11 +219,13 @@ def validate_docker_service(filename, tpl):
         if 'docker_config' in role_data:
             docker_config = role_data['docker_config']
             for _, step in docker_config.items():
+                if not isinstance(step, dict):
+                    # NOTE(mandre) this skips everything that is not a dict
+                    # so we may ignore some containers definitions if they
+                    # are in a map_merge for example
+                    continue
                 for _, container in step.items():
                     if not isinstance(container, dict):
-                        # NOTE(mandre) this skips everything that is not a dict
-                        # so we may ignore some containers definitions if they
-                        # are in a map_merge for example
                         continue
                     command = container.get('command', '')
                     if isinstance(command, list):
