@@ -415,6 +415,7 @@ resources:
       server: {get_resource: CephStorage}
       RoleParameters: {get_param: RoleParameters}
       ServiceNames: {get_param: ServiceNames}
+      deployment_actions: {get_attr: [DeploymentActions, value]}
 
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
@@ -521,6 +522,9 @@ resources:
   CephStorageExtraConfigPre:
     depends_on: CephStorageDeployment
     type: OS::TripleO::CephStorageExtraConfigPre
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: CephStorage}
 
@@ -529,6 +533,9 @@ resources:
   NodeExtraConfig:
     depends_on: [CephStorageExtraConfigPre, NodeTLSCAData]
     type: OS::TripleO::NodeExtraConfig
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: CephStorage}
 
@@ -550,11 +557,21 @@ resources:
           - ['CREATE', 'UPDATE']
           - []
 
+  DeploymentActions:
+    type: OS::Heat::Value
+    properties:
+      value:
+        if:
+          - server_not_blacklisted
+          - ['CREATE', 'UPDATE']
+          - []
+
   SshHostPubKey:
     type: OS::TripleO::Ssh::HostPubKey
     depends_on: CephStorageDeployment
     properties:
         server: {get_resource: CephStorage}
+        deployment_actions: {get_attr: [DeploymentActions, value]}
 
 outputs:
   ip_address:

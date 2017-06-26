@@ -435,6 +435,7 @@ resources:
       server: {get_resource: {{role.name}}}
       RoleParameters: {get_param: RoleParameters}
       ServiceNames: {get_param: ServiceNames}
+      deployment_actions: {get_attr: [DeploymentActions, value]}
 
   NetworkDeployment:
     type: OS::TripleO::SoftwareDeployment
@@ -547,6 +548,9 @@ resources:
   {{role.name}}ExtraConfigPre:
     depends_on: {{role.name}}Deployment
     type: OS::TripleO::{{role.name}}ExtraConfigPre
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: {{role.name}}}
 
@@ -555,6 +559,9 @@ resources:
   NodeExtraConfig:
     depends_on: [{{role.name}}ExtraConfigPre, NodeTLSCAData]
     type: OS::TripleO::NodeExtraConfig
+    # We have to use conditions here so that we don't break backwards
+    # compatibility with templates everywhere
+    condition: server_not_blacklisted
     properties:
         server: {get_resource: {{role.name}}}
 
@@ -577,11 +584,21 @@ resources:
           - ['CREATE', 'UPDATE']
           - []
 
+  DeploymentActions:
+    type: OS::Heat::Value
+    properties:
+      value:
+        if:
+          - server_not_blacklisted
+          - ['CREATE', 'UPDATE']
+          - []
+
   SshHostPubKey:
     type: OS::TripleO::Ssh::HostPubKey
     depends_on: {{role.name}}Deployment
     properties:
         server: {get_resource: {{role.name}}}
+        deployment_actions: {get_attr: [DeploymentActions, value]}
 
 outputs:
   ip_address:
