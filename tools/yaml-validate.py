@@ -39,6 +39,19 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags' ]
+# Mapping of parameter names to a list of the fields we should _not_ enforce
+# consistency across files on.  This should only contain parameters whose
+# definition we cannot change for backwards compatibility reasons.  New
+# parameters to the templates should not be added to this list.
+PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
+                                   'ManagementAllocationPools': ['default'],
+                                   'ExternalNetCidr': ['default'],
+                                   'ExternalAllocationPools': ['default'],
+                                   'StorageNetCidr': ['default'],
+                                   'StorageAllocationPools': ['default'],
+                                   'StorageMgmtNetCidr': ['default'],
+                                   'StorageMgmtAllocationPools': ['default'],
+                                   }
 
 
 def exit_usage():
@@ -211,7 +224,30 @@ def validate_service(filename, tpl):
     return 0
 
 
-def validate(filename):
+def validate(filename, param_map):
+    """Validate a Heat template
+
+    :param filename: The path to the file to validate
+    :param param_map: A dict which will be populated with the details of the
+                      parameters in the template.  The dict will have the
+                      following structure:
+
+                          {'ParameterName': [
+                               {'filename': ./file1.yaml,
+                                'data': {'description': '',
+                                         'type': string,
+                                         'default': '',
+                                         ...}
+                                },
+                               {'filename': ./file2.yaml,
+                                'data': {'description': '',
+                                         'type': string,
+                                         'default': '',
+                                         ...}
+                                },
+                                ...
+                           ]}
+    """
     print('Validating %s' % filename)
     retval = 0
     try:
@@ -240,7 +276,9 @@ def validate(filename):
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
     if 'heat_template_version' in tpl:
-        for p in tpl.get('parameters', {}):
+        for p, data in tpl.get('parameters', {}).items():
+            definition = {'data': data, 'filename': filename}
+            param_map.setdefault(p, []).append(definition)
             if p in required_params:
                 continue
             str_p = '\'%s\'' % p
@@ -260,6 +298,7 @@ exit_val = 0
 failed_files = []
 base_endpoint_map = None
 env_endpoint_maps = list()
+param_map = {}
 
 for base_path in path_args:
     if os.path.isdir(base_path):
@@ -267,7 +306,7 @@ for base_path in path_args:
             for f in files:
                 if f.endswith('.yaml') and not f.endswith('.j2.yaml'):
                     file_path = os.path.join(subdir, f)
-                    failed = validate(file_path)
+                    failed = validate(file_path, param_map)
                     if failed:
                         failed_files.append(file_path)
                     exit_val |= failed
@@ -278,7 +317,7 @@ for base_path in path_args:
                         if env_endpoint_map:
                             env_endpoint_maps.append(env_endpoint_map)
     elif os.path.isfile(base_path) and base_path.endswith('.yaml'):
-        failed = validate(base_path)
+        failed = validate(base_path, param_map)
         if failed:
             failed_files.append(base_path)
         exit_val |= failed
@@ -309,6 +348,34 @@ else:
                             for matched_env_file in env_endpoint_maps)
         failed_files.extend(set(envs_containing_endpoint_map) - matched_files)
     exit_val |= 1
+
+# Validate that duplicate parameters defined in multiple files all have the
+# same definition.
+mismatch_count = 0
+for p, defs in param_map.items():
+    # Nothing to validate if the parameter is only defined once
+    if len(defs) == 1:
+        continue
+    check_data = [d['data'] for d in defs]
+    # Override excluded fields so they don't affect the result
+    exclusions = PARAMETER_DEFINITION_EXCLUSIONS.get(p, [])
+    ex_dict = {}
+    for field in exclusions:
+        ex_dict[field] = 'IGNORED'
+    for d in check_data:
+        d.update(ex_dict)
+    # If all items in the list are not == the first, then the check fails
+    if check_data.count(check_data[0]) != len(check_data):
+        mismatch_count += 1
+        # TODO(bnemec): Make this a hard failure once all the templates have
+        #               been fixed.
+        #exit_val |= 1
+        #failed_files.extend([d['filename'] for d in defs])
+        print('Mismatched parameter definitions found for "%s"' % p)
+        print('Definitions found:')
+        for d in defs:
+            print('  %s:\n    %s' % (d['filename'], d['data']))
+print('Mismatched parameter definitions: %d' % mismatch_count)
 
 if failed_files:
     print('Validation failed on:')
