@@ -38,7 +38,7 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'metadata_settings', 'kolla_config']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
-OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags' ]
+OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
 # Mapping of parameter names to a list of the fields we should _not_ enforce
 # consistency across files on.  This should only contain parameters whose
 # definition we cannot change for backwards compatibility reasons.  New
