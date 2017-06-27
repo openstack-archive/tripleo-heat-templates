@@ -11,11 +11,68 @@ parameters:
     type: json
     description: Role Specific parameters
     default: {}
+  ServiceNames:
+    type: comma_delimited_list
+    default: []
+  HostCpusList:
+    default: "0"
+    description: List of cores to be used for host process
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9,-]+"
+  NeutronDpdkCoreList:
+    default: ""
+    description: List of cores to be used for DPDK Poll Mode Driver
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9,-]*"
+  NeutronDpdkMemoryChannels:
+    default: ""
+    description: Number of memory channels to be used for DPDK
+    type: string
+    constraints:
+      - allowed_pattern: "[0-9]*"
+  NeutronDpdkSocketMemory:
+    default: ""
+    description: Memory allocated for each socket
+    type: string
+  NeutronDpdkDriverType:
+    default: "vfio-pci"
+    description: DPDK Driver type
+    type: string
 
 conditions:
   is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
+  # YAQL is enabled in conditions with https://review.openstack.org/#/c/467506/
+  is_dpdk_config_required:
+    yaql:
+      expression: $.data.service_names.contains('neutron_ovs_dpdk_agent')
+      data:
+        service_names: {get_param: ServiceNames}
+  is_reboot_config_required:
+    or:
+      - is_host_config_required
+      - is_dpdk_config_required
 
 resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - HostCpusList: HostCpusList
+              NeutronDpdkCoreList: NeutronDpdkCoreList
+              NeutronDpdkMemoryChannels: NeutronDpdkMemoryChannels
+              NeutronDpdkSocketMemory: NeutronDpdkSocketMemory
+            - values: {get_param: [RoleParameters]}
+          - values:
+              HostCpusList: {get_param: HostCpusList}
+              NeutronDpdkCoreList: {get_param: NeutronDpdkCoreList}
+              NeutronDpdkMemoryChannels: {get_param: NeutronDpdkMemoryChannels}
+              NeutronDpdkSocketMemory: {get_param: NeutronDpdkSocketMemory}
+
   HostParametersConfig:
     type: OS::Heat::SoftwareConfig
     condition: is_host_config_required
@@ -43,9 +100,45 @@ resources:
         _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
         _TUNED_CORES_: {get_param: [RoleParameters, HostIsolatedCoreList]}
 
+  EnableDpdkConfig:
+    type: OS::Heat::SoftwareConfig
+    condition: is_dpdk_config_required
+    properties:
+      group: script
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -x
+            # DO NOT use --detailed-exitcodes
+            puppet apply --logdest console \
+              --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
+              -e '
+                class {"vswitch::dpdk":
+                  host_core_list  => "$HOST_CORES",
+                  pmd_core_list   => "$PMD_CORES",
+                  memory_channels => "$MEMORY_CHANNELS",
+                  socket_mem      => "$SOCKET_MEMORY",
+                }
+              '
+          params:
+            $HOST_CORES: {get_attr: [RoleParametersValue, value, HostCpusList]}
+            $PMD_CORES: {get_attr: [RoleParametersValue, value, NeutronDpdkCoreList]}
+            $MEMORY_CHANNELS: {get_attr: [RoleParametersValue, value, NeutronDpdkMemoryChannels]}
+            $SOCKET_MEMORY: {get_attr: [RoleParametersValue, value, NeutronDpdkSocketMemory]}
+
+  EnableDpdkDeployment:
+    type: OS::Heat::SoftwareDeployment
+    condition: is_dpdk_config_required
+    properties:
+      name: EnableDpdkDeployment
+      server:  {get_param: server}
+      config: {get_resource: EnableDpdkConfig}
+      actions: ['CREATE'] # Only do this on CREATE
+
   RebootConfig:
     type: OS::Heat::SoftwareConfig
-    condition: is_host_config_required
+    condition: is_reboot_config_required
     properties:
       group: script
       config: |
@@ -58,7 +151,7 @@ resources:
   RebootDeployment:
     type: OS::Heat::SoftwareDeployment
     depends_on: HostParametersDeployment
-    condition: is_host_config_required
+    condition: is_reboot_config_required
     properties:
       name: RebootDeployment
       server:  {get_param: server}
