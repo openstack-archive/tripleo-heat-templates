@@ -58,6 +58,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'TenantAllocationPools': ['default'],
                                    'InternalApiNetCidr': ['default'],
                                    'UpdateIdentifier': ['description'],
+                                   'key_name': ['default'],
                                    # TODO(bnemec): Address these existing
                                    # inconsistencies.
                                    'NeutronMetadataProxySharedSecret': [
@@ -111,7 +112,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'StorageNetName': ['description'],
                                    'ManagementNetName': ['description'],
                                    'NeutronPublicInterface': ['description'],
-                                   'RoleParameters': ['description'],
                                    'ManagementInterfaceDefaultRoute':
                                        ['default'],
                                    'image': ['description', 'default'],
@@ -126,7 +126,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'replacement_policy': ['default'],
                                    'StorageMgmtIpSubnet': ['description'],
                                    'CloudDomain': ['description', 'default'],
-                                   'key_name': ['default', 'description'],
                                    'EnableLoadBalancer': ['description'],
                                    'ControllerExtraConfig': ['description'],
                                    'NovaComputeExtraConfig': ['description'],
