@@ -200,6 +200,23 @@ def validate_docker_service(filename, tpl):
                       % (expected_config_image_parameter, config_volume))
                 return 1
 
+        if 'docker_config' in role_data:
+            docker_config = role_data['docker_config']
+            for _, step in docker_config.items():
+                for _, container in step.items():
+                    if not isinstance(container, dict):
+                        # NOTE(mandre) this skips everything that is not a dict
+                        # so we may ignore some containers definitions if they
+                        # are in a map_merge for example
+                        continue
+                    command = container.get('command', '')
+                    if isinstance(command, list):
+                        command = ' '.join(map(str, command))
+                    if 'bootstrap_host_exec' in command \
+                            and container.get('user') != 'root':
+                      print('ERROR: bootstrap_host_exec needs to run as the root user.')
+                      return 1
+
     if 'parameters' in tpl:
         for param in required_params:
             if param not in tpl['parameters']:
