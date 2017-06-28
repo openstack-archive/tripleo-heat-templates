@@ -95,6 +95,7 @@ Example
   BlockStorage
   CephStorage
   Compute
+  ComputeOvsDpdk
   Controller
   ControllerOpenstack
   Database
