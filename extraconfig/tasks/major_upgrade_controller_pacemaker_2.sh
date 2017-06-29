@@ -62,6 +62,15 @@ if [[ -n $(is_bootstrap_node) ]]; then
     check_resource galera stopped 600
     pcs resource disable openstack-cinder-volume
     check_resource openstack-cinder-volume stopped 600
+
+    # We want to remove any duplicate/leftover cinder service
+    # leftover in the database.
+    cinder-manage service list | \
+        awk '/^cinder/{print $1  " "  $2}' | \
+        while read service host; do
+            cinder-manage service remove $service $host;
+        done
+
     # Disable all VIPs before stopping the cluster, so that pcs doesn't use one as a source address:
     #   https://bugzilla.redhat.com/show_bug.cgi?id=1330688
     for vip in $(pcs resource show | grep ocf::heartbeat:IPaddr2 | grep Started | awk '{ print $1 }'); do
