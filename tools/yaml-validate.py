@@ -53,10 +53,20 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'StorageMgmtAllocationPools': ['default'],
                                    }
 
+PREFERRED_CAMEL_CASE = {
+    'ec2api': 'Ec2Api',
+    'haproxy': 'HAProxy',
+}
+
 
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
+
+
+def to_camel_case(string):
+    return PREFERRED_CAMEL_CASE.get(string, ''.join(s.capitalize() or '_' for
+                                                    s in string.split('_')))
 
 
 def get_base_endpoint_map(filename):
@@ -182,6 +192,13 @@ def validate_docker_service(filename, tpl):
                   print('ERROR: %s is required in puppet_config for %s.'
                         % (key, filename))
                   return 1
+
+            config_volume = puppet_config.get('config_volume')
+            expected_config_image_parameter = "Docker%sConfigImage" % to_camel_case(config_volume)
+            if config_volume and not expected_config_image_parameter in tpl.get('parameters', []):
+                print('ERROR: Missing %s heat parameter for %s config_volume.'
+                      % (expected_config_image_parameter, config_volume))
+                return 1
 
     if 'parameters' in tpl:
         for param in required_params:
