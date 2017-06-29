@@ -1,0 +1,119 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Qpid dispatch router service
+
+parameters:
+  DockerQdrouterdImage:
+    description: image
+    type: string
+  DockerQdrouterdConfigImage:
+    description: The container image to use for the qdrouterd config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  QdrouterdBase:
+    type: ../../puppet/services/qdr.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the qdrouterd service.
+    value:
+      service_name: {get_attr: [QdrouterdBase, role_data, service_name]}
+      global_config_settings: {get_attr: [QdrouterdBase, role_data, global_config_settings]}
+      config_settings: {get_attr: [QdrouterdBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [QdrouterdBase, role_data, step_config]
+      service_config_settings: {get_attr: [QdrouterdBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: qdrouterd
+        step_config: *step_config
+        config_image: {get_param: DockerQdrouterdConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/qdrouterd.json:
+          command: /usr/sbin/qdrouterd -c /etc/qpid-dispatch/qdrouterd.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/qdrouterd
+              owner: qdrouterd:qdrouterd
+              recurse: true
+      docker_config:
+        step_1:
+          qdrouterd_init_logs:
+            start_order: 0
+            detach: false
+            image: &qdrouterd_image {get_param: DockerQdrouterdImage}
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/qdrouterd:/var/log/qdrouterd
+            command: ['/bin/bash', '-c', 'chown -R qdrouterd:qdrouterd /var/log/qdrouterd']
+          qdrouterd:
+            start_order: 1
+            image: *qdrouterd_image
+            net: host
+            user: qdrouterd
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/qdrouterd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/qdrouterd/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/qdrouterd:/var/lib/qdrouterd
+                  - /var/log/containers/qdrouterd:/var/log/qdrouterd
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+      - name: create persistent logs directory
+        file:
+          path: "{{ item }}"
+          state: directory
+        with_items:
+          - /var/log/containers/qdrouterd
+          - /var/lib/qdrouterd
+      metadata_settings:
+        get_attr: [QdrouterdBase, role_data, metadata_settings]
