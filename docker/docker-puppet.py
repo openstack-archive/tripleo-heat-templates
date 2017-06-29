@@ -29,9 +29,13 @@ import tempfile
 import multiprocessing
 
 log = logging.getLogger()
-log.setLevel(logging.DEBUG)
 ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.DEBUG)
+if os.environ.get('DEBUG', False):
+    log.setLevel(logging.DEBUG)
+    ch.setLevel(logging.DEBUG)
+else:
+    log.setLevel(logging.INFO)
+    ch.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 ch.setFormatter(formatter)
 log.addHandler(ch)
@@ -145,11 +149,11 @@ for service in (json_data or []):
     if not manifest or not config_image:
         continue
 
-    log.debug('config_volume %s' % config_volume)
-    log.debug('puppet_tags %s' % puppet_tags)
-    log.debug('manifest %s' % manifest)
-    log.debug('config_image %s' % config_image)
-    log.debug('volumes %s' % volumes)
+    log.info('config_volume %s' % config_volume)
+    log.info('puppet_tags %s' % puppet_tags)
+    log.info('manifest %s' % manifest)
+    log.info('config_image %s' % config_image)
+    log.info('volumes %s' % volumes)
     # We key off of config volume for all configs.
     if config_volume in configs:
         # Append puppet tags and manifest.
@@ -272,13 +276,17 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
         cmd_stdout, cmd_stderr = subproc.communicate()
-        if cmd_stdout:
-            log.debug(cmd_stdout)
-        if cmd_stderr:
-            log.debug(cmd_stderr)
         if subproc.returncode != 0:
             log.error('Failed running docker-puppet.py for %s' % config_volume)
+            if cmd_stdout:
+                log.error(cmd_stdout)
+            if cmd_stderr:
+                log.error(cmd_stderr)
         else:
+            if cmd_stdout:
+                log.debug(cmd_stdout)
+            if cmd_stderr:
+                log.debug(cmd_stderr)
             # only delete successful runs, for debugging
             rm_container('docker-puppet-%s' % config_volume)
         return subproc.returncode
