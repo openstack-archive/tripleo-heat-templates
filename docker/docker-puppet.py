@@ -221,7 +221,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
 
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
-            tar cf - /var/lib/config-data/${NAME} | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+            tar -c -f - /var/lib/config-data/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
         fi
         """)
 
