@@ -98,14 +98,30 @@ def validate_hci_compute_services_default(env_filename, env_tpl):
     env_services_list = env_tpl['parameter_defaults']['ComputeServices']
     env_services_list.remove('OS::TripleO::Services::CephOSD')
     roles_filename = os.path.join(os.path.dirname(env_filename),
-                                  '../roles_data.yaml')
+                                  '../roles/Compute.yaml')
     roles_tpl = yaml.load(open(roles_filename).read())
     for role in roles_tpl:
         if role['name'] == 'Compute':
             roles_services_list = role['ServicesDefault']
             if sorted(env_services_list) != sorted(roles_services_list):
-                print('ERROR: ComputeServices in %s is different '
-                      'from ServicesDefault in roles_data.yaml' % env_filename)
+                print('ERROR: ComputeServices in %s is different from '
+                      'ServicesDefault in roles/Compute.yaml' % env_filename)
+                return 1
+    return 0
+
+
+def validate_hci_computehci_role(hci_role_filename, hci_role_tpl):
+    compute_role_filename = os.path.join(os.path.dirname(hci_role_filename),
+                                         './Compute.yaml')
+    compute_role_tpl = yaml.load(open(compute_role_filename).read())
+    compute_role_services = compute_role_tpl[0]['ServicesDefault']
+    for role in hci_role_tpl:
+        if role['name'] == 'ComputeHCI':
+            hci_role_services = role['ServicesDefault']
+            hci_role_services.remove('OS::TripleO::Services::CephOSD')
+            if sorted(hci_role_services) != sorted(compute_role_services):
+                print('ERROR: ServicesDefault in %s is different from'
+                      'ServicesDefault in roles/Compute.yaml' % hci_role_filename)
                 return 1
     return 0
 
@@ -304,6 +320,9 @@ def validate(filename, param_map):
 
         if filename.endswith('hyperconverged-ceph.yaml'):
             retval = validate_hci_compute_services_default(filename, tpl)
+
+        if filename.startswith('./roles/ComputeHCI.yaml'):
+            retval = validate_hci_computehci_role(filename, tpl)
 
     except Exception:
         print(traceback.format_exc())
