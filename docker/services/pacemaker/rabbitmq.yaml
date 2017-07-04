@@ -157,6 +157,27 @@ outputs:
             echo 'export ERL_EPMD_PORT=4370' >> /etc/rabbitmq/rabbitmq-env.conf
             for pid in $(pgrep epmd); do if [ "$(lsns -o NS -p $pid)" == "$(lsns -o NS -p 1)" ]; then kill $pid; break; fi; done
       upgrade_tasks:
-        - name: Stop and disable rabbitmq service
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+        - name: Disable the rabbitmq cluster resource.
           tags: step2
-          service: name=rabbitmq-server state=stopped enabled=no
+          pacemaker_resource:
+            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+            state: disable
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Delete the stopped rabbitmq cluster resource.
+          tags: step2
+          pacemaker_resource:
+            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+            state: delete
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Disable rabbitmq service
+          tags: step2
+          service: name=rabbitmq-server enabled=no
