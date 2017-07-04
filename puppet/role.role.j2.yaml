@@ -1,27 +1,40 @@
-{# ## Some variables are set to enable rendering backwards compatible templates #}
-{# ## where a few parameter/resource names don't match the expected pattern #}
-{# ## FIXME: we need some way to deprecate the old inconsistent parameters #}
-{%- if role.name == 'Controller' -%}
-  {%- set deprecated_extraconfig_param  = 'controllerExtraConfig'  -%}
-{% endif %}
+{#- ## Some variables are set to enable rendering backwards compatible templates #}
+{#- ## where a few parameter/resource names don't match the expected pattern #}
+{#- ## FIXME: we need some way to deprecate the old inconsistent parameters #}
+{%- set server_resource_name = role.deprecated_server_resource_name|default(role.name) -%}
 heat_template_version: pike
 description: 'OpenStack {{role.name}} node configured by Puppet'
 parameters:
+{%- set default_flavor_name = 'baremetal' %}
+{%- if role.deprecated_param_flavor is defined %}
+  {{role.deprecated_param_flavor}}:
+    description: DEPRECATED Use Overcloud{{role.name}}Flavor instead.
+    default: {{default_flavor_name}}
+    type: string
+{%- endif %}
   Overcloud{{role.name}}Flavor:
     description: Flavor for the {{role.name}} node.
-    default: baremetal
+    default: {{default_flavor_name}}
     type: string
-{% if role.disable_constraints is not defined %}
+{%- if role.disable_constraints is not defined %}
     constraints:
       - custom_constraint: nova.flavor
-{% endif %}
+{%- endif %}
+{%- set default_image_name = 'overcloud-full' %}
+{%- if role.deprecated_param_image is defined %}
+  {{role.deprecated_param_image}}:
+    type: string
+    default: {{default_image_name}}
+    description: DEPRECATED Use {{role.name}}Image instead
+{%- endif %}
   {{role.name}}Image:
     type: string
-    default: overcloud-full
-{% if role.disable_constraints is not defined %}
+    default: {{default_image_name}}
+    description: The disk image file to use for the role.
+{%- if role.disable_constraints is not defined %}
     constraints:
       - custom_constraint: glance.image
-{% endif %}
+{%- endif %}
   ImageUpdatePolicy:
     default: 'REBUILD_PRESERVE_EPHEMERAL'
     description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
@@ -30,13 +43,13 @@ parameters:
     description: Name of an existing Nova key pair to enable SSH access to the instances
     type: string
     default: default
-{% if role.disable_constraints is not defined %}
+{%- if role.disable_constraints is not defined %}
     constraints:
       - custom_constraint: nova.keypair
-{% endif %}
+{%- endif %}
   NeutronPhysicalBridge:
     default: 'br-ex'
-    description: An OVS bridge to create for accessing tenant networks.
+    description: An OVS bridge to create for accessing external networks.
     type: string
   NeutronPublicInterface:
     default: nic1
@@ -76,8 +89,8 @@ parameters:
     description: |
       Role specific additional hiera configuration to inject into the cluster.
     type: json
-{%- if deprecated_extraconfig_param is defined %}
-  {{deprecated_extraconfig_param}}:
+{%- if role.deprecated_param_extraconfig is defined %}
+  {{role.deprecated_param_extraconfig}}:
     default: {}
     description: |
       DEPRECATED use {{role.name}}ExtraConfig instead
@@ -86,6 +99,12 @@ parameters:
   {{role.name}}IPs:
     default: {}
     type: json
+{%- if role.deprecated_param_ips is defined %}
+  {{role.deprecated_param_ips}}:
+    default: {}
+    description: DEPRECATED - use {{role.name}}IPs instead
+    type: json
+{%- endif %}
   NetworkDeploymentActions:
     type: comma_delimited_list
     description: >
@@ -202,12 +221,16 @@ parameters:
           object: 0
     default: {}
 
-{% if deprecated_extraconfig_param is defined %}
+{% if role.uses_deprecated_params is defined %}
 parameter_groups:
 - label: deprecated
   description: Do not use deprecated params, they will be removed.
   parameters:
-  - {{deprecated_extraconfig_param}}
+{%- for property in role %}
+{%- if property.startswith('deprecated_param_') %}
+  - {{role[property]}}
+{%- endif %}
+{%- endfor %}
 {%- endif %}
 
 conditions:
@@ -223,17 +246,48 @@ conditions:
           - {get_param: Hostname}
       - ""
 
+{%- if role.deprecated_param_image is defined %}
+  deprecated_param_image_set:
+    not:
+      equals:
+        - {get_param: {{role.deprecated_param_image}}}
+        - {{default_image_name}}
+{%- endif %}
+{%- if role.deprecated_param_flavor is defined %}
+  deprecated_param_flavor_set:
+    not:
+      equals:
+        - {get_param: {{role.deprecated_param_flavor}}}
+        - {{default_flavor_name}}
+{%- endif %}
+
 resources:
-  {{role.name}}:
+  {{server_resource_name}}:
     type: OS::TripleO::{{role.name}}Server
     metadata:
       os-collect-config:
         command: {get_param: ConfigCommand}
         splay: {get_param: ConfigCollectSplay}
     properties:
-      image: {get_param: {{role.name}}Image}
+      image:
+{%- if role.deprecated_param_image is defined %}
+        if:
+          - deprecated_param_image_set
+          - {get_param: {{role.deprecated_param_image}}}
+          - {get_param: {{role.name}}Image}
+{%- else %}
+        get_param: {{role.name}}Image
+{%- endif %}
       image_update_policy: {get_param: ImageUpdatePolicy}
-      flavor: {get_param: Overcloud{{role.name}}Flavor}
+      flavor: 
+{%- if role.deprecated_param_flavor is defined %}
+        if:
+          - deprecated_param_flavor_set
+          - {get_param: {{role.deprecated_param_flavor}}}
+          - {get_param: Overcloud{{role.name}}Flavor}
+{%- else %}
+        get_param: Overcloud{{role.name}}Flavor
+{%- endif %}
       key_name: {get_param: KeyName}
       networks:
         - network: ctlplane
@@ -288,15 +342,15 @@ resources:
   {{network.name}}Port:
     type: OS::TripleO::{{role.name}}::Ports::{{network.name}}Port
     properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
+      ControlPlaneIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
+      IPPool: {get_param: {{server_resource_name}}IPs}
       NodeIndex: {get_param: NodeIndex}
   {%- endfor %}
 
   NetworkConfig:
     type: OS::TripleO::{{role.name}}::Net::SoftwareConfig
     properties:
-      ControlPlaneIp: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+      ControlPlaneIp: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
   {%- for network in networks %}
       {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
   {%- endfor %}
@@ -304,7 +358,7 @@ resources:
   NetIpMap:
     type: OS::TripleO::Network::Ports::NetIpMap
     properties:
-      ControlPlaneIp: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+      ControlPlaneIp: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
   {%- for network in networks %}
       {{network.name}}Ip: {get_attr: [{{network.name}}Port, ip_address]}
       {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
@@ -320,91 +374,91 @@ resources:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - external
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - external
         internal_api:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - internalapi
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - internalapi
         storage:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - storage
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - storage
         storage_mgmt:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - storagemgmt
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - storagemgmt
         tenant:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - tenant
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - tenant
         management:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - management
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - management
         ctlplane:
           fqdn:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - ctlplane
               - {get_param: CloudDomain}
           short:
             list_join:
             - '.'
-            - - {get_attr: [{{role.name}}, name]}
+            - - {get_attr: [{{server_resource_name}}, name]}
               - ctlplane
 
   PreNetworkConfig:
     type: OS::TripleO::{{role.name}}::PreNetworkConfig
     properties:
-      server: {get_resource: {{role.name}}}
+      server: {get_resource: {{server_resource_name}}}
       RoleParameters: {get_param: RoleParameters}
       ServiceNames: {get_param: ServiceNames}
       deployment_actions: {get_attr: [DeploymentActions, value]}
@@ -415,7 +469,7 @@ resources:
     properties:
       name: NetworkDeployment
       config: {get_resource: NetworkConfig}
-      server: {get_resource: {{role.name}}}
+      server: {get_resource: {{server_resource_name}}}
       actions: {get_param: NetworkDeploymentActions}
       input_values:
         bridge_name: {get_param: NeutronPhysicalBridge}
@@ -426,7 +480,7 @@ resources:
           - {get_param: NetworkDeploymentActions}
           - []
 
-  {{role.name}}UpgradeInitConfig:
+  {{server_resource_name}}UpgradeInitConfig:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
@@ -440,26 +494,26 @@ resources:
 
   # Note we may be able to make this conditional on UpgradeInitCommandNotEmpty
   # but https://bugs.launchpad.net/heat/+bug/1649900 needs fixing first
-  {{role.name}}UpgradeInitDeployment:
+  {{server_resource_name}}UpgradeInitDeployment:
     type: OS::Heat::SoftwareDeployment
     depends_on: NetworkDeployment
     properties:
-      name: {{role.name}}UpgradeInitDeployment
-      server: {get_resource: {{role.name}}}
-      config: {get_resource: {{role.name}}UpgradeInitConfig}
+      name: {{server_resource_name}}UpgradeInitDeployment
+      server: {get_resource: {{server_resource_name}}}
+      config: {get_resource: {{server_resource_name}}UpgradeInitConfig}
       actions:
         if:
           - server_not_blacklisted
           - ['CREATE', 'UPDATE']
           - []
 
-  {{role.name}}Deployment:
+  {{server_resource_name}}Deployment:
     type: OS::Heat::StructuredDeployment
-    depends_on: {{role.name}}UpgradeInitDeployment
+    depends_on: {{server_resource_name}}UpgradeInitDeployment
     properties:
-      name: {{role.name}}Deployment
-      config: {get_resource: {{role.name}}Config}
-      server: {get_resource: {{role.name}}}
+      name: {{server_resource_name}}Deployment
+      config: {get_resource: {{server_resource_name}}Config}
+      server: {get_resource: {{server_resource_name}}}
       input_values:
         enable_package_upgrade: {get_attr: [UpdateDeployment, update_managed_packages]}
       actions:
@@ -468,7 +522,7 @@ resources:
           - ['CREATE', 'UPDATE']
           - []
 
-  {{role.name}}Config:
+  {{server_resource_name}}Config:
     type: OS::Heat::StructuredConfig
     properties:
       group: hiera
@@ -486,6 +540,13 @@ resources:
           - all_nodes # provided by allNodesConfig
           - vip_data # provided by allNodesConfig
           - '"%{::osfamily}"'
+          # The following are required for compatibility with the Controller role
+          # where some vendor integrations added hieradata via ExtraConfigPre
+          - neutron_bigswitch_data # Optionally provided by Controller/ComputeExtraConfigPre
+          - neutron_cisco_data # Optionally provided by Controller/ComputeExtraConfigPre
+          - cisco_n1kv_data # Optionally provided by Controller/ComputeExtraConfigPre
+          - midonet_data #Optionally provided by AllNodesExtraConfig
+          - cisco_aci_data # Optionally provided by Controller/ComputeExtraConfigPre
         merge_behavior: deeper
         datafiles:
           service_names:
@@ -497,10 +558,10 @@ resources:
               - values: {get_attr: [NetIpMap, net_ip_map]}
           {{role.name.lower()}}_extraconfig:
             map_merge:
-{%- if deprecated_extraconfig_param is defined %}
-              - {get_param: {{deprecated_extraconfig_param}}}
+{%- if role.deprecated_param_extraconfig is defined %}
+              - {get_param: {{role.deprecated_param_extraconfig}}}
 {%- endif %}
-              - {get_param: {{role.name}}ExtraConfig}
+              - {get_param: {{server_resource_name}}ExtraConfig}
           extraconfig: {get_param: ExtraConfig}
           {{role.name.lower()}}:
             tripleo::packages::enable_upgrade: {get_input: enable_package_upgrade}
@@ -519,7 +580,7 @@ resources:
     depends_on: NetworkDeployment
     type: OS::TripleO::NodeTLSCAData
     properties:
-      server: {get_resource: {{role.name}}}
+      server: {get_resource: {{server_resource_name}}}
 
   {%- if 'primary' in role.tags and 'controller' in role.tags %}
   # Resource for site-specific passing of private keys/certificates
@@ -527,19 +588,19 @@ resources:
     depends_on: NodeTLSCAData
     type: OS::TripleO::NodeTLSData
     properties:
-      server: {get_resource: {{role.name}}}
+      server: {get_resource: {{server_resource_name}}}
       NodeIndex: {get_param: NodeIndex}
   {%- endif -%}
 
   # Hook for site-specific additional pre-deployment config, e.g extra hieradata
   {{role.name}}ExtraConfigPre:
-    depends_on: {{role.name}}Deployment
+    depends_on: {{server_resource_name}}Deployment
     type: OS::TripleO::{{role.name}}ExtraConfigPre
     # We have to use conditions here so that we don't break backwards
     # compatibility with templates everywhere
     condition: server_not_blacklisted
     properties:
-        server: {get_resource: {{role.name}}}
+        server: {get_resource: {{server_resource_name}}}
 
   # Hook for site-specific additional pre-deployment config,
   # applying to all nodes, e.g node registration/unregistration
@@ -556,7 +617,7 @@ resources:
     # compatibility with templates everywhere
     condition: server_not_blacklisted
     properties:
-        server: {get_resource: {{role.name}}}
+        server: {get_resource: {{server_resource_name}}}
 
   UpdateConfig:
     type: OS::TripleO::Tasks::PackageUpdate
@@ -567,7 +628,7 @@ resources:
     properties:
       name: UpdateDeployment
       config: {get_resource: UpdateConfig}
-      server: {get_resource: {{role.name}}}
+      server: {get_resource: {{server_resource_name}}}
       input_values:
         update_identifier:
           get_param: UpdateIdentifier
@@ -588,18 +649,18 @@ resources:
 
   SshHostPubKey:
     type: OS::TripleO::Ssh::HostPubKey
-    depends_on: {{role.name}}Deployment
+    depends_on: {{server_resource_name}}Deployment
     properties:
-        server: {get_resource: {{role.name}}}
+        server: {get_resource: {{server_resource_name}}}
         deployment_actions: {get_attr: [DeploymentActions, value]}
 
 outputs:
   ip_address:
     description: IP address of the server in the ctlplane network
-    value: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+    value: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
   hostname:
     description: Hostname of the server
-    value: {get_attr: [{{role.name}}, name]}
+    value: {get_attr: [{{server_resource_name}}, name]}
   hostname_map:
     description: Mapping of network names to hostnames
     value:
@@ -619,12 +680,12 @@ outputs:
         params:
           PRIMARYIP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}]}
           DOMAIN: {get_param: CloudDomain}
-          PRIMARYHOST: {get_attr: [{{role.name}}, name]}
+          PRIMARYHOST: {get_attr: [{{server_resource_name}}, name]}
   {%- for network in networks %}
           {{network.name}}IP: {get_attr: [{{network.name}}Port, ip_address]}
           {{network.name}}HOST: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower())}}, short]}
   {%- endfor %}
-          CTLPLANEIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+          CTLPLANEIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
           CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
   known_hosts_entry:
     description: Entry for ssh known hosts
@@ -638,18 +699,18 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
         params:
           PRIMARYIP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}]}
           DOMAIN: {get_param: CloudDomain}
-          PRIMARYHOST: {get_attr: [{{role.name}}, name]}
+          PRIMARYHOST: {get_attr: [{{server_resource_name}}, name]}
   {%- for network in networks %}
           {{network.name}}IP: {get_attr: [{{network.name}}Port, ip_address]}
           {{network.name}}HOST: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower())}}, short]}
   {%- endfor %}
-          CTLPLANEIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+          CTLPLANEIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
           CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
           HOSTSSHPUBKEY: {get_attr: [SshHostPubKey, ecdsa]}
   nova_server_resource:
     description: Heat resource handle for {{role.name}} server
     value:
-      {get_resource: {{role.name}}}
+      {get_resource: {{server_resource_name}}}
     condition: server_not_blacklisted
   deployed_server_port_map:
     description: |
@@ -661,7 +722,7 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
       map_replace:
         - hostname:
             fixed_ips:
-              - ip_address: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
+              - ip_address: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
         - keys:
             hostname:
               list_join:
@@ -679,14 +740,14 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
             container:
               str_split:
                 - '/'
-                - {get_attr: [{{role.name}}, os_collect_config, request, metadata_url]}
+                - {get_attr: [{{server_resource_name}}, os_collect_config, request, metadata_url]}
                 - 5
             object:
               str_split:
                 - '?'
                 - str_split:
                     - '/'
-                    - {get_attr: [{{role.name}}, os_collect_config, request, metadata_url]}
+                    - {get_attr: [{{server_resource_name}}, os_collect_config, request, metadata_url]}
                     - 6
                 - 0
         - keys: {hostname: {get_param: Hostname}}
@@ -700,7 +761,7 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
   {%- endif %}
   os_collect_config:
     description: The os-collect-config configuration associated with this server resource
-    value: {get_attr: [{{role.name}}, os_collect_config]}
+    value: {get_attr: [{{server_resource_name}}, os_collect_config]}
   {%- for network in networks %}
   {{network.name_lower|default(network.name.lower())}}_ip_address:
     description: IP address of the server in the {{network.name}} network
