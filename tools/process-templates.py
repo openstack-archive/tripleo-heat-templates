@@ -138,19 +138,31 @@ def process_templates(template_path, role_data_path, output_dir,
                         print("jinja2 rendering roles %s" % ","
                               .join(role_names))
                         for role in role_names:
-                            j2_data = {'role': role}
-                            # (dprince) For the undercloud installer we don't
-                            # want to have heat check nova/glance API's
-                            if r_map[role].get('disable_constraints', False):
-                                j2_data['disable_constraints'] = True
+                            j2_data = {'role': r_map[role]}
                             out_f = "-".join(
                                 [role.lower(),
                                  os.path.basename(f).replace('.role.j2.yaml',
                                                              '.yaml')])
                             out_f_path = os.path.join(out_dir, out_f)
                             if not (out_f_path in excl_templates):
-                                _j2_render_to_file(template_data, j2_data,
-                                                   out_f_path, overwrite)
+                                if '{{role.name}}' in template_data:
+                                    j2_data = {'role': r_map[role]}
+                                    _j2_render_to_file(template_data, j2_data,
+                                                       out_f_path, overwrite)
+                                else:
+                                    # Backwards compatibility with templates
+                                    # that specify {{role}} vs {{role.name}}
+                                    j2_data = {'role': role}
+                                    # (dprince) For the undercloud installer we
+                                    # don'twant to have heat check nova/glance
+                                    # API's
+                                    if r_map[role].get('disable_constraints',
+                                                       False):
+                                        j2_data['disable_constraints'] = True
+                                    _j2_render_to_file(
+                                        template_data,j2_data,
+                                        out_f_path, overwrite)
+
                             else:
                                 print('skipping rendering of %s' % out_f_path)
                 elif f.endswith('.j2.yaml'):
