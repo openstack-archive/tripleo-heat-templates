@@ -15,7 +15,7 @@ commands. The sample format to provide the workflow specific parameters::
   workflow_parameters:
     tripleo.derive_params.v1.derive_parameters:
       # DPDK Parameters
-      number_of_pmd_cpu_threads_per_numa_node: 2
+      num_phy_cores_per_numa_node_for_pmd: 2
 
 
 All the parameters specified under the workflow name will be passed as
