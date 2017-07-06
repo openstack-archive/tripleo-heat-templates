@@ -1,0 +1,87 @@
+heat_template_version: pike
+
+description: >
+  Ceph RadosGW service.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  SwiftPassword:
+    description: The password for the swift service account
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+
+resources:
+  CephBase:
+    type: ./ceph-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Ceph RadosGW service.
+    value:
+      service_name: ceph_rgw
+      upgrade_tasks: []
+      step_config: ''
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      service_workflow_tasks: {get_attr: [CephBase, role_data, service_workflow_tasks]}
+      config_settings:
+        map_merge:
+        - tripleo.ceph_rgw.firewall_rules:
+            '122 ceph rgw':
+              dport: {get_param: [EndpointMap, CephRgwInternal, port]}
+        - ceph_rgw_ansible_vars:
+            map_merge:
+            - {get_attr: [CephBase, role_data, config_settings, ceph_common_ansible_vars]}
+            - radosgw_keystone: true
+              radosgw_keystone_ssl: false
+              radosgw_address_block: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephRgwNetwork]}]}
+              radosgw_civetweb_port: {get_param: [EndpointMap, CephRgwInternal, port]}
+      service_config_settings:
+        keystone:
+          ceph::rgw::keystone::auth::public_url: {get_param: [EndpointMap, CephRgwPublic, uri]}
+          ceph::rgw::keystone::auth::internal_url: {get_param: [EndpointMap, CephRgwInternal, uri]}
+          ceph::rgw::keystone::auth::admin_url: {get_param: [EndpointMap, CephRgwAdmin, uri]}
+          ceph::rgw::keystone::auth::region: {get_param: KeystoneRegion}
+          ceph::rgw::keystone::auth::roles: [ 'admin', 'Member', '_member_' ]
+          ceph::rgw::keystone::auth::tenant: service
+          ceph::rgw::keystone::auth::user: swift
+          ceph::rgw::keystone::auth::password: {get_param: SwiftPassword}
