@@ -195,9 +195,11 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             TAGS="--tags \"$PUPPET_TAGS\""
         fi
 
-        # workaround LP1696283
-        mkdir -p /etc/ssh
-        touch /etc/ssh/ssh_known_hosts
+        # Create a reference timestamp to easily find all files touched by
+        # puppet. The sync ensures we get all the files we want due to
+        # different timestamp.
+        touch /tmp/the_origin_of_time
+        sync
 
         FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --verbose $TAGS /etc/config.pp
 
@@ -216,7 +218,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             # This is useful for debugging
             mkdir -p /var/lib/config-data/puppet-generated/${NAME}
             rsync -a -R -0 --delay-updates --delete-after \
-                          --files-from=<(find $rsync_srcs -newer /etc/ssh/ssh_known_hosts -print0) \
+                          --files-from=<(find $rsync_srcs -newer /tmp/the_origin_of_time -not -path '/etc/puppet*' -print0) \
                           / /var/lib/config-data/puppet-generated/${NAME}
 
             # Write a checksum of the config-data dir, this is used as a

@@ -82,8 +82,18 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
           command: /usr/bin/octavia-api --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/api.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-api
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
         /var/lib/kolla/config_files/octavia_api_tls_proxy.json:
           command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_2:
@@ -95,7 +105,12 @@ outputs:
                 - [ {get_param: DockerNamespace}, {get_param: DockerOctaviaApiImage} ]
             user: root
             volumes:
-              - /var/lib/config-data/octavia/etc/octavia:/etc/octavia/
+              # NOTE(mandre) we need extra dir for the service in /etc/octavia/conf.d
+              # It is normally created as part of the RPM install, but it is
+              # missing here because we use the same config_volume for all
+              # octavia services, hence the same container image to generate
+              # configuration.
+              - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/
               - /var/log/containers/octavia:/var/log/octavia
             command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-api; chown -R octavia:octavia /etc/octavia/conf.d/octavia-api; chown -R octavia:octavia /var/log/octavia']
         step_3:
@@ -106,11 +121,10 @@ outputs:
             privileged: false
             detach: false
             user: root
-            volumes: &octavia_volumes
+            volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/octavia/etc/octavia/:/etc/octavia/:ro
                   - /var/log/containers/octavia:/var/log/octavia
             command: "/usr/bin/bootstrap_host_exec octavia_api su octavia -s /bin/bash -c '/usr/bin/octavia-db-manage upgrade head'"
@@ -122,7 +136,13 @@ outputs:
                 net: host
                 privileged: false
                 restart: always
-                volumes: *octavia_volumes
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/octavia:/var/log/octavia
                 environment:
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             - if:
@@ -138,7 +158,7 @@ outputs:
                         - {get_attr: [ContainersCommon, volumes]}
                         -
                           - /var/lib/kolla/config_files/octavia_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                          - /var/lib/config-data/octavia/etc/httpd/:/etc/httpd/:ro
+                          - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                           - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
                           - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                     environment:
