@@ -263,81 +263,32 @@ resources:
   RoleUserData:
     type: OS::TripleO::{{role.name}}::NodeUserData
 
-  ExternalPort:
-    type: OS::TripleO::{{role.name}}::Ports::ExternalPort
+  {%- for network in networks %}
+  {{network.name}}Port:
+    type: OS::TripleO::{{role.name}}::Ports::{{network.name}}Port
     properties:
       ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
       IPPool: {get_param: {{role.name}}IPs}
       NodeIndex: {get_param: NodeIndex}
-
-  InternalApiPort:
-    type: OS::TripleO::{{role.name}}::Ports::InternalApiPort
-    properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
-      NodeIndex: {get_param: NodeIndex}
-
-  StoragePort:
-    type: OS::TripleO::{{role.name}}::Ports::StoragePort
-    properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
-      NodeIndex: {get_param: NodeIndex}
-
-  StorageMgmtPort:
-    type: OS::TripleO::{{role.name}}::Ports::StorageMgmtPort
-    properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
-      NodeIndex: {get_param: NodeIndex}
-
-  TenantPort:
-    type: OS::TripleO::{{role.name}}::Ports::TenantPort
-    properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
-      NodeIndex: {get_param: NodeIndex}
-
-  ManagementPort:
-    type: OS::TripleO::{{role.name}}::Ports::ManagementPort
-    properties:
-      ControlPlaneIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      IPPool: {get_param: {{role.name}}IPs}
-      NodeIndex: {get_param: NodeIndex}
+  {%- endfor %}
 
   NetworkConfig:
     type: OS::TripleO::{{role.name}}::Net::SoftwareConfig
     properties:
       ControlPlaneIp: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      ExternalIpSubnet: {get_attr: [ExternalPort, ip_subnet]}
-      InternalApiIpSubnet: {get_attr: [InternalApiPort, ip_subnet]}
-      StorageIpSubnet: {get_attr: [StoragePort, ip_subnet]}
-      StorageMgmtIpSubnet: {get_attr: [StorageMgmtPort, ip_subnet]}
-      TenantIpSubnet: {get_attr: [TenantPort, ip_subnet]}
-      ManagementIpSubnet: {get_attr: [ManagementPort, ip_subnet]}
+  {%- for network in networks %}
+      {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
+  {%- endfor %}
 
   NetIpMap:
     type: OS::TripleO::Network::Ports::NetIpMap
     properties:
       ControlPlaneIp: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
-      ExternalIp: {get_attr: [ExternalPort, ip_address]}
-      ExternalIpSubnet: {get_attr: [ExternalPort, ip_subnet]}
-      ExternalIpUri: {get_attr: [ExternalPort, ip_address_uri]}
-      InternalApiIp: {get_attr: [InternalApiPort, ip_address]}
-      InternalApiIpSubnet: {get_attr: [InternalApiPort, ip_subnet]}
-      InternalApiIpUri: {get_attr: [InternalApiPort, ip_address_uri]}
-      StorageIp: {get_attr: [StoragePort, ip_address]}
-      StorageIpSubnet: {get_attr: [StoragePort, ip_subnet]}
-      StorageIpUri: {get_attr: [StoragePort, ip_address_uri]}
-      StorageMgmtIp: {get_attr: [StorageMgmtPort, ip_address]}
-      StorageMgmtIpSubnet: {get_attr: [StorageMgmtPort, ip_subnet]}
-      StorageMgmtIpUri: {get_attr: [StorageMgmtPort, ip_address_uri]}
-      TenantIp: {get_attr: [TenantPort, ip_address]}
-      TenantIpSubnet: {get_attr: [TenantPort, ip_subnet]}
-      TenantIpUri: {get_attr: [TenantPort, ip_address_uri]}
-      ManagementIp: {get_attr: [ManagementPort, ip_address]}
-      ManagementIpSubnet: {get_attr: [ManagementPort, ip_subnet]}
-      ManagementIpUri: {get_attr: [ManagementPort, ip_address_uri]}
+  {%- for network in networks %}
+      {{network.name}}Ip: {get_attr: [{{network.name}}Port, ip_address]}
+      {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
+      {{network.name}}IpUri: {get_attr: [{{network.name}}Port, ip_address_uri]}
+  {%- endfor %}
 
   NetHostMap:
     type: OS::Heat::Value
@@ -593,41 +544,27 @@ outputs:
   hostname_map:
     description: Mapping of network names to hostnames
     value:
-      external: {get_attr: [NetHostMap, value, external, fqdn]}
-      internal_api: {get_attr: [NetHostMap, value, internal_api, fqdn]}
-      storage: {get_attr: [NetHostMap, value, storage, fqdn]}
-      storage_mgmt: {get_attr: [NetHostMap, value, storage_mgmt, fqdn]}
-      tenant: {get_attr: [NetHostMap, value, tenant, fqdn]}
-      management: {get_attr: [NetHostMap, value, management, fqdn]}
+  {%- for network in networks %}
+      {{network.name_lower|default(network.name.lower())}}: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower()) }}, fqdn]}
+  {%- endfor %}
       ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
   hosts_entry:
     value:
       str_replace:
         template: |
           PRIMARYIP PRIMARYHOST.DOMAIN PRIMARYHOST
-          EXTERNALIP EXTERNALHOST.DOMAIN EXTERNALHOST
-          INTERNAL_APIIP INTERNAL_APIHOST.DOMAIN INTERNAL_APIHOST
-          STORAGEIP STORAGEHOST.DOMAIN STORAGEHOST
-          STORAGE_MGMTIP STORAGE_MGMTHOST.DOMAIN STORAGE_MGMTHOST
-          TENANTIP TENANTHOST.DOMAIN TENANTHOST
-          MANAGEMENTIP MANAGEMENTHOST.DOMAIN MANAGEMENTHOST
+  {%- for network in networks %}
+          {{network.name}}IP {{network.name}}HOST.DOMAIN {{network.name}}HOST
+  {%- endfor %}
           CTLPLANEIP CTLPLANEHOST.DOMAIN CTLPLANEHOST
         params:
           PRIMARYIP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}]}
           DOMAIN: {get_param: CloudDomain}
           PRIMARYHOST: {get_attr: [{{role.name}}, name]}
-          EXTERNALIP: {get_attr: [ExternalPort, ip_address]}
-          EXTERNALHOST: {get_attr: [NetHostMap, value, external, short]}
-          INTERNAL_APIIP: {get_attr: [InternalApiPort, ip_address]}
-          INTERNAL_APIHOST: {get_attr: [NetHostMap, value, internal_api, short]}
-          STORAGEIP: {get_attr: [StoragePort, ip_address]}
-          STORAGEHOST: {get_attr: [NetHostMap, value, storage, short]}
-          STORAGE_MGMTIP: {get_attr: [StorageMgmtPort, ip_address]}
-          STORAGE_MGMTHOST: {get_attr: [NetHostMap, value, storage_mgmt, short]}
-          TENANTIP: {get_attr: [TenantPort, ip_address]}
-          TENANTHOST: {get_attr: [NetHostMap, value, tenant, short]}
-          MANAGEMENTIP: {get_attr: [ManagementPort, ip_address]}
-          MANAGEMENTHOST: {get_attr: [NetHostMap, value, management, short]}
+  {%- for network in networks %}
+          {{network.name}}IP: {get_attr: [{{network.name}}Port, ip_address]}
+          {{network.name}}HOST: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower())}}, short]}
+  {%- endfor %}
           CTLPLANEIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
           CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
   known_hosts_entry:
@@ -635,29 +572,18 @@ outputs:
     value:
       str_replace:
         template: "PRIMARYIP,PRIMARYHOST.DOMAIN,PRIMARYHOST,\
-EXTERNALIP,EXTERNALHOST.DOMAIN,EXTERNALHOST,\
-INTERNAL_APIIP,INTERNAL_APIHOST.DOMAIN,INTERNAL_APIHOST,\
-STORAGEIP,STORAGEHOST.DOMAIN,STORAGEHOST,\
-STORAGE_MGMTIP,STORAGE_MGMTHOST.DOMAIN,STORAGE_MGMTHOST,\
-TENANTIP,TENANTHOST.DOMAIN,TENANTHOST,\
-MANAGEMENTIP,MANAGEMENTHOST.DOMAIN,MANAGEMENTHOST,\
+  {%- for network in networks %}
+{{network.name}}IP,{{network.name}}HOST.DOMAIN,{{network.name}}HOST,\
+  {%- endfor %}
 CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
         params:
           PRIMARYIP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}]}
           DOMAIN: {get_param: CloudDomain}
           PRIMARYHOST: {get_attr: [{{role.name}}, name]}
-          EXTERNALIP: {get_attr: [ExternalPort, ip_address]}
-          EXTERNALHOST: {get_attr: [NetHostMap, value, external, short]}
-          INTERNAL_APIIP: {get_attr: [InternalApiPort, ip_address]}
-          INTERNAL_APIHOST: {get_attr: [NetHostMap, value, internal_api, short]}
-          STORAGEIP: {get_attr: [StoragePort, ip_address]}
-          STORAGEHOST: {get_attr: [NetHostMap, value, storage, short]}
-          STORAGE_MGMTIP: {get_attr: [StorageMgmtPort, ip_address]}
-          STORAGE_MGMTHOST: {get_attr: [NetHostMap, value, storage_mgmt, short]}
-          TENANTIP: {get_attr: [TenantPort, ip_address]}
-          TENANTHOST: {get_attr: [NetHostMap, value, tenant, short]}
-          MANAGEMENTIP: {get_attr: [ManagementPort, ip_address]}
-          MANAGEMENTHOST: {get_attr: [NetHostMap, value, management, short]}
+  {%- for network in networks %}
+          {{network.name}}IP: {get_attr: [{{network.name}}Port, ip_address]}
+          {{network.name}}HOST: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower())}}, short]}
+  {%- endfor %}
           CTLPLANEIP: {get_attr: [{{role.name}}, networks, ctlplane, 0]}
           CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
           HOSTSSHPUBKEY: {get_attr: [SshHostPubKey, ecdsa]}
@@ -666,24 +592,11 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
     value:
       {get_resource: {{role.name}}}
     condition: server_not_blacklisted
-  external_ip_address:
-    description: IP address of the server in the external network
-    value: {get_attr: [ExternalPort, ip_address]}
-  internal_api_ip_address:
-    description: IP address of the server in the internal_api network
-    value: {get_attr: [InternalApiPort, ip_address]}
-  storage_ip_address:
-    description: IP address of the server in the storage network
-    value: {get_attr: [StoragePort, ip_address]}
-  storage_mgmt_ip_address:
-    description: IP address of the server in the storage_mgmt network
-    value: {get_attr: [StorageMgmtPort, ip_address]}
-  tenant_ip_address:
-    description: IP address of the server in the tenant network
-    value: {get_attr: [TenantPort, ip_address]}
-  management_ip_address:
-    description: IP address of the server in the management network
-    value: {get_attr: [ManagementPort, ip_address]}
   os_collect_config:
     description: The os-collect-config configuration associated with this server resource
     value: {get_attr: [{{role.name}}, os_collect_config]}
+  {%- for network in networks %}
+  {{network.name_lower|default(network.name.lower())}}_ip_address:
+    description: IP address of the server in the {{network.name}} network
+    value: {get_attr: [{{network.name}}Port, ip_address]}
+  {%- endfor %}
