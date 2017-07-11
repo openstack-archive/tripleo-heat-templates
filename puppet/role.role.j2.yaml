@@ -1,3 +1,9 @@
+{# ## Some variables are set to enable rendering backwards compatible templates #}
+{# ## where a few parameter/resource names don't match the expected pattern #}
+{# ## FIXME: we need some way to deprecate the old inconsistent parameters #}
+{%- if role.name == 'Controller' -%}
+  {%- set deprecated_extraconfig_param  = 'controllerExtraConfig'  -%}
+{% endif %}
 heat_template_version: pike
 description: 'OpenStack {{role.name}} node configured by Puppet'
 parameters:
@@ -70,6 +76,13 @@ parameters:
     description: |
       Role specific additional hiera configuration to inject into the cluster.
     type: json
+{%- if deprecated_extraconfig_param is defined %}
+  {{deprecated_extraconfig_param}}:
+    default: {}
+    description: |
+      DEPRECATED use {{role.name}}ExtraConfig instead
+    type: json
+{%- endif %}
   {{role.name}}IPs:
     default: {}
     type: json
@@ -188,6 +201,14 @@ parameters:
           container: overcloud-compute
           object: 0
     default: {}
+
+{% if deprecated_extraconfig_param is defined %}
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - {{deprecated_extraconfig_param}}
+{%- endif %}
 
 conditions:
   server_not_blacklisted:
@@ -474,7 +495,12 @@ resources:
             map_replace:
               - {get_param: ServiceConfigSettings}
               - values: {get_attr: [NetIpMap, net_ip_map]}
-          {{role.name.lower()}}_extraconfig: {get_param: {{role.name}}ExtraConfig}
+          {{role.name.lower()}}_extraconfig:
+            map_merge:
+{%- if deprecated_extraconfig_param is defined %}
+              - {get_param: {{deprecated_extraconfig_param}}}
+{%- endif %}
+              - {get_param: {{role.name}}ExtraConfig}
           extraconfig: {get_param: ExtraConfig}
           {{role.name.lower()}}:
             tripleo::packages::enable_upgrade: {get_input: enable_package_upgrade}
