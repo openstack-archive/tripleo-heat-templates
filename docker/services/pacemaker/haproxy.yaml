@@ -30,6 +30,11 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  DeployedSSLCertificatePath:
+    default: '/etc/pki/tls/private/overcloud_endpoint.pem'
+    description: >
+        The filepath of the certificate as it will be stored in the controller.
+    type: string
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -81,6 +86,12 @@ outputs:
           list_join:
             - '/'
             - [ {get_param: DockerNamespace}, {get_param: DockerHAProxyConfigImage} ]
+        volumes: &deployed_cert_mount
+          - list_join:
+            - ':'
+            - - {get_param: DeployedSSLCertificatePath}
+              - {get_param: DeployedSSLCertificatePath}
+              - 'ro'
       kolla_config:
         /var/lib/kolla/config_files/haproxy.json:
           command: haproxy -f /etc/haproxy/haproxy.cfg
@@ -116,17 +127,20 @@ outputs:
                           - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
             image: *haproxy_image
             volumes:
-              # puppet saves iptables rules in /etc/sysconfig
-              - /etc/sysconfig:/etc/sysconfig:rw
-              # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
-              # the necessary bit and prevent systemd to try to reload the service in the container
-              - /usr/libexec/iptables:/usr/libexec/iptables:ro
-              - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /etc/puppet:/tmp/puppet-etc:ro
-              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
-              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-              - /dev/shm:/dev/shm:rw
+              list_concat:
+                - *deployed_cert_mount
+                -
+                  # puppet saves iptables rules in /etc/sysconfig
+                  - /etc/sysconfig:/etc/sysconfig:rw
+                  # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
+                  # the necessary bit and prevent systemd to try to reload the service in the container
+                  - /usr/libexec/iptables:/usr/libexec/iptables:ro
+                  - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
+                  - /etc/hosts:/etc/hosts:ro
+                  - /etc/localtime:/etc/localtime:ro
+                  - /etc/puppet:/tmp/puppet-etc:ro
+                  - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+                  - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
