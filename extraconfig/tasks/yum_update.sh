@@ -44,6 +44,9 @@ fi
 
 command_arguments=${command_arguments:-}
 
+# Always ensure yum has full cache
+yum makecache || echo "Yum makecache failed. This can cause failure later on."
+
 # yum check-update exits 100 if updates are available
 set +e
 check_update=$(yum check-update 2>&1)

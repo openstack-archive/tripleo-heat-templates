@@ -301,6 +301,8 @@ function systemctl_swift {
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
 # Update condition and add --notriggerun for +bug/1669714
 function special_case_ovs_upgrade_if_needed {
+    # Always ensure yum has full cache
+    yum makecache || echo "Yum makecache failed. This can cause failure later on."
     if rpm -qa | grep "^openvswitch-2.5.0-14" || rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart" ; then
         echo "Manual upgrade of openvswitch - ovs-2.5.0-14 or restart in postun detected"
         rm -rf OVS_UPGRADE
