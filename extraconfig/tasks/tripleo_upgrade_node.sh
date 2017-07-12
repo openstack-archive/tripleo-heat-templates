@@ -27,7 +27,14 @@ DEBUG="true"
 SCRIPT_NAME=$(basename $0)
 $(declare -f log_debug)
 
-log_debug "$UPGRADE_SCRIPT has completed - moving onto ansible playbooks"
+NODE_NAME=\$(cat /etc/hostname)
+
+log_debug "$UPGRADE_SCRIPT has completed on \${NODE_NAME} - moving onto ansible playbooks"
+
+echo "----------------------------------------------------
+The TripleO upgrade tasks has completed on \${NODE_NAME}
+Moving onto ansible playbooks
+----------------------------------------------------"
 
 ENDOFCAT
 
