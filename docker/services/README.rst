@@ -74,7 +74,7 @@ are re-asserted when applying latter ones.
      * puppet_tags: Puppet resource tag names that are used to generate config
        files with puppet. Only the named config resources are used to generate
        a config file. Any service that specifies tags will have the default
-       tags of 'file,concat,file_line,augeas' appended to the setting.
+       tags of 'file,concat,file_line,augeas,cron' appended to the setting.
        Example: keystone_config
 
      * config_volume: The name of the volume (directory) where config files

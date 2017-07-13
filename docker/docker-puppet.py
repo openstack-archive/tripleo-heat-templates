@@ -205,7 +205,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
 
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
-            archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www")
+            archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron")
             rsync_srcs=""
             for d in "${archivedirs[@]}"; do
                 if [ -d "$d" ]; then
@@ -308,9 +308,9 @@ for config_volume in configs:
     volumes = service[4] if len(service) > 4 else []
 
     if puppet_tags:
-        puppet_tags = "file,file_line,concat,augeas,%s" % puppet_tags
+        puppet_tags = "file,file_line,concat,augeas,cron,%s" % puppet_tags
     else:
-        puppet_tags = "file,file_line,concat,augeas"
+        puppet_tags = "file,file_line,concat,augeas,cron"
 
     process_map.append([config_volume, puppet_tags, manifest, config_image, volumes])
 
