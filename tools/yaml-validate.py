@@ -49,8 +49,98 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'ExternalAllocationPools': ['default'],
                                    'StorageNetCidr': ['default'],
                                    'StorageAllocationPools': ['default'],
-                                   'StorageMgmtNetCidr': ['default'],
+                                   'StorageMgmtNetCidr': ['default',
+                                                          # FIXME
+                                                          'description'],
                                    'StorageMgmtAllocationPools': ['default'],
+                                   'TenantNetCidr': ['default'],
+                                   'TenantAllocationPools': ['default'],
+                                   'InternalApiNetCidr': ['default'],
+                                   # TODO(bnemec): Address these existing
+                                   # inconsistencies.
+                                   'NeutronMetadataProxySharedSecret': [
+                                       'description', 'hidden'],
+                                   'ServiceNetMap': ['description', 'default'],
+                                   'RedisPassword': ['description'],
+                                   'EC2MetadataIp': ['default'],
+                                   'network': ['default'],
+                                   'ControlPlaneIP': ['default',
+                                                      'description'],
+                                   'ControlPlaneIp': ['default',
+                                                      'description'],
+                                   'NeutronBigswitchLLDPEnabled': ['default'],
+                                   'NeutronEnableL2Pop': ['description'],
+                                   'NeutronWorkers': ['description'],
+                                   'TenantIpSubnet': ['description'],
+                                   'ExternalNetName': ['description'],
+                                   'AdminToken': ['description'],
+                                   'ControlPlaneDefaultRoute': ['default'],
+                                   'StorageMgmtNetName': ['description'],
+                                   'ServerMetadata': ['description'],
+                                   'InternalApiIpUri': ['description'],
+                                   'UpgradeLevelNovaCompute': ['default'],
+                                   'StorageMgmtIpUri': ['description'],
+                                   'server': ['description'],
+                                   'servers': ['description'],
+                                   'FixedIPs': ['description'],
+                                   'ExternalIpSubnet': ['description'],
+                                   'NeutronBridgeMappings': ['description'],
+                                   'EnablePackageInstall': ['description'],
+                                   'ExtraConfig': ['description'],
+                                   'InternalApiIpSubnet': ['description'],
+                                   'DefaultPasswords': ['description',
+                                                        'default'],
+                                   'BondInterfaceOvsOptions': ['description',
+                                                               'default',
+                                                               'constraints'],
+                                   'KeyName': ['constraints'],
+                                   'Debug': ['description'],
+                                   'TenantNetName': ['description'],
+                                   'StorageIpSubnet': ['description'],
+                                   'OVNSouthboundServerPort': ['description'],
+                                   'ExternalInterfaceDefaultRoute':
+                                       ['description', 'default'],
+                                   'DeployIdentifier': ['description',
+                                                        'default'],
+                                   'ExternalIpUri': ['description'],
+                                   'IPPool': ['description'],
+                                   'ControlPlaneNetwork': ['description'],
+                                   'SSLCertificate': ['description',
+                                                      'default',
+                                                      'hidden'],
+                                   'HostCpusList': ['default', 'constraints'],
+                                   'InternalApiAllocationPools': ['default'],
+                                   'NodeIndex': ['description'],
+                                   'SwiftPassword': ['description'],
+                                   'UpdateIdentifier': ['description',
+                                                        'default'],
+                                   'name': ['description', 'default'],
+                                   'StorageNetName': ['description'],
+                                   'ManagementNetName': ['description'],
+                                   'NeutronPublicInterface': ['description'],
+                                   'RoleParameters': ['description'],
+                                   'AdminPassword': ['description', 'hidden'],
+                                   'ManagementInterfaceDefaultRoute':
+                                       ['default'],
+                                   'NovaPassword': ['description'],
+                                   'image': ['description', 'default'],
+                                   'NeutronBigswitchAgentEnabled': ['default'],
+                                   'EndpointMap': ['description', 'default'],
+                                   'DockerManilaConfigImage': ['description',
+                                                               'default'],
+                                   'NetworkName': ['default', 'description'],
+                                   'StorageIpUri': ['description'],
+                                   'InternalApiNetName': ['description'],
+                                   'NeutronTunnelTypes': ['description'],
+                                   'replacement_policy': ['default'],
+                                   'StorageMgmtIpSubnet': ['description'],
+                                   'CloudDomain': ['description', 'default'],
+                                   'key_name': ['default', 'description'],
+                                   'EnableLoadBalancer': ['description'],
+                                   'ControllerExtraConfig': ['description'],
+                                   'NovaComputeExtraConfig': ['description'],
+                                   'controllerExtraConfig': ['description'],
+                                   'DockerSwiftConfigImage': ['default'],
                                    }
 
 PREFERRED_CAMEL_CASE = {
@@ -422,10 +512,8 @@ for p, defs in param_map.items():
     # If all items in the list are not == the first, then the check fails
     if check_data.count(check_data[0]) != len(check_data):
         mismatch_count += 1
-        # TODO(bnemec): Make this a hard failure once all the templates have
-        #               been fixed.
-        #exit_val |= 1
-        #failed_files.extend([d['filename'] for d in defs])
+        exit_val |= 1
+        failed_files.extend([d['filename'] for d in defs])
         print('Mismatched parameter definitions found for "%s"' % p)
         print('Definitions found:')
         for d in defs:
