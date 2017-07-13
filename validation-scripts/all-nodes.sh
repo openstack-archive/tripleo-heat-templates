@@ -10,12 +10,13 @@ function ping_retry() {
     PING_CMD=ping6
   fi
   until [ $COUNT -ge $TIMES ]; do
-    if $PING_CMD -w 300 -c 1 $IP_ADDR &> /dev/null; then
+    if $PING_CMD -w 10 -c 1 $IP_ADDR &> /dev/null; then
       echo "Ping to $IP_ADDR succeeded."
       return 0
     fi
     echo "Ping to $IP_ADDR failed. Retrying..."
     COUNT=$(($COUNT + 1))
+    sleep 60
   done
   return 1
 }
