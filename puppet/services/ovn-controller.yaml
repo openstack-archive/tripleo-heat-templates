@@ -1,7 +1,7 @@
 heat_template_version: pike
 
 description: >
-  OpenStack Neutron Compute OVN agent
+  OpenStack OVN Controller agent
 
 parameters:
   EndpointMap:
@@ -52,16 +52,16 @@ parameters:
 
 outputs:
   role_data:
-    description: Role data for the Neutron Compute OVN agent
+    description: Role data for the OVN Controller agent
     value:
-      service_name: neutron_compute_plugin_ovn
+      service_name: ovn_controller
       config_settings:
         ovn::southbound::port: {get_param: OVNSouthboundServerPort}
         ovn::controller::ovn_encap_type: {get_param: OVNTunnelEncapType}
         ovn::controller::ovn_encap_ip: {get_param: [ServiceNetMap, NeutronApiNetwork]}
         ovn::controller::ovn_bridge_mappings: {get_param: NeutronBridgeMappings}
         nova::compute::force_config_drive: true
-        tripleo.neutron_compute_plugin_ovn.firewall_rules:
+        tripleo.ovn_controller.firewall_rules:
           '118 neutron vxlan networks':
                 proto: 'udp'
                 dport: 4789
@@ -70,3 +70,17 @@ outputs:
             dport: 6081
       step_config: |
         include ::tripleo::profile::base::neutron::agents::ovn
+      upgrade_tasks:
+        - name: Check if ovn_controller is deployed
+          command: systemctl is-enabled ovn-controller
+          tags: common
+          ignore_errors: True
+          register: ovn_controller_enabled
+        - name: "PreUpgrade step0,validation: Check service ovn-controller is running"
+          shell: /usr/bin/systemctl show 'ovn-controller' --property ActiveState | grep '\bactive\b'
+          when: ovn_controller_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop ovn-controller service
+          tags: step1
+          when: ovn_controller_enabled.rc == 0
+          service: name=ovn-controller state=stopped
