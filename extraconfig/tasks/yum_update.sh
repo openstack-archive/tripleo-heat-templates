@@ -115,6 +115,7 @@ if [[ "$pacemaker_status" == "active" ]] ; then
     fi
 else
     echo "Upgrading openstack-puppet-modules and its dependencies"
+    check_for_yum_lock
     yum -q -y update openstack-puppet-modules
     yum deplist openstack-puppet-modules | awk '/dependency/{print $2}' | xargs yum -q -y update
     echo "Upgrading other packages is handled by config management tooling"
@@ -124,8 +125,9 @@ fi
 
 command=${command:-update}
 full_command="yum -q -y $command $command_arguments"
-echo "Running: $full_command"
 
+echo "Running: $full_command"
+check_for_yum_lock
 result=$($full_command)
 return_code=$?
 echo "$result"

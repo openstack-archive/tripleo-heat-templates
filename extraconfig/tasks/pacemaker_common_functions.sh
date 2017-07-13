@@ -371,3 +371,15 @@ function fixup_wrong_ipv6_vip {
         fi
     )
 }
+
+# https://bugs.launchpad.net/tripleo/+bug/1704131 guard against yum update
+# waiting for an existing process until the heat stack time out
+function check_for_yum_lock {
+    if [[ -f /var/run/yum.pid ]] ; then
+        ERR="ERROR existing yum.pid detected - can't continue! Please ensure
+there is no other package update process for the duration of the minor update
+worfklow. Exiting."
+        echo $ERR
+        exit 1
+   fi
+}
