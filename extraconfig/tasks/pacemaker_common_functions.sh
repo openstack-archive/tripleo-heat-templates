@@ -345,3 +345,15 @@ function update_network() {
     # special case https://bugs.launchpad.net/tripleo/+bug/1635205 +bug/1669714
     special_case_ovs_upgrade_if_needed
 }
+
+# https://bugs.launchpad.net/tripleo/+bug/1704131 guard against yum update
+# waiting for an existing process until the heat stack time out
+function check_for_yum_lock {
+    if [[ -f /var/run/yum.pid ]] ; then
+        ERR="ERROR existing yum.pid detected - can't continue! Please ensure
+there is no other package update process for the duration of the minor update
+worfklow. Exiting."
+        echo $ERR
+        exit 1
+   fi
+}
