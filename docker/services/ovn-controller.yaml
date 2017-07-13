@@ -1,0 +1,105 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Ovn Controller agent.
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  DockerOvnControllerImage:
+    description: image
+    type: string
+  DockerOvnControllerConfigImage:
+    description: The container image to use for the ovn_controller config_volume
+    type: string
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  OvnControllerBase:
+    type: ../../puppet/services/ovn-controller.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Ovn Controller agent.
+    value:
+      service_name: {get_attr: [OvnControllerBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [OvnControllerBase, role_data, config_settings]
+      step_config: &step_config
+        get_attr: [OvnControllerBase, role_data, step_config]
+      service_config_settings: {get_attr: [OvnControllerBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        puppet_tags: vs_config
+        config_volume: ovn_controller
+        step_config: *step_config
+        config_image: {get_param: DockerOvnControllerConfigImage}
+        # We need to mount /run for puppet_config step. This is because
+        # puppet-vswitch runs the commands "ovs-vsctl set open_vswitch . external_ids:..."
+        # to configure the required parameters in ovs db which will be read
+        # by ovn-controller. And ovs-vsctl talks to the ovsdb-server (hosting conf.db)
+        # on the unix domain socket - /run/openvswitch/db.sock
+        volumes:
+          - /lib/modules:/lib/modules:ro
+          - /run/openvswitch:/run/openvswitch
+      kolla_config:
+        /var/lib/kolla/config_files/ovn_controller.json:
+          command: /usr/bin/ovn-controller --pidfile --log-file unix:/run/openvswitch/db.sock
+          permissions:
+            - path: /var/log/openvswitch
+              owner: root:root
+              recurse: true
+      docker_config:
+        step_4:
+          ovn_controller:
+            image: {get_param: DockerOvnControllerImage}
+            net: host
+            privileged: true
+            user: root
+            restart: always
+            volumes:
+              - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
+              - /lib/modules:/lib/modules:ro
+              - /run/openvswitch:/run/openvswitch
+              - /var/log/containers/openvswitch:/var/log/openvswitch
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      upgrade_tasks:
+        - name: Stop and disable ovn-controller service
+          tags: step2
+          service: name=ovn-controller state=stopped enabled=no
