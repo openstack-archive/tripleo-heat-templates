@@ -193,6 +193,32 @@ resources:
           template: |
             #!/bin/bash
             set -x
+
+            # OvS Permission issue temporary workaround
+            # https://bugzilla.redhat.com/show_bug.cgi?id=1459436
+            # Actual solution from openvswitch - https://mail.openvswitch.org/pipermail/ovs-dev/2017-June/333423.html
+            ovs_service_path="/usr/lib/systemd/system/ovs-vswitchd.service"
+
+            if grep -q 'RuntimeDirectoryMode' $ovs_service_path; then
+                sed -i 's/RuntimeDirectoryMode=.*/RuntimeDirectoryMode=0775/' $ovs_service_path
+            else
+                echo "RuntimeDirectoryMode=0775" >> $ovs_service_path
+            fi
+
+            if ! grep -Fxq "Group=qemu" $ovs_service_path ; then
+              echo "Group=qemu" >> $ovs_service_path
+            fi
+
+            if ! grep -Fxq "UMask=0002" $ovs_service_path ; then
+              echo "UMask=0002" >> $ovs_service_path
+            fi
+
+            ovs_ctl_path='/usr/share/openvswitch/scripts/ovs-ctl'
+            if ! grep -q "umask 0002 \&\& start_daemon \"\$OVS_VSWITCHD_PRIORITY\"" $ovs_ctl_path ; then
+              sed -i 's/start_daemon \"\$OVS_VSWITCHD_PRIORITY\"/umask 0002 \&\& start_daemon \"$OVS_VSWITCHD_PRIORITY\"/' $ovs_ctl_path
+            fi
+
+
             # DO NOT use --detailed-exitcodes
             puppet apply --logdest console \
               --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
