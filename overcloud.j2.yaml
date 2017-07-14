@@ -55,6 +55,18 @@ parameters:
         Control the IP allocation for the ControlVirtualIP port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
+  ExtraConfig:
+    default: {}
+    description: |
+      Additional hiera configuration to inject into the cluster.
+    type: json
+{% for role in roles %}
+  {{role.name}}ExtraConfig:
+    default: {}
+    description: |
+      Role specific additional hiera configuration to inject into the cluster.
+    type: json
+{% endfor %}
   InternalApiVirtualFixedIPs:
     default: []
     description: >
@@ -323,6 +335,46 @@ resources:
       type: json
       value: {get_attr: [{{role.name}}ServiceChain, role_data]}
 
+  {{role.name}}ServiceConfigSettings:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+          - get_attr: [{{role.name}}ServiceChainRoleData, value, config_settings]
+          {% for r in roles %}
+          - get_attr: [{{r.name}}ServiceChainRoleData, value, global_config_settings]
+          {% endfor %}
+          # This next step combines two yaql passes:
+          # - The inner one does a deep merge on the service_config_settings for all roles
+          # - The outer one filters the map based on the services enabled for the role
+          #   then merges the result into one map.
+          - yaql:
+              expression: let(root => $) -> $.data.map.items().where($[0] in coalesce($root.data.services, [])).select($[1]).reduce($1.mergeWith($2), {})
+              data:
+                map:
+                  yaql:
+                    expression: $.data.where($ != null).reduce($1.mergeWith($2), {})
+                    data:
+                    {% for r in roles %}
+                      - get_attr: [{{r.name}}ServiceChainRoleData, value, service_config_settings]
+                    {% endfor %}
+                services: {get_attr: [{{role.name}}ServiceNames, value]}
+
+  {{role.name}}MergedConfigSettings:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        config_settings: {}
+        global_config_settings: {}
+        service_config_settings: {}
+        merged_config_settings:
+          map_merge:
+          - get_attr: [{{role.name}}ServiceConfigSettings, value]
+          - get_param: ExtraConfig
+          - get_param: {{role.name}}ExtraConfig
+
   # Filter any null/None service_names which may be present due to mapping
   # of services to OS::Heat::None
   {{role.name}}ServiceNames:
@@ -437,27 +489,7 @@ resources:
   {% else %}
           NovaComputeSchedulerHints: {get_param: NovaComputeSchedulerHints}
   {% endif %}
-          ServiceConfigSettings:
-            map_merge:
-              -  get_attr: [{{role.name}}ServiceChainRoleData, value, config_settings]
-          {% for r in roles %}
-              - get_attr: [{{r.name}}ServiceChain, role_data, global_config_settings]
-          {% endfor %}
-              # This next step combines two yaql passes:
-              # - The inner one does a deep merge on the service_config_settings for all roles
-              # - The outer one filters the map based on the services enabled for the role
-              #   then merges the result into one map.
-              - yaql:
-                  expression: let(root => $) -> $.data.map.items().where($[0] in coalesce($root.data.services, [])).select($[1]).reduce($1.mergeWith($2), {})
-                  data:
-                    map:
-                      yaql:
-                        expression: $.data.where($ != null).reduce($1.mergeWith($2), {})
-                        data:
-                        {% for r in roles %}
-                          - get_attr: [{{r.name}}ServiceChain, role_data, service_config_settings]
-                        {% endfor %}
-                    services: {get_attr: [{{role.name}}ServiceNames, value]}
+          ServiceConfigSettings: {get_attr: [{{role.name}}ServiceConfigSettings, value]}
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChainRoleData, value, monitoring_subscriptions]}
           ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_metadata_settings]}
@@ -784,7 +816,10 @@ resources:
 {% endfor %}
       role_data:
 {% for role in roles %}
-        {{role.name}}: {get_attr: [{{role.name}}ServiceChainRoleData, value]}
+        {{role.name}}:
+          map_merge:
+          - {get_attr: [{{role.name}}ServiceChainRoleData, value]}
+          - {get_attr: [{{role.name}}MergedConfigSettings, value]}
 {% endfor %}
 
   ServerOsCollectConfigData:
@@ -869,7 +904,10 @@ outputs:
     description: The configuration data associated with each role
     value:
 {% for role in roles %}
-      {{role.name}}: {get_attr: [{{role.name}}ServiceChainRoleData, value]}
+      {{role.name}}:
+        map_merge:
+        - {get_attr: [{{role.name}}ServiceChainRoleData, value]}
+        - {get_attr: [{{role.name}}MergedConfigSettings, value]}
 {% endfor %}
   RoleNetIpMap:
     description: Mapping of each network to a list of IPs for each role
