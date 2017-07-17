@@ -19,6 +19,11 @@ environment to set per service parameters.
 Apart from sevice specific inputs, there are few default parameters for all
 the services. Following are the list of default parameters:
 
+ * ServiceData: Mapping of service specific data. It is used to encapsulate
+   all the service specific data. As of now, it contains net_cidr_map, which
+   contains the CIDR map for all the networks. Additional data will be added
+   as and when required.
+
  * ServiceNetMap: Mapping of service_name -> network name. Default mappings
    for service to network names are defined in
    ../network/service_net_map.j2.yaml, which may be overridden via
