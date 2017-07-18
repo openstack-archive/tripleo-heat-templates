@@ -60,13 +60,23 @@ parameters:
     description: |
       Additional hiera configuration to inject into the cluster.
     type: json
-{% for role in roles %}
+{%- for role in roles %}
   {{role.name}}ExtraConfig:
     default: {}
     description: |
       Role specific additional hiera configuration to inject into the cluster.
     type: json
-{% endfor %}
+{%- endfor %}
+  controllerExtraConfig:
+    default: {}
+    description: |
+      DEPRECATED use ControllerExtraConfig instead
+    type: json
+  NovaComputeExtraConfig:
+    default: {}
+    description: |
+      DEPRECATED use ComputeExtraConfig instead
+    type: json
   InternalApiVirtualFixedIPs:
     default: []
     description: >
@@ -166,7 +176,6 @@ parameters:
   {% else %}
     default: "%stackname%-{{role.name.lower()}}-%index%"
   {% endif %}
-
   {{role.name}}RemovalPolicies:
     default: []
     type: json
@@ -214,6 +223,13 @@ parameters:
     type: comma_delimited_list
     description: >
       List of server hostnames to blacklist from any triggered deployments.
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - controllerExtraConfig
+  - NovaComputeExtraConfig
 
 conditions:
   add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
@@ -373,7 +389,17 @@ resources:
           map_merge:
           - get_attr: [{{role.name}}ServiceConfigSettings, value]
           - get_param: ExtraConfig
+          {%- if role.name == 'Controller' %}
+          - map_merge:
+            - get_param: controllerExtraConfig
+            - get_param: {{role.name}}ExtraConfig
+          {%- elif role.name == 'Compute' %}
+          - map_merge:
+            - get_param: NovaComputeExtraConfig
+            - get_param: {{role.name}}ExtraConfig
+          {%- else %}
           - get_param: {{role.name}}ExtraConfig
+          {%- endif %}
 
   # Filter any null/None service_names which may be present due to mapping
   # of services to OS::Heat::None
