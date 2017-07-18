@@ -7,9 +7,19 @@
     - name: Write the config_step hieradata
       copy: content="{{dict(step=step|int)|to_json}}" dest=/etc/puppet/hieradata/config_step.json force=true
     - name: Run puppet host configuration for step {{step}}
-      # FIXME: modulepath requires ansible 2.4, our builds currently only have 2.3
-      # puppet: manifest=/var/lib/tripleo-config/puppet_step_config.pp modulepath=/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-      puppet: manifest=/var/lib/tripleo-config/puppet_step_config.pp
+      command: >-
+        puppet apply
+        --modulepath=/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
+        --logdest syslog --color=false
+        /var/lib/tripleo-config/puppet_step_config.pp
+      changed_when: false
+      check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+    - debug: var=(outputs.stderr|default('')).split('\n')|union(outputs.stdout_lines|default([]))
+      when: outputs is defined
+      failed_when: outputs|failed
     ######################################
     # Generate config via docker-puppet.py
     ######################################
@@ -21,6 +31,12 @@
       when: step == "1"
       changed_when: false
       check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+    - debug: var=(outputs.stderr|default('')).split('\n')|union(outputs.stdout_lines|default([]))
+      when: outputs is defined
+      failed_when: outputs|failed
     ##################################################
     # Per step starting of the containers using paunch
     ##################################################
@@ -32,10 +48,19 @@
     # the *step_n.json with a hash of the generated external config added
     # This acts as a salt to enable restarting the container if config changes
     - name: Start containers for step {{step}}
-      command: paunch --debug apply --file /var/lib/tripleo-config/hashed-docker-container-startup-config-step_{{step}}.json --config-id tripleo_step{{step}} --managed-by tripleo-{{role_name}}
+      command: >-
+        paunch --debug apply
+        --file /var/lib/tripleo-config/hashed-docker-container-startup-config-step_{{step}}.json
+        --config-id tripleo_step{{step}} --managed-by tripleo-{{role_name}}
       when: docker_config_json.stat.exists
       changed_when: false
       check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+    - debug: var=(outputs.stderr|default('')).split('\n')|union(outputs.stdout_lines|default([]))
+      when: outputs is defined
+      failed_when: outputs|failed
     ########################################################
     # Bootstrap tasks, only performed on bootstrap_server_id
     ########################################################
@@ -49,3 +74,9 @@
       when: deploy_server_id == bootstrap_server_id
       changed_when: false
       check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+    - debug: var=(outputs.stderr|default('')).split('\n')|union(outputs.stdout_lines|default([]))
+      when: outputs is defined
+      failed_when: outputs|failed
