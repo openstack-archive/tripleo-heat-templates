@@ -1,4 +1,3 @@
-#FIXME move into common when specfile adds it
 heat_template_version: pike
 
 description: >
@@ -63,6 +62,33 @@ resources:
     properties:
       RoleData: {get_attr: [ServiceChain, role_data]}
 
+  PuppetStepConfig:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        yaql:
+          expression:
+            # select 'step_config' only from services that do not have a docker_config
+            coalesce($.data.service_names, []).zip(coalesce($.data.step_config, []), coalesce($.data.docker_config, [])).where($[2] = null).where($[1] != null).select($[1]).join("\n")
+          data:
+            service_names: {get_attr: [ServiceChain, role_data, service_name]}
+            step_config: {get_attr: [ServiceChain, role_data, step_config]}
+            docker_config: {get_attr: [ServiceChain, role_data, docker_config]}
+
+  DockerConfig:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        yaql:
+          expression:
+            # select 'docker_config' only from services that have it
+            coalesce($.data.service_names, []).zip(coalesce($.data.docker_config, [])).where($[1] != null).select($[1]).reduce($1.mergeWith($2), {})
+          data:
+            service_names: {get_attr: [ServiceChain, role_data, service_names]}
+            docker_config: {get_attr: [ServiceChain, role_data, docker_config]}
+
 outputs:
   role_data:
     description: Combined Role data for this set of services.
@@ -125,7 +151,7 @@ outputs:
         yaql:
           expression: $.data.role_data.where($ != null).select($.get('service_workflow_tasks')).where($ != null).reduce($1.mergeWith($2), {})
           data: {role_data: {get_attr: [ServiceChain, role_data]}}
-      step_config: {get_attr: [ServiceChain, role_data, step_config]}
+      step_config: {get_attr: [PuppetStepConfig, value]}
       upgrade_tasks:
         yaql:
           # Note we use distinct() here to filter any identical tasks, e.g yum update for all services
@@ -143,7 +169,7 @@ outputs:
       kolla_config:
         map_merge: {get_attr: [ServiceChain, role_data, kolla_config]}
       docker_config:
-        {get_attr: [ServiceChain, role_data, docker_config]}
+        {get_attr: [DockerConfig, value]}
       docker_puppet_tasks:
         {get_attr: [ServiceChain, role_data, docker_puppet_tasks]}
       host_prep_tasks:
