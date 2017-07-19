@@ -24,6 +24,7 @@ $(declare -f update_network)
 update_network
 
 yum -y install python-zaqarclient  # needed for os-collect-config
+yum -y install openstack-nova-migration # needed for libvirt migration via ssh
 yum -y update
 
 # Due to bug#1640177 we need to restart compute agent
