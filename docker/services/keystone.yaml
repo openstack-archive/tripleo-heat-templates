@@ -98,6 +98,17 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/keystone_cron.json:
+          command: /usr/sbin/cron -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/keystone
+              owner: keystone:keystone
+              recurse: true
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
@@ -150,6 +161,21 @@ outputs:
             user: root
             command:
               [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap', '--bootstrap-password', {get_param: AdminPassword} ]
+          keystone_cron:
+            start_order: 4
+            image: *keystone_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/keystone:/var/log/keystone
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       docker_puppet_tasks:
         # Keystone endpoint creation occurs only on single node
         step_3:
