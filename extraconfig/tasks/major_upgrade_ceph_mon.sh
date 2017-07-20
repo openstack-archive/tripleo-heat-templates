@@ -73,7 +73,7 @@ elif [[ "$UPDATED_VERSION" =~ ^10\.2.* ]]; then
 
     # if tunables become legacy, cluster status will be HEALTH_WARN causing
     # upgrade to fail on following node
-    ceph osd crush tunables optimal
+    ceph osd crush tunables default
 
     echo INFO: Ceph was upgraded to Jewel
 else
