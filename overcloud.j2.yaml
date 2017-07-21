@@ -21,40 +21,44 @@ description: >
 parameters:
 
   # Common parameters (not specific to a role)
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # Special case the External hostname param, which is CloudName
   CloudName:
     default: overcloud.localdomain
     description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
     type: string
+{%- elif network.name == 'InternalApi' %}
+  # Special case the Internal API hostname param, which is CloudNameInternal
   CloudNameInternal:
-    default: overcloud.internalapi.localdomain
+    default: overcloud.{{network.name.lower()}}.localdomain
     description: >
-      The DNS name of this cloud's internal API endpoint. E.g.
-      'ci-overcloud.internalapi.tripleo.org'.
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
-  CloudNameStorage:
-    default: overcloud.storage.localdomain
-    description: >
-      The DNS name of this cloud's storage endpoint. E.g.
-      'ci-overcloud.storage.tripleo.org'.
-    type: string
+{%- elif network.name == 'StorageMgmt' %}
+  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
   CloudNameStorageManagement:
-    default: overcloud.storagemgmt.localdomain
+    default: overcloud.{{network.name.lower()}}.localdomain
     description: >
-      The DNS name of this cloud's storage management endpoint. E.g.
-      'ci-overcloud.storagemgmt.tripleo.org'.
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
+{%- else %}
+  CloudName{{network.name}}:
+    default: overcloud.{{network.name.lower()}}.localdomain
+    description: >
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
+    type: string
+{%- endif %}
+{%- endfor %}
   CloudNameCtlplane:
     default: overcloud.ctlplane.localdomain
     description: >
       The DNS name of this cloud's provisioning network endpoint. E.g.
       'ci-overcloud.ctlplane.tripleo.org'.
     type: string
-  ControlFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the ControlVirtualIP port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
   ExtraConfig:
     default: {}
     description: |
@@ -77,12 +81,6 @@ parameters:
     description: |
       DEPRECATED use ComputeExtraConfig instead
     type: json
-  InternalApiVirtualFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the InternalApiVirtualInterface port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
   NeutronControlPlaneID:
     default: 'ctlplane'
     type: string
@@ -91,28 +89,34 @@ parameters:
     default: nic1
     description: Which interface to add to the NeutronPhysicalBridge.
     type: string
+  ControlFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the ControlVirtualIP port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # TODO (dsneddon) Legacy name, eventually refactor to match network name
   PublicVirtualFixedIPs:
     default: []
     description: >
         Control the IP allocation for the PublicVirtualInterface port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
+{%- else %}
+  {{network.name}}VirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the {{network.name}}VirtualInterface port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+{%- endif %}
+{%- endfor %}
   RabbitCookieSalt:
     type: string
     default: unset
     description: Salt for the rabbit cookie, change this to force the randomly generated rabbit cookie to change.
-  StorageVirtualFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the StorageVirtualInterface port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
-  StorageMgmtVirtualFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the StorageMgmgVirtualInterface port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
   RedisVirtualFixedIPs:
     default: []
     description: >
@@ -246,28 +250,38 @@ resources:
         - - str_replace:
               template: IP  HOST
               params:
-                IP: {get_attr: [VipMap, net_ip_map, external]}
-                HOST: {get_param: CloudName}
-          - str_replace:
-              template: IP  HOST
-              params:
                 IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
                 HOST: {get_param: CloudNameCtlplane}
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # Special case the External hostname param, which is CloudName
           - str_replace:
               template: IP  HOST
               params:
-                IP: {get_attr: [VipMap, net_ip_map, internal_api]}
+                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+                HOST: {get_param: CloudName}
+{%- elif network.name == 'InternalApi' %}
+  # Special case the Internal API hostname param, which is CloudNameInternal
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudNameInternal}
+{%- elif network.name == 'StorageMgmt' %}
+  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
           - str_replace:
               template: IP  HOST
               params:
-                IP: {get_attr: [VipMap, net_ip_map, storage]}
-                HOST: {get_param: CloudNameStorage}
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, storage_mgmt]}
+                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudNameStorageManagement}
+{%- else %}
+          - str_replace:
+              template: IP  HOST
+              params:
+                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+                HOST: {get_param: CloudName{{network.name}}}
+{%- endif %}
+{%- endfor %}
 
   HeatAuthEncryptionKey:
     type: OS::TripleO::RandomString
@@ -303,11 +317,21 @@ resources:
     type: OS::TripleO::EndpointMap
     properties:
       CloudEndpoints:
-        external: {get_param: CloudName}
-        internal_api: {get_param: CloudNameInternal}
-        storage: {get_param: CloudNameStorage}
-        storage_mgmt: {get_param: CloudNameStorageManagement}
         ctlplane: {get_param: CloudNameCtlplane}
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # Special case the External hostname param, which is CloudName
+        {{network.name_lower}}: {get_param: CloudName}
+{%- elif network.name == 'InternalApi' %}
+  # Special case the Internal API hostname param, which is CloudNameInternal
+        {{network.name_lower}}: {get_param: CloudNameInternal}
+{%- elif network.name == 'StorageMgmt' %}
+  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
+        {{network.name_lower}}: {get_param: CloudNameStorageManagement}
+{%- else %}
+        {{network.name_lower}}: {get_param: CloudName{{network.name}}}
+{%- endif %}
+{%- endfor %}
       NetIpMap: {get_attr: [VipMap, net_ip_map]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
 
@@ -464,12 +488,9 @@ resources:
     type: OS::TripleO::Network::Ports::NetIpListMap
     properties:
       ControlPlaneIpList: {get_attr: [{{role.name}}, ip_address]}
-      ExternalIpList: {get_attr: [{{role.name}}, external_ip_address]}
-      InternalApiIpList: {get_attr: [{{role.name}}, internal_api_ip_address]}
-      StorageIpList: {get_attr: [{{role.name}}, storage_ip_address]}
-      StorageMgmtIpList: {get_attr: [{{role.name}}, storage_mgmt_ip_address]}
-      TenantIpList: {get_attr: [{{role.name}}, tenant_ip_address]}
-      ManagementIpList: {get_attr: [{{role.name}}, management_ip_address]}
+{%- for network in networks if network.enabled|default(true) %}
+      {{network.name}}IpList: {get_attr: [{{role.name}}, {{network.name_lower}}_ip_address]}
+{%- endfor %}
       EnabledServices: {get_attr: [{{role.name}}ServiceNames, value]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [{{role.name}}, hostname]}
@@ -588,10 +609,20 @@ resources:
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
     properties:
-      cloud_name_external: {get_param: CloudName}
-      cloud_name_internal_api: {get_param: CloudNameInternal}
-      cloud_name_storage: {get_param: CloudNameStorage}
-      cloud_name_storage_mgmt: {get_param: CloudNameStorageManagement}
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # Special case the External hostname param, which is CloudName
+      cloud_name_{{network.name_lower}}: {get_param: CloudName}
+{%- elif network.name == 'InternalApi' %}
+  # Special case the Internal API hostname param, which is CloudNameInternal
+      cloud_name_{{network.name_lower}}: {get_param: CloudNameInternal}
+{%- elif network.name == 'StorageMgmt' %}
+  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
+      cloud_name_{{network.name_lower}}: {get_param: CloudNameStorageManagement}
+{%- else %}
+      cloud_name_{{network.name_lower}}: {get_param: CloudName{{network.name}}}
+{%- endif %}
+{%- endfor %}
       cloud_name_ctlplane: {get_param: CloudNameCtlplane}
       enabled_services:
         list_join:
@@ -705,6 +736,8 @@ resources:
       ServiceName: redis
       FixedIPs: {get_param: RedisVirtualFixedIPs}
 
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
   # The public VIP is on the External net, falls back to ctlplane
   PublicVirtualIP:
     depends_on: Networks
@@ -714,43 +747,38 @@ resources:
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: public_virtual_ip
       FixedIPs: {get_param: PublicVirtualFixedIPs}
-
-  InternalApiVirtualIP:
+{%- elif network.name == 'StorageMgmt' %}
+  {{network.name}}VirtualIP:
     depends_on: Networks
-    type: OS::TripleO::Network::Ports::InternalApiVipPort
-    properties:
-      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-      PortName: internal_api_virtual_ip
-      FixedIPs: {get_param: InternalApiVirtualFixedIPs}
-
-  StorageVirtualIP:
-    depends_on: Networks
-    type: OS::TripleO::Network::Ports::StorageVipPort
-    properties:
-      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-      PortName: storage_virtual_ip
-      FixedIPs: {get_param: StorageVirtualFixedIPs}
-
-  StorageMgmtVirtualIP:
-    depends_on: Networks
-    type: OS::TripleO::Network::Ports::StorageMgmtVipPort
+    type: OS::TripleO::Network::Ports::{{network.name}}VipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
       PortName: storage_management_virtual_ip
-      FixedIPs: {get_param: StorageMgmtVirtualFixedIPs}
+      FixedIPs: {get_param: {{network.name}}VirtualFixedIPs}
+{%- else %}
+  {{network.name}}VirtualIP:
+    depends_on: Networks
+    type: OS::TripleO::Network::Ports::{{network.name}}VipPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      PortName: {{network.name_lower}}_virtual_ip
+      FixedIPs: {get_param: {{network.name}}VirtualFixedIPs}
+{%- endif %}
+{%- endfor %}
 
   VipMap:
     type: OS::TripleO::Network::Ports::NetVipMap
     properties:
       ControlPlaneIp: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
       ExternalIp: {get_attr: [PublicVirtualIP, ip_address]}
       ExternalIpUri: {get_attr: [PublicVirtualIP, ip_address_uri]}
-      InternalApiIp: {get_attr: [InternalApiVirtualIP, ip_address]}
-      InternalApiIpUri: {get_attr: [InternalApiVirtualIP, ip_address_uri]}
-      StorageIp: {get_attr: [StorageVirtualIP, ip_address]}
-      StorageIpUri: {get_attr: [StorageVirtualIP, ip_address_uri]}
-      StorageMgmtIp: {get_attr: [StorageMgmtVirtualIP, ip_address]}
-      StorageMgmtIpUri: {get_attr: [StorageMgmtVirtualIP, ip_address_uri]}
+{%- else %}
+      {{network.name}}Ip: {get_attr: [{{network.name}}VirtualIP, ip_address]}
+      {{network.name}}IpUri: {get_attr: [{{network.name}}VirtualIP, ip_address_uri]}
+{%- endif %}
+{%- endfor %}
       # No tenant or management VIP required
     # Because of nested get_attr functions in the KeystoneAdminVip output, we
     # can't determine which attributes of VipMap are used until after
@@ -764,24 +792,12 @@ resources:
       PingTestIps:
         list_join:
         - ' '
-        - - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, external_ip_address]}
+        -
+{%- for network in networks if network.enabled|default(true) %}
           - yaql:
               expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, internal_api_ip_address]}
-          - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, storage_ip_address]}
-          - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, storage_mgmt_ip_address]}
-          - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, tenant_ip_address]}
-          - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{primary_role_name}}, management_ip_address]}
+              data: {get_attr: [{{primary_role_name}}, {{network.name_lower}}_ip_address]}
+{%- endfor %}
 
   UpdateWorkflow:
     type: OS::TripleO::Tasks::UpdateWorkflow

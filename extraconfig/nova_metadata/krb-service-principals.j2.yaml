@@ -5,30 +5,38 @@ parameters:
   RoleData:
      type: json
      description: the list containing the 'role_data' output for the ServiceChain
-
-  # Coming from parameter_defaults
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
+  # Special case the External hostname param, which is CloudName
   CloudName:
     default: overcloud.localdomain
     description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
     type: string
+{%- elif network.name == 'InternalApi' %}
+  # Special case the Internal API hostname param, which is CloudNameInternal
   CloudNameInternal:
-    default: overcloud.internalapi.localdomain
+    default: overcloud.{{network.name.lower()}}.localdomain
     description: >
-      The DNS name of this cloud's internal API endpoint. E.g.
-      'ci-overcloud.internalapi.tripleo.org'.
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
-  CloudNameStorage:
-    default: overcloud.storage.localdomain
-    description: >
-      The DNS name of this cloud's storage endpoint. E.g.
-      'ci-overcloud.storage.tripleo.org'.
-    type: string
+{%- elif network.name == 'StorageMgmt' %}
+  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
   CloudNameStorageManagement:
-    default: overcloud.storagemgmt.localdomain
+    default: overcloud.{{network.name.lower()}}.localdomain
     description: >
-      The DNS name of this cloud's storage management endpoint. E.g.
-      'ci-overcloud.storagemgmt.tripleo.org'.
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
+{%- else %}
+  CloudName{{network.name}}:
+    default: overcloud.{{network.name.lower()}}.localdomain
+    description: >
+      The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
+      'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
+    type: string
+{%- endif %}
+{%- endfor %}
   CloudNameCtlplane:
     default: overcloud.ctlplane.localdomain
     description: >
@@ -61,10 +69,17 @@ resources:
           data:
             metadata: {get_attr: [IncomingMetadataSettings, value]}
             fqdns:
+{%- for network in networks if network.vip|default(false) %}
+{%- if network.name == 'External' %}
               external: {get_param: CloudName}
+{%- elif network.name == 'InternalApi' %}
               internal_api: {get_param: CloudNameInternal}
-              storage: {get_param: CloudNameStorage}
+{%- elif network.name == 'StorageMgmt' %}
               storage_mgmt: {get_param: CloudNameStorageManagement}
+{%- else %}
+              {{network.name_lower}}: {get_param: CloudName{{network.name}}}
+{%- endif %}
+{%- endfor %}
               ctlplane: {get_param: CloudNameCtlplane}
 
   CompactServices:
@@ -82,3 +97,4 @@ outputs:
       map_merge:
         - {get_attr: [IndividualServices, value]}
         - compact_services: {get_attr: [CompactServices, value]}
+
