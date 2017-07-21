@@ -14,12 +14,6 @@ parameters:
   ServiceNames:
     type: comma_delimited_list
     default: []
-  IsolCpusList:
-    default: "0"
-    description: List of cores to be isolated by tuned
-    type: string
-    constraints:
-      - allowed_pattern: "[0-9,-]+"
   OvsEnableDpdk:
     default: false
     description: Whether or not to configure enable DPDK in OVS
@@ -46,12 +40,6 @@ parameters:
       desired DPDK NIC.  The format should be in "<socket 0 mem>, <socket 1
       mem>, <socket n mem>", where the value is specified in MB.  For example:
       "1024,0".
-    type: string
-  OvsDpdkDriverType:
-    default: "vfio-pci"
-    description: >
-      DPDK Driver type. Ensure the Overcloud NIC to be used for DPDK supports
-      this UIO/PMD driver.
     type: string
   OvsPmdCoreList:
     description: >
@@ -91,10 +79,6 @@ parameters:
     default: ''
     description: Memory allocated for each socket
     type: string
-  NeutronDpdkDriverType:
-    default: "vfio-pci"
-    description: DPDK Driver type
-    type: string
   deployment_actions:
     default: ['CREATE', 'UPDATE']
     type: comma_delimited_list
@@ -105,15 +89,13 @@ parameters:
 
 conditions:
   is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
-  # YAQL is enabled in conditions with https://review.openstack.org/#/c/467506/
   is_dpdk_config_required:
     or:
       - yaql:
-        expression: $.data.service_names.contains('neutron_ovs_dpdk_agent')
-        data:
-          service_names: {get_param: ServiceNames}
-      - {get_param: OvsEnableDpdk}
-      - {get_param: [RoleParameters, OvsEnableDpdk]}
+          expression: $.data.service_names.contains('neutron_ovs_dpdk_agent')
+          data:
+            service_names: {get_param: ServiceNames}
+      - {equals: [{get_param: [RoleParameters, OvsEnableDpdk]}, true]}
   is_reboot_config_required:
     or:
       - is_host_config_required
@@ -122,8 +104,6 @@ conditions:
   pmd_cores_empty: {equals: [{get_param: OvsPmdCoreList}, '']}
   mem_channels_empty: {equals: [{get_param: OvsDpdkMemoryChannels}, '']}
   socket_mem_empty: {equals: [{get_param: OvsDpdkSocketMemory}, '']}
-  driver_not_set: {equals: [{get_param: OvsDpdkDriverType}, 'vfio-pci']}
-  isol_cpus_empty: {equals: [{get_param: IsolCpusList}, '0']}
   deployment_actions_empty:
     equals:
       - {get_param: deployment_actions}
@@ -137,19 +117,15 @@ resources:
       value:
         map_replace:
           - map_replace:
-            - IsolCpusList: IsolCpusList
-              OvsDpdkCoreList: OvsDpdkCoreList
+            - OvsDpdkCoreList: OvsDpdkCoreList
               OvsDpdkMemoryChannels: OvsDpdkMemoryChannels
               OvsDpdkSocketMemory: OvsDpdkSocketMemory
-              OvsDpdkDriverType: OvsDpdkDriverType
-              OvsPmdCoreList: OvsDpdkCoreList
+              OvsPmdCoreList: OvsPmdCoreList
             - values: {get_param: [RoleParameters]}
           - values:
-              IsolCpusList: {if: [isol_cpus_empty, {get_param: HostCpusList}, {get_param: IsolCpusList}]}
               OvsDpdkCoreList: {if: [l_cores_empty, {get_param: HostCpusList}, {get_param: OvsDpdkCoreList}]}
               OvsDpdkMemoryChannels: {if: [mem_channels_empty, {get_param: NeutronDpdkMemoryChannels}, {get_param: OvsDpdkMemoryChannels}]}
               OvsDpdkSocketMemory: {if: [socket_mem_empty, {get_param: NeutronDpdkSocketMemory}, {get_param: OvsDpdkSocketMemory}]}
-              OvsDpdkDriverType: {if: [driver_not_set, {get_param: NeutronDpdkDriverType}, {get_param: OvsDpdkDriverType}]}
               OvsPmdCoreList: {if: [pmd_cores_empty, {get_param: NeutronDpdkCoreList}, {get_param: OvsPmdCoreList}]}
 
   HostParametersConfig:
@@ -243,7 +219,11 @@ resources:
       name: EnableDpdkDeployment
       server:  {get_param: server}
       config: {get_resource: EnableDpdkConfig}
-      actions: ['CREATE'] # Only do this on CREATE
+      actions:
+        if:
+          - deployment_actions_empty
+          - []
+          - ['CREATE'] # Only do this on CREATE
 
   RebootConfig:
     type: OS::Heat::SoftwareConfig
