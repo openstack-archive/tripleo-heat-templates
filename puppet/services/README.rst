@@ -155,7 +155,7 @@ Similar to the step_config, we allow a series of steps for the per-service
 upgrade sequence, defined as ansible tasks with a tag e.g "step1" for the first
 step, "step2" for the second, etc.
 
-   Steps/tages correlate to the following:
+   Steps/tags correlate to the following:
 
    1) Stop all control-plane services.
 
@@ -185,6 +185,18 @@ step, "step2" for the second, etc.
 Note that the services are not started in the upgrade tasks - we instead re-run
 puppet which does any reconfiguration required for the new version, then starts
 the services.
+
+Update Steps
+------------
+
+Each service template may optionally define a `update_tasks` key, which is a
+list of ansible tasks to be performed during the minor update process.
+
+Similar to the upgrade_tasks, we allow a series of steps for the per-service
+update sequence, but note update_task selects the steps via a conditional
+referencing the step variable e.g when: step == 2, which is different to the
+tags based approach used for upgrade_tasks (the two may be aligned in future).
+
 
 Nova Server Metadata Settings
 -----------------------------
