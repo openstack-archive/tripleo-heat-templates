@@ -56,6 +56,14 @@ parameters:
     type: string
     description: Set the number of workers for zaqar::wsgi::apache
     default: '%{::os_workers}'
+  ZaqarMessageStore:
+    type: string
+    description: The messaging store for Zaqar
+    default: mongodb
+  ZaqarManagementStore:
+    type: string
+    description: The management store for Zaqar
+    default: mongodb
   EnableInternalTLS:
     type: boolean
     default: false
@@ -63,6 +71,8 @@ parameters:
 conditions:
   zaqar_workers_zero: {equals : [{get_param: ZaqarWorkers}, 0]}
   service_debug_unset: {equals : [{get_param: ZaqarDebug}, '']}
+  zaqar_messaging_store_swift: {equals : [{get_param: ZaqarMessageStore}, 'swift']}
+  zaqar_management_store_sqlalchemy: {equals : [{get_param: ZaqarManagementStore}, 'sqlalchemy']}
 
 resources:
 
@@ -105,26 +115,67 @@ outputs:
                   "%{hiera('fqdn_$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, ZaqarApiNetwork]}
+            zaqar::message_store: {get_param: ZaqarMessageStore}
+            zaqar::management_store: {get_param: ZaqarManagementStore}
+          -
+            if:
+            - zaqar_messaging_store_swift
+            -
+              zaqar::messaging::swift::uri:
+                list_join:
+                  - ''
+                  - ['swift://zaqar:', {get_param: ZaqarPassword}, '@/service']
+              zaqar::messaging::swift::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+              tripleo::profile::base::zaqar::messaging_store: 'swift'
+            - {}
+          -
+            if:
+            - zaqar_management_store_sqlalchemy
+            -
+              tripleo::profile::base::zaqar::management_store: 'sqlalchemy'
+              zaqar::management::sqlalchemy::uri:
+                make_url:
+                  scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  username: zaqar
+                  password: {get_param: ZaqarPassword}
+                  host: {get_param: [EndpointMap, MysqlInternal, host]}
+                  path: /zaqar
+                  query:
+                    read_default_file: /etc/my.cnf.d/tripleo.cnf
+                    read_default_group: tripleo
+            - {}
           -
             if:
             - zaqar_workers_zero
             - {}
             - zaqar::wsgi::apache::workers: {get_param: ZaqarWorkers}
       service_config_settings:
-        keystone:
-          zaqar::keystone::auth::password: {get_param: ZaqarPassword}
-          zaqar::keystone::auth::public_url: {get_param: [EndpointMap, ZaqarPublic, uri]}
-          zaqar::keystone::auth::admin_url: {get_param: [EndpointMap, ZaqarAdmin, uri]}
-          zaqar::keystone::auth::internal_url: {get_param: [EndpointMap, ZaqarInternal, uri]}
-          zaqar::keystone::auth::region: {get_param: KeystoneRegion}
-          zaqar::keystone::auth::tenant: 'service'
-          zaqar::keystone::auth_websocket::password: {get_param: ZaqarPassword}
-          zaqar::keystone::auth_websocket::public_url: {get_param: [EndpointMap, ZaqarWebSocketPublic, uri]}
-          zaqar::keystone::auth_websocket::admin_url: {get_param: [EndpointMap, ZaqarWebSocketAdmin, uri]}
-          zaqar::keystone::auth_websocket::internal_url: {get_param: [EndpointMap, ZaqarWebSocketInternal, uri]}
-          zaqar::keystone::auth_websocket::region: {get_param: KeystoneRegion}
-          zaqar::keystone::auth_websocket::tenant: 'service'
-
+        map_merge:
+          - keystone:
+              zaqar::keystone::auth::password: {get_param: ZaqarPassword}
+              zaqar::keystone::auth::public_url: {get_param: [EndpointMap, ZaqarPublic, uri]}
+              zaqar::keystone::auth::admin_url: {get_param: [EndpointMap, ZaqarAdmin, uri]}
+              zaqar::keystone::auth::internal_url: {get_param: [EndpointMap, ZaqarInternal, uri]}
+              zaqar::keystone::auth::region: {get_param: KeystoneRegion}
+              zaqar::keystone::auth::tenant: 'service'
+              zaqar::keystone::auth_websocket::password: {get_param: ZaqarPassword}
+              zaqar::keystone::auth_websocket::public_url: {get_param: [EndpointMap, ZaqarWebSocketPublic, uri]}
+              zaqar::keystone::auth_websocket::admin_url: {get_param: [EndpointMap, ZaqarWebSocketAdmin, uri]}
+              zaqar::keystone::auth_websocket::internal_url: {get_param: [EndpointMap, ZaqarWebSocketInternal, uri]}
+              zaqar::keystone::auth_websocket::region: {get_param: KeystoneRegion}
+              zaqar::keystone::auth_websocket::tenant: 'service'
+          -
+            if:
+            - zaqar_management_store_sqlalchemy
+            - mysql:
+                zaqar::db::mysql::user: zaqar
+                zaqar::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+                zaqar::db::mysql::dbname: zaqar
+                zaqar::db::mysql::password: {get_param: ZaqarPassword}
+                zaqar::db::mysql::allowed_hosts:
+                  - '%'
+                  - "%{hiera('mysql_bind_host')}"
+            - {}
       step_config: |
         include ::tripleo::profile::base::zaqar
       upgrade_tasks:
