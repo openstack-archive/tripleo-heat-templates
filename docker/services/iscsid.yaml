@@ -42,23 +42,38 @@ resources:
   ContainersCommon:
     type: ./containers-common.yaml
 
+  IscsidBase:
+    type: ../../puppet/services/iscsid.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
-    description: Role data for the Iscsid API role.
+    description: Role data for the Iscsid role.
     value:
-      service_name: iscsid
-      config_settings: {}
-      step_config: ''
-      service_config_settings: {}
+      service_name: {get_attr: [IscsidBase, role_data, service_name]}
+      config_settings: {get_attr: [IscsidBase, role_data, config_settings]}
+      step_config: &step_config
+        {get_attr: [IscsidBase, role_data, step_config]}
+      service_config_settings: {get_attr: [IscsidBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: iscsid
-        #puppet_tags: file
-        step_config: ''
+        puppet_tags: iscsid_config
+        step_config: *step_config
         config_image: {get_param: DockerIscsidConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/iscsid.json:
           command: /usr/sbin/iscsid -f
+          config_files:
+            - source: "/var/lib/kolla/config_files/src-iscsid/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         step_3:
           iscsid:
@@ -76,14 +91,10 @@ outputs:
                   - /run/:/run/
                   - /sys:/sys
                   - /lib/modules:/lib/modules:ro
-                  - /etc/iscsi:/etc/iscsi
+                  - /var/lib/config-data/puppet-generated/iscsid/:/var/lib/kolla/config_files/src-iscsid:ro
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
-        - name: create /etc/iscsi
-          file:
-            path: /etc/iscsi
-            state: directory
         - name: stat /lib/systemd/system/iscsid.socket
           stat: path=/lib/systemd/system/iscsid.socket
           register: stat_iscsid_socket

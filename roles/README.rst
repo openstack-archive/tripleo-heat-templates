@@ -152,6 +152,7 @@ Example
    * OS::TripleO::Services::ComputeNeutronOvsAgent
    * OS::TripleO::Services::Docker
    * OS::TripleO::Services::FluentdClient
+   * OS::TripleO::Services::Iscsid
    * OS::TripleO::Services::Kernel
    * OS::TripleO::Services::MySQLClient
    * OS::TripleO::Services::NeutronSriovAgent
