@@ -139,6 +139,27 @@ outputs:
             path: /var/lib/redis
             state: directory
       upgrade_tasks:
-        - name: Stop and disable redis service
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+        - name: Disable the redis cluster resource
           tags: step2
-          service: name=redis state=stopped enabled=no
+          pacemaker_resource:
+            resource: {get_attr: [RedisBase, role_data, service_name]}
+            state: disable
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Delete the stopped redis cluster resource.
+          tags: step2
+          pacemaker_resource:
+            resource: {get_attr: [RedisBase, role_data, service_name]}
+            state: delete
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Disable redis service
+          tags: step2
+          service: name=redis enabled=no

@@ -157,6 +157,30 @@ outputs:
             executable: /bin/bash
             creates: /dev/loop2
       upgrade_tasks:
-        - name: Stop and disable cinder_volume service
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+        - name: Disable the openstack-cinder-volume cluster resource
           tags: step2
-          service: name=openstack-cinder-volume state=stopped enabled=no
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: disable
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Delete the stopped openstack-cinder-volume cluster resource.
+          tags: step2
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: delete
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Disable cinder_volume service from boot
+          tags: step2
+          service: name=openstack-cinder-volume enabled=no
+
+
+

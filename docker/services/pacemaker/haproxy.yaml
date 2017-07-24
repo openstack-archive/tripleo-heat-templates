@@ -137,3 +137,25 @@ outputs:
                   - /dev/shm:/dev/shm:rw
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
+      upgrade_tasks:
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+        - name: Disable the haproxy cluster resource.
+          tags: step2
+          pacemaker_resource:
+            resource: {get_attr: [HAProxyBase, role_data, service_name]}
+            state: disable
+            wait_for_resource: true
+          when: is_bootstrap_node
+        - name: Delete the stopped haproxy cluster resource.
+          tags: step2
+          pacemaker_resource:
+            resource: {get_attr: [HAProxyBase, role_data, service_name]}
+            state: delete
+            wait_for_resource: true
+          when: is_bootstrap_node
