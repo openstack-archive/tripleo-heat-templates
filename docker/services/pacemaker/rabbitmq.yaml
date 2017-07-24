@@ -248,3 +248,33 @@ outputs:
         - name: Disable rabbitmq service
           tags: step2
           service: name=rabbitmq-server enabled=no
+      update_tasks:
+        - name: Get docker Rabbitmq image
+          set_fact:
+            docker_image: {get_param: DockerRabbitmqImage}
+            docker_image_latest: *rabbitmq_image_pcmklatest
+          when: step == '2'
+        - name: Get previous Rabbitmq image id
+          shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
+          register: rabbitmq_image_id
+        - block:
+            - name: Get a list of container using Rabbitmq image
+              shell: "docker ps -q -f 'ancestor={{rabbitmq_image_id.stdout}}'"
+              register: rabbitmq_containers_to_destroy
+            # It will be recreated with the delpoy step.
+            - name: Remove any container using the same Rabbitmq image
+              shell: "docker rm -fv {{item}}"
+              with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
+            - name: Remove previous Rabbitmq images
+              shell: "docker rmi -f {{rabbitmq_image_id.stdout}}"
+          when:
+            - step == '2'
+            - rabbitmq_image_id.stdout != ''
+        - name: Pull latest Rabbitmq images
+          command: "docker pull {{docker_image}}"
+          when: step == "2"
+        - name: Retag pcmklatest to latest Rabbitmq image
+          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+          when: step == "2"
+        # Got to check that pacemaker_is_active is working fine with bundle.
+        # TODO: pacemaker_is_active resource doesn't support bundle.

@@ -124,3 +124,24 @@ Steps correlate to the following:
    5) Service activation (Pacemaker)
      a) step 5 baremetal
      b) step 5 containers
+
+Update steps:
+-------------
+
+All services have an associated update_tasks output that is an ansible
+snippet that will be run during update in an rolling update that is
+expected to run in a rolling update fashion (one node at a time)
+
+For Controller (where pacemaker is running) we have the following states:
+ 1. Step=1: stop the cluster on the updated node;
+ 2. Step=2: Pull the latest image and retag the it pcmklatest
+ 3. Step=3: yum upgrade happens on the host.
+ 4. Step=4: Restart the cluster on the node
+ 5. Step=5: Verification:
+    Currently we test that the pacemaker services are running.
+
+Then the usual deploy steps are run which pull in the latest image for
+all containerized services and the updated configuration if any.
+
+Note: as pacemaker is not containerized, the points 1 and 4 happen in
+puppet/services/pacemaker.yaml.
