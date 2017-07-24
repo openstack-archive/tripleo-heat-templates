@@ -253,3 +253,33 @@ outputs:
           retries: 5
           until: output.rc == 0
           when: is_bootstrap_node and haproxy_res|succeeded
+      update_tasks:
+        - name: Get docker Haproxy image
+          set_fact:
+            docker_image: {get_param: DockerHAProxyImage}
+            docker_image_latest: *haproxy_image_pcmklatest
+          when: step == '2'
+        - name: Get previous Haproxy image id
+          shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}'"
+          register: haproxy_image_id
+        - block:
+            - name: Get a list of container using Haproxy image
+              shell: "docker ps -q -f 'ancestor={{haproxy_image_id.stdout}}'"
+              register: haproxy_containers_to_destroy
+            # It will be recreated with the delpoy step.
+            - name: Remove any container using the same Haproxy image
+              shell: "docker rm -fv {{item}}"
+              with_items: "{{ haproxy_containers_to_destroy.stdout_lines }}"
+            - name: Remove previous Haproxy images
+              shell: "docker rmi -f {{haproxy_image_id.stdout}}"
+          when:
+            - step == '2'
+            - haproxy_image_id.stdout != ''
+        - name: Pull latest Haproxy images
+          command: "docker pull {{docker_image}}"
+          when: step == "2"
+        - name: Retag pcmklatest to latest Haproxy image
+          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+          when: step == "2"
+        # Got to check that pacemaker_is_active is working fine with bundle.
+        # TODO: pacemaker_is_active resource doesn't support bundle.
