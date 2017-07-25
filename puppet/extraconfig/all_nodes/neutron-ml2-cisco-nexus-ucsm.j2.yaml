@@ -175,45 +175,15 @@ resources:
           echo "$HOST_FQDN $MACS"
         fi
 
-  CollectMacDeploymentsController:
+{% for role in roles %}
+  CollectMacDeployments{{role.name}}:
     type: OS::Heat::SoftwareDeployments
     properties:
-      name: CollectMacDeploymentsController
-      servers:  {get_param: [servers, Controller]}
+      name: CollectMacDeployments{{role.name}}
+      servers:  {get_param: [servers, {{role.name}}]}
       config: {get_resource: CollectMacConfig}
       actions: ['CREATE'] # Only do this on CREATE
-
-  CollectMacDeploymentsCompute:
-    type: OS::Heat::SoftwareDeployments
-    properties:
-      name: CollectMacDeploymentsCompute
-      servers:  {get_param: [servers, Compute]}
-      config: {get_resource: CollectMacConfig}
-      actions: ['CREATE'] # Only do this on CREATE
-
-  CollectMacDeploymentsBlockStorage:
-    type: OS::Heat::SoftwareDeployments
-    properties:
-      name: CollectMacDeploymentsBlockStorage
-      servers:  {get_param: [servers, BlockStorage]}
-      config: {get_resource: CollectMacConfig}
-      actions: ['CREATE'] # Only do this on CREATE
-
-  CollectMacDeploymentsObjectStorage:
-    type: OS::Heat::SoftwareDeployments
-    properties:
-      name: CollectMacDeploymentsObjectStorage
-      servers:  {get_param: [servers, ObjectStorage]}
-      config: {get_resource: CollectMacConfig}
-      actions: ['CREATE'] # Only do this on CREATE
-
-  CollectMacDeploymentsCephStorage:
-    type: OS::Heat::SoftwareDeployments
-    properties:
-      name: CollectMacDeploymentsCephStorage
-      servers:  {get_param: [servers, CephStorage]}
-      config: {get_resource: CollectMacConfig}
-      actions: ['CREATE'] # Only do this on CREATE
+{% endfor %}
 
   # Now we calculate the additional nexus config based on the mappings
   MappingToNexusConfig:
@@ -221,11 +191,9 @@ resources:
     properties:
       group: script
       inputs:
-      - name: controller_mappings
-      - name: compute_mappings
-      - name: blockstorage_mappings
-      - name: objectstorage_mappings
-      - name: cephstorage_mappings
+     {%- for role in roles %} 
+      - name: {{role.name}}_mappings
+     {%- endfor %}
       - name: nexus_config
       config: |
         #!/bin/python
@@ -234,11 +202,9 @@ resources:
         import os
         from copy import deepcopy
 
-        mappings = ['controller_mappings',
-                    'compute_mappings',
-                    'blockstorage_mappings',
-                    'objectstorage_mappings',
-                    'cephstorage_mappings',
+        mappings = [{%- for role in roles %}
+                    '{{role.name}}_mappings',
+                    {%- endfor %}
                     'nexus_config']
         mapdict_list = []
         nexus = {}
@@ -296,11 +262,9 @@ resources:
         # FIXME(shardy): It'd be more convenient if we could join these
         # items together but because the returned format is a map (not a list)
         # we can't use list_join or str_replace.  Possible Heat TODO.
-        controller_mappings: {get_attr: [CollectMacDeploymentsController, deploy_stdouts]}
-        compute_mappings: {get_attr: [CollectMacDeploymentsCompute, deploy_stdouts]}
-        blockstorage_mappings: {get_attr: [CollectMacDeploymentsBlockStorage, deploy_stdouts]}
-        objectstorage_mappings: {get_attr: [CollectMacDeploymentsObjectStorage, deploy_stdouts]}
-        cephstorage_mappings: {get_attr: [CollectMacDeploymentsCephStorage, deploy_stdouts]}
+       {%- for role in roles %}
+        {{role.name}}_mappings: {get_attr: [CollectMacDeployments{{role.name}}, deploy_stdouts]}
+       {%- endfor %}
         nexus_config: {get_param: NetworkNexusConfig}
       actions: ['CREATE'] # Only do this on CREATE
 
