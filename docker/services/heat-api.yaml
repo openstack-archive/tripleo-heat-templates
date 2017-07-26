@@ -150,8 +150,25 @@ outputs:
             path: /var/log/containers/heat
             state: directory
       upgrade_tasks:
-        - name: Stop and disable heat_api service
+        - name: Check is heat_api is deployed
+          command: systemctl is-enabled openstack-heat-api
+          tags: common
+          ignore_errors: True
+          register: heat_api_enabled
+        - name: check for heat_api running under apache (post upgrade)
           tags: step2
-          service: name=httpd state=stopped enabled=no
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q heat_api_wsgi"
+          register: heat_api_apache
+          ignore_errors: true
+          changed_when: false
+          check_mode: no
+        - name: Stop heat_api service (running under httpd)
+          tags: step2
+          service: name=httpd state=stopped
+          when: heat_api_apache.rc == 0
+        - name: Stop and disable heat_api service (pre-upgrade not under httpd)
+          tags: step2
+          service: name=openstack-heat-api state=stopped enabled=no
+          when: heat_api_enabled.rc == 0
       metadata_settings:
         get_attr: [HeatBase, role_data, metadata_settings]
