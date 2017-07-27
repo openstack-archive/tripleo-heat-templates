@@ -1,0 +1,205 @@
+heat_template_version: pike
+
+description: >
+  Ceph base service. Shared by all Ceph services.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CephAnsibleWorkflowName:
+    type: string
+    description: Name of the Mistral workflow to execute
+    default: tripleo.storage.v1.ceph-install
+  CephAnsiblePlaybook:
+    type: string
+    description: Path to the ceph-ansible playbook to execute
+    default: /usr/share/ceph-ansible/site-docker.yml.sample
+  CephAnsibleExtraConfig:
+    type: json
+    description: Extra vars for the ceph-ansible playbook
+    default: {}
+  CephClusterFSID:
+    type: string
+    description: The Ceph cluster FSID. Must be a UUID.
+  CephPoolDefaultPgNum:
+    description: default pg_num to use for the RBD pools
+    type: number
+    default: 32
+  CephPools:
+    description: >
+      It can be used to override settings for one of the predefined pools, or to create
+      additional ones. Example:
+      {
+        "volumes": {
+          "size": 5,
+          "pg_num": 128,
+          "pgp_num": 128
+         }
+      }
+    default: {}
+    type: json
+  CinderRbdPoolName:
+    default: volumes
+    type: string
+  CinderBackupRbdPoolName:
+    default: backups
+    type: string
+  GlanceRbdPoolName:
+    default: images
+    type: string
+  GnocchiRbdPoolName:
+    default: metrics
+    type: string
+  NovaRbdPoolName:
+    default: vms
+    type: string
+  CephClientKey:
+    description: The Ceph client key. Can be created with ceph-authtool --gen-print-key. Currently only used for external Ceph deployments to create the openstack user keyring.
+    type: string
+    hidden: true
+  CephClientUserName:
+    default: openstack
+    type: string
+  CephPoolDefaultSize:
+    description: default minimum replication for RBD copies
+    type: number
+    default: 3
+  CephIPv6:
+    default: False
+    type: boolean
+  DockerCephDaemonImage:
+    description: image
+    type: string
+    default: 'ceph/daemon:tag-build-master-jewel-centos-7'
+
+conditions:
+  custom_registry_host:
+    yaql:
+      data: {get_param: DockerCephDaemonImage}
+      expression: $.data.split('/')[0].matches('(\.|:)')
+
+outputs:
+  role_data:
+    description: Role data for the Ceph base service.
+    value:
+      service_name: ceph_base
+      upgrade_tasks: []
+      step_config: ''
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      service_workflow_tasks:
+        step2:
+          - name: ceph_base_ansible_workflow
+            workflow: { get_param: CephAnsibleWorkflowName }
+            input:
+              ceph_ansible_extra_vars: {get_param: CephAnsibleExtraConfig}
+              ceph_ansible_playbook: {get_param: CephAnsiblePlaybook}
+      config_settings:
+        ceph_common_ansible_vars:
+          fsid: { get_param: CephClusterFSID }
+          docker: true
+          ceph_docker_registry:
+            if:
+            - custom_registry_host
+            - yaql:
+                expression: regex('(?:https?://)?(.*)/').split($.data)[1]
+                data: {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
+            - docker.io
+          ceph_docker_image:
+            if:
+            - custom_registry_host
+            - yaql:
+                expression: regex('(?:https?://)?(.*)/').split($.data)[2]
+                data: {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
+            - {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
+          ceph_docker_image_tag: {str_split: [':', {get_param: DockerCephDaemonImage}, 1]}
+          containerized_deployment: true
+          public_network: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
+          cluster_network: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephClusterNetwork]}]}
+          user_config: true
+          ceph_stable: true
+          ceph_origin: distro
+          openstack_config: true
+          openstack_pools:
+            list_concat:
+              - repeat:
+                  template:
+                    name: <%pool%>
+                    pg_num: {get_param: CephPoolDefaultPgNum}
+                    rule_name: ""
+                  for_each:
+                    <%pool%>:
+                      - {get_param: CinderRbdPoolName}
+                      - {get_param: CinderBackupRbdPoolName}
+                      - {get_param: NovaRbdPoolName}
+                      - {get_param: GlanceRbdPoolName}
+                      - {get_param: GnocchiRbdPoolName}
+              - repeat:
+                  template:
+                    name: <%pool%>
+                    pg_num: {get_param: CephPoolDefaultPgNum}
+                    rule_name: ""
+                  for_each:
+                    <%pool%>: {get_param: CephPools}
+          openstack_keys: &openstack_keys
+          - name:
+              list_join:
+              - '.'
+              - - client
+                - {get_param: CephClientUserName}
+            key: {get_param: CephClientKey}
+            mon_cap: "allow r"
+            osd_cap:
+              str_replace:
+               template: "allow class-read object_prefix rbd_children, allow rwx pool=CINDER_POOL, allow rwx pool=CINDERBACKUP_POOL, allow rwx pool=NOVA_POOL, allow rwx pool=GLANCE_POOL, allow rwx pool=GNOCCHI_POOL"
+               params:
+                 NOVA_POOL: {get_param: NovaRbdPoolName}
+                 CINDER_POOL: {get_param: CinderRbdPoolName}
+                 CINDERBACKUP_POOL: {get_param: CinderBackupRbdPoolName}
+                 GLANCE_POOL: {get_param: GlanceRbdPoolName}
+                 GNOCCHI_POOL: {get_param: GnocchiRbdPoolName}
+            acls:
+            - "u:glance:r--"
+            - "u:nova:r--"
+            - "u:cinder:r--"
+            - "u:gnocchi:r--"
+          keys: *openstack_keys
+          pools: []
+          ceph_conf_overrides:
+            global:
+              osd_pool_default_size: {get_param: CephPoolDefaultSize}
+              osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
+          ntp_service_enabled: false
+          generate_fsid: false
+          ip_version:
+            if:
+            - {get_param: CephIPv6}
+            - ipv6
+            - ipv4
