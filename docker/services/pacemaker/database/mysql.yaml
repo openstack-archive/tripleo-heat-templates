@@ -32,6 +32,9 @@ parameters:
     type: string
     hidden: true
     default: ''
+  MysqlClustercheckPassword:
+    type: string
+    hidden: true
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -118,7 +121,19 @@ outputs:
             image: *mysql_image
             net: host
             # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
-            command: ['bash', '-c', 'test -e /var/lib/mysql/mysql || kolla_start']
+            command:
+              - 'bash'
+              - '-ec'
+              -
+                list_join:
+                  - "\n"
+                  - - 'if [ -e /var/lib/mysql/mysql ]; then exit 0; fi'
+                    - 'kolla_start'
+                    - 'mysqld_safe --skip-networking --wsrep-on=OFF &'
+                    - 'timeout ${DB_MAX_TIMEOUT} /bin/bash -c ''until mysqladmin -uroot -p"${DB_ROOT_PASSWORD}" ping 2>/dev/null; do sleep 1; done'''
+                    - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "CREATE USER ''clustercheck''@''localhost'' IDENTIFIED BY ''${DB_CLUSTERCHECK_PASSWORD}'';"'
+                    - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "GRANT PROCESS ON *.* TO ''clustercheck''@''localhost'' WITH GRANT OPTION;"'
+                    - 'timeout ${DB_MAX_TIMEOUT} mysqladmin -uroot -p"${DB_ROOT_PASSWORD}" shutdown'
             volumes: &mysql_volumes
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -131,6 +146,12 @@ outputs:
               - KOLLA_BOOTSTRAP=True
               # NOTE(mandre) skip wsrep cluster status check
               - KOLLA_KUBERNETES=True
+              - DB_MAX_TIMEOUT=60
+              -
+                list_join:
+                  - '='
+                  - - 'DB_CLUSTERCHECK_PASSWORD'
+                    - {get_param: MysqlClustercheckPassword}
               -
                 list_join:
                   - '='
