@@ -196,9 +196,28 @@ outputs:
             - /var/log/containers/cinder
             - /var/log/containers/httpd/cinder-api
       upgrade_tasks:
+        - name: Check is cinder_api is deployed
+          command: systemctl is-enabled openstack-cinder-api
+          tags: common
+          ignore_errors: True
+          register: cinder_api_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-cinder-api is running"
+          shell: systemctl is-active --quiet openstack-cinder-api
+          when: cinder_api_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop and disable cinder_api service (pre-upgrade not under httpd)
+          tags: step2
+          service: name=openstack-cinder-api state=stopped enabled=no
+          when: cinder_api_enabled.rc == 0
+        - name: check for cinder_api running under apache (post upgrade)
+          tags: step2
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
+          register: cinder_api_apache
+          ignore_errors: true
         - name: Stop and disable cinder_api service
           tags: step2
           service: name=httpd state=stopped enabled=no
+          when: cinder_api_apache.rc == 0
         - name: remove old cinder cron jobs
           tags: step2
           file:
