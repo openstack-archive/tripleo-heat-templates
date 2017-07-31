@@ -55,6 +55,21 @@ parameters:
       - allowed_pattern: "[0-9,-]*"
     type: string
     default: ""
+  deployment_actions:
+    default: ['CREATE', 'UPDATE']
+    type: comma_delimited_list
+    description: >
+      List of stack actions that will trigger any deployments in this
+      templates. The actions will be an empty list of the server is in the
+      toplevel DeploymentServerBlacklist parameter's value.
+  EnableDpdkDeploymentActions:
+    default: ['CREATE']
+    type: comma_delimited_list
+    description: >
+      Exposing the DPDK deployment action, it may be required to run DPDK
+      config during an upgrade. By default DPDK will be enabled during the
+      CREATE action only. But on cases when it requires for certain migration,
+      it may be required to run it for UPDATE action too.
   # DEPRECATED: the following options are deprecated and are currently maintained
   # for backwards compatibility. They will be removed in the Queens cycle.
   HostCpusList:
@@ -79,13 +94,6 @@ parameters:
     default: ''
     description: Memory allocated for each socket
     type: string
-  deployment_actions:
-    default: ['CREATE', 'UPDATE']
-    type: comma_delimited_list
-    description: >
-      List of stack actions that will trigger any deployments in this
-      templates. The actions will be an empty list of the server is in the
-      toplevel DeploymentServerBlacklist parameter's value.
 
 conditions:
   is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
@@ -159,6 +167,40 @@ resources:
         _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
         _TUNED_CORES_: {get_param: [RoleParameters, IsolCpusList]}
 
+  RebootConfig:
+    type: OS::Heat::SoftwareConfig
+    condition: is_reboot_config_required
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        # Stop os-collect-config to avoid any race collecting another
+        # deployment before reboot happens
+        systemctl stop os-collect-config.service
+        /sbin/reboot
+
+  RebootDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: HostParametersDeployment
+    condition: is_reboot_config_required
+    properties:
+      name: RebootDeployment
+      server:  {get_param: server}
+      config: {get_resource: RebootConfig}
+      actions:
+        if:
+          - deployment_actions_empty
+          - []
+          - ['CREATE'] # Only do this on CREATE
+      signal_transport: NO_SIGNAL
+
+  # With OvS2.7 (which is default with pike), ovs-vswitchd will start dpdk
+  # immediately after setting dpdk-init (behaviour change from ovs2.6).
+  # Starting of DPDK require the huge page configuration to be enabled. So
+  # reboot will happen before DPDK config and we don't need an explicity
+  # restart after dpdk-init as true because of the behavior change.
+  # TODO(skramaja): Dependency is that till the service file workaround, is
+  # maintained, restart of ovs is required.
   EnableDpdkConfig:
     type: OS::Heat::SoftwareConfig
     condition: is_dpdk_config_required
@@ -194,6 +236,8 @@ resources:
               sed -i 's/start_daemon \"\$OVS_VSWITCHD_PRIORITY\"/umask 0002 \&\& start_daemon \"$OVS_VSWITCHD_PRIORITY\"/' $ovs_ctl_path
             fi
 
+            systemctl daemon-reload
+            systemctl restart openvswitch
 
             # DO NOT use --detailed-exitcodes
             puppet apply --logdest console \
@@ -215,6 +259,7 @@ resources:
   EnableDpdkDeployment:
     type: OS::Heat::SoftwareDeployment
     condition: is_dpdk_config_required
+    depends_on: RebootDeployment
     properties:
       name: EnableDpdkDeployment
       server:  {get_param: server}
@@ -223,34 +268,7 @@ resources:
         if:
           - deployment_actions_empty
           - []
-          - ['CREATE'] # Only do this on CREATE
-
-  RebootConfig:
-    type: OS::Heat::SoftwareConfig
-    condition: is_reboot_config_required
-    properties:
-      group: script
-      config: |
-        #!/bin/bash
-        # Stop os-collect-config to avoid any race collecting another
-        # deployment before reboot happens
-        systemctl stop os-collect-config.service
-        /sbin/reboot
-
-  RebootDeployment:
-    type: OS::Heat::SoftwareDeployment
-    depends_on: HostParametersDeployment
-    condition: is_reboot_config_required
-    properties:
-      name: RebootDeployment
-      server:  {get_param: server}
-      config: {get_resource: RebootConfig}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
-      signal_transport: NO_SIGNAL
+          - {get_param: EnableDpdkDeploymentActions}
 
 outputs:
   result:
