@@ -51,6 +51,10 @@ if [[ -n \$NOVA_COMPUTE ]]; then
     log_debug "Restarting openstack ceilometer agent compute"
     systemctl restart openstack-ceilometer-compute
     yum install -y openstack-nova-migration
+    # https://bugs.launchpad.net/tripleo/+bug/1707926 stop&disable libvirtd
+    log_debug "Stop and disable libvirtd service for upgrade to containers"
+    systemctl stop libvirtd
+    systemctl disable libvirtd
 fi
 
 # Apply puppet manifest to converge just right after the ${ROLE} upgrade
