@@ -116,7 +116,8 @@ outputs:
             user: root
             volumes:
               - /var/log/containers/nova:/var/log/nova
-            command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd; chown -R nova:nova /var/log/nova']
+              - /var/log/containers/httpd/nova-api:/var/log/httpd
+            command: ['/bin/bash', '-c', 'chown -R nova:nova /var/log/nova']
         step_3:
           nova_api_db_sync:
             start_order: 0
@@ -131,6 +132,7 @@ outputs:
                   - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                   - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
                   - /var/log/containers/nova:/var/log/nova
+                  - /var/log/containers/httpd/nova-api:/var/log/httpd
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
           # FIXME: we probably want to wait on the 'cell_v2 update' in order for this
           # to be capable of upgrading a baremetal setup. This is to ensure the name
@@ -178,6 +180,7 @@ outputs:
                   - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/nova:/var/log/nova
+                  - /var/log/containers/httpd/nova-api:/var/log/httpd
                   -
                     if:
                       - internal_tls_enabled
@@ -205,6 +208,7 @@ outputs:
                   - /var/lib/kolla/config_files/nova_api_cron.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/nova:/var/log/nova
+                  - /var/log/containers/httpd/nova-api:/var/log/httpd
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
@@ -221,8 +225,11 @@ outputs:
       host_prep_tasks:
         - name: create persistent logs directory
           file:
-            path: /var/log/containers/nova
+            path: "{{ item }}"
             state: directory
+          with_items:
+            - /var/log/containers/nova
+            - /var/log/containers/httpd/nova-api
       upgrade_tasks:
         - name: Stop and disable nova_api service
           tags: step2
