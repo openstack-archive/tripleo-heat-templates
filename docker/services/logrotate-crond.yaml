@@ -1,0 +1,84 @@
+heat_template_version: pike
+
+description: >
+  Containerized logrotate with crond for containerized service logs rotation
+
+parameters:
+  DockerCrondImage:
+    description: image
+    type: string
+  DockerCrondConfigImage:
+    description: The container image to use for the crond config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the crond role.
+    value:
+      service_name: logrotate_crond
+      config_settings: {}
+      step_config: &step_config |
+        include ::tripleo::profile::base::logging::logrotate
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: crond
+        step_config: *step_config
+        config_image: {get_param: DockerCrondConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/logrotate-crond.json:
+          command: /usr/sbin/crond -s -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+      docker_config:
+        step_4:
+          logrotate_crond:
+            image: {get_param: DockerCrondImage}
+            net: none
+            pid: host
+            privileged: true
+            user: root
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/logrotate-crond.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/logrotate-crond/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers:/var/log/containers
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
