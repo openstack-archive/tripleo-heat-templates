@@ -2,8 +2,8 @@
 Team and repository tags
 ========================
 
-.. image:: http://governance.openstack.org/badges/tripleo-heat-templates.svg
-    :target: http://governance.openstack.org/reference/tags/index.html
+.. image:: https://governance.openstack.org/tc/badges/tripleo-heat-templates.svg
+    :target: https://governance.openstack.org/tc/reference/tags/index.html
 
 .. Change things from this point on
 
@@ -14,9 +14,9 @@ tripleo-heat-templates
 Heat templates to deploy OpenStack using OpenStack.
 
 * Free software: Apache license
-* Documentation: http://docs.openstack.org/developer/tripleo-docs
+* Documentation: https://docs.openstack.org/tripleo-docs/latest/
 * Source: http://git.openstack.org/cgit/openstack/tripleo-heat-templates
-* Bugs: http://bugs.launchpad.net/tripleo
+* Bugs: https://bugs.launchpad.net/tripleo
 
 Features
 --------
