@@ -1,0 +1,72 @@
+heat_template_version: pike
+
+description: >
+  Creates a port on the {{network.name}} network. The IP address will be chosen
+  automatically if FixedIPs is empty.
+
+parameters:
+  {{network.name}}NetName:
+    description: Name of the {{network.name_lower}} neutron network
+    default: {{network.name_lower|default(network.name|lower)}}
+    type: string
+  PortName:
+    description: Name of the port
+    default: ''
+    type: string
+  ControlPlaneIP: # Here for compatibility with noop.yaml
+    description: IP address on the control plane
+    default: ''
+    type: string
+  ControlPlaneNetwork: # Here for compatibility with ctlplane_vip.yaml
+    description: The name of the undercloud Neutron control plane
+    default: ctlplane
+    type: string
+  FixedIPs:
+    description: >
+        Control the IP allocation for the VIP port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    default: []
+    type: json
+  IPPool: # Here for compatibility with from_pool.yaml
+    default: {}
+    type: json
+  NodeIndex: # Here for compatibility with from_pool.yaml
+    default: 0
+    type: number
+
+resources:
+
+  {{network.name}}Port:
+    type: OS::Neutron::Port
+    properties:
+      network: {get_param: {{network.name}}NetName}
+      name: {get_param: PortName}
+      fixed_ips: {get_param: FixedIPs}
+      replacement_policy: AUTO
+
+outputs:
+  ip_address:
+    description: {{network.name}} network IP
+    value: {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
+  ip_address_uri:
+{%- if network.ipv6  %}
+    description: {{network.name}} network IP (with brackets for IPv6 URLs)
+    value:
+          list_join:
+          - ''
+          - - '['
+            - {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
+            - ']'
+{%- else %}
+    description: {{network.name}} network IP (for compatibility with IPv6 URLs)
+    value: {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
+{%-  endif %}
+  ip_subnet:
+    description: IP/Subnet CIDR for the {{network.name}} network IP
+    value:
+          list_join:
+            - ''
+            - - {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
+              - '/'
+              - {str_split: ['/', {get_attr: [{{network.name}}Port, subnets, 0, cidr]}, 1]}
+

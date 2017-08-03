@@ -96,6 +96,16 @@ def process_templates(template_path, role_data_path, output_dir,
     r_map = {}
     for r in role_data:
         r_map[r.get('name')] = r
+
+    n_map = {}
+    for n in network_data:
+        if (n.get('enabled') is not False):
+            n_map[n.get('name')] = n
+            if not n.get('name_lower'):
+                n_map[n.get('name')]['name_lower'] = n.get('name').lower()
+        else:
+            print("skipping %s network: network is disabled" % n.get('name'))
+
     excl_templates = ['%s/%s' % (template_path, e)
                       for e in j2_excludes.get('name')]
 
@@ -126,10 +136,13 @@ def process_templates(template_path, role_data_path, output_dir,
 
             for f in files:
                 file_path = os.path.join(subdir, f)
-                # We do two templating passes here:
+                # We do three templating passes here:
                 # 1. *.role.j2.yaml - we template just the role name
                 #    and create multiple files (one per role)
-                # 2. *.j2.yaml - we template with all roles_data,
+                # 2  *.network.j2.yaml - we template the network name and
+                #    data and create multiple files for networks and
+                #    network ports (one per network)
+                # 3. *.j2.yaml - we template with all roles_data,
                 #    and create one file common to all roles
                 if f.endswith('.role.j2.yaml'):
                     print("jinja2 rendering role template %s" % f)
@@ -167,6 +180,30 @@ def process_templates(template_path, role_data_path, output_dir,
 
                             else:
                                 print('skipping rendering of %s' % out_f_path)
+
+                elif f.endswith('.network.j2.yaml'):
+                    print("jinja2 rendering network template %s" % f)
+                    with open(file_path) as j2_template:
+                        template_data = j2_template.read()
+                    print("jinja2 rendering networks %s" % ",".join(n_map))
+                    for network in n_map:
+                        j2_data = {'network': n_map[network]}
+                        # Output file names in "<name>.yaml" format
+                        out_f = os.path.basename(f).replace('.network.j2.yaml',
+                                                            '.yaml')
+                        if os.path.dirname(file_path).endswith('ports'):
+                            out_f = out_f.replace('port',
+                                                  n_map[network]['name_lower'])
+                        else:
+                            out_f = out_f.replace('network',
+                                                  n_map[network]['name_lower'])
+                        out_f_path = os.path.join(out_dir, out_f)
+                        if not (out_f_path in excl_templates):
+                            _j2_render_to_file(template_data, j2_data,
+                                               out_f_path)
+                        else:
+                            print('skipping rendering of %s' % out_f_path)
+
                 elif f.endswith('.j2.yaml'):
                     print("jinja2 rendering normal template %s" % f)
                     with open(file_path) as j2_template:
