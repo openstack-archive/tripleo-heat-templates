@@ -117,16 +117,22 @@ function migrate_full_to_ng_ha {
     if [[ -n $(pcmk_running) ]]; then
         pcs property set maintenance-mode=true
 
+        # pcs config output may require the --full option.
+        PCS_CONFIG="pcs config show"
+        if [ -z "$($PCS_CONFIG | sed -n '/^Colocation Constraints:$/,/^$/p' | grep -v 'Colocation Constraints:' | egrep -v 'ip-.*haproxy' | awk '{print $NF}' | grep colocation)" ]; then
+            PCS_CONFIG="pcs config show --full"
+        fi
+
         # First we go through all the colocation constraints (except the ones
         # we want to keep, i.e. the haproxy/ip ones) and we remove those
-        COL_CONSTRAINTS=$(pcs config show | sed -n '/^Colocation Constraints:$/,/^$/p' | grep -v "Colocation Constraints:" | egrep -v "ip-.*haproxy" | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
+        COL_CONSTRAINTS=$($PCS_CONFIG | sed -n '/^Colocation Constraints:$/,/^$/p' | grep -v "Colocation Constraints:" | egrep -v "ip-.*haproxy" | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
         for constraint in $COL_CONSTRAINTS; do
             log_debug "Deleting colocation constraint $constraint from CIB"
             pcs constraint remove "$constraint"
         done
 
         # Now we kill all the ordering constraints (except the haproxy/ip ones)
-        ORD_CONSTRAINTS=$(pcs config show | sed -n '/^Ordering Constraints:/,/^Colocation Constraints:$/p' | grep -v "Ordering Constraints:"  | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
+        ORD_CONSTRAINTS=$($PCS_CONFIG | sed -n '/^Ordering Constraints:/,/^Colocation Constraints:$/p' | grep -v "Ordering Constraints:"  | awk '{print $NF}' | cut -f2 -d: |cut -f1 -d\))
         for constraint in $ORD_CONSTRAINTS; do
             log_debug "Deleting ordering constraint $constraint from CIB"
             pcs constraint remove "$constraint"
