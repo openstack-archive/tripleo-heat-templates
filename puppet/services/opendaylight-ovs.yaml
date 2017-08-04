@@ -33,6 +33,28 @@ parameters:
                  Required for VLAN deployments.  For example physnet1 -> eth1.
     type: comma_delimited_list
     default: "datacentre:br-ex"
+  HostAllowedNetworkTypes:
+    description: Allowed tenant network types for this OVS host.  Note this can
+                 vary per host or role to constrain which hosts nova instances
+                 and networks are scheduled to.
+    type: comma_delimited_list
+    default: ['local', 'vlan', 'vxlan', 'gre']
+  OvsEnableDpdk:
+    description: Whether or not to configure enable DPDK in OVS
+    default:  false
+    type: boolean
+  OvsVhostuserMode:
+    description: Specify the mode for OVS with vhostuser port creation.  In
+                 client mode, the hypervisor will be responsible for creating
+                 vhostuser sockets.  In server mode, OVS will create them.
+    type: string
+    default: "client"
+    constraints:
+      - allowed_values: [ 'client', 'server' ]
+  VhostuserSocketDir:
+    description: Specify the directory to use for vhostuser sockets
+    type: string
+    default: "/var/run/openvswitch"
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -71,6 +93,28 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::plugins::ovs::opendaylight::allowed_network_types: HostAllowedNetworkTypes
+              neutron::plugins::ovs::opendaylight::enable_dpdk: OvsEnableDpdk
+              neutron::plugins::ovs::opendaylight::vhostuser_socket_dir: VhostuserSocketDir
+              neutron::plugins::ovs::opendaylight::vhostuser_mode: OvsVhostuserMode
+              neutron::plugins::ovs::opendaylight::provider_mappings: OpenDaylightProviderMappings
+            - values: {get_param: [RoleParameters]}
+          - values:
+              HostAllowedNetworkTypes: {get_param: HostAllowedNetworkTypes}
+              OvsEnableDpdk: {get_param: OvsEnableDpdk}
+              VhostuserSocketDir: {get_param: VhostuserSocketDir}
+              OvsVhostuserMode: {get_param: OvsVhostuserMode}
+              OpenDaylightProviderMappings: {get_param: OpenDaylightProviderMappings}
+
 outputs:
   role_data:
     description: Role data for the OpenDaylight service.
@@ -86,7 +130,6 @@ outputs:
             opendaylight_check_url: {get_param: OpenDaylightCheckURL}
             opendaylight::nb_connection_protocol: {get_param: OpenDaylightConnectionProtocol}
             neutron::agents::ml2::ovs::local_ip: {get_param: [ServiceNetMap, NeutronTenantNetwork]}
-            neutron::plugins::ovs::opendaylight::provider_mappings: {get_param: OpenDaylightProviderMappings}
             tripleo.opendaylight_ovs.firewall_rules:
               '118 neutron vxlan networks':
                proto: 'udp'
@@ -94,6 +137,7 @@ outputs:
               '136 neutron gre networks':
                proto: 'gre'
           - get_attr: [Ovs, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
       step_config: |
         include tripleo::profile::base::neutron::plugins::ovs::opendaylight
       upgrade_tasks:
