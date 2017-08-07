@@ -139,24 +139,35 @@ outputs:
           ignore_errors: true
       upgrade_tasks:
         - name: Check if heat_api_cfn is deployed
-          command: systemctl is-enabled openstack-heat-api-cfn
+          command: systemctl is-enabled --quiet openstack-heat-api-cfn
           tags: common
           ignore_errors: True
           register: heat_api_cfn_enabled
-        - name: check for heat_api_cfn running under apache (post upgrade)
-          tags: step2
+        - name: Check for heat_api_cfn running under apache
+          tags: common
           shell: "httpd -t -D DUMP_VHOSTS | grep -q heat_api_cfn_wsgi"
-          register: heat_api_cfn_apache
-          ignore_errors: true
-          changed_when: false
-          check_mode: no
-        - name: Stop heat_api_cfn service (running under httpd)
-          tags: step2
-          service: name=httpd state=stopped
-          when: heat_api_cfn_apache.rc == 0
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-heat-api-cfn is running"
+          command: systemctl is-active --quiet openstack-heat-api-cfn
+          when: heat_api_cfn_enabled.rc == 0 and httpd_enabled.rc != 0
+          tags: step0,validation
         - name: Stop and disable heat_api_cfn service (pre-upgrade not under httpd)
           tags: step2
           service: name=openstack-heat-api-cfn state=stopped enabled=no
-          when: heat_api_cfn_enabled.rc == 0
+          when: heat_api_cfn_enabled.rc == 0 and httpd_enabled.rc != 0
+        - name: Check if httpd service is running
+          command: systemctl is-active --quiet httpd
+          tags: common
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if heat_api_cfn_wsgi is running"
+          tags: step0,validation
+          shell: systemctl status 'httpd' | grep -q heat_api_cfn_wsgi
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop heat_api_cfn service (running under httpd)
+          tags: step2
+          service: name=httpd state=stopped
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
       metadata_settings:
         get_attr: [HeatBase, role_data, metadata_settings]
