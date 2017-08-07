@@ -57,6 +57,16 @@ parameters:
   MonitoringSubscriptionHaproxy:
     default: 'overcloud-haproxy'
     type: string
+  SSLCertificate:
+    default: ''
+    description: >
+      The content of the SSL certificate (without Key) in PEM format.
+    type: string
+  DeployedSSLCertificatePath:
+    default: '/etc/pki/tls/private/overcloud_endpoint.pem'
+    description: >
+        The filepath of the certificate as it will be stored in the controller.
+    type: string
   InternalTLSCAFile:
     default: '/etc/ipa/ca.crt'
     type: string
@@ -67,6 +77,14 @@ parameters:
     type: string
     description: Specifies the default CRL PEM file to use for revocation if
                  TLS is used for services in the internal network.
+
+conditions:
+
+  public_tls_enabled:
+    not:
+      equals:
+      - {get_param: SSLCertificate}
+      - ""
 
 resources:
 
@@ -98,8 +116,6 @@ outputs:
       monitoring_subscription: {get_param: MonitoringSubscriptionHaproxy}
       config_settings:
         map_merge:
-          - get_attr: [HAProxyPublicTLS, role_data, config_settings]
-          - get_attr: [HAProxyInternalTLS, role_data, config_settings]
           - tripleo.haproxy.firewall_rules:
               '107 haproxy stats':
                 dport: 1993
@@ -115,6 +131,12 @@ outputs:
               map_merge:
                 - get_attr: [HAProxyPublicTLS, role_data, certificates_specs]
                 - get_attr: [HAProxyInternalTLS, role_data, certificates_specs]
+          - if:
+              - public_tls_enabled
+              - tripleo::haproxy::service_certificate: {get_param: DeployedSSLCertificatePath}
+              - {}
+          - get_attr: [HAProxyPublicTLS, role_data, config_settings]
+          - get_attr: [HAProxyInternalTLS, role_data, config_settings]
       step_config: |
         include ::tripleo::profile::base::haproxy
       upgrade_tasks:
