@@ -23,10 +23,9 @@ if [ ${CEPH_STATUS} = HEALTH_ERR ]; then
     exit 1
 fi
 
-# Useful when upgrading with OSDs num < replica size
-if [[ ${ignore_ceph_upgrade_warnings:-False} != [Tt]rue ]]; then
+if [[ ${ignore_ceph_upgrade_warnings:-True} != [Tt]rue ]]; then
     timeout 300 bash -c "while [ ${CEPH_STATUS} != HEALTH_OK ]; do
-      echo WARNING: Waiting for Ceph cluster status to go HEALTH_OK;
+      echo WARNING: Waiting for Ceph cluster health to be HEALTH_OK;
       sleep 30;
       CEPH_STATUS=$(ceph health | awk '{print $1}')
     done"
