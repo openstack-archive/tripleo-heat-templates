@@ -59,7 +59,13 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [ManilaBase, role_data, config_settings]
-          - tripleo::profile::pacemaker::manila::share_bundle::manila_share_docker_image: &manila_share_image {get_param: DockerManilaShareImage}
+          - tripleo::profile::pacemaker::manila::share_bundle::manila_share_docker_image: &manila_share_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerManilaShareImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
             manila::share::manage_service: false
             manila::share::enabled: false
             manila::host: hostgroup
@@ -93,10 +99,33 @@ outputs:
               owner: manila:manila
               recurse: true
       docker_config:
+        step_1:
+          manila_share_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'MANILASHARE_IMAGE' 'MANILASHARE_IMAGE_PCMKLATEST'"
+                  params:
+                    MANILASHARE_IMAGE: {get_param: DockerManilaShareImage}
+                    MANILASHARE_IMAGE_PCMKLATEST: *manila_share_image_pcmklatest
+            image: {get_param: DockerManilaShareImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_3:
           manila_share_init_logs:
             start_order: 0
-            image: *manila_share_image
+            image: {get_param: DockerManilaShareImage}
             privileged: false
             user: root
             volumes:
@@ -120,7 +149,7 @@ outputs:
                   params:
                     TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
                     CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::manila::share_bundle'
-            image: *manila_share_image
+            image: {get_param: DockerManilaShareImage}
             volumes:
               - /etc/hosts:/etc/hosts:ro
               - /etc/localtime:/etc/localtime:ro

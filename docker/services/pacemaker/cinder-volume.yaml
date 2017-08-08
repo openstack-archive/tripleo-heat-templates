@@ -69,7 +69,13 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
-          - tripleo::profile::pacemaker::cinder::volume_bundle::cinder_volume_docker_image: &cinder_volume_image {get_param: DockerCinderVolumeImage}
+          - tripleo::profile::pacemaker::cinder::volume_bundle::cinder_volume_docker_image: &cinder_volume_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerCinderVolumeImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
             cinder::volume::manage_service: false
             cinder::volume::enabled: false
             cinder::host: hostgroup
@@ -93,10 +99,33 @@ outputs:
               owner: cinder:cinder
               recurse: true
       docker_config:
+        step_1:
+          cinder_volume_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'CINDERVOLUME_IMAGE' 'CINDERVOLUME_IMAGE_PCMKLATEST'"
+                  params:
+                    CINDERVOLUME_IMAGE: {get_param: DockerCinderVolumeImage}
+                    CINDERVOLUME_IMAGE_PCMKLATEST: *cinder_volume_image_pcmklatest
+            image: {get_param: DockerCinderVolumeImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_3:
           cinder_volume_init_logs:
             start_order: 0
-            image: *cinder_volume_image
+            image: {get_param: DockerCinderVolumeImage}
             privileged: false
             user: root
             volumes:
@@ -120,7 +149,7 @@ outputs:
                   params:
                     TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
                     CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::cinder::volume_bundle'
-            image: *cinder_volume_image
+            image: {get_param: DockerCinderVolumeImage}
             volumes:
               - /etc/hosts:/etc/hosts:ro
               - /etc/localtime:/etc/localtime:ro

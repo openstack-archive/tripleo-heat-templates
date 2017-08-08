@@ -92,6 +92,13 @@ outputs:
             tripleo::profile::pacemaker::haproxy_bundle::internal_keys_directory: {get_param: HAProxyInternalTLSKeysDirectory}
             # disable the use CRL file until we can restart the container when the file expires
             tripleo::haproxy::crl_file: null
+            tripleo::profile::pacemaker::haproxy_bundle::haproxy_docker_image: &haproxy_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerHAProxyImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
       step_config: ""
       service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
@@ -142,6 +149,30 @@ outputs:
               perm: '0600'
               optional: true
       docker_config:
+        step_1:
+          haproxy_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'HAPROXY_IMAGE' 'HAPROXY_IMAGE_PCMKLATEST'"
+                  params:
+                    HAPROXY_IMAGE: {get_param: DockerHAProxyImage}
+                    HAPROXY_IMAGE_PCMKLATEST: *haproxy_image_pcmklatest
+            image: {get_param: DockerHAProxyImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
+            image: {get_param: DockerHAProxyImage}
         step_2:
           haproxy_init_bundle:
             start_order: 3
@@ -165,7 +196,7 @@ outputs:
                         - ';'
                         - - 'include ::tripleo::profile::base::pacemaker'
                           - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
-            image: *haproxy_image
+            image: {get_param: DockerHAProxyImage}
             volumes:
               list_concat:
                 - *deployed_cert_mount
