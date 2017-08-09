@@ -56,7 +56,21 @@ parameters:
     description: Port that dockerized nova migration target sshd service
                  binds to.
     type: number
-
+  NovaEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Nova
+    type: boolean
+  CinderEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Cinder
+    type: boolean
+  CephClientKey:
+    description: The Ceph client key. Can be created with ceph-authtool --gen-print-key. Currently only used for external Ceph deployments to create the openstack user keyring.
+    type: string
+    hidden: true
+  CephClusterFSID:
+    type: string
+    description: The Ceph cluster FSID. Must be a UUID.
 
 conditions:
 
@@ -67,6 +81,15 @@ conditions:
       - true
     - equals:
       - {get_param: UseTLSTransportForLiveMigration}
+      - true
+
+  need_libvirt_secret:
+    or:
+    - equals:
+      - {get_param: NovaEnableRbdBackend}
+      - true
+    - equals:
+      - {get_param: CinderEnableRbdBackend}
       - true
 
 resources:
@@ -102,7 +125,7 @@ outputs:
             - {get_attr: [MySQLClient, role_data, step_config]}
       puppet_config:
         config_volume: nova_libvirt
-        puppet_tags: libvirtd_config,nova_config,file,exec
+        puppet_tags: libvirtd_config,nova_config,file
         step_config: *step_config
         config_image: {get_param: DockerNovaLibvirtConfigImage}
       kolla_config:
@@ -145,21 +168,46 @@ outputs:
                   - /run:/run
                   - /sys/fs/cgroup:/sys/fs/cgroup
                   - /var/lib/nova:/var/lib/nova
-                  - /etc/libvirt/secrets:/etc/libvirt/secrets
+                  - /etc/libvirt:/etc/libvirt
                   # Needed to use host's virtlogd
                   - /var/run/libvirt:/var/run/libvirt
                   - /var/lib/libvirt:/var/lib/libvirt
-                  - /etc/libvirt/qemu:/etc/libvirt/qemu
                   - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
                   - /var/log/containers/nova:/var/log/nova
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_4:
+          if:
+            - need_libvirt_secret
+            - nova_libvirt_init_secret:
+                detach: false
+                image: {get_param: DockerNovaLibvirtImage}
+                privileged: false
+                user: root
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
+                      - /etc/libvirt:/etc/libvirt
+                      - /var/run/libvirt:/var/run/libvirt
+                      - /var/lib/libvirt:/var/lib/libvirt
+                command:
+                  - /bin/bash
+                  - -c
+                  - str_replace:
+                      template: /usr/bin/virsh secret-define --file /etc/nova/secret.xml && /usr/bin/virsh secret-set-value --secret 'SECRET_UUID' --base64 'SECRET_KEY'
+                      params:
+                        SECRET_UUID: {get_param: CephClusterFSID}
+                        SECRET_KEY: {get_param: CephClientKey}
+            - {}
       host_prep_tasks:
         - name: create libvirt persistent data directories
           file:
             path: "{{ item }}"
             state: directory
           with_items:
+            - /etc/libvirt
             - /etc/libvirt/secrets
             - /etc/libvirt/qemu
             - /var/lib/libvirt
