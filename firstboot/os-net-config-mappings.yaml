@@ -75,6 +75,9 @@ resources:
               with open('/etc/os-net-config/mapping.yaml', 'w') as f:
                 yaml.safe_dump(interface_mapping, f,  default_flow_style=False)
 
+            # cast to lower case for MAC address match
+            eth_addr='$eth_addr'.lower()
+
             input = sys.stdin.readline() or '{}'
             data = json.loads(input)
             for node in data:
@@ -84,10 +87,15 @@ resources:
                 del interface_mapping['interface_mapping']['dmiString']
               if 'id' in interface_mapping['interface_mapping']:
                 del interface_mapping['interface_mapping']['id']
-              # Match on mac addresses first
-              if any(x in '$eth_addr'.split(',') for x in data[node].values()):
-                write_mapping_file(interface_mapping)
+
+              # Match on mac addresses first - cast all to lower case
+              lc_interface_mapping = copy.deepcopy(interface_mapping)
+              for key,x in lc_interface_mapping['interface_mapping'].items():
+                lc_interface_mapping['interface_mapping'][key] = x.lower()
+              if any(x in eth_addr.split(',') for x in lc_interface_mapping['interface_mapping'].values()):
+                write_mapping_file(lc_interface_mapping)
                 break
+
               # If data contain dmiString and id keys, try to match node(group)
               if 'dmiString' in data[node] and 'id' in data[node]:
                 ps = Popen([ 'dmidecode',
@@ -95,7 +103,7 @@ resources:
                              stdout=PIPE)
                 out, err = ps.communicate()
                 if data[node].get('id') == out.rstrip():
-                  write_mapping_file(interface_mapping)
+                  write_mapping_file(lc_interface_mapping)
                   break
             "
           params:
