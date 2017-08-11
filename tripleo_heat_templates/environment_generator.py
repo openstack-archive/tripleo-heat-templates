@@ -159,7 +159,7 @@ def _generate_environment(input_env, parent_env=None):
         for line in env_desc.splitlines():
             env_file.write(u'#   %s\n' % line)
 
-        if parameter_defaults:
+        if parameter_defaults or static_defaults:
             env_file.write(u'parameter_defaults:\n')
         for name, value in sorted(parameter_defaults.items()):
             write_sample_entry(env_file, name, value)
