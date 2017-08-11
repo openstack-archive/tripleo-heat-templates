@@ -59,25 +59,30 @@ parameters:
     description: |
       When enabled, the system will perform a yum update after performing the
       RHEL Registration process.
-  deployment_actions:
-    default: ['CREATE', 'UPDATE']
-    type: comma_delimited_list
-    description: >
-      List of stack actions that will trigger any deployments in this
-      templates. The actions will be an empty list of the server is in the
-      toplevel DeploymentServerBlacklist parameter's value.
+  DeleteOnRHELUnregistration:
+    type: boolean
+    default: false
+    description: |
+      When true, the system profile will be deleted from the registration
+      service when the rhel-registration.yaml nested stack is deleted.
 
 conditions:
-  deployment_actions_empty:
+  unregister_on_delete:
     equals:
-      - {get_param: deployment_actions}
-      - []
+      - {get_param: DeleteOnRHELUnregistration}
+      - true
   update_requested:
     equals:
       - {get_param: UpdateOnRHELRegistration}
       - true
 
 resources:
+
+  DeploymentActions:
+    type: OS::Heat::Value
+    properties:
+      value:
+        yaql
 
   RHELRegistration:
     type: OS::Heat::SoftwareConfig
@@ -155,9 +160,9 @@ resources:
       config: {get_resource: RHELUnregistration}
       actions:
         if:
-          - deployment_actions_empty
+          - unregister_on_delete
+          - ['DELETE']
           - []
-          - ['DELETE'] # Only do this on DELETE
       input_values:
         REG_METHOD: {get_param: rhel_reg_method}
 
@@ -189,11 +194,7 @@ resources:
       name: UpdateDeploymentAfterRHELRegistration
       config: {get_resource: YumUpdateConfigurationAfterRHELRegistration}
       server:  {get_param: server}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
+      actions: ['CREATE'] # Only do this on CREATE
 
 outputs:
   deploy_stdout:
