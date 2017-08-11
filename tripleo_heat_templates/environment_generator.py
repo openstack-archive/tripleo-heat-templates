@@ -50,7 +50,7 @@ _PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex', 'DefaultPasswords']
 # static.  This allows us to generate sample environments using them when
 # necessary, but they won't be improperly included by accident.
 _HIDDEN_PARAMS = ['EndpointMap', 'RoleName', 'RoleParameters',
-                  'ServiceNetMap',
+                  'ServiceNetMap', 'ServiceData',
                   ]
 
 
