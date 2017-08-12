@@ -88,6 +88,10 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-ceph/"
+              dest: "/etc/ceph/"
+              merge: true
+              preserve_properties: true
           permissions:
             - path: /var/log/gnocchi
               owner: gnocchi:gnocchi
@@ -101,7 +105,7 @@ outputs:
             volumes:
               - /var/log/containers/gnocchi:/var/log/gnocchi
             command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd; chown -R gnocchi:gnocchi /var/log/gnocchi']
-        step_3:
+        step_4:
           gnocchi_db_sync:
             image: *gnocchi_api_image
             net: host
@@ -114,12 +118,13 @@ outputs:
                 -
                   - /var/lib/config-data/gnocchi/etc/gnocchi/:/etc/gnocchi/:ro
                   - /var/log/containers/gnocchi:/var/log/gnocchi
+                  - /etc/ceph:/etc/ceph:ro
             command:
               str_replace:
-                template: "/usr/bin/bootstrap_host_exec gnocchi_api su gnocchi -s /bin/bash -c /usr/bin/gnocchi-upgrade --sacks-number=SACK_NUM"
+                template: /usr/bin/bootstrap_host_exec gnocchi_api su gnocchi -s /bin/bash -c '/usr/bin/gnocchi-upgrade --sacks-number=SACK_NUM'
                 params:
                   SACK_NUM: {get_param: NumberOfStorageSacks}
-        step_4:
+        step_5:
           gnocchi_api:
             image: *gnocchi_api_image
             net: host
@@ -132,6 +137,7 @@ outputs:
                   - /var/lib/kolla/config_files/gnocchi_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/gnocchi/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/gnocchi:/var/log/gnocchi
+                  - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
                   -
                     if:
                       - internal_tls_enabled
@@ -148,6 +154,10 @@ outputs:
         - name: create persistent logs directory
           file:
             path: /var/log/containers/gnocchi
+            state: directory
+        - name: ensure ceph configurations exist
+          file:
+            path: /etc/ceph
             state: directory
       upgrade_tasks:
         - name: Stop and disable httpd service
