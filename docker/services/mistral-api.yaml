@@ -186,6 +186,34 @@ outputs:
             path: /var/log/containers/mistral
             state: directory
       upgrade_tasks:
-        - name: Stop and disable mistral_api service
+        - name: Check if mistral api is deployed
+          command: systemctl is-enabled --quiet openstack-mistral-api
+          tags: common
+          ignore_errors: True
+          register: mistral_api_enabled
+        - name: Check for mistral_api running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q mistral"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check if openstack-mistral-api is running"
+          command: systemctl is-active --quiet openstack-mistral-api
+          when: mistral_api_enabled.rc == 0 and httpd_enabled.rc != 0
+          tags: step0,validation
+        - name: Stop and disable mistral_api service (pre-upgrade not under httpd)
           tags: step2
+          when: mistral_api_enabled.rc == 0 and httpd_enabled.rc != 0
           service: name=openstack-mistral-api state=stopped enabled=no
+        - name: Check if httpd service is running
+          command: systemctl is-active --quiet httpd
+          tags: common
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if mistral_api_wsgi is running"
+          shell: systemctl status 'httpd' | grep -q mistral
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop mistral_api service (running under httpd)
+          tags: step2
+          service: name=httpd state=stopped enabled=no
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
