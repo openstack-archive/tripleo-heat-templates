@@ -36,6 +36,18 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -77,6 +89,10 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
           permissions:
             - path: /var/lib/mongodb
               owner: mongodb:mongodb
@@ -84,6 +100,8 @@ outputs:
             - path: /var/log/mongodb
               owner: mongodb:mongodb
               recurse: true
+            - path: /etc/pki/tls/certs/mongodb.pem
+              owner: mongodb:mongodb
       docker_config:
         step_2:
           mongodb:
@@ -91,11 +109,21 @@ outputs:
             net: host
             privileged: false
             volumes: &mongodb_volumes
-              - /var/lib/kolla/config_files/mongodb.json:/var/lib/kolla/config_files/config.json
-              - /var/lib/config-data/puppet-generated/mongodb/:/var/lib/kolla/config_files/src:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /var/log/containers/mongodb:/var/log/mongodb
-              - /var/lib/mongodb:/var/lib/mongodb
+              list_concat:
+                - - /var/lib/kolla/config_files/mongodb.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/puppet-generated/mongodb/:/var/lib/kolla/config_files/src:ro
+                  - /etc/localtime:/etc/localtime:ro
+                  - /var/log/containers/mongodb:/var/log/mongodb
+                  - /var/lib/mongodb:/var/lib/mongodb
+                - if:
+                  - internal_tls_enabled
+                  - - list_join:
+                      - ':'
+                      - - {get_param: InternalTLSCAFile}
+                        - {get_param: InternalTLSCAFile}
+                        - 'ro'
+                    - /etc/pki/tls/certs/mongodb.pem:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/mongodb.pem:ro
+                  - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       docker_puppet_tasks:
@@ -106,8 +134,18 @@ outputs:
           step_config: 'include ::tripleo::profile::base::database::mongodb'
           config_image: *mongodb_config_image
           volumes:
-            - /var/lib/mongodb:/var/lib/mongodb
-            - /var/log/containers/mongodb:/var/log/mongodb
+            list_concat:
+              - - /var/lib/mongodb:/var/lib/mongodb
+                - /var/log/containers/mongodb:/var/log/mongodb
+              - if:
+                - internal_tls_enabled
+                - - list_join:
+                    - ':'
+                    - - {get_param: InternalTLSCAFile}
+                      - {get_param: InternalTLSCAFile}
+                      - 'ro'
+                  - /etc/pki/tls/certs/mongodb.pem:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/mongodb.pem:ro
+                - null
       host_prep_tasks:
         - name: create persistent directories
           file:
