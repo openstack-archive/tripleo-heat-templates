@@ -1,0 +1,58 @@
+{%- set primary_role = [roles[0]] -%}
+{%- for role in roles -%}
+  {%- if 'primary' in role.tags and 'controller' in role.tags -%}
+    {%- set _ = primary_role.pop() -%}
+    {%- set _ = primary_role.append(role) -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- set primary_role_name = primary_role[0].name -%}
+# Enable the creation of Neutron networks for isolated Overcloud
+# traffic and configure each role to assign ports (related
+# to that role) on these networks.
+# primary role is: {{primary_role_name}}
+resource_registry:
+  # networks as defined in network_data.yaml
+  {%- for network in networks if network.enabled|default(true) %}
+    {%- if network.name != 'Tenant' %}
+  OS::TripleO::Network::{{network.name}}: ../network/{{network.name_lower|default(network.name.lower())}}_v6.yaml
+    {%- else %}
+    # IPv4 until OVS and Neutron support IPv6 tunnel endpoints
+  OS::TripleO::Network::{{network.name}}: ../network/{{network.name_lower|default(network.name.lower())}}.yaml
+    {%- endif %}
+  {%- endfor %}
+
+  # Port assignments for the VIPs
+  {%- for network in networks if network.vip and network.enabled|default(true) %}
+  OS::TripleO::Network::Ports::{{network.name}}VipPort: ../network/ports/{{network.name_lower|default(network.name.lower())}}_v6.yaml
+  {%- endfor %}
+
+  OS::TripleO::Network::Ports::RedisVipPort: ../network/ports/vip_v6.yaml
+
+{%- for role in roles %}
+  # Port assignments for the {{role.name}}
+  {%- for network in networks %}
+    {%- if network.name in role.networks|default([]) and network.enabled|default(true) and network.name != 'Tenant' %}
+  OS::TripleO::{{role.name}}::Ports::{{network.name}}Port: ../network/ports/{{network.name_lower|default(network.name.lower())}}_v6.yaml
+    {%- elif network.name in role.networks|default([]) and network.enabled|default(true) and network.name == 'Tenant' %}
+    # IPv4 until OVS and Neutron support IPv6 tunnel endpoints
+  OS::TripleO::{{role.name}}::Ports::{{network.name}}Port: ../network/ports/{{network.name_lower|default(network.name.lower())}}.yaml
+    {%- else %}
+  OS::TripleO::{{role.name}}::Ports::{{network.name}}Port: ../network/ports/noop.yaml
+    {%- endif %}
+  {%- endfor %}
+{%- endfor %}
+
+
+parameter_defaults:
+  # Enable IPv6 for Ceph.
+  CephIPv6: True
+  # Enable IPv6 for Corosync. This is required when Corosync is using an IPv6 IP in the cluster.
+  CorosyncIPv6: True
+  # Enable IPv6 for MongoDB. This is required when MongoDB is using an IPv6 IP.
+  MongoDbIPv6: True
+  # Enable various IPv6 features in Nova.
+  NovaIPv6: True
+  # Enable IPv6 environment for RabbitMQ.
+  RabbitIPv6: True
+  # Enable IPv6 environment for Memcached.
+  MemcachedIPv6: True
