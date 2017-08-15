@@ -102,6 +102,33 @@ conditions:
       data: {get_param: DockerCephDaemonImage}
       expression: $.data.split('/')[0].matches('(\.|:)')
 
+resources:
+  DockerImageUrlParts:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        host:
+          if:
+          - custom_registry_host
+          - yaql:
+              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*)/').split($location)[1]
+              data: {get_param: DockerCephDaemonImage}
+          - docker.io
+        image:
+          if:
+          - custom_registry_host
+          - yaql:
+              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*)/').split($location)[2]
+              data: {get_param: DockerCephDaemonImage}
+          - yaql:
+              expression: $.data.rightSplit(':', 1)[0]
+              data: {get_param: DockerCephDaemonImage}
+        image_tag:
+          yaql:
+            expression: $.data.rightSplit(':', 1)[1]
+            data: {get_param: DockerCephDaemonImage}
+
 outputs:
   role_data:
     description: Role data for the Ceph base service.
@@ -125,21 +152,9 @@ outputs:
         ceph_common_ansible_vars:
           fsid: { get_param: CephClusterFSID }
           docker: true
-          ceph_docker_registry:
-            if:
-            - custom_registry_host
-            - yaql:
-                expression: regex('(?:https?://)?(.*)/').split($.data)[1]
-                data: {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
-            - docker.io
-          ceph_docker_image:
-            if:
-            - custom_registry_host
-            - yaql:
-                expression: regex('(?:https?://)?(.*)/').split($.data)[2]
-                data: {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
-            - {str_split: [':', {get_param: DockerCephDaemonImage}, 0]}
-          ceph_docker_image_tag: {str_split: [':', {get_param: DockerCephDaemonImage}, 1]}
+          ceph_docker_registry: {get_attr: [DockerImageUrlParts, value, host]}
+          ceph_docker_image: {get_attr: [DockerImageUrlParts, value, image]}
+          ceph_docker_image_tag: {get_attr: [DockerImageUrlParts, value, image_tag]}
           containerized_deployment: true
           public_network: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
           monitor_address_block: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
