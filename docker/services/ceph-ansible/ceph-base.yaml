@@ -30,6 +30,14 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  StackUpdateType:
+    type: string
+    description: >
+      Type of update, to differentiate between UPGRADE and UPDATE cases
+      when StackAction is UPDATE (both are the same stack action).
+    constraints:
+    - allowed_values: ['', 'UPGRADE']
+    default: ''
   CephAnsibleWorkflowName:
     type: string
     description: Name of the Mistral workflow to execute
@@ -38,6 +46,10 @@ parameters:
     type: string
     description: Path to the ceph-ansible playbook to execute
     default: /usr/share/ceph-ansible/site-docker.yml.sample
+  CephAnsibleUpgradePlaybook:
+    type: string
+    description: Path to the ceph-ansible playbook to execute on upgrade
+    default: /usr/share/ceph-ansible/infrastructure-playbooks/take-over-existing-cluster.yml
   CephAnsibleExtraConfig:
     type: json
     description: Extra vars for the ceph-ansible playbook
@@ -101,6 +113,8 @@ conditions:
     yaql:
       data: {get_param: DockerCephDaemonImage}
       expression: $.data.split('/')[0].matches('(\.|:)')
+  perform_upgrade:
+    equals: [{get_param: StackUpdateType}, 'UPGRADE']
 
 resources:
   DockerImageUrlParts:
@@ -147,7 +161,11 @@ outputs:
             workflow: { get_param: CephAnsibleWorkflowName }
             input:
               ceph_ansible_extra_vars: {get_param: CephAnsibleExtraConfig}
-              ceph_ansible_playbook: {get_param: CephAnsiblePlaybook}
+              ceph_ansible_playbook:
+                if:
+                  - perform_upgrade
+                  - {get_param: CephAnsibleUpgradePlaybook}
+                  - {get_param: CephAnsiblePlaybook}
       config_settings:
         ceph_common_ansible_vars:
           fsid: { get_param: CephClusterFSID }
