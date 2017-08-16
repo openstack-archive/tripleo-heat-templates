@@ -16,6 +16,14 @@ import sys
 import traceback
 import yaml
 
+# Only permit the template alias versions
+# The current template version should be the last element
+valid_heat_template_versions = [
+  'newton',
+  'ocata',
+  'pike',
+]
+current_heat_template_version = valid_heat_template_versions[-1]
 
 required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
                    'RoleName', 'RoleParameters', 'ServiceData']
@@ -426,12 +434,31 @@ def validate(filename, param_map):
     try:
         tpl = yaml.load(open(filename).read())
 
-        # The template alias version should be used instead a date, this validation
-        # will be applied to all templates not just for those in the services folder.
-        if 'heat_template_version' in tpl and not str(tpl['heat_template_version']).isalpha():
-            print('ERROR: heat_template_version needs to be the release alias not a date: %s'
-                  % filename)
-            return 1
+        is_heat_template = 'heat_template_version' in tpl
+
+        # The template version should be in the list of supported versions for the current release.
+        # This validation will be applied to all templates not just for those in the services folder.
+        if is_heat_template:
+            tpl_template_version = str(tpl['heat_template_version'])
+            if tpl_template_version not in valid_heat_template_versions:
+                print('ERROR: heat_template_version in template %s '
+                      'is not valid: %s (allowed values %s)'
+                    % (
+                        filename,
+                        tpl_template_version,
+                        ', '.join(valid_heat_template_versions)
+                    )
+                )
+                return 1
+            if tpl_template_version != current_heat_template_version:
+                print('Warning: heat_template_version in template %s '
+                      'is outdated: %s (current %s)'
+                    % (
+                        filename,
+                        tpl_template_version,
+                        current_heat_template_version
+                    )
+                )
 
         # qdr aliases rabbitmq service to provide alternative messaging backend
         if (filename.startswith('./puppet/services/') and
@@ -451,7 +478,7 @@ def validate(filename, param_map):
         print(traceback.format_exc())
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
-    if 'heat_template_version' in tpl:
+    if is_heat_template:
         for p, data in tpl.get('parameters', {}).items():
             definition = {'data': data, 'filename': filename}
             param_map.setdefault(p, []).append(definition)
