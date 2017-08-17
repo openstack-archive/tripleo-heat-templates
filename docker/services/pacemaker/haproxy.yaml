@@ -41,6 +41,22 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+  InternalTLSCRLPEMFile:
+    default: '/etc/pki/CA/crl/overcloud-crl.pem'
+    type: string
+    description: Specifies the default CRL PEM file to use for revocation if
+                 TLS is used for services in the internal network.
+  HAProxyInternalTLSCertsDirectory:
+    default: '/etc/pki/tls/certs/haproxy'
+    type: string
+  HAProxyInternalTLSKeysDirectory:
+    default: '/etc/pki/tls/private/haproxy'
+    type: string
 
 resources:
 
@@ -65,6 +81,17 @@ outputs:
           - tripleo::haproxy::haproxy_daemon: false
             haproxy_docker: true
             tripleo::profile::pacemaker::haproxy_bundle::haproxy_docker_image: &haproxy_image {get_param: DockerHAProxyImage}
+            # the list of directories that contain the certs to bind mount in the countainer
+            # bind-mounting the directories rather than all the cert, key and pem files ensures
+            # that docker won't create directories on the host when then pem files do not exist
+            tripleo::profile::pacemaker::haproxy_bundle::tls_mapping: &tls_mapping
+              - get_param: InternalTLSCAFile
+              - get_param: HAProxyInternalTLSKeysDirectory
+              - get_param: HAProxyInternalTLSCertsDirectory
+            tripleo::profile::pacemaker::haproxy_bundle::internal_certs_directory: {get_param: HAProxyInternalTLSCertsDirectory}
+            tripleo::profile::pacemaker::haproxy_bundle::internal_keys_directory: {get_param: HAProxyInternalTLSKeysDirectory}
+            # disable the use CRL file until we can restart the container when the file expires
+            tripleo::haproxy::crl_file: null
       step_config: ""
       service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
@@ -80,11 +107,9 @@ outputs:
               - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
         config_image: {get_param: DockerHAProxyConfigImage}
         volumes: &deployed_cert_mount
-          - list_join:
-            - ':'
-            - - {get_param: DeployedSSLCertificatePath}
-              - {get_param: DeployedSSLCertificatePath}
-              - 'ro'
+          yaql:
+            expression: $.data.select($+":"+$+":ro")
+            data: *tls_mapping
       kolla_config:
         /var/lib/kolla/config_files/haproxy.json:
           command: haproxy -f /etc/haproxy/haproxy.cfg
@@ -93,6 +118,28 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+              optional: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              optional: true
+              preserve_properties: true
+          permissions:
+            - path:
+                list_join:
+                - ''
+                - - {get_param: HAProxyInternalTLSCertsDirectory}
+                  - '/*'
+              owner: haproxy:haproxy
+              perm: '0600'
+              optional: true
+            - path:
+                list_join:
+                - ''
+                - - {get_param: HAProxyInternalTLSKeysDirectory}
+                  - '/*'
+              owner: haproxy:haproxy
+              perm: '0600'
               optional: true
       docker_config:
         step_2:
