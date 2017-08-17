@@ -34,9 +34,25 @@ parameters:
     default: 0
     description: Number of workers for Nova services.
     type: number
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
+
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -45,10 +61,29 @@ outputs:
       service_name: nova_metadata
       config_settings:
         map_merge:
-        - nova::api::metadata_listen: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
+        - get_attr: [TLSProxyBase, role_data, config_settings]
+        - nova::api::metadata_listen:
+            if:
+            - use_tls_proxy
+            - 'localhost'
+            - {get_param: [ServiceNetMap, NovaMetadataNetwork]}
         -
           if:
           - nova_workers_zero
           - {}
           - nova::api::metadata_workers: {get_param: NovaWorkers}
+        -
+          if:
+          - use_tls_proxy
+          - tripleo::profile::base::nova::api::metadata_tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, NovaMetadataNetwork]
+            tripleo::profile::base::nova::api::metadata_tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
+          - {}
       step_config: ""
+      metadata_settings:
+        get_attr: [TLSProxyBase, role_data, metadata_settings]
