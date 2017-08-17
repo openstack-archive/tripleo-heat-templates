@@ -1,0 +1,81 @@
+heat_template_version: pike
+
+parameters:
+  ControlPlaneIp:
+    default: ''
+    type: string
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+{%- for network in networks %}
+  {{network.name}}Ip:
+    default: ''
+    type: string
+  {{network.name}}IpSubnet:
+    description: 'IP address/subnet on the {{network.name_lower}} network'
+    default: ''
+    type: string
+  {{network.name}}IpUri:
+    default: ''
+    type: string
+    description: IP address with brackets in case of IPv6
+{%- endfor %}
+
+{%- for network in networks %}
+  {{network.name}}NetName:
+    default: {{network.name_lower}}
+    description: The name of the {{network.name_lower}} network.
+    type: string
+{%- endfor %}
+
+resources:
+
+  NetIpMapValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - ctlplane: {get_param: ControlPlaneIp}
+{%- for network in networks %}
+            {{network.name_lower}}: {get_param: {{network.name}}Ip}
+{%- endfor %}
+            ctlplane_subnet:
+              list_join:
+                - ''
+                - - {get_param: ControlPlaneIp}
+                  - '/'
+                  - {get_param: ControlPlaneSubnetCidr}
+{%- for network in networks %}
+            {{network.name_lower}}_subnet: {get_param: {{network.name}}IpSubnet}
+{%- endfor %}
+            ctlplane_uri: {get_param: ControlPlaneIp}
+{%- for network in networks %}
+            {{network.name_lower}}_uri: {get_param: {{network.name}}IpUri}
+{%- endfor %}
+          - keys:
+{%- for network in networks %}
+              {{network.name_lower}}: {get_param: {{network.name}}NetName}
+{%- endfor %}
+{%- for network in networks %}
+              {{network.name_lower}}_subnet:
+                str_replace:
+                  template: NAME_subnet
+                  params:
+                    NAME: {get_param: {{network.name}}NetName}
+{%- endfor %}
+{%- for network in networks %}
+              {{network.name_lower}}_uri:
+                str_replace:
+                  template: NAME_uri
+                  params:
+                    NAME: {get_param: {{network.name}}NetName}
+{%- endfor %}
+
+outputs:
+  net_ip_map:
+    description: >
+      A Hash containing a mapping of network names to assigned IPs
+      for a specific machine.
+    value: {get_attr: [NetIpMapValue, value]}
