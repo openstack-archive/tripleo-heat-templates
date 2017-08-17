@@ -12,10 +12,6 @@ parameters:
   DockerNovaLibvirtConfigImage:
     description: The container image to use for the nova_libvirt config_volume
     type: string
-  EnablePackageInstall:
-    default: 'false'
-    description: Set to true to enable package installation at deploy time
-    type: boolean
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -144,13 +140,45 @@ outputs:
               dest: "/etc/ceph/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/nova_virtlogd.json:
+          command: /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
           permissions:
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
       docker_config:
         step_3:
+          nova_virtlogd:
+            start_order: 0
+            image: {get_param: DockerNovaLibvirtImage}
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/nova_virtlogd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /dev:/dev
+                  - /run:/run
+                  - /sys/fs/cgroup:/sys/fs/cgroup
+                  - /var/lib/nova:/var/lib/nova
+                  - /var/run/libvirt:/var/run/libvirt
+                  - /var/lib/libvirt:/var/lib/libvirt
+                  - /etc/libvirt/qemu:/etc/libvirt/qemu:ro
+                  - /var/log/libvirt/qemu:/var/log/libvirt/qemu
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           nova_libvirt:
+            start_order: 1
             image: {get_param: DockerNovaLibvirtImage}
             net: host
             pid: host
@@ -169,7 +197,6 @@ outputs:
                   - /sys/fs/cgroup:/sys/fs/cgroup
                   - /var/lib/nova:/var/lib/nova
                   - /etc/libvirt:/etc/libvirt
-                  # Needed to use host's virtlogd
                   - /var/run/libvirt:/var/run/libvirt
                   - /var/lib/libvirt:/var/lib/libvirt
                   - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
@@ -216,22 +243,6 @@ outputs:
           file:
             path: /etc/ceph
             state: directory
-        - name: set enable_package_install fact
-          set_fact:
-            enable_package_install: {get_param: EnablePackageInstall}
-        # We use virtlogd on host, so when using Deployed Server
-        # feature, we need to ensure libvirt is installed.
-        - name: install libvirt-daemon
-          package:
-            name: libvirt-daemon
-            state: present
-          when: enable_package_install
-        - name: start virtlogd socket
-          service:
-            name: virtlogd.socket
-            state: started
-            enabled: yes
-          when: enable_package_install
       upgrade_tasks:
         - name: Stop and disable libvirtd service
           tags: step2
