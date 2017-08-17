@@ -60,6 +60,18 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -86,6 +98,9 @@ outputs:
           - get_attr: [HAProxyBase, role_data, config_settings]
           - tripleo::haproxy::haproxy_daemon: false
             tripleo::haproxy::haproxy_service_manage: false
+            # NOTE(jaosorior): We disable the CRL since we have no way to restart haproxy
+            # when this is updated
+            tripleo::haproxy::crl_file: null
       step_config: &step_config
         get_attr: [HAProxyBase, role_data, step_config]
       service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
@@ -96,12 +111,23 @@ outputs:
         step_config:
           "class {'::tripleo::profile::base::haproxy': manage_firewall => false}"
         config_image: {get_param: DockerHAProxyConfigImage}
-        volumes: &deployed_cert_mount
-          - list_join:
-            - ':'
-            - - {get_param: DeployedSSLCertificatePath}
-              - {get_param: DeployedSSLCertificatePath}
-              - 'ro'
+        volumes:
+          list_concat:
+          - - list_join:
+              - ':'
+              - - {get_param: DeployedSSLCertificatePath}
+                - {get_param: DeployedSSLCertificatePath}
+                - 'ro'
+          - if:
+            - internal_tls_enabled
+            - - /etc/pki/tls/certs/haproxy:/etc/pki/tls/certs/haproxy:ro
+              - /etc/pki/tls/private/haproxy:/etc/pki/tls/private/haproxy:ro
+              - list_join:
+                  - ':'
+                  - - {get_param: InternalTLSCAFile}
+                    - {get_param: InternalTLSCAFile}
+                    - 'ro'
+            - null
       kolla_config:
         /var/lib/kolla/config_files/haproxy.json:
           command: haproxy -f /etc/haproxy/haproxy.cfg
@@ -110,6 +136,16 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
+          permissions:
+            - path: /etc/pki/tls/certs/haproxy
+              owner: haproxy:haproxy
+              recurse: true
+              optional: true
       docker_config:
         step_1:
           haproxy_firewall:
@@ -133,7 +169,6 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                - *deployed_cert_mount
                 -
                   - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
@@ -154,10 +189,24 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                - *deployed_cert_mount
                 -
                   - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
+                  - list_join:
+                    - ':'
+                    - - {get_param: DeployedSSLCertificatePath}
+                      - {get_param: DeployedSSLCertificatePath}
+                      - 'ro'
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/haproxy:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/haproxy:ro
+                      - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
