@@ -40,6 +40,18 @@ parameters:
     type: string
     hidden: true
     default: ''
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -86,10 +98,21 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
           permissions:
             - path: /var/lib/mysql
               owner: mysql:mysql
               recurse: true
+            - path: /etc/pki/tls/certs/mysql.crt
+              owner: mysql:mysql
+              optional: true
+            - path: /etc/pki/tls/private/mysql.key
+              owner: mysql:mysql
+              optional: true
       docker_config:
         # Kolla_bootstrap runs before permissions set by kolla_config
         step_1:
@@ -108,12 +131,25 @@ outputs:
             # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
             command: ['bash', '-c', 'test -e /var/lib/mysql/mysql || kolla_start']
             volumes: &mysql_volumes
-              - /var/lib/kolla/config_files/mysql.json:/var/lib/kolla/config_files/config.json
-              - /var/lib/config-data/puppet-generated/mysql/:/var/lib/kolla/config_files/src:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /etc/hosts:/etc/hosts:ro
-              - /var/lib/mysql:/var/lib/mysql
-              - /var/log/containers/mysql:/var/log/mariadb
+              list_concat:
+              -
+                - /var/lib/kolla/config_files/mysql.json:/var/lib/kolla/config_files/config.json
+                - /var/lib/config-data/puppet-generated/mysql/:/var/lib/kolla/config_files/src:ro
+                - /etc/localtime:/etc/localtime:ro
+                - /etc/hosts:/etc/hosts:ro
+                - /var/lib/mysql:/var/lib/mysql
+                - /var/log/containers/mysql:/var/log/mariadb
+              - if:
+                - internal_tls_enabled
+                - 
+                  - list_join:
+                    - ':'
+                    - - {get_param: InternalTLSCAFile}
+                      - {get_param: InternalTLSCAFile}
+                      - 'ro'
+                  - /etc/pki/tls/certs/mysql.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/mysql.crt:ro
+                  - /etc/pki/tls/private/mysql.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/mysql.key:ro
+                - null 
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
               - KOLLA_BOOTSTRAP=True
@@ -146,9 +182,24 @@ outputs:
           step_config: 'include ::tripleo::profile::base::database::mysql'
           config_image: *mysql_config_image
           volumes:
-            - /var/lib/mysql:/var/lib/mysql/:ro
-            - /var/log/containers/mysql:/var/log/mariadb
-            - /var/lib/config-data/mysql/root:/root:ro #provides .my.cnf
+            list_concat:
+            -
+              - /var/lib/mysql:/var/lib/mysql/:ro
+              - /var/log/containers/mysql:/var/log/mariadb
+              - /var/lib/config-data/mysql/root:/root:ro #provides .my.cnf
+            - if:
+              - internal_tls_enabled
+              - 
+                - list_join:
+                  - ':'
+                  - - {get_param: InternalTLSCAFile}
+                    - {get_param: InternalTLSCAFile}
+                    - 'ro'
+                - /etc/pki/tls/certs/mysql.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/mysql.crt:ro
+                - /etc/pki/tls/private/mysql.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/mysql.key:ro
+              - null 
+      metadata_settings:
+        get_attr: [MysqlPuppetBase, role_data, metadata_settings]
       host_prep_tasks:
         - name: create persistent directories
           file:
