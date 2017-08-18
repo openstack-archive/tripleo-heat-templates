@@ -1,0 +1,83 @@
+heat_template_version: pike
+
+description: >
+  Ceph Metadata service.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CephMdsKey:
+    description: The cephx key for the MDS service. Can be created
+                 with ceph-authtool --gen-print-key.
+    type: string
+    hidden: true
+  ManilaCephFSDataPoolName:
+    default: manila_data
+    type: string
+  ManilaCephFSMetadataPoolName:
+    default: manila_metadata
+    type: string
+  ManilaCephFSNativeShareBackendName:
+    default: cephfs
+    type: string
+
+resources:
+  CephBase:
+    type: ./ceph-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Ceph Metadata service.
+    value:
+      service_name: ceph_mds
+      upgrade_tasks: []
+      step_config: ''
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      service_workflow_tasks: {get_attr: [CephBase, role_data, service_workflow_tasks]}
+      config_settings:
+        map_merge:
+        - tripleo.ceph_mds.firewall_rules:
+            '112 ceph_mds':
+              dport:
+              - '6800-7300'
+        - ceph_mds_ansible_vars:
+            map_merge:
+            - {get_attr: [CephBase, role_data, config_settings, ceph_common_ansible_vars]}
+            - cephfs_data: {get_param: ManilaCephFSDataPoolName}
+              cephfs_metadata: {get_param: ManilaCephFSMetadataPoolName}
+              cephfs: {get_param: ManilaCephFSNativeShareBackendName}
