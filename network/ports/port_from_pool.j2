@@ -1,0 +1,65 @@
+heat_template_version: pike
+
+description: >
+  Creates a port on the {{network.name}} network, using a map of IPs per role.
+  Each role has a map of IPs in <Role>IPs parameters, with a list of IPs by
+  network (lower_name or lower case). For example:
+  ControllerIPs:
+    external:
+    - 1.2.3.4 # First controller
+    - 1.2.3.5 # Second controller
+
+parameters:
+  {{network.name}}NetName:
+    description: The name of the {{network.name_lower}} network.
+    default: {{network.name_lower}}
+    type: string
+  PortName:
+    description: Name of the port
+    default: ''
+    type: string
+  ControlPlaneIP: # Here for compatibility with noop.yaml
+    description: IP address on the control plane
+    default: ''
+    type: string
+  ControlPlaneNetwork: # Here for compatibility with ctlplane_vip.yaml
+    description: The name of the undercloud Neutron control plane
+    default: ctlplane
+    type: string
+  IPPool: # Set in <Role>IPs map, see environments/ips-from-pool-all.yaml
+    default: {}
+    type: json
+  NodeIndex: # First node in the role will get first IP, and so on...
+    default: 0
+    type: number
+  {{network.name}}NetCidr:
+    default: {{network.ip_subnet}}
+    description: Cidr for the {{network.name_lower}} network.
+    type: string
+
+outputs:
+  ip_address:
+    description: {{network.name}} network IP
+    value: {get_param: [IPPool, {get_param: {{network.name}}NetName}, {get_param: NodeIndex}]}
+  ip_address_uri:
+{%- if network.ipv6 or ipv6_override|default(false) %}
+    description: {{network.name}} network IP (with brackets for IPv6 URLs)
+    value:
+          list_join:
+          - ''
+          - - '['
+            - {get_param: [IPPool, {get_param: {{network.name}}NetName}, {get_param: NodeIndex}]}
+            - ']'
+{%- else %}
+    description: {{network.name}} network IP (for compatibility with {{network.name_lower}}_v6.yaml)
+    value: {get_param: [IPPool, {get_param: {{network.name}}NetName}, {get_param: NodeIndex}]}
+{%- endif %}
+  ip_subnet:
+    description: IP/Subnet CIDR for the {{network.name}} network IP
+    value:
+      list_join:
+      - ''
+      - - {get_param: [IPPool, {get_param: {{network.name}}NetName}, {get_param: NodeIndex}]}
+        - '/'
+        - {str_split: ['/', {get_param: {{network.name}}NetCidr}, 1]}
+
