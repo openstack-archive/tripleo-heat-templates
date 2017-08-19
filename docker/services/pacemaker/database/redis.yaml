@@ -60,7 +60,13 @@ outputs:
           - redis::service_manage: false
             redis::notify_service: false
             redis::managed_by_cluster_manager: true
-            tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image {get_param: DockerRedisImage}
+            tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerRedisImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
             tripleo::profile::pacemaker::database::redis_bundle::control_port: 3124
             tripleo.redis.firewall_rules:
               '108 redis-bundle':
@@ -104,6 +110,29 @@ outputs:
               owner: redis:redis
               recurse: true
       docker_config:
+        step_1:
+          redis_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'REDIS_IMAGE' 'REDIS_IMAGE_PCMKLATEST'"
+                  params:
+                    REDIS_IMAGE: {get_param: DockerRedisImage}
+                    REDIS_IMAGE_PCMKLATEST: *redis_image_pcmklatest
+            image: {get_param: DockerRedisImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           redis_init_bundle:
             start_order: 2

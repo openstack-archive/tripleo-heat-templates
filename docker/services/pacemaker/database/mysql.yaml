@@ -79,7 +79,13 @@ outputs:
       config_settings:
         map_merge:
           - {get_attr: [MysqlPuppetBase, role_data, config_settings]}
-          - tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image {get_param: DockerMysqlImage}
+          - tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerMysqlImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
             tripleo::profile::pacemaker::database::mysql_bundle::control_port: 3123
             tripleo.mysql.firewall_rules:
               '104 mysql galera-bundle':
@@ -141,7 +147,7 @@ outputs:
           mysql_data_ownership:
             start_order: 0
             detach: false
-            image: *mysql_image
+            image: {get_param: DockerMysqlImage}
             net: host
             user: root
             # Kolla does only non-recursive chown
@@ -151,7 +157,7 @@ outputs:
           mysql_bootstrap:
             start_order: 1
             detach: false
-            image: *mysql_image
+            image: {get_param: DockerMysqlImage}
             net: host
             # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
             command:
@@ -196,6 +202,28 @@ outputs:
                           passwords:
                             - {get_param: MysqlRootPassword}
                             - {get_param: [DefaultPasswords, mysql_root_password]}
+          mysql_image_tag:
+            start_order: 2
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'MYSQL_IMAGE' 'MYSQL_IMAGE_PCMKLATEST'"
+                  params:
+                    MYSQL_IMAGE: {get_param: DockerMysqlImage}
+                    MYSQL_IMAGE_PCMKLATEST: *mysql_image_pcmklatest
+            image: {get_param: DockerMysqlImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           mysql_init_bundle:
             start_order: 1
@@ -214,7 +242,7 @@ outputs:
                   params:
                     TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,galera_ready,mysql_database,mysql_grant,mysql_user'
                     CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::mysql_bundle'
-            image: *mysql_image
+            image: {get_param: DockerMysqlImage}
             volumes:
               - /etc/hosts:/etc/hosts:ro
               - /etc/localtime:/etc/localtime:ro

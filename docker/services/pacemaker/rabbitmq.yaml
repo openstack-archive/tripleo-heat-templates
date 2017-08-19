@@ -62,7 +62,13 @@ outputs:
         map_merge:
           - {get_attr: [RabbitmqBase, role_data, config_settings]}
           - rabbitmq::service_manage: false
-            tripleo::profile::pacemaker::rabbitmq_bundle::rabbitmq_docker_image: &rabbitmq_image {get_param: DockerRabbitmqImage}
+            tripleo::profile::pacemaker::rabbitmq_bundle::rabbitmq_docker_image: &rabbitmq_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerRabbitmqImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
             tripleo::profile::pacemaker::rabbitmq_bundle::control_port: 3122
             tripleo.rabbitmq.firewall_rules:
               '109 rabbitmq-bundle':
@@ -118,7 +124,7 @@ outputs:
         step_1:
           rabbitmq_bootstrap:
             start_order: 0
-            image: *rabbitmq_image
+            image: {get_param: DockerRabbitmqImage}
             net: host
             privileged: false
             volumes:
@@ -141,6 +147,28 @@ outputs:
                           passwords:
                             - {get_param: RabbitCookie}
                             - {get_param: [DefaultPasswords, rabbit_cookie]}
+          rabbitmq_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'RABBITMQ_IMAGE' 'RABBITMQ_IMAGE_PCMKLATEST'"
+                  params:
+                    RABBITMQ_IMAGE: {get_param: DockerRabbitmqImage}
+                    RABBITMQ_IMAGE_PCMKLATEST: *rabbitmq_image_pcmklatest
+            image: {get_param: DockerRabbitmqImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           rabbitmq_init_bundle:
             start_order: 0
@@ -159,7 +187,7 @@ outputs:
                   params:
                     TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                     CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::rabbitmq_bundle'
-            image: *rabbitmq_image
+            image: {get_param: DockerRabbitmqImage}
             volumes:
               - /etc/hosts:/etc/hosts:ro
               - /etc/localtime:/etc/localtime:ro
