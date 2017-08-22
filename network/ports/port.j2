@@ -1,19 +1,19 @@
 heat_template_version: pike
 
 description: >
-  Creates a port on the external network. The IP address will be chosen
+  Creates a port on the {{network.name}} network. The IP address will be chosen
   automatically if FixedIPs is empty.
 
 parameters:
-  ExternalNetName:
-    description: The name of the external network.
-    default: external
+  {{network.name}}NetName:
+    description: The name of the {{network.name_lower}} network.
+    default: {{network.name_lower|default(network.name|lower)}}
     type: string
   PortName:
     description: Name of the port
     default: ''
     type: string
-  ControlPlaneIP: # Here for compatability with noop.yaml
+  ControlPlaneIP: # Here for compatibility with noop.yaml
     description: IP address on the control plane
     default: ''
     type: string
@@ -36,31 +36,37 @@ parameters:
 
 resources:
 
-  ExternalPort:
+  {{network.name}}Port:
     type: OS::Neutron::Port
     properties:
-      network: {get_param: ExternalNetName}
+      network: {get_param: {{network.name}}NetName}
       name: {get_param: PortName}
       fixed_ips: {get_param: FixedIPs}
       replacement_policy: AUTO
 
 outputs:
   ip_address:
-    description: external network IP
-    value: {get_attr: [ExternalPort, fixed_ips, 0, ip_address]}
+    description: {{network.name}} network IP
+    value: {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
   ip_address_uri:
-    description: external network IP with brackets suitable for a URL
+{%- if network.ipv6  or ipv6_override|default(false) %}
+    description: {{network.name}} network IP (with brackets for IPv6 URLs)
     value:
           list_join:
           - ''
           - - '['
-            - {get_attr: [ExternalPort, fixed_ips, 0, ip_address]}
+            - {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
             - ']'
+{%- else %}
+    description: {{network.name}} network IP (for compatibility with IPv6 URLs)
+    value: {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
+{%-  endif %}
   ip_subnet:
-    description: IP/Subnet CIDR for the external network IP
+    description: IP/Subnet CIDR for the {{network.name}} network IP
     value:
           list_join:
             - ''
-            - - {get_attr: [ExternalPort, fixed_ips, 0, ip_address]}
+            - - {get_attr: [{{network.name}}Port, fixed_ips, 0, ip_address]}
               - '/'
-              - {str_split: ['/', {get_attr: [ExternalPort, subnets, 0, cidr]}, 1]}
+              - {str_split: ['/', {get_attr: [{{network.name}}Port, subnets, 0, cidr]}, 1]}
+
