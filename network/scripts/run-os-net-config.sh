@@ -75,12 +75,13 @@ EOF_CAT
         if [ "$mac_addr_type" != "0" ]; then
             echo "Device has generated MAC, skipping."
         else
-            ip link set dev $iface up &>/dev/null
-            HAS_LINK="$(cat /sys/class/net/${iface}/carrier)"
+            HAS_LINK="$(cat /sys/class/net/${iface}/carrier || echo 0)"
 
             TRIES=10
             while [ "$HAS_LINK" == "0" -a $TRIES -gt 0 ]; do
-                HAS_LINK="$(cat /sys/class/net/${iface}/carrier)"
+                # Need to set the link up on each iteration
+                ip link set dev $iface up &>/dev/null
+                HAS_LINK="$(cat /sys/class/net/${iface}/carrier || echo 0)"
                 if [ "$HAS_LINK" == "1" ]; then
                     break
                 else
