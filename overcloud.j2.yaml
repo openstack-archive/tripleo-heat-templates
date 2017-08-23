@@ -70,17 +70,14 @@ parameters:
     description: |
       Role specific additional hiera configuration to inject into the cluster.
     type: json
+{%- if role.deprecated_param_extraconfig is defined %}
+  {{role.deprecated_param_extraconfig}}:
+    default: {}
+    description: |
+      DEPRECATED use {{role.name}}ExtraConfig instead
+    type: json
+{%- endif %}
 {%- endfor %}
-  controllerExtraConfig:
-    default: {}
-    description: |
-      DEPRECATED use ControllerExtraConfig instead
-    type: json
-  NovaComputeExtraConfig:
-    default: {}
-    description: |
-      DEPRECATED use ComputeExtraConfig instead
-    type: json
   NeutronControlPlaneID:
     default: 'ctlplane'
     type: string
@@ -231,7 +228,7 @@ parameters:
       List of server hostnames to blacklist from any triggered deployments.
 
 {% for role in roles %}
-{%- if role.deprecated_param_scheduler_hints is defined %}
+{%- if role.deprecated_param_scheduler_hints is defined or role.deprecated_param_extraconfig is defined %}
 {%- if not parameter_groups_defined|default(false) %}
 parameter_groups:
 - label: deprecated
@@ -239,7 +236,12 @@ parameter_groups:
   parameters:
 {%- set parameter_groups_defined = true %}
 {%- endif %}
+{%- endif %}
+{%- if role.deprecated_param_scheduler_hints is defined %}
     - {{role.deprecated_param_scheduler_hints}}
+{%- endif %}
+{%- if role.deprecated_param_extraconfig is defined %}
+    - {{role.deprecated_param_extraconfig}}
 {%- endif %}
 {%- endfor %}
 
@@ -421,17 +423,10 @@ resources:
           map_merge:
           - get_attr: [{{role.name}}ServiceConfigSettings, value]
           - get_param: ExtraConfig
-          {%- if role.name == 'Controller' %}
-          - map_merge:
-            - get_param: controllerExtraConfig
-            - get_param: {{role.name}}ExtraConfig
-          {%- elif role.name == 'Compute' %}
-          - map_merge:
-            - get_param: NovaComputeExtraConfig
-            - get_param: {{role.name}}ExtraConfig
-          {%- else %}
+{%- if role.deprecated_param_extraconfig is defined %}
+          - get_param: {{role.deprecated_param_extraconfig}}
+{%- endif %}
           - get_param: {{role.name}}ExtraConfig
-          {%- endif %}
 
   # Filter any null/None service_names which may be present due to mapping
   # of services to OS::Heat::None
