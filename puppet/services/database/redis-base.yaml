@@ -38,6 +38,12 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -53,10 +59,20 @@ outputs:
         # internal_api -> IP
         # internal_api_uri -> [IP]
         # internal_api_subnet - > IP/CIDR
-        redis::bind: {get_param: [ServiceNetMap, RedisNetwork]}
+        # Bind to localhost if internal TLS is enabled, since we put a TLs
+        # proxy in front.
+        redis::bind:
+          if:
+          - use_tls_proxy
+          - 'localhost'
+          - {get_param: [ServiceNetMap, RedisNetwork]}
         redis::port: 6379
         redis::sentinel::master_name: "%{hiera('bootstrap_nodeid')}"
         redis::sentinel::redis_host: "%{hiera('bootstrap_nodeid_ip')}"
         redis::sentinel::notification_script: '/usr/local/bin/redis-notifications.sh'
-        redis::sentinel::sentinel_bind: {get_param: [ServiceNetMap, RedisNetwork]}
+        redis::sentinel::sentinel_bind:
+          if:
+          - use_tls_proxy
+          - 'localhost'
+          - {get_param: [ServiceNetMap, RedisNetwork]}
         redis::ulimit: {get_param: RedisFDLimit}
