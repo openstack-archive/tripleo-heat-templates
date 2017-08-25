@@ -356,6 +356,11 @@ def validate_docker_service(filename, tpl):
                       print('ERROR: bootstrap_host_exec needs to run as the root user.')
                       return 1
 
+        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks'] and \
+                validate_upgrade_tasks(role_data['upgrade_tasks']):
+            print('ERROR: upgrade_tasks validation failed')
+            return 1
+
     if 'parameters' in tpl:
         for param in required_params:
             if param not in tpl['parameters']:
@@ -387,6 +392,10 @@ def validate_service(filename, tpl):
         if 'config_settings' in role_data and \
            validate_mysql_connection(role_data['config_settings']):
             print('ERROR: mysql connection uri should use option bind_address')
+            return 1
+        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks'] and \
+                validate_upgrade_tasks(role_data['upgrade_tasks']):
+            print('ERROR: upgrade_tasks validation failed')
             return 1
     if 'parameters' in tpl:
         for param in required_params:
@@ -465,6 +474,27 @@ def validate(filename, param_map):
                       'appears to be unused' % (p, filename))
 
     return retval
+
+def validate_upgrade_tasks(upgrade_steps):
+    # some templates define its upgrade_tasks via list_concat
+    if isinstance(upgrade_steps, dict):
+        if upgrade_steps.get('list_concat'):
+            return validate_upgrade_tasks(upgrade_steps['list_concat'][1])
+        elif upgrade_steps.get('get_attr'):
+            return 0
+
+    for step in upgrade_steps:
+        if 'tags' not in step.keys():
+            if 'name' in step.keys():
+                print('ERROR: upgrade task named (%s) is missing its tags keyword.'
+                        % step['name'])
+            else:
+                print('ERROR: upgrade task (%s) is missing its tags keyword.'
+                        % step)
+            return 1
+
+    return 0
+
 
 if len(sys.argv) < 2:
     exit_usage()
