@@ -1,0 +1,154 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Barbican API service
+
+parameters:
+  DockerBarbicanApiImage:
+    description: image
+    type: string
+  DockerBarbicanConfigImage:
+    description: The container image to use for the barbican config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
+
+  BarbicanApiBase:
+    type: ../../puppet/services/barbican-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Barbican API role.
+    value:
+      service_name: {get_attr: [BarbicanApiBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [BarbicanApiBase, role_data, config_settings]
+          - apache::default_vhost: false
+      step_config: &step_config
+        list_join:
+          - "\n"
+          - - {get_attr: [BarbicanApiBase, role_data, step_config]}
+            - {get_attr: [MySQLClient, role_data, step_config]}
+      service_config_settings: {get_attr: [BarbicanApiBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: barbican
+        puppet_tags: barbican_api_paste_ini,barbican_config
+        step_config: *step_config
+        config_image: {get_param: DockerBarbicanConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/barbican_api.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+      docker_config:
+        # db sync runs before permissions set by kolla_config
+        step_2:
+          barbican_init_logs:
+            image: &barbican_api_image {get_param: DockerBarbicanApiImage}
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/barbican:/var/log/barbican
+            command: ['/bin/bash', '-c', 'chown -R barbican:barbican /var/log/barbican']
+        step_3:
+          barbican_api_db_sync:
+            start_order: 0
+            image: *barbican_api_image
+            net: host
+            detach: false
+            user: root
+            volumes: &barbican_api_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
+                  - /var/log/containers/barbican:/var/log/barbican
+            command: "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage db upgrade'"
+        step_4:
+          barbican_api:
+            image: *barbican_api_image
+            net: host
+            privileged: false
+            restart: always
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/barbican_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/log/containers/barbican:/var/log/barbican
+                  - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/barbican
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable barbican_api service
+          tags: step2
+          service: name=openstack-barbican-api state=stopped enabled=no
+      metadata_settings:
+        get_attr: [BarbicanApiBase, role_data, metadata_settings]
