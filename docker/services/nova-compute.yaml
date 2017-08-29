@@ -151,6 +151,11 @@ outputs:
             path: /etc/ceph
             state: directory
       upgrade_tasks:
+        - name: Check if nova_compute is deployed
+          command: systemctl is-enabled --quiet openstack-nova-compute
+          tags: common
+          ignore_errors: True
+          register: nova_compute_enabled
         - name: Set compute upgrade level to auto
           tags: step1
           ini_file:
@@ -158,8 +163,13 @@ outputs:
               template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
               params:
                 LEVEL: {get_param: UpgradeLevelNovaCompute}
+        - name: "PreUpgrade step0,validation: Check service openstack-nova-compute is running"
+          command: systemctl is-active --quiet openstack-nova-compute
+          tags: step0,validation
+          when: nova_compute_enabled.rc == 0
         - name: Stop and disable nova-compute service
           tags: step2
+          when: nova_compute_enabled.rc == 0
           service: name=openstack-nova-compute state=stopped enabled=no
         - name: Remove openstack-nova-compute package if operator requests it
           yum: name=openstack-nova-compute state=removed
