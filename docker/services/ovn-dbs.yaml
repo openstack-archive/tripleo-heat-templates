@@ -1,0 +1,202 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Ovn DBs service
+
+parameters:
+  DockerOvnNbDbImage:
+    description: image
+    type: string
+  DockerOvnSbDbImage:
+    description: image
+    type: string
+  DockerOvnNorthdImage:
+    description: image
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  OVNDbsBase:
+    type: ../../puppet/services/ovn-dbs.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the OVN Dbs role.
+    value:
+      service_name: {get_attr: [OVNDbsBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [OVNDbsBase, role_data, config_settings]
+      step_config: &step_config
+        get_attr: [OVNDbsBase, role_data, step_config]
+      # BEGIN DOCKER SETTINGS
+      # puppet_config is not required for this service since we configure
+      # the NB and SB DB servers to listen on the proper IP address/port
+      # in the docker_config section.
+      # puppet_config is defined to satisfy the pep8 validations.
+      puppet_config:
+        config_volume: ''
+        config_image: ''
+        step_config: *step_config
+      kolla_config:
+        /var/lib/kolla/config_files/ovn_north_db_server.json:
+          command:
+            list_join:
+            - ' '
+            - - '/usr/sbin/ovsdb-server'
+              - '/var/lib/openvswitch/ovnnb.db'
+              - '--pidfile=/run/openvswitch/ovnnb_db.pid'
+              - '-vconsole:emer -vsyslog:err -vfile:info'
+              - '--remote=punix:/run/openvswitch/ovnnb_db.sock'
+              - '--unixctl=/run/openvswitch/ovnnb_db.ctl'
+              - '--remote=db:OVN_Northbound,NB_Global,connections'
+              - '--private-key=db:OVN_Northbound,SSL,private_key'
+              - '--certificate=db:OVN_Northbound,SSL,certificate'
+              - '--ca-cert=db:OVN_Northbound,SSL,ca_cert'
+              - '--log-file=/var/log/openvswitch/ovsdb-server-nb.log'
+          permissions:
+            - path: /var/log/openvswitch
+              owner: root:root
+              recurse: true
+        /var/lib/kolla/config_files/ovn_south_db_server.json:
+          command:
+            list_join:
+            - ' '
+            - - '/usr/sbin/ovsdb-server'
+              - '/var/lib/openvswitch/ovnsb.db'
+              - '--pidfile=/run/openvswitch/ovnsb_db.pid'
+              - '-vconsole:emer -vsyslog:err -vfile:info'
+              - '--remote=punix:/run/openvswitch/ovnsb_db.sock'
+              - '--unixctl=/run/openvswitch/ovnsb_db.ctl'
+              - '--remote=db:OVN_Southbound,SB_Global,connections'
+              - '--private-key=db:OVN_Southbound,SSL,private_key'
+              - '--certificate=db:OVN_Southbound,SSL,certificate'
+              - '--ca-cert=db:OVN_Southbound,SSL,ca_cert'
+              - '--log-file=/var/log/openvswitch/ovsdb-server-sb.log'
+          permissions:
+            - path: /var/log/openvswitch
+              owner: root:root
+              recurse: true
+        /var/lib/kolla/config_files/ovn_northd.json:
+          command:
+            list_join:
+            - ' '
+            - - '/usr/bin/ovn-northd -vconsole:emer -vsyslog:err -vfile:info'
+              - '--ovnnb-db=unix:/run/openvswitch/ovnnb_db.sock'
+              - '--ovnsb-db=unix:/run/openvswitch/ovnsb_db.sock'
+              - '--log-file=/var/log/openvswitch/ovn-northd.log'
+              - '--pidfile=/run/openvswitch/ovn-northd.pid'
+          permissions:
+            - path: /var/log/openvswitch
+              owner: root:root
+              recurse: true
+      docker_config:
+        step_4:
+          ovn_north_db_server:
+            start_order: 0
+            image: {get_param: DockerOvnNbDbImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_north_db_server.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/var/lib/openvswitch
+                  - /var/lib/openvswitch/ovn:/run/openvswitch
+                  - /var/log/containers/openvswitch:/var/log/openvswitch
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          ovn_south_db_server:
+            start_order: 0
+            image: {get_param: DockerOvnSbDbImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_south_db_server.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/var/lib/openvswitch
+                  - /var/lib/openvswitch/ovn:/run/openvswitch
+                  - /var/log/containers/openvswitch:/var/log/openvswitch
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          configure_ovn_north_db_server:
+            start_order: 1
+            action: exec
+            user: root
+            command: ['ovn_north_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; NB_DB_PORT=`hiera ovn::northbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-nbctl set-connection ptcp:$NB_DB_PORT:$DBS_LISTEN_IP']
+          configure_ovn_south_db_server:
+            start_order: 1
+            action: exec
+            user: root
+            command: ['ovn_south_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; SB_DB_PORT=`hiera ovn::southbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-sbctl set-connection ptcp:$SB_DB_PORT:$DBS_LISTEN_IP']
+          ovn_northd:
+            start_order: 2
+            image: {get_param: DockerOvnNorthdImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_northd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/run/openvswitch
+                  - /var/log/containers/openvswitch:/var/log/openvswitch
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/log/containers/openvswitch
+            - /var/lib/openvswitch/ovn
+      upgrade_tasks:
+        - name: Stop and disable ovn-northd service
+          tags: step2
+          service: name=ovn-northd state=stopped enabled=no
