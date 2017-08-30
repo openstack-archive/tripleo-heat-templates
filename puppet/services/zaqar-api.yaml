@@ -181,37 +181,34 @@ outputs:
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       upgrade_tasks:
-        yaql:
-          expression: $.data.apache_upgrade + $.data.zaqar_upgrade
-          data:
-            apache_upgrade:
-              get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
-            zaqar_upgrade:
-              - name: Check if zaqar is deployed
-                command: systemctl is-enabled openstack-zaqar
-                tags: common
-                ignore_errors: True
-                register: zaqar_enabled
-              - name: "PreUpgrade step0,validation: Check if openstack-zaqar is running"
-                shell: >
-                  /usr/bin/systemctl show 'openstack-zaqar' --property ActiveState |
-                  grep '\bactive\b'
-                when: zaqar_enabled.rc == 0
-                tags: step0,validation
-              - name: Check for zaqar running under apache (post upgrade)
-                tags: step1
-                shell: "httpd -t -D DUMP_VHOSTS | grep -q zaqar_wsgi"
-                register: zaqar_apache
-                ignore_errors: true
-              - name: Stop zaqar service (running under httpd)
-                tags: step1
-                service: name=httpd state=stopped
-                when: zaqar_apache.rc == 0
-              - name: Stop and disable zaqar service (pre-upgrade not under httpd)
-                tags: step1
-                when: zaqar_enabled.rc == 0
-                service: name=openstack-zaqar state=stopped enabled=no
-              - name: Install openstack-zaqar package if it was disabled
-                tags: step3
-                yum: name=openstack-zaqar state=latest
-                when: zaqar_enabled.rc != 0
+        list_concat:
+          - get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
+          -
+            - name: Check if zaqar is deployed
+              command: systemctl is-enabled openstack-zaqar
+              tags: common
+              ignore_errors: True
+              register: zaqar_enabled
+            - name: "PreUpgrade step0,validation: Check if openstack-zaqar is running"
+              shell: >
+                /usr/bin/systemctl show 'openstack-zaqar' --property ActiveState |
+                grep '\bactive\b'
+              when: zaqar_enabled.rc == 0
+              tags: step0,validation
+            - name: Check for zaqar running under apache (post upgrade)
+              tags: step1
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q zaqar_wsgi"
+              register: zaqar_apache
+              ignore_errors: true
+            - name: Stop zaqar service (running under httpd)
+              tags: step1
+              service: name=httpd state=stopped
+              when: zaqar_apache.rc == 0
+            - name: Stop and disable zaqar service (pre-upgrade not under httpd)
+              tags: step1
+              when: zaqar_enabled.rc == 0
+              service: name=openstack-zaqar state=stopped enabled=no
+            - name: Install openstack-zaqar package if it was disabled
+              tags: step3
+              yum: name=openstack-zaqar state=latest
+              when: zaqar_enabled.rc != 0
