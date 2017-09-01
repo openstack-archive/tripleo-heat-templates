@@ -199,88 +199,85 @@ outputs:
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       upgrade_tasks:
-        yaql:
-          expression: $.data.apache_upgrade + $.data.nova_api_upgrade
-          data:
-            apache_upgrade:
-              get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
-            nova_api_upgrade:
-              - name: get bootstrap nodeid
-                tags: common
-                command: hiera bootstrap_nodeid
-                register: bootstrap_node
-              - name: set is_bootstrap_node fact
-                tags: common
-                set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-              - name: Extra migration for nova tripleo/+bug/1656791
-                tags: step0,pre-upgrade
-                when: is_bootstrap_node
-                command: nova-manage db online_data_migrations
-              - name: Stop and disable nova_api service (pre-upgrade not under httpd)
-                tags: step2
-                service: name=openstack-nova-api state=stopped enabled=no
-              - name: Create puppet manifest to set transport_url in nova.conf
-                tags: step5
-                when: is_bootstrap_node
-                copy:
-                  dest: /root/nova-api_upgrade_manifest.pp
-                  mode: 0600
-                  content: >
-                    $transport_url = os_transport_url({
-                      'transport' => hiera('messaging_service_name', 'rabbit'),
-                      'hosts'     => any2array(hiera('rabbitmq_node_names', undef)),
-                      'port'      => sprintf('%s',hiera('nova::rabbit_port', '5672') ),
-                      'username'  => hiera('nova::rabbit_userid', 'guest'),
-                      'password'  => hiera('nova::rabbit_password'),
-                      'ssl'       => sprintf('%s', bool2num(str2bool(hiera('nova::rabbit_use_ssl', '0'))))
-                    })
-                    oslo::messaging::default { 'nova_config':
-                      transport_url => $transport_url
-                    }
-              - name: Run puppet apply to set tranport_url in nova.conf
-                tags: step5
-                when: is_bootstrap_node
-                command: puppet apply --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules --detailed-exitcodes /root/nova-api_upgrade_manifest.pp
-                register: puppet_apply_nova_api_upgrade
-                failed_when: puppet_apply_nova_api_upgrade.rc not in [0,2]
-                changed_when: puppet_apply_nova_api_upgrade.rc == 2
-              - name: Setup cell_v2 (map cell0)
-                tags: step5
-                when: is_bootstrap_node
-                shell: nova-manage cell_v2 map_cell0 --database_connection=$(hiera nova::cell0_database_connection)
-              - name: Setup cell_v2 (create default cell)
-                tags: step5
-                when: is_bootstrap_node
-                # (owalsh) puppet-nova expects the cell name 'default'
-                # (owalsh) pass the db uri explicitly to avoid https://bugs.launchpad.net/tripleo/+bug/1662344
-                shell: nova-manage cell_v2 create_cell --name='default' --database_connection=$(hiera nova::database_connection)
-                register: nova_api_create_cell
-                failed_when: nova_api_create_cell.rc not in [0,2]
-                changed_when: nova_api_create_cell.rc == 0
-              - name: Setup cell_v2 (sync nova/cell DB)
-                tags: step5
-                when: is_bootstrap_node
-                command: nova-manage db sync
-                async: {get_param: NovaDbSyncTimeout}
-                poll: 10
-              - name: Setup cell_v2 (get cell uuid)
-                tags: step5
-                when: is_bootstrap_node
-                shell: nova-manage cell_v2 list_cells | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}'
-                register: nova_api_cell_uuid
-              - name: Setup cell_v2 (migrate hosts)
-                tags: step5
-                when: is_bootstrap_node
-                command: nova-manage cell_v2 discover_hosts --cell_uuid {{nova_api_cell_uuid.stdout}} --verbose
-              - name: Setup cell_v2 (migrate instances)
-                tags: step5
-                when: is_bootstrap_node
-                command: nova-manage cell_v2 map_instances --cell_uuid {{nova_api_cell_uuid.stdout}}
-              - name: Sync nova_api DB
-                tags: step5
-                command: nova-manage api_db sync
-                when: is_bootstrap_node
-              - name: Online data migration for nova
-                tags: step5
-                when: is_bootstrap_node
-                command: nova-manage db online_data_migrations
+        list_concat:
+          - get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
+          -
+            - name: get bootstrap nodeid
+              tags: common
+              command: hiera bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              tags: common
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Extra migration for nova tripleo/+bug/1656791
+              tags: step0,pre-upgrade
+              when: is_bootstrap_node
+              command: nova-manage db online_data_migrations
+            - name: Stop and disable nova_api service (pre-upgrade not under httpd)
+              tags: step2
+              service: name=openstack-nova-api state=stopped enabled=no
+            - name: Create puppet manifest to set transport_url in nova.conf
+              tags: step5
+              when: is_bootstrap_node
+              copy:
+                dest: /root/nova-api_upgrade_manifest.pp
+                mode: 0600
+                content: >
+                  $transport_url = os_transport_url({
+                    'transport' => hiera('messaging_service_name', 'rabbit'),
+                    'hosts'     => any2array(hiera('rabbitmq_node_names', undef)),
+                    'port'      => sprintf('%s',hiera('nova::rabbit_port', '5672') ),
+                    'username'  => hiera('nova::rabbit_userid', 'guest'),
+                    'password'  => hiera('nova::rabbit_password'),
+                    'ssl'       => sprintf('%s', bool2num(str2bool(hiera('nova::rabbit_use_ssl', '0'))))
+                  })
+                  oslo::messaging::default { 'nova_config':
+                    transport_url => $transport_url
+                  }
+            - name: Run puppet apply to set tranport_url in nova.conf
+              tags: step5
+              when: is_bootstrap_node
+              command: puppet apply --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules --detailed-exitcodes /root/nova-api_upgrade_manifest.pp
+              register: puppet_apply_nova_api_upgrade
+              failed_when: puppet_apply_nova_api_upgrade.rc not in [0,2]
+              changed_when: puppet_apply_nova_api_upgrade.rc == 2
+            - name: Setup cell_v2 (map cell0)
+              tags: step5
+              when: is_bootstrap_node
+              shell: nova-manage cell_v2 map_cell0 --database_connection=$(hiera nova::cell0_database_connection)
+            - name: Setup cell_v2 (create default cell)
+              tags: step5
+              when: is_bootstrap_node
+              # (owalsh) puppet-nova expects the cell name 'default'
+              # (owalsh) pass the db uri explicitly to avoid https://bugs.launchpad.net/tripleo/+bug/1662344
+              shell: nova-manage cell_v2 create_cell --name='default' --database_connection=$(hiera nova::database_connection)
+              register: nova_api_create_cell
+              failed_when: nova_api_create_cell.rc not in [0,2]
+              changed_when: nova_api_create_cell.rc == 0
+            - name: Setup cell_v2 (sync nova/cell DB)
+              tags: step5
+              when: is_bootstrap_node
+              command: nova-manage db sync
+              async: {get_param: NovaDbSyncTimeout}
+              poll: 10
+            - name: Setup cell_v2 (get cell uuid)
+              tags: step5
+              when: is_bootstrap_node
+              shell: nova-manage cell_v2 list_cells | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}'
+              register: nova_api_cell_uuid
+            - name: Setup cell_v2 (migrate hosts)
+              tags: step5
+              when: is_bootstrap_node
+              command: nova-manage cell_v2 discover_hosts --cell_uuid {{nova_api_cell_uuid.stdout}} --verbose
+            - name: Setup cell_v2 (migrate instances)
+              tags: step5
+              when: is_bootstrap_node
+              command: nova-manage cell_v2 map_instances --cell_uuid {{nova_api_cell_uuid.stdout}}
+            - name: Sync nova_api DB
+              tags: step5
+              command: nova-manage api_db sync
+              when: is_bootstrap_node
+            - name: Online data migration for nova
+              tags: step5
+              when: is_bootstrap_node
+              command: nova-manage db online_data_migrations
