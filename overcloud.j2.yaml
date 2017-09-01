@@ -188,15 +188,16 @@ parameters:
       doing an update which requires removal of specific resources.
       Example format ComputeRemovalPolicies: [{'resource_list': ['0']}]
 
-{% if role.name != 'Compute' %}
   {{role.name}}SchedulerHints:
-    description: Optional scheduler hints to pass to nova
-{% else %}
-  NovaComputeSchedulerHints:
-    description: DEPRECATED - use ComputeSchedulerHints instead
-{% endif %}
     type: json
+    description: Optional scheduler hints to pass to nova
     default: {}
+{%- if role.deprecated_param_scheduler_hints is defined %}
+  {{role.deprecated_param_scheduler_hints}}:
+    type: json
+    description: DEPRECATED - use {{role.name}}SchedulerHints instead
+    default: {}
+{%- endif %}
 
   {{role.name}}Parameters:
     type: json
@@ -228,6 +229,19 @@ parameters:
     type: comma_delimited_list
     description: >
       List of server hostnames to blacklist from any triggered deployments.
+
+{% for role in roles %}
+{%- if role.deprecated_param_scheduler_hints is defined %}
+{%- if not parameter_groups_defined|default(false) %}
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+{%- set parameter_groups_defined = true %}
+{%- endif %}
+    - {{role.deprecated_param_scheduler_hints}}
+{%- endif %}
+{%- endfor %}
 
 conditions:
   add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
@@ -525,11 +539,14 @@ resources:
               params:
                 '%stackname%': {get_param: 'OS::stack_name'}
           NodeIndex: '%index%'
-  {% if role.name != 'Compute' %}
-          {{role.name}}SchedulerHints: {get_param: {{role.name}}SchedulerHints}
-  {% else %}
-          NovaComputeSchedulerHints: {get_param: NovaComputeSchedulerHints}
-  {% endif %}
+          # Note, SchedulerHints must be defined here, not only in the
+          # nested template, as it can contain %index%
+          {{role.name}}SchedulerHints:
+            map_merge:
+{%- if role.deprecated_param_scheduler_hints is defined %}
+              - {get_param: {{role.deprecated_param_scheduler_hints}}}
+{%- endif %}
+              - {get_param: {{role.name}}SchedulerHints}
           ServiceConfigSettings: {get_attr: [{{role.name}}ServiceConfigSettings, value]}
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
           MonitoringSubscriptions: {get_attr: [{{role.name}}ServiceChainRoleData, value, monitoring_subscriptions]}
