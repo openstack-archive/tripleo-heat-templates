@@ -7,6 +7,10 @@ parameters:
   DockerSwiftConfigImage:
     description: The container image to use for the swift config_volume
     type: string
+  DockerSwiftRingbuilderConfigImage:
+    description: Fake parameter to bypass config_volume yaml validation
+    type: string
+    default: ''
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -92,9 +96,22 @@ outputs:
       service_config_settings: {get_attr: [SwiftRingbuilderBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
-        config_volume: 'swift'
+        config_volume: 'swift_ringbuilder'
         puppet_tags: exec,fetch_swift_ring_tarball,extract_swift_ring_tarball,ring_object_device,swift::ringbuilder::create,tripleo::profile::base::swift::add_devices,swift::ringbuilder::rebalance,create_swift_ring_tarball,upload_swift_ring_tarball
         step_config: *step_config
-        config_image: {get_param: DockerSwiftConfigImage}
+        config_image: &swift_ringbuilder_image {get_param: DockerSwiftConfigImage}
       kolla_config: {}
-      docker_config: {}
+      docker_config:
+        step_3:
+          swift_copy_rings:
+            image: *swift_ringbuilder_image
+            user: root
+            detach: false
+            command:
+              # Use bash to run the cp command so that wildcards can be used
+              - '/bin/bash'
+              - '-c'
+              - 'cp -v -a -t /etc/swift /swift_ringbuilder/etc/swift/*.gz /swift_ringbuilder/etc/swift/*.builder /swift_ringbuilder/etc/swift/backups'
+            volumes:
+              - /var/lib/config-data/puppet-generated/swift/etc/swift:/etc/swift:rw
+              - /var/lib/config-data/swift_ringbuilder:/swift_ringbuilder:ro
