@@ -257,7 +257,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro',
-                '--volume', '/var/lib/config-data/:/var/lib/config-data/:rw',
+                '--volume', '%s:/var/lib/config-data/:rw' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
                 '--volume', 'tripleo_logs:/var/log/tripleo/',
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log',
