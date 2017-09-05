@@ -366,6 +366,7 @@ for infile in infiles:
 
     outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
     with open(outfile, 'w') as out_f:
+        os.chmod(out_f.name, 0600)
         json.dump(infile_data, out_f)
 
 if not success:
