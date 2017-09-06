@@ -113,6 +113,22 @@ PREFERRED_CAMEL_CASE = {
     'haproxy': 'HAProxy',
 }
 
+# Overrides for docker/puppet validation
+# <filename>: True explicitly enables validation
+# <filename>: False explicitly disables validation
+#
+# If a filename is not found in the overrides then the top level directory is
+# used to determine which validation method to use.
+VALIDATE_PUPPET_OVERRIDE = {
+  # docker/service/sshd.yaml is a variation of the puppet sshd service
+  './docker/services/sshd.yaml': True,
+  # qdr aliases rabbitmq service to provide alternative messaging backend
+  './puppet/services/qdr.yaml': False,
+}
+VALIDATE_DOCKER_OVERRIDE = {
+  # docker/service/sshd.yaml is a variation of the puppet sshd service
+  './docker/services/sshd.yaml': False,
+}
 
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
@@ -433,12 +449,14 @@ def validate(filename, param_map):
                   % filename)
             return 1
 
-        # qdr aliases rabbitmq service to provide alternative messaging backend
-        if (filename.startswith('./puppet/services/') and
-                filename not in ['./puppet/services/qdr.yaml']):
+        if VALIDATE_PUPPET_OVERRIDE.get(filename, False) or (
+                filename.startswith('./puppet/services/') and
+                VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
             retval = validate_service(filename, tpl)
 
-        if filename.startswith('./docker/services/'):
+        if VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
+                filename.startswith('./docker/services/') and
+                VALIDATE_DOCKER_OVERRIDE.get(filename, True)):
             retval = validate_docker_service(filename, tpl)
 
         if filename.endswith('hyperconverged-ceph.yaml'):
