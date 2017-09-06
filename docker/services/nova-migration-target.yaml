@@ -41,6 +41,29 @@ parameters:
     description: Port that dockerized nova migration target sshd service
                  binds to.
     type: number
+  MigrationSshKey:
+    type: json
+    description: >
+      SSH key for migration.
+      Expects a dictionary with keys 'public_key' and 'private_key'.
+      Values should be identical to SSH public/private key files.
+    default:
+      public_key: ''
+      private_key: ''
+  MigrationSshPort:
+    default: 2022
+    description: Target port for migration over ssh
+    type: number
+
+conditions:
+
+  # During Ocata->Pike upgrade initially configure the ssh service on port 22
+  # to proxy migration commands to the containerized sshd on port 2022.
+  # When the upgrade converges we can switch migrations over to port 2022.
+  enable_migration_proxy:
+    equals:
+      - {get_param: MigrationSshPort}
+      - 22
 
 resources:
 
@@ -74,10 +97,15 @@ outputs:
         map_merge:
           - get_attr: [SshdBase, role_data, config_settings]
           - get_attr: [NovaMigrationTargetBase, role_data, config_settings]
-          - tripleo.nova_migration_target.firewall_rules:
-              '113 nova_migration_target':
-                dport:
-                  - {get_param: DockerNovaMigrationSshdPort}
+          # NB this prevents the baremetal ssh from listening on port 2022
+          # It doesn't affect the sshd port in the container as we override it below on the sshd cli
+          - tripleo::profile::base::sshd::port: 22
+          - if:
+            - enable_migration_proxy
+            - tripleo::profile::base::nova::migration::proxy::ssh_private_key: {get_param: [ MigrationSshKey, private_key ]}
+              tripleo::profile::base::nova::migration::proxy::target_port: {get_param: DockerNovaMigrationSshdPort}
+              tripleo::profile::base::nova::migration::proxy::target_host: "%{hiera('live_migration_ssh_inbound_addr')}"
+            - {}
       step_config: &step_config
         list_join:
           - "\n"
