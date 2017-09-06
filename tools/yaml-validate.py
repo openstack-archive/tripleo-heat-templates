@@ -11,6 +11,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import argparse
 import os
 import sys
 import traceback
@@ -430,7 +431,8 @@ def validate(filename, param_map):
                                 ...
                            ]}
     """
-    print('Validating %s' % filename)
+    if args.quiet < 1:
+        print('Validating %s' % filename)
     retval = 0
     try:
         tpl = yaml.load(open(filename).read())
@@ -469,7 +471,7 @@ def validate(filename, param_map):
             str_p = '\'%s\'' % p
             in_resources = str_p in str(tpl.get('resources', {}))
             in_outputs = str_p in str(tpl.get('outputs', {}))
-            if not in_resources and not in_outputs:
+            if not in_resources and not in_outputs and args.quiet < 2:
                 print('Warning: parameter %s in template %s '
                       'appears to be unused' % (p, filename))
 
@@ -496,10 +498,21 @@ def validate_upgrade_tasks(upgrade_steps):
     return 0
 
 
-if len(sys.argv) < 2:
-    exit_usage()
+def parse_args():
+    p = argparse.ArgumentParser()
 
-path_args = sys.argv[1:]
+    p.add_argument('--quiet', '-q',
+                   action='count',
+                   help='output warnings and errors (-q) or only errors (-qq)')
+    p.add_argument('path_args',
+                   nargs='*',
+                   default=['.'])
+
+    return p.parse_args()
+
+args = parse_args()
+path_args = args.path_args
+quiet = args.quiet
 exit_val = 0
 failed_files = []
 base_endpoint_map = None
@@ -543,7 +556,7 @@ if base_endpoint_map and \
                   "endpoint map" % env_endpoint_map['file'])
             failed_files.append(env_endpoint_map['file'])
             exit_val |= 1
-        else:
+        elif args.quiet < 1:
             print("%s matches base endpoint map" % env_endpoint_map['file'])
 else:
     print("ERROR: Did not find expected number of environments containing the "
