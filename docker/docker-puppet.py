@@ -22,13 +22,13 @@ import glob
 import json
 import logging
 import os
-import sys
 import subprocess
 import sys
 import tempfile
 import multiprocessing
 
 logger = None
+
 
 def get_logger():
     global logger
@@ -73,10 +73,10 @@ def match_config_volume(prefix, config):
     # Match the mounted config volume - we can't just use the
     # key as e.g "novacomute" consumes config-data/nova
     volumes = config.get('volumes', [])
-    config_volume=None
+    config_volume = None
     for v in volumes:
         if v.startswith(prefix):
-            config_volume =  os.path.relpath(
+            config_volume = os.path.relpath(
                 v.split(":")[0], prefix).split("/")[0]
             break
     return config_volume
@@ -180,6 +180,7 @@ for service in (json_data or []):
         configs[config_volume] = service
 
 log.info('Service compilation completed.')
+
 
 def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
     log = get_logger()
