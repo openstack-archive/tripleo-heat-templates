@@ -96,6 +96,7 @@ Example
   CephStorage
   Compute
   ComputeOvsDpdk
+  ComputeSriov
   Controller
   ControllerOpenstack
   Database
