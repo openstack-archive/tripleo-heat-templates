@@ -457,9 +457,11 @@ outputs:
                 for_each:
                   DEVICE: {get_param: SwiftRawDisks}
       upgrade_tasks:
-        - name: Stop and disable swift storage services
-          tags: step2
-          service: name={{ item }} state=stopped enabled=no
+        - name: Check if swift storage services are deployed
+          command: systemctl is-enabled --quiet "{{ item }}"
+          tags: common
+          register: swift_services_enabled
+          ignore_errors: true
           with_items:
             - openstack-swift-account-auditor
             - openstack-swift-account-reaper
@@ -474,6 +476,15 @@ outputs:
             - openstack-swift-object-replicator
             - openstack-swift-object-updater
             - openstack-swift-object
+        - name: "PreUpgrade step0,validation: Check swift storage services are running"
+          command: systemctl is-active --quiet "{{ item.item }}"
+          tags: step0,validation
+          with_items: "{{ swift_services_enabled.results }}"
+          when: item.rc == 0
+        - name: Stop and disable swift storage services
+          tags: step2
+          service: name={{ item.item }} state=stopped enabled=no
+          with_items: "{{ swift_services_enabled.results }}"
         - name: Remove openstack-swift-container,object,account packages if operator requests it
           yum: name={{ item }} state=removed
           tags: step2
