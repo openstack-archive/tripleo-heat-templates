@@ -383,3 +383,65 @@ worfklow. Exiting."
         exit 1
    fi
 }
+
+# This function tries to resolve an RPM dependency issue that can arise when
+# updating ceph packages on nodes that do not run the ceph-osd service. These
+# nodes do not require the ceph-osd package, and updates will fail if the
+# ceph-osd package cannot be updated because it's not available in any enabled
+# repo. The dependency issue is resolved by removing the ceph-osd package from
+# nodes that don't require it.
+#
+# No change is made to nodes that use the ceph-osd service (e.g. ceph storage
+# nodes, and hyperconverged nodes running ceph-osd and compute services). The
+# ceph-osd package is left in place, and the currently enabled repos will be
+# used to update all ceph packages.
+function yum_pre_update {
+    echo "Checking for ceph-osd dependency issues"
+
+    # No need to proceed if the ceph-osd package isn't installed
+    if ! rpm -q ceph-osd >/dev/null 2>&1; then
+        echo "ceph-osd package is not installed"
+        return
+    fi
+
+    # Do not proceed if there's any sign that the ceph-osd package is in use:
+    # - Are there OSD entries in /var/lib/ceph/osd?
+    # - Are any ceph-osd processes running?
+    # - Are there any ceph data disks (as identified by 'ceph-disk')
+    if [ -n "$(ls -A /var/lib/ceph/osd 2>/dev/null)" ]; then
+        echo "ceph-osd package is required (there are OSD entries in /var/lib/ceph/osd)"
+        return
+    fi
+
+    if [ "$(pgrep -xc ceph-osd)" != "0" ]; then
+        echo "ceph-osd package is required (there are ceph-osd processes running)"
+        return
+    fi
+
+    if ceph-disk list |& grep -q "ceph data"; then
+        echo "ceph-osd package is required (ceph data disks detected)"
+        return
+    fi
+
+    # Get a list of all ceph packages available from the currently enabled
+    # repos. Use "--showduplicates" to ensure the list includes installed
+    # packages that happen to be up to date.
+    local ceph_pkgs="$(yum list available --showduplicates 'ceph-*' |& awk '/^ceph/ {print $1}' | sort -u)"
+
+    # No need to proceed if no ceph packages are available from the currently
+    # enabled repos.
+    if [ -z "$ceph_pkgs" ]; then
+        echo "ceph packages are not available from any enabled repo"
+        return
+    fi
+
+    # No need to proceed if the ceph-osd package *is* available
+    if [[ $ceph_pkgs =~ ceph-osd ]]; then
+        echo "ceph-osd package is available from an enabled repo"
+        return
+    fi
+
+    echo "ceph-osd package is not required, but is preventing updates to other ceph packages"
+    echo "Removing ceph-osd package to allow updates to other ceph packages"
+    yum -y remove ceph-osd
+}
