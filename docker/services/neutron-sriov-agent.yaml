@@ -1,0 +1,108 @@
+heat_template_version: pike
+
+description: >
+  OpenStack Neutron SR-IOV service
+
+parameters:
+  DockerNeutronSriovImage:
+    description: The container image to use for the Neutron SR-IOV agent
+    type: string
+  DockerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  NeutronSriovAgentBase:
+    type: ../../puppet/services/neutron-sriov-agent.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for Neutron sriov service
+    value:
+      service_name: {get_attr: [NeutronSriovAgentBase, role_data, service_name]}
+      config_settings: {get_attr: [NeutronSriovAgentBase, role_data, config_settings]}
+      step_config: &step_config
+        get_attr: [NeutronSriovAgentBase, role_data, step_config]
+      puppet_config:
+        config_volume: neutron
+        puppet_tags: neutron_config,neutron_agent_sriov_numvfs,neutron_sriov_agent_config
+        step_config: *step_config
+        config_image: {get_param: DockerNeutronConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/neutron_sriov_agent.json:
+          command: /usr/bin/neutron-sriov-nic-agent --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/sriov_agent.ini --config-dir /etc/neutron/conf.d/common
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
+      docker_config:
+        step_4:
+          neutron_sriov_agent:
+            image: {get_param: DockerNeutronSriovImage}
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/neutron_sriov_agent.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /run:/run
+                  - /var/log/containers/neutron:/var/log/neutron
+                  - /sys/class/net:/sys/class/net:rw
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/neutron
+            state: directory
+      upgrade_tasks:
+        - name: Stop and disable neutron_sriov_agent service
+          tags: step2
+          service: name=neutron-sriov-nic-agent state=stopped enabled=no
