@@ -150,9 +150,19 @@ def template_output_definition(endpoint_name,
             })
         ])
     }
-    uri_fields = [protocol, '://', copy.deepcopy(host), ':', port]
-    uri_fields_suffix = (copy.deepcopy(uri_fields) +
-                         ([uri_suffix] if uri_suffix is not None else []))
+    uri_no_path = {
+        'make_url': collections.OrderedDict([
+            ('scheme', protocol),
+            ('host', copy.deepcopy(host)),
+            ('port', port)
+        ])
+    }
+    uri_with_path = copy.deepcopy(uri_no_path)
+    if uri_suffix is not None:
+        path, pc, suffix = uri_suffix.partition('%')
+        uri_with_path['make_url']['path'] = path
+        if pc:
+            uri_with_path = {'list_join': ['', [uri_with_path, pc + suffix]]}
 
     name = name_override if name_override is not None else (endpoint_name +
                                                             endpoint_variant +
@@ -163,12 +173,8 @@ def template_output_definition(endpoint_name,
         'host': host,
         'port': extract_field('port'),
         'protocol': extract_field('protocol'),
-        'uri': {
-            'list_join': ['', uri_fields_suffix]
-        },
-        'uri_no_suffix': {
-            'list_join': ['', uri_fields]
-        },
+        'uri': uri_with_path,
+        'uri_no_suffix': uri_no_path,
     }
 
 
