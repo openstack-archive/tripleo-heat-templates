@@ -1,7 +1,12 @@
 # certain initialization steps (run in a container) will occur
 # on the role marked as primary controller or the first role listed
-{%- set primary_role = [roles[0]] -%}
-{%- for role in roles -%}
+{%- if enabled_roles is not defined -%}
+  # On upgrade certain roles can be disabled for operator driven upgrades
+  # See major_upgrade_steps.j2.yaml and post-upgrade.j2.yaml
+  {%- set enabled_roles = roles -%}
+{%- endif -%}
+{%- set primary_role = [enabled_roles[0]] -%}
+{%- for role in enabled_roles -%}
   {%- if 'primary' in role.tags and 'controller' in role.tags -%}
     {%- set _ = primary_role.pop() -%}
     {%- set _ = primary_role.append(role) -%}
@@ -55,7 +60,7 @@ conditions:
 {% for step in range(1, deploy_steps_max) %}
   WorkflowTasks_Step{{step}}_Enabled:
     or:
-    {%- for role in roles %}
+    {%- for role in enabled_roles %}
       - not:
           equals:
             - get_param: [role_data, {{role.name}}, service_workflow_tasks, step{{step}}]
@@ -96,12 +101,12 @@ resources:
     condition: WorkflowTasks_Step{{step}}_Enabled
     depends_on:
     {%- if step == 1 %}
-    {%- for dep in roles %}
+    {%- for dep in enabled_roles %}
       - {{dep.name}}PreConfig
       - {{dep.name}}ArtifactsDeploy
     {%- endfor %}
     {%- else %}
-    {%- for dep in roles %}
+    {%- for dep in enabled_roles %}
       - {{dep.name}}Deployment_Step{{step -1}}
     {%- endfor %}
     {%- endif %}
@@ -112,7 +117,7 @@ resources:
         yaql:
           expression: $.data.where($ != '').select($.get('step{{step}}')).where($ != null).flatten()
           data:
-          {%- for role in roles %}
+          {%- for role in enabled_roles %}
             - get_param: [role_data, {{role.name}}, service_workflow_tasks]
           {%- endfor %}
 
@@ -146,10 +151,11 @@ resources:
 # END service_workflow_tasks handling
 {% endfor %}
 
+# Artifacts config and HostPrepConfig is done on all roles, not only
+# enabled_roles, because on upgrade we need to write the json files
+# for the operator driven upgrade scripts (the ansible steps consume them)
 {% for role in roles %}
-  # Post deployment steps for all roles
-  # A single config is re-applied with an incrementing step number
-  # {{role.name}} Role steps
+  # Prepare host tasks for {{role.name}}
   {{role.name}}ArtifactsConfig:
     type: ../puppet/deploy-artifacts.yaml
 
@@ -235,9 +241,10 @@ resources:
     properties:
       servers: {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}HostPrepConfig}
+{% endfor %}
 
-  # BEGIN CONFIG STEPS
-
+  # BEGIN CONFIG STEPS, only on enabled_roles
+{%- for role in enabled_roles %}
   {{role.name}}PreConfig:
     type: OS::TripleO::Tasks::{{role.name}}PreConfig
     depends_on: {{role.name}}HostPrepDeployment
@@ -246,6 +253,8 @@ resources:
       input_values:
         update_identifier: {get_param: DeployIdentifier}
 
+  # Deployment steps for {{role.name}}
+  # A single config is re-applied with an incrementing step number
   {% for step in range(1, deploy_steps_max) %}
   {{role.name}}Deployment_Step{{step}}:
     type: OS::TripleO::DeploymentSteps
@@ -257,12 +266,12 @@ resources:
     # if https://bugs.launchpad.net/heat/+bug/1700569
     # is fixed.
     {%- if step == 1 %}
-    {%- for dep in roles %}
+    {%- for dep in enabled_roles %}
       - {{dep.name}}PreConfig
       - {{dep.name}}ArtifactsDeploy
     {%- endfor %}
     {%- else %}
-    {%- for dep in roles %}
+    {%- for dep in enabled_roles %}
       - {{dep.name}}Deployment_Step{{step -1}}
     {%- endfor %}
     {%- endif %}
@@ -285,7 +294,7 @@ resources:
   # after all the previous deployment steps.
   {{role.name}}ExtraConfigPost:
     depends_on:
-  {%- for dep in roles %}
+  {%- for dep in enabled_roles %}
       - {{dep.name}}Deployment_Step5
   {%- endfor %}
     type: OS::TripleO::NodeExtraConfigPost
@@ -298,7 +307,7 @@ resources:
   {{role.name}}PostConfig:
     type: OS::TripleO::Tasks::{{role.name}}PostConfig
     depends_on:
-  {%- for dep in roles %}
+  {%- for dep in enabled_roles %}
       - {{dep.name}}ExtraConfigPost
   {%- endfor %}
     properties:
