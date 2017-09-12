@@ -1,0 +1,123 @@
+heat_template_version: pike
+
+description: >
+  OpenStack Networking-ovn Metadata agent configured with Puppet
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronMetadataProxySharedSecret:
+    description: Shared secret to prevent spoofing
+    type: string
+    hidden: true
+  NeutronWorkers:
+    default: ''
+    description: |
+      Sets the number of worker processes for the neutron metadata agent. The
+      default value results in the configuration being left unset and a
+      system-dependent default will be chosen (usually the number of
+      processors). Please note that this can result in a large number of
+      processes and memory consumption on systems with a large core count. On
+      such systems it is recommended that a non-default value be selected that
+      matches the load requirements.
+    type: string
+  NeutronPassword:
+    description: The password for the neutron service and db account, used by neutron agents.
+    type: string
+    hidden: true
+  OVNSouthboundServerPort:
+    description: Port of the OVN Southbound DB server
+    type: number
+    default: 6642
+  OVNDbConnectionTimeout:
+    description: Timeout in seconds for the OVSDB connection transaction
+    type: number
+    default: 180
+  MonitoringSubscriptionOvnMetadata:
+    default: 'overcloud-ovn-metadata'
+    type: string
+  OvnMetadataAgentLoggingSource:
+    type: json
+    default:
+      tag: openstack.neutron.agent.ovn-metadata
+      path: /var/log/neutron/networking-ovn-metadata-agent.log
+
+conditions:
+  neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
+
+resources:
+
+  NeutronBase:
+    type: ./neutron-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Networking-ovn Metadata agent service.
+    value:
+      service_name: ovn_metadata
+      monitoring_subscription: {get_param: MonitoringSubscriptionOvnMetadata}
+      logging_source: {get_param: OvnMetadataAgentLoggingSource}
+      logging_groups:
+        - neutron
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - neutron::agents::ovn_metadata::shared_secret: {get_param: NeutronMetadataProxySharedSecret}
+            neutron::agents::ovn_metadata::auth_password: {get_param: NeutronPassword}
+            neutron::agents::ovn_metadata::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            neutron::agents::ovn_metadata::auth_tenant: 'service'
+            neutron::agents::ovn_metadata::metadata_ip: "%{hiera('nova_metadata_vip')}"
+            neutron::agents::ovn_metadata::ovsdb_connection_timeout: {get_param: OVNDbConnectionTimeout}
+            ovn::southbound::port: {get_param: OVNSouthboundServerPort}
+          -
+            if:
+            - neutron_workers_unset
+            - {}
+            - neutron::agents::ovn_metadata::metadata_workers: {get_param: NeutronWorkers}
+      step_config: |
+        include tripleo::profile::base::neutron::ovn_metadata
+      upgrade_tasks:
+        - name: Check if networking_ovn_metadata_agent is deployed
+          command: systemctl is-enabled networking-ovn-metadata-agent
+          tags: common
+          ignore_errors: True
+          register: networking_ovn_metadata_agent_enabled
+        - name: "PreUpgrade step0,validation: Check service networking-ovn-metadata-agent is running"
+          shell: /usr/bin/systemctl show 'networking-ovn-metadata-agent' --property ActiveState | grep '\bactive\b'
+          when: networking_ovn_metadata_agent_enabled.rc == 0
+          tags: step0,validation
+        - name: Stop networking_ovn_metadata service
+          tags: step1
+          when: neutron_metadata_agent_enabled.rc == 0
+          service: name=networking-ovn-metadata-agent state=stopped
