@@ -186,14 +186,13 @@ function retry() {
     set -e
 }
 
-function detect_satellite_version {
-    ping_api=$REG_SAT_URL/katello/api/ping
-    if curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $ping_api | grep "200 OK"; then
-        echo Satellite 6 detected at $REG_SAT_URL
-        satellite_version=6
+function detect_satellite_server {
+    if curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm | grep "200 OK"; then
+        echo Satellite 6 or beyond with Katello API detected at $REG_SAT_URL
+        katello_api_enabled=1
     elif curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
-        echo Satellite 5 detected at $REG_SAT_URL
-        satellite_version=5
+        echo Satellite 5 with RHN detected at $REG_SAT_URL
+        katello_api_enabled=0
     else
         echo No Satellite detected at $REG_SAT_URL
         exit 1
@@ -231,8 +230,8 @@ case "${REG_METHOD:-}" in
         retry subscription-manager $repos
         ;;
     satellite)
-        detect_satellite_version
-        if [ "$satellite_version" = "6" ]; then
+        detect_satellite_server
+        if [ "$katello_api_enabled" = "1" ]; then
             repos="$repos --enable ${satellite_repo}"
             curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -O "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm"
             rpm -Uvh katello-ca-consumer-latest.noarch.rpm || true
