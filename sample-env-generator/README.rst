@@ -24,10 +24,12 @@ entries in the files can be used as examples, and a more detailed
 explanation of the different available keys is below:
 
 Top-level:
+
 - **environments**: This is the top-level key in the file.  All other keys
   below should appear in a list of dictionaries that define environments.
 
 Environment-specific:
+
 - **name**: the output file will be this name + .yaml, in the
   ``environments`` directory.
 - **title**: a human-readable title for the environment.
