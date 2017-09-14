@@ -40,7 +40,7 @@ envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
-OPTIONAL_SECTIONS = ['service_workflow_tasks']
+OPTIONAL_SECTIONS = ['workflow_tasks']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings', 'step_config']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
