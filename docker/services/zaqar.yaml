@@ -189,8 +189,23 @@ outputs:
             - /var/log/containers/zaqar
             - /var/log/containers/httpd/zaqar
       upgrade_tasks:
+        - name: Check for zaqar running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q zaqar_wsgi"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: Check if httpd is running
+          tags: common
+          command: systemctl is-active --quiet httpd
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if zaqar_wsgi is running"
+          shell: systemctl status 'httpd' | grep -q zaqar_wsgi
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
         - name: Stop and disable zaqar service
           tags: step2
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
           service: name=httpd state=stopped enabled=no
       metadata_settings:
         get_attr: [ZaqarBase, role_data, metadata_settings]
