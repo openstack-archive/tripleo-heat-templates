@@ -165,6 +165,7 @@ resources:
   {{role.name}}ArtifactsDeploy:
     type: OS::Heat::StructuredDeploymentGroup
     properties:
+      name: {{role.name}}ArtifactsDeploy
       servers:  {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}ArtifactsConfig}
 
@@ -198,54 +199,53 @@ resources:
                     - {get_param: [role_data, {{role.name}}, host_prep_tasks]}
 {%- endif %}
                     -
-{%- raw %}
                       # Write the manifest for baremetal puppet configuration
                       - name: Create /var/lib/tripleo-config directory
                         file: path=/var/lib/tripleo-config state=directory
                       - name: Write the puppet step_config manifest
-                        copy: content="{{puppet_step_config}}" dest=/var/lib/tripleo-config/puppet_step_config.pp force=yes mode=0600
+                        copy: content="{{ '{{' }}puppet_step_config{{ '}}' }}" dest=/var/lib/tripleo-config/puppet_step_config.pp force=yes mode=0600
                       # this creates a JSON config file for our docker-puppet.py script
                       - name: Create /var/lib/docker-puppet
                         file: path=/var/lib/docker-puppet state=directory
                       - name: Write docker-puppet-tasks json files
-                        copy: content="{{puppet_config | to_json}}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes mode=0600
+                        copy: content="{{ '{{' }}puppet_config | to_json{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes mode=0600
                       # FIXME: can we move docker-puppet somewhere so it's installed via a package?
                       - name: Write docker-puppet.py
-                        copy: content="{{docker_puppet_script}}" dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
+                        copy: content="{{ '{{' }}docker_puppet_script{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
                       # Here we are dumping all the docker container startup configuration data
                       # so that we can have access to how they are started outside of heat
                       # and docker-cmd.  This lets us create command line tools to test containers.
                       # FIXME do we need the docker-container-startup-configs.json or is the new per-step
                       # data consumed by paunch enough?
                       - name: Write docker-container-startup-configs
-                        copy: content="{{docker_startup_configs | to_json}}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
+                        copy: content="{{ '{{' }}docker_startup_configs | to_json{{ '}}' }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
                       - name: Write per-step docker-container-startup-configs
-                        copy: content="{{item.value|to_json}}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{item.key}}.json" force=yes mode=0600
-                        with_dict: "{{docker_startup_configs}}"
+                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{ '{{' }}item.key{{ '}}' }}.json" force=yes mode=0600
+                        with_dict: "{{ '{{' }}docker_startup_configs{{ '}}' }}"
                       - name: Create /var/lib/kolla/config_files directory
                         file: path=/var/lib/kolla/config_files state=directory
                       - name: Write kolla config json files
-                        copy: content="{{item.value|to_json}}" dest="{{item.key}}" force=yes mode=0600
-                        with_dict: "{{kolla_config}}"
+                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest="{{ '{{' }}item.key{{ '}}' }}" force=yes mode=0600
+                        with_dict: "{{ '{{' }}kolla_config{{ '}}' }}"
                       ########################################################
                       # Bootstrap tasks, only performed on bootstrap_server_id
                       ########################################################
                       - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
                         file:
-                          path: "{{item}}"
+                          path: "{{ '{{' }}item{{ '}}' }}"
                           state: absent
                         with_fileglob:
                           - /var/lib/docker-puppet/docker-puppet-tasks*.json
                         when: deploy_server_id == bootstrap_server_id
                       - name: Write docker-puppet-tasks json files
-                        copy: content="{{item.value|to_json}}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{item.key.replace("step_", "")}}.json force=yes mode=0600
-                        with_dict: "{{docker_puppet_tasks}}"
+                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{ '{{' }}item.key.replace("step_", ""){{ '}}' }}.json force=yes mode=0600
+                        with_dict: "{{ '{{' }}docker_puppet_tasks{{ '}}' }}"
                         when: deploy_server_id == bootstrap_server_id
-{%- endraw %}
 
   {{role.name}}HostPrepDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
     properties:
+      name: {{role.name}}HostPrepDeployment
       servers: {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}HostPrepConfig}
 {% endfor %}
@@ -330,17 +330,44 @@ outputs:
     description: Mapping of config data for all roles
     value:
       deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
-      deploy_steps_playbook: |
-        - hosts: overcloud
-          tasks:
+      deploy_steps_playbook:
+        str_replace:
+          params:
+            BOOTSTRAP_SERVER_ID: {get_param: [servers, {{primary_role_name}}, '0']}
+          template: |
+            - hosts: overcloud
+              name: Server deployments
+              tasks:
 {%- for role in roles %}
-            - include: {{role.name}}/host_prep_tasks.yaml
-              when: role_name == '{{role.name}}'
+                - include: {{role.name}}/deployments.yaml
+                  vars:
+                    force: false
+                  when: role_name == '{{role.name}}'
+                  with_items: "{{ '{{' }} {{role.name}}_pre_deployments {{ '}}' }}"
 {%- endfor %}
-            - include: deploy_steps_tasks.yaml
-              with_sequence: count={{deploy_steps_max-1}}
-              loop_control:
-                loop_var: step
+            - hosts: overcloud
+              name: Deployment steps
+              vars:
+                bootstrap_server_id: BOOTSTRAP_SERVER_ID
+              tasks:
+{%- for role in roles %}
+                - include: {{role.name}}/host_prep_tasks.yaml
+                  when: role_name == '{{role.name}}'
+{%- endfor %}
+                - include: deploy_steps_tasks.yaml
+                  with_sequence: count={{deploy_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+            - hosts: overcloud
+              name: Server Post Deployments
+              tasks:
+{%- for role in roles %}
+                - include: {{role.name}}/deployments.yaml
+                  vars:
+                    force: false
+                  when: role_name == '{{role.name}}'
+                  with_items: "{{ '{{' }} {{role.name}}_post_deployments {{ '}}' }}"
+{%- endfor %}
       update_steps_tasks: |
 {%- for role in roles %}
             - include: {{role.name}}/update_tasks.yaml
