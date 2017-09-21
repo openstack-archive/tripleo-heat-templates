@@ -1,0 +1,34 @@
+# ******************************************************************************
+# DEPRECATED: Modify networks used for custom roles by modifying the role file
+# in the roles/ directory, or disable the network entirely by setting network to
+# "enabled: false" in network_data.yaml.
+# ******************************************************************************
+# Enable the creation of Neutron networks for isolated Overcloud
+# traffic and configure each role to assign ports (related
+# to that role) on these networks. This version of the environment
+# has no dedicated VLAN for tunneling, for deployments that use
+# VLAN mode, flat provider networks, etc.
+resource_registry:
+  # networks as defined in network_data.yaml, except for tenant net
+  {%- for network in networks if network.enabled|default(true) and network.name != 'Tenant' %}
+  OS::TripleO::Network::{{network.name}}: ../network/{{network.name_lower|default(network.name.lower())}}.yaml
+  {%- endfor %}
+  OS::TripleO::Network::Tenant: OS::Heat::None
+
+  # Port assignments for the VIPs
+  {%- for network in networks if network.vip and network.name != 'Tenant' %}
+  OS::TripleO::Network::Ports::{{network.name}}VipPort: ../network/ports/{{network.name_lower|default(network.name.lower())}}.yaml
+  {%- endfor %}
+  OS::TripleO::Network::Ports::RedisVipPort: ../network/ports/vip.yaml
+
+  # Port assignments for each role are determined by the role definition.
+{%- for role in roles %}
+  # Port assignments for the {{role.name}} role.
+  {%- for network in networks %}
+    {%- if network.name in role.networks|default([]) and network.enabled|default(true) and network.name != 'Tenant'%}
+  OS::TripleO::{{role.name}}::Ports::{{network.name}}Port: ../network/ports/{{network.name_lower|default(network.name.lower())}}.yaml
+    {%- elif network.enabled|default(true) %}
+  OS::TripleO::{{role.name}}::Ports::{{network.name}}Port: ../network/ports/noop.yaml
+    {%- endif %}
+  {%- endfor %}
+{% endfor %}
