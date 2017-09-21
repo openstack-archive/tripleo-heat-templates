@@ -35,8 +35,9 @@ OPTIONAL_SECTIONS = ['service_workflow_tasks']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings', 'step_config']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
-                            'service_config_settings', 'host_prep_tasks',
-                            'metadata_settings', 'kolla_config']
+                            'post_upgrade_tasks', 'service_config_settings',
+                            'host_prep_tasks', 'metadata_settings',
+                            'kolla_config']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]

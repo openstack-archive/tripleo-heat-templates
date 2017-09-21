@@ -187,6 +187,43 @@ resources:
       role_data: {get_param: role_data}
       ctlplane_service_ips: {get_param: ctlplane_service_ips}
 
+{%- for step in range(0, upgrade_steps_max) %}
+  {%- for role in roles %}
+  {{role.name}}PostUpgradeConfig_Config{{step}}:
+    type: OS::TripleO::UpgradeConfig
+    depends_on:
+      {%- for role_inside in enabled_roles %}
+      {%- if step > 0 %}
+      - {{role_inside.name}}PostUpgradeConfig_Deployment{{step -1}}
+      {%- else %}
+      - AllNodesPostUpgradeSteps
+      {%- endif %}
+      {%- endfor %}
+    properties:
+      UpgradeStepConfig: {get_param: [role_data, {{role.name}}, post_upgrade_tasks]}
+      step: {{step}}
+  {%- endfor %}
+
+  {%- for role in enabled_roles %}
+  {{role.name}}PostUpgradeConfig_Deployment{{step}}:
+    type: OS::Heat::SoftwareDeploymentGroup
+    depends_on:
+      {%- for role_inside in enabled_roles %}
+      {%- if step > 0 %}
+      - {{role_inside.name}}PostUpgradeConfig_Deployment{{step -1}}
+      {%- else %}
+      - AllNodesPostUpgradeSteps
+      {%- endif %}
+      {%- endfor %}
+    properties:
+      servers: {get_param: [servers, {{role.name}}]}
+      config: {get_resource: {{role.name}}PostUpgradeConfig_Config{{step}}}
+      input_values:
+        role: {{role.name}}
+        update_identifier: {get_param: UpdateIdentifier}
+  {%- endfor %}
+{%- endfor %}
+
 outputs:
   # Output the config for each role, just use Step1 as the config should be
   # the same for all steps (only the tag provided differs)
