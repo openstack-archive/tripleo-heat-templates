@@ -263,7 +263,6 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         dcmd = ['/usr/bin/docker', 'run',
                 '--user', 'root',
                 '--name', 'docker-puppet-%s' % config_volume,
-                '--health-cmd', '/bin/true',
                 '--env', 'PUPPET_TAGS=%s' % puppet_tags,
                 '--env', 'NAME=%s' % config_volume,
                 '--env', 'HOSTNAME=%s' % short_hostname(),
