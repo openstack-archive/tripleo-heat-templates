@@ -1,0 +1,72 @@
+heat_template_version: pike
+
+description: >
+  Configure sshd_config
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MigrationSshPort:
+    default: 2022
+    description: Target port for migration over ssh
+    type: number
+
+conditions:
+
+  # During Ocata->Pike upgrade initially configure the ssh service on port 22
+  # to proxy migration commands to the containerized sshd on port 2022.
+  # When the upgrade converges we can switch migrations over to port 2022.
+  enable_migration_proxy:
+    equals:
+      - {get_param: MigrationSshPort}
+      - 22
+
+resources:
+   SshdBase:
+    type: ../../puppet/services/sshd.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the ssh
+    value:
+      service_name: sshd
+      config_settings: {get_attr: [SshdBase, role_data, config_settings]}
+      step_config:
+        list_join:
+          - "\n"
+          - - get_attr: [SshdBase, role_data, step_config]
+            - if:
+              - enable_migration_proxy
+              - |
+                include tripleo::profile::base::nova::migration::proxy
+              - ''
