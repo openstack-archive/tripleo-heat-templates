@@ -3,22 +3,36 @@ set -eux
 
 ln -sf /etc/puppet/hiera.yaml /etc/hiera.yaml
 
-
 # WRITE OUT STACKRC
 if [ ! -e /root/stackrc ]; then
     touch /root/stackrc
     chmod 0600 /root/stackrc
 
-cat >> /root/stackrc <<-EOF_CAT
+    cat > /root/stackrc <<-EOF_CAT
+export OS_AUTH_TYPE=password
 export OS_PASSWORD=$admin_password
 export OS_AUTH_URL=$auth_url
 export OS_USERNAME=admin
 export OS_TENANT_NAME=admin
 export COMPUTE_API_VERSION=1.1
 export NOVA_VERSION=1.1
-export OS_BAREMETAL_API_VERSION=1.15
 export OS_NO_CACHE=True
 export OS_CLOUDNAME=undercloud
+# 1.34 is the latest API version in Ironic Pike supported by ironicclient
+export IRONIC_API_VERSION=1.34
+export OS_BAREMETAL_API_VERSION=\$IRONIC_API_VERSION
+export OS_IDENTITY_API_VERSION='3'
+export OS_PROJECT_DOMAIN_NAME='Default'
+export OS_USER_DOMAIN_NAME='Default'
+EOF_CAT
+
+    cat >> /root/stackrc <<-"EOF_CAT"
+# Add OS_CLOUDNAME to PS1
+if [ -z "${CLOUDPROMPT_ENABLED:-}" ]; then
+    export PS1=${PS1:-""}
+    export PS1=\${OS_CLOUDNAME:+"(\$OS_CLOUDNAME)"}\ $PS1
+    export CLOUDPROMPT_ENABLED=1
+fi
 EOF_CAT
 
     if [ -n "$ssl_certificate" ]; then
