@@ -64,7 +64,7 @@ def _create_output_dir(target_file):
             raise
 
 
-def _generate_environment(input_env, parent_env=None):
+def _generate_environment(input_env, output_path, parent_env=None):
     if parent_env is None:
         parent_env = {}
     env = dict(parent_env)
@@ -145,7 +145,7 @@ def _generate_environment(input_env, parent_env=None):
                   }
         f.write(_PARAM_FORMAT % values + '\n')
 
-    target_file = os.path.join('environments', env['name'] + '.yaml')
+    target_file = os.path.join(output_path, env['name'] + '.yaml')
     _create_output_dir(target_file)
     with open(target_file, 'w') as env_file:
         env_file.write(_FILE_HEADER)
@@ -177,10 +177,10 @@ def _generate_environment(input_env, parent_env=None):
         print('Wrote sample environment "%s"' % target_file)
 
     for e in env.get('children', []):
-        _generate_environment(e, env)
+        _generate_environment(e, output_path, env)
 
 
-def generate_environments(config_path):
+def generate_environments(config_path, output_path):
     if os.path.isdir(config_path):
         config_files = os.listdir(config_path)
         config_files = [os.path.join(config_path, i) for i in config_files
@@ -192,11 +192,12 @@ def generate_environments(config_path):
         with open(config_file) as f:
             config = yaml.safe_load(f)
         for env in config['environments']:
-            _generate_environment(env)
+            _generate_environment(env, output_path)
 
 
 def usage(exit_code=1):
-    print('Usage: %s [<filename.yaml> | <directory>]' % sys.argv[0])
+    print('Usage: %s [<filename.yaml> | <directory>] [output path]' % sys.argv[0])
+    print('Output path is optional and defaults to "environments"')
     sys.exit(exit_code)
 
 
@@ -205,7 +206,12 @@ def main():
         config_path = sys.argv[1]
     except IndexError:
         usage()
-    generate_environments(config_path)
+    if len(sys.argv) > 2:
+        output_path = sys.argv[2]
+    else:
+        output_path = 'environments'
+    print('Writing output to %s' % output_path)
+    generate_environments(config_path, output_path)
 
 
 if __name__ == '__main__':
