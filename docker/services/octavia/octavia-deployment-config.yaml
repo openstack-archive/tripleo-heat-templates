@@ -1,0 +1,155 @@
+heat_template_version: pike
+
+description: >
+  Configuration of Octavia as-a-service resources in the overcloud.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OctaviaPostWorkflowName:
+    description: Mistral workflow name for octavia configuration steps
+                 once the overcloud is ready.
+    type: string
+    default: 'tripleo.octavia_post.v1.octavia_post_deploy'
+  OctaviaAmphoraImageName:
+    description: The glance image name used when spawning amphorae
+    type: string
+    default: 'octavia-amphora'
+  OctaviaAmphoraImageFilename:
+    description: Filename for the amphora image
+    type: string
+    default: '/usr/share/openstack-octavia-amphora-images/amphora-x64-haproxy.qcow2'
+  OctaviaAmphoraImageTag:
+    default: 'amphora-image'
+    description: Glance image tag for identifying the amphora image.
+    type: string
+  OctaviaControlNetwork:
+    description: The name for the neutron network used for the amphora
+                 control network
+    type: string
+    default: 'lb-mgmt-net'
+  OctaviaControlSubnet:
+    description: The name for the neutron subnet used for the amphora
+      control network
+    type: string
+    default: 'lb-mgmt-subnet'
+  OctaviaControlSecurityGroup:
+    description: The name for the neutron security group used to
+      control access on the amphora control network
+    type: string
+    default: 'lb-mgmt-sec-group'
+  OctaviaControlSubnetCidr:
+    description: Subnet for amphora control subnet in CIDR form.
+    type: string
+    default: '192.168.199.0/24'
+  OctaviaControlSubnetGateway:
+    description: IP address for control network gateway
+    type: string
+    default: '192.168.199.1'
+  OctaviaControlSubnetPoolStart:
+    description: First address in amphora control subnet address
+                 pool.
+    type: string
+    default: '192.168.199.50'
+  OctaviaControlSubnetPoolEnd:
+    description: First address in amphora control subnet address
+                 pool.
+    type: string
+    default: '192.168.199.200'
+  OctaviaCaCertFile:
+    type: string
+    default: '/etc/octavia/certs/ca_01.pem'
+    description: Octavia CA certificate file path.
+  OctaviaCaKeyFile:
+    type: string
+    default: '/etc/octavia/certs/private/cakey.pem'
+    description: Octavia CA private key file path.
+  OctaviaCaKeyPassphrase:
+    description: CA private key passphrase.
+    type: string
+    hidden: true
+  OctaviaClientCertFile:
+    default: '/etc/octavia/certs/client.pem'
+    description: client certificate for amphoras
+    type: string
+  OctaviaGenerateCerts:
+    type: boolean
+    default: false
+    description: Enable internal generation of certificates for secure
+                 communication with amphorae for isolated private clouds or
+                 systems where security is not a concern. Otherwise, use
+                 OctaviaCaCert, OctaviaCaKey, OctaviaCaKeyPassphrase and
+                 OctaviaClientCert to configure Octavia.
+  OctaviaMgmtPortDevName:
+    type: string
+    default: "o-hm0"
+    description: Name of the octavia management network interface using
+                 for communication between octavia worker/health-manager
+                 with the amphora machine.
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+
+outputs:
+  role_data:
+    description: Role data for the Octavia configuration service
+    value:
+      service_name: octavia_deployment_config
+      upgrade_tasks: []
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      config_settings: {}
+      workflow_tasks:
+        step5:
+          - name: octavia_post_workflow
+            workflow: { get_param: OctaviaPostWorkflowName }
+            input:
+              amp_image_name: { get_param: OctaviaAmphoraImageName }
+              amp_image_filename: {get_param: OctaviaAmphoraImageFilename }
+              amp_image_tag: { get_param: OctaviaAmphoraImageTag }
+              lb_mgmt_net_name: { get_param: OctaviaControlNetwork }
+              lb_mgmt_subnet_name: { get_param: OctaviaControlSubnet }
+              lb_sec_group_name: { get_param: OctaviaControlSubnet }
+              lb_mgmt_subnet_cidr: { get_param: OctaviaControlSubnetCidr }
+              lb_mgmt_subnet_gateway: { get_param: OctaviaControlSubnetGateway }
+              lb_mgmt_subnet_pool_start: { get_param: OctaviaControlSubnetPoolStart }
+              lb_mgmt_subnet_pool_end: { get_param: OctaviaControlSubnetPoolEnd }
+              ca_cert_path: { get_param: OctaviaCaCertFile }
+              ca_private_key_path: { get_param: OctaviaCaKeyFile }
+              ca_passphrase: { get_param: OctaviaCaKeyPassphrase }
+              client_cert_path: { get_param: OctaviaClientCertFile }
+              generate_certs: { get_param: OctaviaGenerateCerts }
+              mgmt_port_dev: { get_param: OctaviaMgmtPortDevName }
+              overcloud_password: { get_param: AdminPassword }
+              overcloud_project: 'admin'
+              overcloud_admin: 'admin'
+              octavia_ansible_playbook: '/usr/share/tripleo-common/playbooks/octavia-files.yaml'
+              overcloud_pub_auth_uri: { get_param: [EndpointMap, KeystoneV3Public, uri] }
