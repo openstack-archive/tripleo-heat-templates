@@ -99,12 +99,12 @@ It is also possible to use Mistral actions or workflows together with
 a deployment step, these are executed before the main configuration run.
 To describe actions or workflows from within a service use:
 
-  * service_workflow_tasks: One or more workflow task properties
+  * workflow_tasks: One or more workflow task properties
 
 which expects a map where the key is the step and the value a list of
 dictionaries descrbing each a workflow task, for example::
 
-  service_workflow_tasks:
+  workflow_tasks:
     step2:
       - name: echo
         action: std.echo output=Hello
