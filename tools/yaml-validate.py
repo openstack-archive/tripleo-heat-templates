@@ -88,6 +88,8 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'OVNSouthboundServerPort': ['description'],
                                    'ExternalInterfaceDefaultRoute':
                                        ['description', 'default'],
+                                   'ManagementInterfaceDefaultRoute':
+                                       ['description', 'default'],
                                    'IPPool': ['description'],
                                    'SSLCertificate': ['description',
                                                       'default',
