@@ -171,15 +171,15 @@ for service in (json_data or []):
     if not manifest or not config_image:
         continue
 
-    log.info('config_volume %s' % config_volume)
-    log.info('puppet_tags %s' % puppet_tags)
-    log.info('manifest %s' % manifest)
-    log.info('config_image %s' % config_image)
-    log.info('volumes %s' % volumes)
+    log.debug('config_volume %s' % config_volume)
+    log.debug('puppet_tags %s' % puppet_tags)
+    log.debug('manifest %s' % manifest)
+    log.debug('config_image %s' % config_image)
+    log.debug('volumes %s' % volumes)
     # We key off of config volume for all configs.
     if config_volume in configs:
         # Append puppet tags and manifest.
-        log.info("Existing service, appending puppet tags and manifest")
+        log.debug("Existing service, appending puppet tags and manifest")
         if puppet_tags:
             configs[config_volume][1] = '%s,%s' % (configs[config_volume][1],
                                                    puppet_tags)
@@ -190,7 +190,7 @@ for service in (json_data or []):
             log.warn("Config containers do not match even though"
                      " shared volumes are the same!")
     else:
-        log.info("Adding new service")
+        log.debug("Adding new service")
         configs[config_volume] = service
 
 log.info('Service compilation completed.')
@@ -198,7 +198,8 @@ log.info('Service compilation completed.')
 
 def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
     log = get_logger()
-    log.info('Started processing puppet configs')
+    log.info('Starting configuration of %s using image %s' % (config_volume,
+             config_image))
     log.debug('config_volume %s' % config_volume)
     log.debug('puppet_tags %s' % puppet_tags)
     log.debug('manifest %s' % manifest)
@@ -320,7 +321,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             # only delete successful runs, for debugging
             rm_container('docker-puppet-%s' % config_volume)
 
-        log.info('Finished processing puppet configs')
+        log.info('Finished processing puppet configs for %s' % (config_volume))
         return subproc.returncode
 
 # Holds all the information for each process to consume.
@@ -349,6 +350,8 @@ for p in process_map:
 
 # Fire off processes to perform each configuration.  Defaults
 # to the number of CPUs on the system.
+log.info('Starting multiprocess configuration steps.  Using %d processes.' %
+         process_count)
 p = multiprocessing.Pool(process_count)
 returncodes = list(p.map(mp_puppet_config, process_map))
 config_volumes = [pm[0] for pm in process_map]
