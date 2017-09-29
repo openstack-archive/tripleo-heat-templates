@@ -1,0 +1,60 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Keystone service
+
+parameters:
+  DockerKeystoneImage:
+    description: image
+    type: string
+
+outputs:
+  config_settings:
+    description: Extra hieradata needed to log to stdout.
+    value:
+      keystone::wsgi::apache::access_log_file: /var/log/httpd/access.log
+      keystone::wsgi::apache::error_log_file: /var/log/httpd/error_log
+  docker_config:
+    description: Extra containers needed for logging to stdout or a sidecar container.
+    value:
+      step_2:
+        keystone_apache_error_logs:
+          start_order: 1
+          image: {get_param: DockerKeystoneImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/error_log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/error_log && mkfifo /var/log/httpd/error_log && while true; do cat /var/log/httpd/error_log; done']
+          volumes:
+            - KeystoneLogs:/var/log/
+        keystone_apache_access_logs:
+          start_order: 1
+          image: {get_param: DockerKeystoneImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/access.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/access.log && mkfifo /var/log/httpd/access.log && while true; do cat /var/log/httpd/access.log; done']
+          volumes:
+            - KeystoneLogs:/var/log/
+        keystone_logs:
+          start_order: 2
+          image: {get_param: DockerKeystoneImage}
+          user: keystone
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/keystone/keystone.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/keystone && rm -f /var/log/keystone/keystone.log && mkfifo /var/log/keystone/keystone.log && while true; do cat /var/log/keystone/keystone.log; done']
+          volumes:
+            - KeystoneLogs:/var/log/
+  volumes:
+    description: The volumes needed to log to stdout or a sidecar container.
+    value:
+      - KeystoneLogs:/var/log/
+  host_prep_tasks:
+    description: Extra ansible tasks needed for logging to files in the host.
+    value: null
