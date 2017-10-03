@@ -59,12 +59,21 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaLogging:
+    type: OS::TripleO::Services::Logging::NovaCommon
+    properties:
+      DockerNovaImage: {get_param: DockerNovaSchedulerImage}
+      NovaServiceName: 'scheduler'
+
 outputs:
   role_data:
     description: Role data for the Nova Scheduler service.
     value:
       service_name: {get_attr: [NovaSchedulerBase, role_data, service_name]}
-      config_settings: {get_attr: [NovaSchedulerBase, role_data, config_settings]}
+      config_settings:
+        map_merge:
+          - {get_attr: [NovaSchedulerBase, role_data, config_settings]}
+          - {get_attr: [NovaLogging, config_settings]}
       logging_source: {get_attr: [NovaSchedulerBase, role_data, logging_source]}
       logging_groups: {get_attr: [NovaSchedulerBase, role_data, logging_groups]}
       step_config: &step_config
@@ -81,7 +90,11 @@ outputs:
         config_image: {get_param: DockerNovaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/nova_scheduler.json:
-          command: /usr/bin/nova-scheduler
+          command:
+            list_join:
+            - ' '
+            - - /usr/bin/nova-scheduler
+              - get_attr: [NovaLogging, cmd_extra_args]
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -101,18 +114,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/nova_scheduler.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
                   - /run:/run
-                  - /var/log/containers/nova:/var/log/nova
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: /var/log/containers/nova
-            state: directory
+      host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Stop and disable nova_scheduler service
           tags: step2

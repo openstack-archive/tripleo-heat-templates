@@ -1,0 +1,57 @@
+heat_template_version: pike
+
+description: >
+  Template for nova's logging to files
+
+parameters:
+  DockerNovaImage:
+    description: image
+    type: string
+  NovaServiceName:
+    description: service name
+    type: string
+
+resources:
+
+  InitLogContainerName:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        str_replace:
+          template: nova_SERVICE_init_log
+          params:
+            SERVICE: {get_param: NovaServiceName}
+
+outputs:
+  cmd_extra_args:
+    description: Extra command line arguments for running the service in the container.
+    value: ''
+  config_settings:
+    description: Extra hieradata needed to log to files in the host.
+    value: null
+  volumes:
+    description: The volumes needed to log to files in the host.
+    value:
+      - /var/log/containers/nova:/var/log/nova
+  docker_config:
+    description: Extra containers needed for logging to files in the host.
+    value:
+      step_2:
+        map_replace:
+        - CONTAINERNAME:
+            image: {get_param: DockerNovaImage}
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/nova:/var/log/nova
+            command: ['/bin/bash', '-c', 'chown -R nova:nova /var/log/nova']
+        - keys:
+            CONTAINERNAME: {get_attr: [InitLogContainerName, value]}
+  host_prep_tasks:
+    description: Extra ansible tasks needed for logging to files in the host.
+    value:
+      - name: create persistent logs directory
+        file:
+          path: /var/log/containers/nova
+          state: directory

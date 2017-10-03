@@ -66,6 +66,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaPlacementLogging:
+    type: OS::TripleO::Services::Logging::NovaPlacement
+
 outputs:
   role_data:
     description: Role data for the Nova Placement API role.
@@ -74,6 +77,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [NovaPlacementBase, role_data, config_settings]
+          - get_attr: [NovaPlacementLogging, config_settings]
           - apache::default_vhost: false
       logging_source: {get_attr: [NovaPlacementBase, role_data, logging_source]}
       logging_groups: {get_attr: [NovaPlacementBase, role_data, logging_groups]}
@@ -102,6 +106,8 @@ outputs:
               owner: nova:nova
               recurse: true
       docker_config:
+        step_2:
+          get_attr: [NovaPlacementLogging, docker_config, step_2]
         # start this early so it is up before computes start reporting
         step_3:
           nova_placement:
@@ -113,11 +119,10 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - get_attr: [NovaPlacementLogging, volumes]
                 -
                   - /var/lib/kolla/config_files/nova_placement.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova_placement/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/nova:/var/log/nova
-                  - /var/log/containers/httpd/nova-placement:/var/log/httpd
                   -
                     if:
                       - internal_tls_enabled
@@ -132,14 +137,7 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
         get_attr: [NovaPlacementBase, role_data, metadata_settings]
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/nova
-            - /var/log/containers/httpd/nova-placement
+      host_prep_tasks: {get_attr: [NovaPlacementLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Stop and disable nova_placement service (running under httpd)
           tags: step2

@@ -64,12 +64,21 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaLogging:
+    type: OS::TripleO::Services::Logging::NovaCommon
+    properties:
+      DockerNovaImage: {get_param: DockerNovaConductorImage}
+      NovaServiceName: 'conductor'
+
 outputs:
   role_data:
     description: Role data for the Nova Conductor service.
     value:
       service_name: {get_attr: [NovaConductorBase, role_data, service_name]}
-      config_settings: {get_attr: [NovaConductorBase, role_data, config_settings]}
+      config_settings:
+        map_merge:
+          - {get_attr: [NovaConductorBase, role_data, config_settings]}
+          - {get_attr: [NovaLogging, config_settings]}
       logging_source: {get_attr: [NovaConductorBase, role_data, logging_source]}
       logging_groups: {get_attr: [NovaConductorBase, role_data, logging_groups]}
       step_config: &step_config
@@ -86,7 +95,11 @@ outputs:
         config_image: {get_param: DockerNovaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/nova_conductor.json:
-          command: /usr/bin/nova-conductor
+          command:
+            list_join:
+            - ' '
+            - - /usr/bin/nova-conductor
+              - get_attr: [NovaLogging, cmd_extra_args]
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -106,17 +119,13 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/nova_conductor.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/nova:/var/log/nova
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: /var/log/containers/nova
-            state: directory
+      host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Set compute upgrade level to auto
           tags: step1
