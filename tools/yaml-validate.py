@@ -52,6 +52,8 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
+REQUIRED_DOCKER_LOGGING_OUTPUTS = ['config_settings', 'docker_config',
+                                   'volumes', 'host_prep_tasks']
 # Mapping of parameter names to a list of the fields we should _not_ enforce
 # consistency across files on.  This should only contain parameters whose
 # definition we cannot change for backwards compatibility reasons.  New
@@ -400,6 +402,20 @@ def validate_docker_service(filename, tpl):
     return 0
 
 
+def validate_docker_logging_template(filename, tpl):
+    if 'outputs' not in tpl:
+        print('ERROR: outputs are missing from: %s' % filename)
+        return 1
+    missing_entries = [
+        entry for entry in REQUIRED_DOCKER_LOGGING_OUTPUTS
+        if entry not in tpl['outputs']]
+    if any(missing_entries):
+        print('ERROR: The file %s is missing the following output(s):'
+              ' %s' % (filename, ', '.join(missing_entries)))
+        return 1
+    return 0
+
+
 def validate_service(filename, tpl):
     if 'outputs' in tpl and 'role_data' in tpl['outputs']:
         if 'value' not in tpl['outputs']['role_data']:
@@ -497,7 +513,9 @@ def validate(filename, param_map):
                 VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
             retval = validate_service(filename, tpl)
 
-        if VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
+        if filename.startswith('./docker/services/logging/'):
+            retval = validate_docker_logging_template(filename, tpl)
+        elif VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
                 filename.startswith('./docker/services/') and
                 VALIDATE_DOCKER_OVERRIDE.get(filename, True)):
             retval = validate_docker_service(filename, tpl)
