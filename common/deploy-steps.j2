@@ -97,6 +97,19 @@ resources:
           params:
             _TASKS: {get_file: deploy-steps-tasks.yaml}
 
+  ExternalDeployTasks:
+    type: OS::Heat::Value
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          # processing from per-role unique tasks into globally unique tasks
+          expression: coalesce($.data, []).flatten().distinct()
+          data:
+          {%- for role in enabled_roles %}
+            - get_param: [role_data, {{role.name}}, external_deploy_tasks]
+          {%- endfor %}
+
 {%- for step in range(1, deploy_steps_max) %}
 # BEGIN workflow_tasks handling
   WorkflowTasks_Step{{step}}:
@@ -354,10 +367,21 @@ outputs:
                 - include: {{role.name}}/host_prep_tasks.yaml
                   when: role_name == '{{role.name}}'
 {%- endfor %}
+{%- for step in range(1,deploy_steps_max) %}
+            - hosts: undercloud
+              name: Undercloud deployment step {{step}}
+              vars:
+                step: '{{step}}'
+              tasks:
+                - include: external_deploy_steps_tasks.yaml
+            - hosts: overcloud
+              name: Overcloud deployment step {{step}}
+              vars:
+                bootstrap_server_id: BOOTSTRAP_SERVER_ID
+                step: '{{step}}'
+              tasks:
                 - include: deploy_steps_tasks.yaml
-                  with_sequence: count={{deploy_steps_max-1}}
-                  loop_control:
-                    loop_var: step
+{%- endfor %}
             - hosts: overcloud
               name: Server Post Deployments
               tasks:
@@ -368,6 +392,7 @@ outputs:
                   when: role_name == '{{role.name}}'
                   with_items: "{{ '{{' }} {{role.name}}_post_deployments {{ '}}' }}"
 {%- endfor %}
+      external_deploy_steps_tasks: {get_attr: [ExternalDeployTasks, value]}
       update_steps_tasks: |
 {%- for role in roles %}
             - include: {{role.name}}/update_tasks.yaml
