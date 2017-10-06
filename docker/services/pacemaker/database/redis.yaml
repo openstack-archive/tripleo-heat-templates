@@ -255,3 +255,33 @@ outputs:
         - name: Disable redis service
           tags: step2
           service: name=redis enabled=no
+      update_tasks:
+        - name: Get docker Redis image
+          set_fact:
+            docker_image: {get_param: DockerRedisImage}
+            docker_image_latest: *redis_image_pcmklatest
+          when: step == '2'
+        - name: Get previous Redis image id
+          shell: "docker images | awk '/redis.* pcmklatest/{print $3}'"
+          register: redis_image_id
+        - block:
+            - name: Get a list of container using Redis image
+              shell: "docker ps -q -f 'ancestor={{redis_image_id.stdout}}'"
+              register: redis_containers_to_destroy
+            # It will be recreated with the delpoy step.
+            - name: Remove any container using the same Redis image
+              shell: "docker rm -fv {{item}}"
+              with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
+            - name: Remove previous Redis images
+              shell: "docker rmi -f {{redis_image_id.stdout}}"
+          when:
+            - step == '2'
+            - redis_image_id.stdout != ''
+        - name: Pull latest Redis images
+          command: "docker pull {{docker_image}}"
+          when: step == "2"
+        - name: Retag pcmklatest to latest Redis image
+          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+          when: step == "2"
+        # Got to check that pacemaker_is_active is working fine with bundle.
+        # TODO: pacemaker_is_active resource doesn't support bundle.
