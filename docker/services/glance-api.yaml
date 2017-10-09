@@ -83,6 +83,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  GlanceLogging:
+    type: OS::TripleO::Services::Logging::GlanceApi
+
 outputs:
   role_data:
     description: Role data for the Glance API role.
@@ -91,6 +94,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [GlanceApiPuppetBase, role_data, config_settings]
+          - get_attr: [GlanceLogging, config_settings]
           - glance::api::sync_db: false
       logging_source: {get_attr: [GlanceApiPuppetBase, role_data, logging_source]}
       logging_groups: {get_attr: [GlanceApiPuppetBase, role_data, logging_groups]}
@@ -130,19 +134,11 @@ outputs:
               merge: true
               preserve_properties: true
       docker_config:
-        # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_2:
-          glance_init_logs:
-            image: &glance_api_image {get_param: DockerGlanceApiImage}
-            privileged: false
-            user: root
-            volumes:
-              - /var/log/containers/glance:/var/log/glance
-              - /var/log/containers/httpd/glance-api:/var/log/httpd
-            command: ['/bin/bash', '-c', 'chown -R glance:glance /var/log/glance']
+          get_attr: [GlanceLogging, docker_config, step_2]
         step_3:
           glance_api_db_sync:
-            image: *glance_api_image
+            image: &glance_api_image {get_param: DockerGlanceApiImage}
             net: host
             privileged: false
             detach: false
@@ -150,11 +146,10 @@ outputs:
             volumes: &glance_volumes
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [GlanceLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/glance_api.json:/var/lib/kolla/config_files/config.json
                   - /var/lib/config-data/puppet-generated/glance_api/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/glance:/var/log/glance
-                  - /var/log/containers/httpd/glance-api:/var/log/httpd
                   - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
                   -
                     if:
@@ -196,26 +191,21 @@ outputs:
                       - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
                 - {}
       host_prep_tasks:
-        - name: Mount NFS on host
-          vars:
-            nfs_backend_enable: {get_param: GlanceNfsEnabled}
-          mount: name=/var/lib/glance src="{{item.NFS_SHARE}}" fstype=nfs4 opts="{{item.NFS_OPTIONS}}" state=mounted
-          with_items:
-            - NFS_SHARE: {get_param: GlanceNfsShare}
-              NFS_OPTIONS: {get_param: GlanceNfsOptions}
-          when:
-            - nfs_backend_enable
-        - name: create persistent logs directory
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/glance
-            - /var/log/containers/httpd/glance-api
-        - name: ensure ceph configurations exist
-          file:
-            path: /etc/ceph
-            state: directory
+        list_concat:
+        - {get_attr: [GlanceLogging, host_prep_tasks]}
+        - - name: Mount NFS on host
+            vars:
+              nfs_backend_enable: {get_param: GlanceNfsEnabled}
+            mount: name=/var/lib/glance src="{{item.NFS_SHARE}}" fstype=nfs4 opts="{{item.NFS_OPTIONS}}" state=mounted
+            with_items:
+              - NFS_SHARE: {get_param: GlanceNfsShare}
+                NFS_OPTIONS: {get_param: GlanceNfsOptions}
+            when:
+              - nfs_backend_enable
+          - name: ensure ceph configurations exist
+            file:
+              path: /etc/ceph
+              state: directory
       upgrade_tasks:
         - name: Stop and disable glance_api service
           tags: step2
