@@ -83,16 +83,12 @@ def pull_image(name):
         log.debug(cmd_stderr)
 
 
-def match_config_volume(prefix, config):
-    # Match the mounted config volume - we can't just use the
+def match_config_volumes(prefix, config):
+    # Match the mounted config volumes - we can't just use the
     # key as e.g "novacomute" consumes config-data/nova
     volumes = config.get('volumes', [])
-    config_volume = None
-    for v in volumes:
-        if v.startswith(prefix):
-            config_volume = os.path.dirname(v.split(":")[0])
-            break
-    return config_volume
+    return sorted([os.path.dirname(v.split(":")[0]) for v in volumes if
+                   v.startswith(prefix)])
 
 
 def get_config_hash(config_volume):
@@ -371,14 +367,15 @@ for infile in infiles:
         infile_data = json.load(f)
 
     for k, v in infile_data.iteritems():
-        config_volume = match_config_volume(config_volume_prefix, v)
-        if config_volume:
-            config_hash = get_config_hash(config_volume)
-            if config_hash:
-                env = v.get('environment', [])
-                env.append("TRIPLEO_CONFIG_HASH=%s" % config_hash)
-                log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (k, config_volume, config_hash))
-                infile_data[k]['environment'] = env
+        config_volumes = match_config_volumes(config_volume_prefix, v)
+        config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
+        config_hashes = filter(None, config_hashes)
+        config_hash = '-'.join(config_hashes)
+        if config_hash:
+            env = v.get('environment', [])
+            env.append("TRIPLEO_CONFIG_HASH=%s" % config_hash)
+            log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (k, config_volume, config_hash))
+            infile_data[k]['environment'] = env
 
     outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
     with open(outfile, 'w') as out_f:
