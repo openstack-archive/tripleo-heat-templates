@@ -11,6 +11,10 @@ cluster_sync_timeout=1800
 # systemctl try-restart is a noop
 
 for service in $(services_to_migrate); do
+    if [[ ${service%%-clone} =~ .*-cleanup ]]; then
+        # we don't want to stop {netns,ovs}-cleanup
+        continue
+    fi
     manage_systemd_service stop "${service%%-clone}"
     # So the reason for not reusing check_resource_systemd is that
     # I have observed systemctl is-active returning unknown with at least
@@ -107,6 +111,7 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
     mv /var/lib/mysql $MYSQL_TEMP_UPGRADE_BACKUP_DIR
 fi
 
+update_os_net_config
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1669714
 update_network
 
@@ -119,6 +124,7 @@ if grep -q '^pipeline = ssl_header_handler faultwrap osvolumeversionapp' /etc/ci
     sed -i '$ { /^$/d }' /etc/cinder/api-paste.ini
 fi
 
+restore_cleanup_service_definition
 
 yum -y install python-zaqarclient  # needed for os-collect-config
 yum -y -q update
