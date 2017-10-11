@@ -39,6 +39,13 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd, cinder, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd', 'cinder']
   GlanceNfsEnabled:
     default: false
     description: >
@@ -53,6 +60,7 @@ conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   nfs_backend_enabled: {equals: [{get_param: GlanceNfsEnabled}, true]}
+  cinder_backend_enabled: {equals: [{get_param: GlanceBackend}, cinder]}
 
 
 resources:
@@ -147,6 +155,12 @@ outputs:
                       - nfs_backend_enabled
                       - /var/lib/glance:/var/lib/glance
                       - ''
+                -
+                  if:
+                    - cinder_backend_enabled
+                    - - /dev:/dev
+                      - /etc/iscsi:/etc/iscsi
+                    - []
             environment:
               - KOLLA_BOOTSTRAP=True
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
@@ -157,7 +171,7 @@ outputs:
                 start_order: 2
                 image: *glance_api_image
                 net: host
-                privileged: false
+                privileged: {if: [cinder_backend_enabled, true, false]}
                 restart: always
                 volumes: *glance_volumes
                 environment:
