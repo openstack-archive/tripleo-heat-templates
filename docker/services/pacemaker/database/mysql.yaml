@@ -285,48 +285,47 @@ outputs:
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Check cluster resource status
-          tags: step2
+          when: step|int == 2
           pacemaker_resource:
             resource: galera
             state: master
             check_mode: true
           ignore_errors: true
           register: galera_res
-        - name: Disable the galera cluster resource
-          tags: step2
-          pacemaker_resource:
-            resource: galera
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and galera_res|succeeded
-        - name: Delete the stopped galera cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: galera
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and galera_res|succeeded
+        - when: (is_bootstrap_node) and (galera_res|succeeded) and (step|int == 2)
+          block:
+            - name: Disable the galera cluster resource
+              pacemaker_resource:
+                resource: galera
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped galera cluster resource.
+              when: step|int == 2
+              pacemaker_resource:
+                resource: galera
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Disable mysql service
-          tags: step2
+          when: step|int == 2
           service: name=mariadb enabled=no
         - name: Remove clustercheck service from xinetd
-          tags: step2
+          when: step|int == 2
           file: state=absent path=/etc/xinetd.d/galera-monitor
         - name: Restart xinetd service after clustercheck removal
-          tags: step2
+          when: step|int == 2
           service: name=xinetd state=restarted
       update_tasks:
         - name: Get docker Mariadb image
           set_fact:
             docker_image: {get_param: DockerMysqlImage}
             docker_image_latest: *mysql_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Get previous Mariadb image id
           shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}'"
           register: mariadb_image_id
@@ -341,13 +340,13 @@ outputs:
             - name: Remove previous Mariadb images
               shell: "docker rmi -f {{mariadb_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - mariadb_image_id.stdout != ''
         - name: Pull latest Mariadb images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Retag pcmklatest to latest Mariadb image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.

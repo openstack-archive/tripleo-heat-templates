@@ -46,22 +46,21 @@ outputs:
         include ::tripleo::packages
       upgrade_tasks:
         - name: Check yum for rpm-python present
-          tags: step0
+          when: step|int == 0
           yum: "name=rpm-python state=present"
           register: rpm_python_check
         - name: Fail when rpm-python wasn't present
           fail: msg="rpm-python package was not present before this run! Check environment before re-running"
-          when: rpm_python_check.changed != false
-          tags: step0
+          when: (rpm_python_check.changed != false) and (step|int == 0)
         - name: Check for os-net-config upgrade
           shell: "yum check-upgrade | awk '/os-net-config/{print}'"
           register: os_net_config_need_upgrade
-          tags: step3
+          when: step|int == 3
         - name: Check that os-net-config has configuration
           shell: test -s /etc/os-net-config/config.json
           register: os_net_config_has_config
           ignore_errors: True
-          tags: step3
+          when: step|int == 3
         - block:
             - name: Upgrade os-net-config
               yum: name=os-net-config state=latest
@@ -70,19 +69,18 @@ outputs:
               register: os_net_config_upgrade
               failed_when: os_net_config_upgrade.rc not in [0,2]
               changed_when: os_net_config_upgrade.rc == 2
-          tags: step3
-          when: os_net_config_need_upgrade.stdout and os_net_config_has_config.rc == 0
+          when: (os_net_config_need_upgrade.stdout and os_net_config_has_config.rc == 0) and (step|int == 3)
         - name: Update all packages
-          tags: step3
+          when: step|int == 3
           yum: name=* state=latest
       update_tasks:
         - name: Check for existing yum.pid
           stat:  path=/var/run/yum.pid
           register: yum_pid_file
-          when: step == "0" or step == "3"
+          when: step|int == 0 or step|int == 3
         - name: Exit if existing yum process
           fail: msg="ERROR existing yum.pid detected - can't continue! Please ensure there is no other package update process for the duration of the minor update worfklow. Exiting."
-          when: (step == "0" or step == "3") and yum_pid_file.stat.exists
+          when: (step|int == 0 or step|int == 3) and yum_pid_file.stat.exists
         - name: Update all packages
           yum: name=* state=latest update_cache=yes  # cache for tripleo/+bug/1703830
-          when: step == "3"
+          when: step|int == 3

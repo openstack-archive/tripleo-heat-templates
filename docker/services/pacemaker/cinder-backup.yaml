@@ -218,38 +218,36 @@ outputs:
         - name: set is_bootstrap_node fact
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - name: Disable the openstack-cinder-backup cluster resource
-          tags: step2
-          pacemaker_resource:
-            resource: openstack-cinder-backup
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node
-        - name: Delete the stopped openstack-cinder-backup cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: openstack-cinder-backup
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node
+        - when: (is_bootstrap_node) and (step|int == 2)
+          block:
+            - name: Disable the openstack-cinder-backup cluster resource
+              pacemaker_resource:
+                resource: openstack-cinder-backup
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped openstack-cinder-backup cluster resource.
+              pacemaker_resource:
+                resource: openstack-cinder-backup
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Disable cinder_backup service
-          tags: step2
+          when: step|int == 2
           service: name=openstack-cinder-backup enabled=no
       update_tasks:
         - name: Get docker Cinder-Backup image
           set_fact:
             docker_image: {get_param: DockerCinderBackupImage}
             docker_image_latest: *cinder_backup_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Pull latest Cinder-Backup images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Get previous Cinder-Backup image id
           shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}'"
           register: cinder_backup_image_id
@@ -264,10 +262,10 @@ outputs:
             - name: Remove previous Cinder-Backup images
               shell: "docker rmi -f {{cinder_backup_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - cinder_backup_image_id.stdout != ''
         - name: Retag pcmklatest to latest Cinder-Backup image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.

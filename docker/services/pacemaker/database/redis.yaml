@@ -195,42 +195,40 @@ outputs:
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Check cluster resource status
-          tags: step2
+          when: step|int == 2
           pacemaker_resource:
             resource: {get_attr: [RedisBase, role_data, service_name]}
             state: master
             check_mode: true
           ignore_errors: true
           register: redis_res
-        - name: Disable the redis cluster resource
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [RedisBase, role_data, service_name]}
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and redis_res|succeeded
-        - name: Delete the stopped redis cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [RedisBase, role_data, service_name]}
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and redis_res|succeeded
+        - when: (is_bootstrap_node) and (redis_res|succeeded) and (step|int == 2)
+          block:
+            - name: Disable the redis cluster resource
+              pacemaker_resource:
+                resource: {get_attr: [RedisBase, role_data, service_name]}
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped redis cluster resource.
+              pacemaker_resource:
+                resource: {get_attr: [RedisBase, role_data, service_name]}
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Disable redis service
-          tags: step2
+          when: step|int == 2
           service: name=redis enabled=no
       update_tasks:
         - name: Get docker Redis image
           set_fact:
             docker_image: {get_param: DockerRedisImage}
             docker_image_latest: *redis_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Get previous Redis image id
           shell: "docker images | awk '/redis.* pcmklatest/{print $3}'"
           register: redis_image_id
@@ -245,13 +243,13 @@ outputs:
             - name: Remove previous Redis images
               shell: "docker rmi -f {{redis_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - redis_image_id.stdout != ''
         - name: Pull latest Redis images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Retag pcmklatest to latest Redis image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.

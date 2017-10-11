@@ -237,39 +237,37 @@ outputs:
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Check cluster resource status
-          tags: step2
+          when: step|int == 2
           pacemaker_resource:
             resource: {get_attr: [HAProxyBase, role_data, service_name]}
             state: started
             check_mode: true
           ignore_errors: true
           register: haproxy_res
-        - name: Disable the haproxy cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [HAProxyBase, role_data, service_name]}
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and haproxy_res|succeeded
-        - name: Delete the stopped haproxy cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [HAProxyBase, role_data, service_name]}
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and haproxy_res|succeeded
+        - when: (is_bootstrap_node) and (haproxy_res|succeeded) and (step|int == 2)
+          block:
+            - name: Disable the haproxy cluster resource.
+              pacemaker_resource:
+                resource: {get_attr: [HAProxyBase, role_data, service_name]}
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped haproxy cluster resource.
+              pacemaker_resource:
+                resource: {get_attr: [HAProxyBase, role_data, service_name]}
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
       update_tasks:
         - name: Get docker Haproxy image
           set_fact:
             docker_image: {get_param: DockerHAProxyImage}
             docker_image_latest: *haproxy_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Get previous Haproxy image id
           shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}'"
           register: haproxy_image_id
@@ -284,13 +282,13 @@ outputs:
             - name: Remove previous Haproxy images
               shell: "docker rmi -f {{haproxy_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - haproxy_image_id.stdout != ''
         - name: Pull latest Haproxy images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Retag pcmklatest to latest Haproxy image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.
