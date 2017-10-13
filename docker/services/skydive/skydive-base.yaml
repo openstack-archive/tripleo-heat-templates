@@ -1,0 +1,110 @@
+heat_template_version: pike
+
+description: >
+  Skydive base service. Shared by all Skydive services.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  SkydiveAnsibleWorkflowName:
+    type: string
+    description: Name of the Mistral workflow to execute
+    default: tripleo.skydive_ansible.v1.skydive_install
+  SkydiveAnsiblePlaybook:
+    type: string
+    description: Path to the skydive-ansible playbook to execute
+    default: /usr/share/skydive-ansible/playbook.yml.sample
+  SkydiveAnsibleExtraConfig:
+    type: json
+    description: Extra vars for the skydive-ansible playbook
+    default:
+      deployment_mode: container
+  DockerSkydiveImage:
+    description: image
+    type: string
+    default: 'tripleoupstream/centos-binary-skydive-base:latest'
+
+conditions:
+  custom_registry_host:
+    yaql:
+      data: {get_param: DockerSkydiveImage}
+      expression: $.data.split('/')[0].matches('(\.|:)')
+
+resources:
+  DockerImageUrlParts:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        host:
+          if:
+          - custom_registry_host
+          - yaql:
+              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+              data: {get_param: DockerSkydiveImage}
+          - docker.io
+        image:
+          if:
+          - custom_registry_host
+          - yaql:
+              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[2]
+              data: {get_param: DockerSkydiveImage}
+          - yaql:
+              expression: $.data.rightSplit(':', 1)[0]
+              data: {get_param: DockerSkydiveImage}
+        image_tag:
+          yaql:
+            expression: $.data.rightSplit(':', 1)[1]
+            data: {get_param: DockerSkydiveImage}
+
+outputs:
+  role_data:
+    description: Role data for the Skydive base service.
+    value:
+      service_name: skydive_base
+      upgrade_tasks: []
+      step_config: ''
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      workflow_tasks:
+        step2:
+          - name: skydive_base_ansible_workflow
+            workflow: { get_param: SkydiveAnsibleWorkflowName }
+            input:
+              skydive_ansible_extra_vars: {get_param: SkydiveAnsibleExtraConfig}
+              skydive_ansible_playbook: {get_param: SkydiveAnsiblePlaybook}
+      config_settings:
+        skydive_docker_image: {get_attr: [DockerImageUrlParts, value, image]}
+        skydive_common_ansible_vars:
+          skydive_docker_registry: {get_attr: [DockerImageUrlParts, value, host]}
+          skydive_docker_image_tag: {get_attr: [DockerImageUrlParts, value, image_tag]}
+          skydive_deployment_mode: container
+          skydive_extra_config:
+            flow.protocol: websocket
