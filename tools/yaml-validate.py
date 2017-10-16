@@ -121,7 +121,8 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
                                    'ControllerExtraConfig': ['description'],
                                    'NovaComputeExtraConfig': ['description'],
                                    'controllerExtraConfig': ['description'],
-                                   'DockerSwiftConfigImage': ['default']
+                                   'DockerSwiftConfigImage': ['default'],
+                                   'input_values': ['default']
                                    }
 
 PREFERRED_CAMEL_CASE = {
