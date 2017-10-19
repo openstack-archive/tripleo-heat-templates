@@ -1,0 +1,148 @@
+heat_template_version: queens
+
+description: >
+  Openstack containerized TripleO UI service
+
+parameters:
+  DockerTripleoUIImage:
+    description: image
+    type: string
+  DockerTripleoUIConfigImage:
+    description: The container image to use for the tripleo-ui config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  TripleoUIPuppetBase:
+      type: ../../puppet/services/tripleo-ui.yaml
+      properties:
+        EndpointMap: {get_param: EndpointMap}
+        ServiceNetMap: {get_param: ServiceNetMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+        RoleName: {get_param: RoleName}
+        RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the TripleO UI role.
+    value:
+      service_name: {get_attr: [TripleoUIPuppetBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [TripleoUIPuppetBase, role_data, config_settings]
+          - apache::default_vhost: false
+      logging_source: {get_attr: [TripleoUIPuppetBase, role_data, logging_source]}
+      logging_groups: {get_attr: [TripleoUIPuppetBase, role_data, logging_groups]}
+      service_config_settings: {get_attr: [TripleoUIPuppetBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: tripleo-ui
+        step_config: {get_attr: [TripleoUIPuppetBase, role_data, step_config]}
+        config_image: {get_param: DockerTripleoUIConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/tripleo_ui.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+      docker_config:
+        step_4:
+          tripleo_ui:
+            image: {get_param: DockerTripleoUIImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/tripleo_ui.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/tripleo-ui/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/httpd/tripleo-ui:/var/log/httpd
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+      - name: create persistent logs directory
+        file:
+          path: "{{ item }}"
+          state: directory
+        with_items:
+          - /var/log/containers/httpd/tripleo-ui
+      upgrade_tasks:
+        - name: Check for tripleo-ui service running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q tripleo-ui"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: Check if httpd is running
+          tags: common
+          command: systemctl is-active --quiet httpd
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if tripleo-ui is running"
+          shell: systemctl status 'httpd' | grep -q tripleo-ui
+          tags: validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop and disable tripleo-ui service (running under httpd)
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0 and step|int == 2
+          service: name=httpd state=stopped enabled=no
+        - name: Remove openstack-tripleo-ui package if operator requests it
+          yum: name=openstack-tripleo-ui state=removed
+          ignore_errors: True
+          when:
+            - step|int == 2
+            - {get_param: UpgradeRemoveUnusedPackages}
+      metadata_settings:
+        get_attr: [TripleoUIPuppetBase, role_data, metadata_settings]

@@ -1,0 +1,111 @@
+heat_template_version: queens
+
+description: >
+  OpenStack TripleO UI service configured with Puppet
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                  via parameter_defaults in the resource registry.  This
+                  mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                  via parameter_defaults in the resource registry.
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  TripleoUILoggingSource:
+    type: json
+    default:
+      tag: openstack.tripleo.ui
+      # FIXME(mandre)
+      path: /var/log/tripleo/ui.log
+
+resources:
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
+outputs:
+  role_data:
+    description: Role data for the TripleO UI role.
+    value:
+      service_name: tripleo_ui
+      logging_source: {get_param: TripleoUILoggingSource}
+      logging_groups:
+        - tripleo_ui
+      config_settings:
+        map_merge:
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - keystone::cors::allowed_origin: '*'
+            ironic::cors::allowed_origin: '*'
+            ironic::cors::max_age: 3600
+            ironic::cors::allow_methods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH'
+            ironic::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            ironic::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            ironic::inspector::cors::allowed_origin: '*'
+            ironic::inspector::cors::max_age: 3600
+            ironic::inspector::cors::allow_methods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH'
+            ironic::inspector::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            ironic::inspector::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            heat::cors::allowed_origin: '*'
+            heat::cors::max_age: 3600
+            heat::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            heat::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            mistral::cors::allowed_origin: '*'
+            mistral::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            mistral::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            swift::proxy::cors_allow_origin: '*'
+            tripleo::ui::endpoint_proxy_zaqar: {get_param: [EndpointMap, ZaqarWebSocketInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_keystone: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_heat: {get_param: [EndpointMap, HeatInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_ironic: {get_param: [EndpointMap, IronicInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_ironic_inspector: {get_param: [EndpointMap, IronicInspectorInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_mistral: {get_param: [EndpointMap, MistralInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_nova: {get_param: [EndpointMap, NovaInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_proxy_swift: {get_param: [EndpointMap, SwiftInternal, uri_no_suffix]}
+            tripleo::ui::endpoint_config_zaqar: {get_param: [EndpointMap, ZaqarWebSocketUIConfig, uri]}
+            tripleo::ui::endpoint_config_keystone: {get_param: [EndpointMap, KeystoneUIConfig, uri]}
+            tripleo::ui::endpoint_config_heat: {get_param: [EndpointMap, HeatUIConfig, uri]}
+            tripleo::ui::endpoint_config_ironic: {get_param: [EndpointMap, IronicUIConfig, uri]}
+            tripleo::ui::endpoint_config_ironic_inspector: {get_param: [EndpointMap, IronicInspectorUIConfig, uri]}
+            tripleo::ui::endpoint_config_mistral: {get_param: [EndpointMap, MistralUIConfig, uri]}
+            tripleo::ui::endpoint_config_nova: {get_param: [EndpointMap, NovaUIConfig, uri]}
+            tripleo::ui::endpoint_config_swift: {get_param: [EndpointMap, SwiftUIConfig, uri]}
+            # FIXME(mandre) we're required to set bind_host otherwise it
+            # complains that it can't find the controller_host hiera key
+            tripleo::ui::bind_host: "127.0.0.1"
+
+      step_config: |
+        include ::tripleo::ui
+      service_config_settings: {}
+      metadata_settings:
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
+      upgrade_tasks: {}
