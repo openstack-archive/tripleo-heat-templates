@@ -13,7 +13,7 @@ tripleo-heat-templates
 
 Heat templates to deploy OpenStack using OpenStack.
 
-* Free software: Apache license
+* Free software: Apache License (2.0)
 * Documentation: https://docs.openstack.org/tripleo-docs/latest/
 * Source: http://git.openstack.org/cgit/openstack/tripleo-heat-templates
 * Bugs: https://bugs.launchpad.net/tripleo
