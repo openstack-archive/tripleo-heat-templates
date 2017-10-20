@@ -40,7 +40,7 @@ envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
-OPTIONAL_SECTIONS = ['workflow_tasks']
+OPTIONAL_SECTIONS = ['workflow_tasks', 'cellv2_discovery']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings', 'step_config']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
@@ -48,7 +48,8 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'service_config_settings', 'host_prep_tasks',
                             'metadata_settings', 'kolla_config',
                             'global_config_settings', 'logging_source',
-                            'logging_groups', 'external_deploy_tasks']
+                            'logging_groups', 'external_deploy_tasks',
+                            'docker_config_scripts']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
