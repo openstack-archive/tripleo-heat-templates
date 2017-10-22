@@ -48,7 +48,7 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'service_config_settings', 'host_prep_tasks',
                             'metadata_settings', 'kolla_config',
                             'global_config_settings', 'logging_source',
-                            'logging_groups']
+                            'logging_groups', 'external_deploy_tasks']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
