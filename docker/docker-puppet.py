@@ -90,16 +90,17 @@ def match_config_volume(prefix, config):
     config_volume=None
     for v in volumes:
         if v.startswith(prefix):
-            config_volume =  os.path.relpath(
-                v.split(":")[0], prefix).split("/")[0]
+            config_volume = os.path.dirname(v.split(":")[0])
             break
     return config_volume
 
 
-def get_config_hash(prefix, config_volume):
-    hashfile = os.path.join(prefix, "%s.md5sum" % config_volume)
+def get_config_hash(config_volume):
+    hashfile = "%s.md5sum" % config_volume
+    log.debug("Looking for hashfile %s for config_volume %s" % (hashfile, config_volume))
     hash_data = None
     if os.path.isfile(hashfile):
+        log.debug("Got hashfile %s for config_volume %s" % (hashfile, config_volume))
         with open(hashfile) as f:
             hash_data = f.read().rstrip()
     return hash_data
@@ -248,6 +249,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
             tar -c -f - /var/lib/config-data/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+            tar -c -f - /var/lib/config-data/puppet-generated/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
         fi
         """)
 
@@ -371,7 +373,7 @@ for infile in infiles:
     for k, v in infile_data.iteritems():
         config_volume = match_config_volume(config_volume_prefix, v)
         if config_volume:
-            config_hash = get_config_hash(config_volume_prefix, config_volume)
+            config_hash = get_config_hash(config_volume)
             if config_hash:
                 env = v.get('environment', [])
                 env.append("TRIPLEO_CONFIG_HASH=%s" % config_hash)
