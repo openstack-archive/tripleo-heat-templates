@@ -5,7 +5,7 @@ set -eux
 yum install -y \
     jq \
     python-ipaddr \
-    openstack-puppet-modules \
+    puppet-tripleo\
     os-net-config \
     openvswitch \
     python-heat-agent* \
