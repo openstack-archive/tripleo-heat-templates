@@ -1,0 +1,60 @@
+heat_template_version: pike
+
+description: >
+  OpenStack containerized Heat API service
+
+parameters:
+  DockerHeatApiImage:
+    description: image
+    type: string
+
+outputs:
+  config_settings:
+    description: Extra hieradata needed to log to stdout.
+    value:
+      heat::wsgi::apache_api::access_log_file: /var/log/httpd/access.log
+      heat::wsgi::apache_api::error_log_file: /var/log/httpd/error_log
+  docker_config:
+    description: Extra containers needed for logging to stdout or a sidecar container.
+    value:
+      step_2:
+        heat_api_apache_error_logs:
+          start_order: 1
+          image: {get_param: DockerHeatApiImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/error_log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/error_log && mkfifo /var/log/httpd/error_log && while true; do cat /var/log/httpd/error_log; done']
+          volumes:
+            - HeatApiLogs:/var/log/
+        heat_api_apache_access_logs:
+          start_order: 1
+          image: {get_param: DockerHeatApiImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/access.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/access.log && mkfifo /var/log/httpd/access.log && while true; do cat /var/log/httpd/access.log; done']
+          volumes:
+            - HeatApiLogs:/var/log/
+        heat_api_logs:
+          start_order: 2
+          image: {get_param: DockerHeatApiImage}
+          user: heat
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/heat/heat_api.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/heat && rm -f /var/log/heat/heat_api.log && mkfifo /var/log/heat/heat_api.log && while true; do cat /var/log/heat/heat_api.log; done']
+          volumes:
+            - HeatApiLogs:/var/log/
+  volumes:
+    description: The volumes needed to log to stdout or a sidecar container.
+    value:
+      - HeatApiLogs:/var/log/
+  host_prep_tasks:
+    description: Extra ansible tasks needed for logging to files in the host.
+    value: null

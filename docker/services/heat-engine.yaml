@@ -55,6 +55,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  HeatEngineLogging:
+    type: OS::TripleO::Services::Logging::HeatEngine
+
 outputs:
   role_data:
     description: Role data for the Heat Engine role.
@@ -80,7 +83,11 @@ outputs:
         config_image: {get_param: DockerHeatConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/heat_engine.json:
-          command: /usr/bin/heat-engine --config-file /usr/share/heat/heat-dist.conf --config-file /etc/heat/heat.conf
+          command:
+            list_join:
+            - ' '
+            - - /usr/bin/heat-engine --config-file /usr/share/heat/heat-dist.conf --config-file /etc/heat/heat.conf
+              - get_attr: [HeatEngineLogging, cmd_extra_args]
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -93,15 +100,10 @@ outputs:
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
-          heat_init_log:
-            image: &heat_engine_image {get_param: DockerHeatEngineImage}
-            user: root
-            volumes:
-              - /var/log/containers/heat:/var/log/heat
-            command: ['/bin/bash', '-c', 'chown -R heat:heat /var/log/heat']
+          get_attr: [HeatEngineLogging, docker_config, step_2]
         step_3:
           heat_engine_db_sync:
-            image: *heat_engine_image
+            image: &heat_engine_image {get_param: DockerHeatEngineImage}
             net: host
             privileged: false
             detach: false
@@ -109,10 +111,10 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [HeatEngineLogging, volumes]}
                 -
                   - /var/lib/config-data/heat/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                   - /var/lib/config-data/heat/etc/heat/:/etc/heat/:ro
-                  - /var/log/containers/heat:/var/log/heat
             command: "/usr/bin/bootstrap_host_exec heat_engine su heat -s /bin/bash -c 'heat-manage db_sync'"
         step_4:
           heat_engine:
@@ -125,17 +127,13 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [HeatEngineLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/heat_engine.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/heat/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/heat:/var/log/heat
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: /var/log/containers/heat
-            state: directory
+      host_prep_tasks: {get_attr: [HeatEngineLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Stop and disable heat_engine service
           tags: step2
