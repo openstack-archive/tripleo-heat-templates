@@ -31,7 +31,7 @@ that looks something like this:
     OS::TripleO::Controller::Ports::ManagementPort: ../network/ports/management.yaml
     OS::TripleO::Compute::Ports::ManagementPort: ../network/ports/management.yaml
     OS::TripleO::CephStorage::Ports::ManagementPort: ../network/ports/management.yaml
-    OS::TripleO::SwiftStorage::Ports::ManagementPort: ../network/ports/management.yaml
+    OS::TripleO::ObjectStorage::Ports::ManagementPort: ../network/ports/management.yaml
     OS::TripleO::BlockStorage::Ports::ManagementPort: ../network/ports/management.yaml
 
 Or use this Heat environment file:
