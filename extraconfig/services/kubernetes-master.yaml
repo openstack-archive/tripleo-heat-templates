@@ -1,0 +1,144 @@
+heat_template_version: ocata
+
+description: Triggers a Mistral workflow for the deployment of Kubernetes
+
+parameters:
+  RoleNetIpMap:
+    default: {}
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+outputs:
+  role_data:
+    description: Role data for the Kubernetes Service
+    value:
+      service_name: kubernetes_master
+      config_settings: {}
+      upgrade_tasks: []
+      step_config: ''
+      external_deploy_tasks:
+        # FIXME: remove this block when kubespray is packaged
+        - name: kubernetes_master step 2 kubespray repository
+          when: step == '2'
+          block:
+            - name: check kubespray directory existence
+              stat:
+                path: /usr/share/kubespray
+              register: kubespray_stat
+            - name: clone kubespray repo
+              git:
+                repo: https://github.com/kubernetes-incubator/kubespray
+                dest: /usr/share/kubespray
+                update: no
+              become: yes
+              become_user: root
+              when: not kubespray_stat.stat.exists
+        - name: kubernetes_master step 2
+          when: step == '2'
+          block:
+            - name: create kubespray temp dir
+              file:
+                path: "{{playbook_dir}}/kubespray"
+                state: directory
+            - name: generate kubespray inventory
+              copy:
+                dest: "{{playbook_dir}}/kubespray/inventory"
+                content: |
+                  kube-master:
+                    hosts:
+                      {% for host in groups['kubernetes_master'] -%}
+                      {{host}}:
+                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                      {% endfor %}
+
+                  kube-node:
+
+                    hosts:
+                      {% for host in groups['kubernetes_worker'] -%}
+                      {{host}}:
+                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                      {% endfor %}
+
+                  etcd:
+                    children:
+                      kube-master: {}
+                  k8s-cluster:
+                    children:
+                      kube-master: {}
+                      kube-node: {}
+            - name: generate kubespray playbook
+              copy:
+                dest: "{{playbook_dir}}/kubespray/playbook.yml"
+                content: |
+                  # NOTE: We could let kubespray configure docker and
+                  # run it in step 1 when this RFE is implemented:
+                  # https://github.com/kubernetes-incubator/kubespray/issues/1836
+                  - name: Configure existing docker
+                    gather_facts: false
+                    hosts: k8s-cluster
+                    tasks:
+                    # NOTE(flaper87): These steps configure docker with
+                    # MountFlags=shared, which is required by kubespray
+                    - name: Create docker service systemd directory
+                      file:
+                        path: /etc/systemd/system/docker.service.d
+                        state: directory
+                    - name: Set mount propagation options for docker
+                      ini_file: dest=/etc/systemd/system/docker.service.d/clear_mount_propagtion_flags.conf section=Service option=MountFlags value=shared
+                    - name : Docker | reload systemd
+                      shell: systemctl daemon-reload
+                    - name: Docker | reload docker
+                      service:
+                        name: docker
+                        state: restarted
+                  - include: /usr/share/kubespray/cluster.yml
+            - name: set kubespray command
+              set_fact:
+                kubespray_command: >-
+                  {%- if kubespray_command is defined -%}
+                  {{kubespray_command}}
+                  {%- else -%}
+                  ansible-playbook
+                  -b
+                  -i '{{playbook_dir}}/kubespray/inventory'
+                  --skip-tags docker,bastion-ssh-config
+                  '{{playbook_dir}}/kubespray/playbook.yml'
+                  {%- endif -%}
+            - name: print kubespray command
+              debug:
+                var: kubespray_command
+            - name: run kubespray (immediate log at {{playbook_dir}}/kubespray/playbook.log)
+              shell: |
+                {{kubespray_command}} 2>&1 | tee {{playbook_dir}}/kubespray/playbook.log
+                exit ${PIPESTATUS[0]}
+              register: outputs
+            - name: print kubespray outputs
+              debug:
+                var: (outputs.stderr|default('')).split('\n')|union(outputs.stdout_lines|default([]))
+              failed_when: outputs|failed
+              when: outputs is defined
