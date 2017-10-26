@@ -68,6 +68,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  KeystoneLogging:
+    type: OS::TripleO::Services::Logging::Keystone
+
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
@@ -80,6 +83,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [KeystoneBase, role_data, config_settings]
+          - get_attr: [KeystoneLogging, config_settings]
           - apache::default_vhost: false
       logging_source: {get_attr: [KeystoneBase, role_data, logging_source]}
       logging_groups: {get_attr: [KeystoneBase, role_data, logging_groups]}
@@ -120,16 +124,19 @@ outputs:
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
-          keystone_init_log:
-            image: &keystone_image {get_param: DockerKeystoneImage}
-            user: root
-            command: ['/bin/bash', '-c', 'chown -R keystone:keystone /var/log/keystone']
-            volumes:
-              - /var/log/containers/keystone:/var/log/keystone
-              - /var/log/containers/httpd/keystone:/var/log/httpd
+          map_merge:
+          -
+            keystone_init_log:
+              start_order: 1
+              image: {get_param: DockerKeystoneImage}
+              user: root
+              command: ['/bin/bash', '-c', 'chown -R keystone:keystone /var/log/keystone']
+              volumes:
+                get_attr: [KeystoneLogging, volumes]
+          - get_attr: [KeystoneLogging, docker_config, step_2]
         step_3:
           keystone_db_sync:
-            image: *keystone_image
+            image: &keystone_image {get_param: DockerKeystoneImage}
             net: host
             user: root
             privileged: false
@@ -137,11 +144,10 @@ outputs:
             volumes: &keystone_volumes
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/keystone:/var/log/keystone
-                  - /var/log/containers/httpd/keystone:/var/log/httpd
                   -
                     if:
                       - internal_tls_enabled
@@ -184,11 +190,10 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/keystone:/var/log/keystone
-                  - /var/log/containers/httpd/keystone:/var/log/httpd
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       docker_puppet_tasks:
@@ -198,14 +203,7 @@ outputs:
           puppet_tags: 'keystone_config,keystone_domain_config,keystone_endpoint,keystone_identity_provider,keystone_paste_ini,keystone_role,keystone_service,keystone_tenant,keystone_user,keystone_user_role,keystone_domain'
           step_config: 'include ::tripleo::profile::base::keystone'
           config_image: *keystone_config_image
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/keystone
-            - /var/log/containers/httpd/keystone
+      host_prep_tasks: {get_attr: [KeystoneLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Stop and disable keystone service (running under httpd)
           tags: step2
