@@ -34,6 +34,12 @@ parameters:
     default: 'false'
     description: Set to true to enable package installation at deploy time
     type: boolean
+  FastForwardRepoType:
+    default: 'tripleo-repos'
+    type: string
+  FastForwardRepoArgs:
+    default: {'tripleo_repos': [{'release': 'ocata', 'args': '-b ocata current'}, {'release': 'pike', 'args': '-b pike current'}]}
+    type: json
 
 outputs:
   role_data:
@@ -88,4 +94,31 @@ outputs:
           when: (step|int == 0 or step|int == 3) and yum_pid_file.stat.exists
         - name: Update all packages
           yum: name=* state=latest update_cache=yes  # cache for tripleo/+bug/1703830
+          when: step == "3"
+      fast_forward_upgrade_tasks:
+        - name: Register repo type and args
+          set_fact:
+            fast_forward_repo_type: {get_param: FastForwardRepoType}
+            fast_forward_repo_args: {get_param: FastForwardRepoArgs}
           when: step|int == 3
+        - debug:
+            msg: "fast_forward_repo_type: {{ fast_forward_repo_type }} fast_forward_repo_args: {{ fast_forward_repo_args }}"
+          when: step|int == 3
+        - block:
+            - name: clone tripleo-repos
+              git:
+                repo: https://github.com/openstack/tripleo-repos.git
+                dest: /home/stack/tripleo-repos/
+            - name: install tripleo-repos
+              command: python setup.py install
+              args:
+                chdir: /home/stack/tripleo-repos/
+            - name: Enable tripleo-repos
+              command: tripleo-repos {{ cmd_args | join(' ') }}
+              vars:
+                query: "tripleo_repos[?release=='{{release}}'].args"
+                cmd_args: "{{ fast_forward_repo_args | json_query(query) }}"
+          when:
+          - step|int == 3
+          - is_bootstrap_node|bool
+          - fast_forward_repo_type == 'tripleo-repos'
