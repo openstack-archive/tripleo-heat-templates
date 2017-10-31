@@ -353,26 +353,30 @@ function update_os_net_config() {
   if [ -n "${need_update}" ]; then
       yum -q -y update os-net-config
       local return_code=$?
-      log_debug "yum update os-net-config return code: $return_code"
-
-      # We're just make sure that os-net-config won't ifdown/ifup
-      # network interfaces.  The current set of changes (Tue Oct 3
-      # 17:38:37 CEST 2017) doesn't require the os-net-config change
-      # to be taken live.  They will be at next reboot.
-      os-net-config --no-activate -c /etc/os-net-config/config.json -v \
-                    --detailed-exit-codes
-      local os_net_retval=$?
-      if [[ $os_net_retval == 2 ]]; then
-          log_debug "os-net-config: interface configuration files updated successfully"
-      elif [[ $os_net_retval != 0 ]]; then
-          log_debug "ERROR: os-net-config configuration failed"
-          exit $os_net_retval
+      echo "`date` yum update os-net-config return code: $return_code"
+      if [ -s "/etc/os-net-config/config.json" ]; then
+          # We're just make sure that os-net-config won't ifdown/ifup
+          # network interfaces.  The current set of changes (Tue Oct 3
+          # 17:38:37 CEST 2017) doesn't require the os-net-config change
+          # to be taken live.  They will be at next reboot.
+          os-net-config --no-activate -c /etc/os-net-config/config.json -v \
+                        --detailed-exit-codes
+          local os_net_retval=$?
+          if [[ $os_net_retval == 2 ]]; then
+              echo "`date` os-net-config: interface configuration files updated successfully"
+          elif [[ $os_net_retval != 0 ]]; then
+              echo "`date` ERROR: os-net-config configuration failed"
+              exit $os_net_retval
+          fi
+      else
+          echo "`date` /etc/os-net-config/config.json doesn't exist or is empty.  No need to run os-net-config."
       fi
   fi
   set -e
 }
 
 function update_network() {
+    update_os_net_config
     # special case https://bugs.launchpad.net/tripleo/+bug/1635205 +bug/1669714
     special_case_ovs_upgrade_if_needed
 }

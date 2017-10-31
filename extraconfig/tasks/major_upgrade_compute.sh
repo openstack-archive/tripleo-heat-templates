@@ -19,6 +19,7 @@ set -eu
 crudini  --set /etc/nova/nova.conf upgrade_levels compute $upgrade_level_nova_compute
 
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1669714
+$(declare -f update_os_net_config)
 $(declare -f special_case_ovs_upgrade_if_needed)
 $(declare -f update_network)
 update_network
