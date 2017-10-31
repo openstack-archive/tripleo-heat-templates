@@ -116,8 +116,8 @@ function deactivate_cleanup_services {
         local sysconfig_name=${service%-clone}
         # This is loaded by /usr/lib/ocf/lib/neutron/neutron-{ovs,netns}-cleanup
         echo "exec=/bin/echo" >> /etc/sysconfig/${sysconfig_name}
-        sed -i.orig -e 's/clean --force/clean/' /usr/lib/ocf/lib/neutron/neutron-netns-cleanup
     done
+    sed -i.orig -e 's/clean --force/clean/' /usr/lib/ocf/lib/neutron/neutron-netns-cleanup
 }
 
 function restore_cleanup_service_definition {
