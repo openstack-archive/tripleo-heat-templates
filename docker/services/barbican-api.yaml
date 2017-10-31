@@ -66,6 +66,10 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  BarbicanApiLogging:
+    type: OS::TripleO::Services::Logging::BarbicanApi
+
+
 outputs:
   role_data:
     description: Role data for the Barbican API role.
@@ -74,6 +78,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [BarbicanApiBase, role_data, config_settings]
+          - get_attr: [BarbicanApiLogging, config_settings]
           - apache::default_vhost: false
       logging_source: {get_attr: [BarbicanApiBase, role_data, logging_source]}
       logging_groups: {get_attr: [BarbicanApiBase, role_data, logging_groups]}
@@ -99,27 +104,30 @@ outputs:
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
-          barbican_init_logs:
-            image: &barbican_api_image {get_param: DockerBarbicanApiImage}
-            privileged: false
-            user: root
-            volumes:
-              - /var/log/containers/barbican:/var/log/barbican
-            command: ['/bin/bash', '-c', 'chown -R barbican:barbican /var/log/barbican']
+          get_attr: [BarbicanApiLogging, docker_config, step_2]
         step_3:
           barbican_api_db_sync:
             start_order: 0
-            image: *barbican_api_image
+            image: &barbican_api_image {get_param: DockerBarbicanApiImage}
             net: host
             detach: false
             user: root
             volumes: &barbican_api_volumes
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [BarbicanApiLogging, volumes]}
                 -
                   - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
-                  - /var/log/containers/barbican:/var/log/barbican
-            command: "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage db upgrade'"
+            command:
+              # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
+              # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
+              # final single quote that's part of the list_join.
+              list_join:
+              - ' '
+              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                - "db upgrade"
+                - "'"
         step_4:
           barbican_api:
             image: *barbican_api_image
@@ -130,9 +138,9 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [BarbicanApiLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/barbican_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/log/containers/barbican:/var/log/barbican
                   - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
                   -
                     if:
@@ -146,18 +154,7 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: /var/log/containers/barbican
-            state: directory
-        - name: barbican logs readme
-          copy:
-            dest: /var/log/barbican/readme.txt
-            content: |
-              Log files from barbican containers can be found under
-              /var/log/containers/barbican.
-          ignore_errors: true
+      host_prep_tasks: {get_attr: [BarbicanApiLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Stop and disable barbican_api service
           tags: step2
