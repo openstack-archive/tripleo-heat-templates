@@ -40,6 +40,11 @@ parameters:
     default: /dev/log
     description: Syslog address where HAproxy will send its log
     type: string
+  SSLCertificate:
+    default: ''
+    description: >
+      The content of the SSL certificate (without Key) in PEM format.
+    type: string
   DeployedSSLCertificatePath:
     default: '/etc/pki/tls/private/overcloud_endpoint.pem'
     description: >
@@ -72,6 +77,11 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  public_tls_enabled:
+    not:
+      equals:
+      - {get_param: SSLCertificate}
+      - ""
 
 resources:
 
@@ -114,11 +124,14 @@ outputs:
         config_image: {get_param: DockerHAProxyConfigImage}
         volumes:
           list_concat:
-          - - list_join:
-              - ':'
-              - - {get_param: DeployedSSLCertificatePath}
-                - {get_param: DeployedSSLCertificatePath}
-                - 'ro'
+          - if:
+            - public_tls_enabled
+            - - list_join:
+                - ':'
+                - - {get_param: DeployedSSLCertificatePath}
+                  - {get_param: DeployedSSLCertificatePath}
+                  - 'ro'
+            - null
           - if:
             - internal_tls_enabled
             - - /etc/pki/tls/certs/haproxy:/etc/pki/tls/certs/haproxy:ro
@@ -193,11 +206,14 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
-                  - list_join:
-                    - ':'
-                    - - {get_param: DeployedSSLCertificatePath}
-                      - {get_param: DeployedSSLCertificatePath}
-                      - 'ro'
+                - if:
+                  - public_tls_enabled
+                  - - list_join:
+                      - ':'
+                      - - {get_param: DeployedSSLCertificatePath}
+                        - {get_param: DeployedSSLCertificatePath}
+                        - 'ro'
+                  - null
                 -
                   if:
                     - internal_tls_enabled
