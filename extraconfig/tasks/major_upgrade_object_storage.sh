@@ -23,6 +23,7 @@ function systemctl_swift {
     done
 }
 
+$(declare -f update_os_net_config)
 $(declare -f special_case_ovs_upgrade_if_needed)
 $(declare -f update_network)
 update_network

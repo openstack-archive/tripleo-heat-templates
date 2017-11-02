@@ -111,8 +111,7 @@ if [ $DO_MYSQL_UPGRADE -eq 1 ]; then
     mv /var/lib/mysql $MYSQL_TEMP_UPGRADE_BACKUP_DIR
 fi
 
-update_os_net_config
-# Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1669714
+# Special-case for network.
 update_network
 
 if grep -q '^pipeline = ssl_header_handler faultwrap osvolumeversionapp' /etc/cinder/api-paste.ini; then
