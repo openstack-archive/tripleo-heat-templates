@@ -36,6 +36,16 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MistralWorkers:
+    default: 1
+    description: The number of workers for the mistral-api.
+    type: number
+  MistralApiPolicies:
+    description: |
+      A hash of policies to configure for Mistral API.
+      e.g. { mistral-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
 
 resources:
 
@@ -44,6 +54,16 @@ resources:
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
+
+  MistralBase:
+    type: ../../puppet/services/mistral-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
   MistralApiBase:
     type: ../../puppet/services/mistral-api.yaml
@@ -60,9 +80,23 @@ outputs:
     description: Role data for the Mistral API role.
     value:
       service_name: {get_attr: [MistralApiBase, role_data, service_name]}
+      # FIXME(mandre) restore once mistral-api image has the necessary packages
+      # to run on top of apache
+      # config_settings:
+      #   map_merge:
+      #     - get_attr: [MistralApiBase, role_data, config_settings]
       config_settings:
         map_merge:
-          - get_attr: [MistralApiBase, role_data, config_settings]
+          - get_attr: [MistralBase, role_data, config_settings]
+          - mistral::api::api_workers: {get_param: MistralWorkers}
+            mistral::api::bind_host: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            mistral::policy::policies: {get_param: MistralApiPolicies}
+            tripleo.mistral_api.firewall_rules:
+              '133 mistral':
+                dport:
+                  - 8989
+                  - 13989
+            mistral_wsgi_enabled: false
       logging_source: {get_attr: [MistralApiBase, role_data, logging_source]}
       logging_groups: {get_attr: [MistralApiBase, role_data, logging_groups]}
       step_config: &step_config
