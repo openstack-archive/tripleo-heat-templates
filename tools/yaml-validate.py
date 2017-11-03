@@ -46,7 +46,10 @@ OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
 # consistency across files on.  This should only contain parameters whose
 # definition we cannot change for backwards compatibility reasons.  New
 # parameters to the templates should not be added to this list.
-PARAMETER_DEFINITION_EXCLUSIONS = {'ManagementNetCidr': ['default'],
+PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
+                                                 'type',
+                                                 'default'],
+                                   'ManagementNetCidr': ['default'],
                                    'ManagementAllocationPools': ['default'],
                                    'ExternalNetCidr': ['default'],
                                    'ExternalAllocationPools': ['default'],
