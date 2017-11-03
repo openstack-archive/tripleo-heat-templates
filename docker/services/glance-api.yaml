@@ -48,6 +48,16 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  GlanceNfsShare:
+    default: ''
+    description: >
+      NFS share to mount for image storage (when GlanceNfsEnabled is true)
+    type: string
+  GlanceNfsOptions:
+    default: 'intr,context=system_u:object_r:glance_var_lib_t:s0'
+    description: >
+      NFS mount options for image storage (when GlanceNfsEnabled is true)
+    type: string
 
 conditions:
 
@@ -108,6 +118,10 @@ outputs:
               dest: "/etc/ceph/"
               merge: true
               preserve_properties: true
+          permissions:
+            - path: /var/lib/glance
+              owner: glance:glance
+              recurse: true
         /var/lib/kolla/config_files/glance_api_tls_proxy.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
@@ -182,6 +196,15 @@ outputs:
                       - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
                 - {}
       host_prep_tasks:
+        - name: Mount NFS on host
+          vars:
+            nfs_backend_enable: {get_param: GlanceNfsEnabled}
+          mount: name=/var/lib/glance src="{{item.NFS_SHARE}}" fstype=nfs4 opts="{{item.NFS_OPTIONS}}" state=mounted
+          with_items:
+            - NFS_SHARE: {get_param: GlanceNfsShare}
+              NFS_OPTIONS: {get_param: GlanceNfsOptions}
+          when:
+            - nfs_backend_enable
         - name: create persistent logs directory
           file:
             path: "{{ item }}"
