@@ -23,6 +23,8 @@ proxy_port=
 proxy_url=
 proxy_username=
 proxy_password=
+curl_opts="--retry-delay 10 --max-time 30 --retry ${retry_max_count} --cacert /etc/rhsm/ca/redhat-uep.pem"
+portal_test_url="https://$(crudini --get /etc/rhsm/rhsm.conf server hostname)/subscription/"
 
 # process variables..
 if [ -n "${REG_AUTO_ATTACH:-}" ]; then
@@ -129,12 +131,14 @@ if [ -n "${REG_HTTP_PROXY_HOST:-}" ]; then
         # Good both values are not empty
         proxy_url="http://${proxy_host}:${proxy_port}"
         config_opts="--server.proxy_hostname=${proxy_host} --server.proxy_port=${proxy_port}"
-        sat5_opts="${sat5_opts} --proxy_hostname=${proxy_url}"
+        sat5_opts="${sat5_opts} --proxy=${proxy_url}"
+        curl_opts="${curl_opts} -x http://${proxy_host}:${proxy_port}"
         echo "RHSM Proxy set to: ${proxy_url}"
         if [ -n "${REG_HTTP_PROXY_USERNAME:-}" ]; then
             if [ -n "${REG_HTTP_PROXY_PASSWORD:-}" ]; then
                 config_opts="${config_opts} --server.proxy_user=${proxy_username} --server.proxy_password=${proxy_password}"
                 sat5_opts="${sat5_opts} --proxyUser=${proxy_username} --proxyPassword=${proxy_password}"
+                curl_opts="${curl_opts} --proxy-user ${proxy_username}:${proxy_password}"
             else
                 echo "Warning: REG_HTTP_PROXY_PASSWORD cannot be null with non-empty REG_HTTP_PROXY_USERNAME! Skipping..."
                 proxy_username= ; proxy_password=
@@ -187,10 +191,10 @@ function retry() {
 }
 
 function detect_satellite_server {
-    if curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm | grep "200 OK"; then
+    if curl ${curl_opts} -L -k -s -D - -o /dev/null $REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm | grep "200 OK"; then
         echo Satellite 6 or beyond with Katello API detected at $REG_SAT_URL
         katello_api_enabled=1
-    elif curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
+    elif curl ${curl_opts} -L -k -s -D - -o /dev/null $REG_SAT_URL/rhn/Login.do | grep "200 OK"; then
         echo Satellite 5 with RHN detected at $REG_SAT_URL
         katello_api_enabled=0
     else
@@ -199,7 +203,13 @@ function detect_satellite_server {
     fi
 }
 
-if [ "x${proxy_url}" != "x" ];then
+if [ "x${proxy_url}" != "x" ]; then
+    # Before everything, we want to make sure the proxy can be reached
+    # Note: no need to manage retries, already done by retry() function.
+    echo "Testing proxy connectivity..."
+    retry bash -c "</dev/tcp/${proxy_host}/${proxy_port}"
+    echo "Proxy ${proxy_url} is reachable!"
+
     # Config subscription-manager for proxy
     subscription-manager config ${config_opts}
 
@@ -222,6 +232,22 @@ fi
 
 case "${REG_METHOD:-}" in
     portal)
+        # First test curl to RHSM through the specified proxy
+
+        if curl ${curl_opts} -L -s -D - -o /dev/null ${portal_test_url}|grep '200 OK'; then
+           if [ "x${proxy_url}" = "x" ]; then
+               echo "Access to RHSM portal OK, continuing..."
+           else
+               echo "Access to RHSM portal through proxy ${proxy_url} OK, continuing..."
+           fi
+        else
+           if [ "x${proxy_url}" = "x" ]; then
+               echo "Unable to access RHSM portal! Please check your parameters."
+           else
+               echo "Unable to access RHSM portal through configured HTTP proxy (${proxy_url}) ! Please check your parameters."
+           fi
+           exit 1
+        fi
         retry subscription-manager register $opts
         if [ -z "${REG_AUTO_ATTACH:-}" -a -z "${REG_ACTIVATION_KEY:-}" ]; then
             retry subscription-manager attach $attach_opts
@@ -233,7 +259,7 @@ case "${REG_METHOD:-}" in
         detect_satellite_server
         if [ "$katello_api_enabled" = "1" ]; then
             repos="$repos --enable ${satellite_repo}"
-            curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -L -k -O "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm"
+            curl ${curl_opts} -L -k -O "$REG_SAT_URL/pub/katello-ca-consumer-latest.noarch.rpm"
 
             # https://bugs.launchpad.net/tripleo/+bug/1711435
             # Delete the /etc/rhsm/facts directory entirely so that the
@@ -255,7 +281,7 @@ case "${REG_METHOD:-}" in
             mkdir -p /etc/rhsm/facts
         else
             pushd /usr/share/rhn/
-            curl --retry ${retry_max_count} --retry-delay 10 --max-time 30 -k -O $REG_SAT_URL/pub/RHN-ORG-TRUSTED-SSL-CERT
+            curl ${curl_opts} -k -O $REG_SAT_URL/pub/RHN-ORG-TRUSTED-SSL-CERT
             popd
             retry rhnreg_ks --serverUrl=$REG_SAT_URL/XMLRPC $sat5_opts
         fi
