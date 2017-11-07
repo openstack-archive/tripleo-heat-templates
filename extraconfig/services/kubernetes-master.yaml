@@ -64,13 +64,25 @@ outputs:
               stat:
                 path: /usr/share/kubespray
               register: kubespray_stat
+            - set_fact:
+                kubespray_dir: >-
+                  {%- if kubespray_stat.stat.exists -%}
+                    /usr/share/kubespray
+                  {%- elif ansible_user_id == 'mistral' -%}
+                    /var/lib/mistral/kubespray
+                  {%- else -%}
+                    {{ ansible_user_dir }}/kubespray
+                  {%- endif -%}
+            - name: check cloned kubespray directory existence
+              stat:
+                path: "{{ kubespray_dir }}"
+              register: kubespray_cloned_stat
+              when: not kubespray_stat.stat.exists
             - name: clone kubespray repo
               git:
                 repo: https://github.com/kubernetes-incubator/kubespray
-                dest: /usr/share/kubespray
+                dest: "{{ kubespray_dir }}"
                 update: no
-              become: yes
-              become_user: root
               when: not kubespray_stat.stat.exists
         - name: kubernetes_master step 2
           when: step == '2'
@@ -122,7 +134,7 @@ outputs:
               copy:
                 dest: "{{playbook_dir}}/kubespray/playbook.yml"
                 content: |
-                  - include: /usr/share/kubespray/cluster.yml
+                  - include: {{ kubespray_dir|default('/usr/share/kubespray') }}/cluster.yml
             - name: set kubespray command
               set_fact:
                 # NOTE: We could let kubespray configure docker
