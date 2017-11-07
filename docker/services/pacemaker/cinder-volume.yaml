@@ -69,7 +69,8 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
-          - tripleo::profile::pacemaker::cinder::volume_bundle::cinder_volume_docker_image: &cinder_volume_image_pcmklatest
+          - tripleo::profile::base::lvm::enable_udev: false
+            tripleo::profile::pacemaker::cinder::volume_bundle::cinder_volume_docker_image: &cinder_volume_image_pcmklatest
               list_join:
                 - ':'
                 - - yaql:
@@ -81,21 +82,35 @@ outputs:
             cinder::host: hostgroup
       logging_source: {get_attr: [CinderBase, role_data, logging_source]}
       logging_groups: {get_attr: [CinderBase, role_data, logging_groups]}
-      step_config: ""
+      step_config: &step_config
+        list_join:
+          - "\n"
+          - - "include ::tripleo::profile::base::lvm"
+            - get_attr: [CinderBase, role_data, step_config]
+            - get_attr: [MySQLClient, role_data, step_config]
       service_config_settings: {get_attr: [CinderBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: cinder
         puppet_tags: cinder_config,file,concat,file_line
-        step_config:
-          list_join:
-            - "\n"
-            - - {get_attr: [CinderBase, role_data, step_config]}
-              - {get_attr: [MySQLClient, role_data, step_config]}
+        step_config: *step_config
         config_image: {get_param: DockerCinderConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/cinder_volume.json:
           command: /usr/bin/cinder-volume --config-file /usr/share/cinder/cinder-dist.conf --config-file /etc/cinder/cinder.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-ceph/"
+              dest: "/etc/ceph/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-iscsid/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
           permissions:
             - path: /var/log/cinder
               owner: cinder:cinder
@@ -167,7 +182,13 @@ outputs:
           with_items:
             - /var/log/containers/cinder
             - /var/lib/cinder
-        #FIXME: all of this should be conditional on the CinderEnableIscsiBackend value being set to true
+        - name: ensure ceph configurations exist
+          file:
+            path: /etc/ceph
+            state: directory
+        - name: cinder_enable_iscsi_backend fact
+          set_fact:
+            cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
         - name: cinder create LVM volume group dd
           command:
             list_join:
@@ -180,6 +201,7 @@ outputs:
               - 'M'
           args:
             creates: /var/lib/cinder/cinder-volumes
+          when: cinder_enable_iscsi_backend
         - name: cinder create LVM volume group
           shell: |
             if ! losetup /dev/loop2; then
@@ -194,6 +216,7 @@ outputs:
           args:
             executable: /bin/bash
             creates: /dev/loop2
+          when: cinder_enable_iscsi_backend
       upgrade_tasks:
         - name: get bootstrap nodeid
           tags: common
