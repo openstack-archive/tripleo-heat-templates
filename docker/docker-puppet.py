@@ -273,10 +273,10 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--env', 'HOSTNAME=%s' % short_hostname(),
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
-                '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
-                '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
-                '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro',
-                '--volume', '%s:/var/lib/config-data/:rw' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
+                '--volume', '%s:/etc/config.pp:ro,z' % tmp_man.name,
+                '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro,z',
+                '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z',
+                '--volume', '%s:/var/lib/config-data/:z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
                 '--volume', 'tripleo_logs:/var/log/tripleo/',
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log',
@@ -286,7 +286,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
                 # script injection
-                '--volume', '%s:%s:rw' % (sh_script, sh_script) ]
+                '--volume', '%s:%s:z' % (sh_script, sh_script) ]
 
         for volume in volumes:
             if volume:
