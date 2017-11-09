@@ -225,8 +225,14 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         touch /tmp/the_origin_of_time
         sync
 
+        set +e
         FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply \
-        --color=false --logdest syslog --logdest console $TAGS /etc/config.pp
+        --detailed-exitcodes --color=false --logdest syslog --logdest console $TAGS /etc/config.pp
+        rc=$?
+        set -e
+        if [ $rc -ne 2 -a $rc -ne 0 ]; then
+            exit $rc
+        fi
 
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
@@ -307,7 +313,9 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
         cmd_stdout, cmd_stderr = subproc.communicate()
-        if subproc.returncode != 0:
+        # puppet with --detailed-exitcodes will return 0 for success and no changes
+        # and 2 for success and resource changes. Other numbers are failures
+        if subproc.returncode not in [0, 2]:
             log.error('Failed running docker-puppet.py for %s' % config_volume)
             if cmd_stdout:
                 log.error(cmd_stdout)
@@ -355,7 +363,7 @@ returncodes = list(p.map(mp_puppet_config, process_map))
 config_volumes = [pm[0] for pm in process_map]
 success = True
 for returncode, config_volume in zip(returncodes, config_volumes):
-    if returncode != 0:
+    if returncode not in [0, 2]:
         log.error('ERROR configuring %s' % config_volume)
         success = False
 
