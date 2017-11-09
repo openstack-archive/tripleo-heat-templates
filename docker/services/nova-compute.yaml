@@ -68,13 +68,21 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaLogging:
+    type: OS::TripleO::Services::Logging::NovaCommon
+    properties:
+      DockerNovaImage: {get_param: DockerNovaComputeImage}
+      NovaServiceName: 'compute'
+
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
     value:
       service_name: {get_attr: [NovaComputeBase, role_data, service_name]}
       config_settings:
-        get_attr: [NovaComputeBase, role_data, config_settings]
+        map_merge:
+          - get_attr: [NovaComputeBase, role_data, config_settings]
+          - get_attr: [NovaLogging, config_settings]
       logging_source: {get_attr: [NovaComputeBase, role_data, logging_source]}
       logging_groups: {get_attr: [NovaComputeBase, role_data, logging_groups]}
       step_config: &step_config
@@ -89,7 +97,11 @@ outputs:
         config_image: {get_param: DockerNovaLibvirtConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/nova_compute.json:
-          command: /usr/bin/nova-compute --config-file /etc/nova/nova.conf --config-file /etc/nova/rootwrap.conf
+          command:
+            list_join:
+            - ' '
+            - - /usr/bin/nova-compute --config-file /etc/nova/nova.conf --config-file /etc/nova/rootwrap.conf
+              - get_attr: [NovaLogging, cmd_extra_args]
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -125,6 +137,7 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
@@ -135,24 +148,24 @@ outputs:
                   - /run:/run
                   - /var/lib/nova:/var/lib/nova:shared
                   - /var/lib/libvirt:/var/lib/libvirt
-                  - /var/log/containers/nova:/var/log/nova
                   - /sys/class/net:/sys/class/net
                   - /sys/bus/pci:/sys/bus/pci
             environment:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
-        - name: create persistent directories
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/nova
-            - /var/lib/nova
-            - /var/lib/libvirt
-        - name: ensure ceph configurations exist
-          file:
-            path: /etc/ceph
-            state: directory
+        list_concat:
+        - {get_attr: [NovaLogging, host_prep_tasks]}
+        - - name: create persistent directories
+            file:
+              path: "{{ item }}"
+              state: directory
+            with_items:
+              - /var/lib/nova
+              - /var/lib/libvirt
+          - name: ensure ceph configurations exist
+            file:
+              path: /etc/ceph
+              state: directory
       upgrade_tasks:
         - name: Set compute upgrade level to auto
           tags: step1
