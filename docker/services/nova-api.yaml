@@ -169,6 +169,18 @@ outputs:
             done
             echo "(cellv2) Running host discovery..."
             su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 discover_hosts --verbose"
+        nova_api_ensure_default_cell.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            DEFID=$(nova-manage cell_v2 list_cells | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}')
+            if [ "$DEFID" ]; then
+              echo "(cellv2) Updating default cell_v2 cell $DEFID"
+              su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 update_cell --cell_uuid $DEFID --name=default"
+            else
+              echo "(cellv2) Creating default cell_v2 cell"
+              su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 create_cell --name=default"
+            fi
       docker_config:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
@@ -187,9 +199,6 @@ outputs:
                   - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                   - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
-          # FIXME: we probably want to wait on the 'cell_v2 update' in order for this
-          # to be capable of upgrading a baremetal setup. This is to ensure the name
-          # of the cell is 'default'
           nova_api_map_cell0:
             start_order: 1
             image: *nova_api_image
@@ -198,18 +207,21 @@ outputs:
             user: root
             volumes: *nova_api_bootstrap_volumes
             command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0'"
-          nova_api_create_default_cell:
+          nova_api_ensure_default_cell:
             start_order: 2
             image: *nova_api_image
             net: host
             detach: false
-            volumes: *nova_api_bootstrap_volumes
-            # NOTE: allowing the exit code 2 is a dirty way of making
-            # this idempotent (if the resource already exists a conflict
-            # is raised)
-            exit_codes: [0,2]
+            volumes:
+              list_concat:
+                - *nova_api_bootstrap_volumes
+                -
+                  - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
+                  - /var/lib/docker-config-scripts/nova_api_ensure_default_cell.sh:/nova_api_ensure_default_cell.sh:ro
             user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 create_cell --name=default'"
+            command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
           nova_db_sync:
             start_order: 3
             image: *nova_api_image
