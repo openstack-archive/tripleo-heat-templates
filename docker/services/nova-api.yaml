@@ -117,6 +117,58 @@ outputs:
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
+      docker_config_scripts:
+        nova_api_discover_hosts.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            export OS_PROJECT_DOMAIN_NAME=$(crudini --get /etc/nova/nova.conf keystone_authtoken project_domain_name)
+            export OS_USER_DOMAIN_NAME=$(crudini --get /etc/nova/nova.conf keystone_authtoken user_domain_name)
+            export OS_PROJECT_NAME=$(crudini --get /etc/nova/nova.conf keystone_authtoken project_name)
+            export OS_USERNAME=$(crudini --get /etc/nova/nova.conf keystone_authtoken username)
+            export OS_PASSWORD=$(crudini --get /etc/nova/nova.conf keystone_authtoken password)
+            export OS_AUTH_URL=$(crudini --get /etc/nova/nova.conf keystone_authtoken auth_url)
+            export OS_AUTH_TYPE=password
+            export OS_IDENTITY_API_VERSION=3
+
+            echo "(cellv2) Running cell_v2 host discovery"
+            timeout=600
+            loop_wait=30
+            declare -A discoverable_hosts
+            for host in $(hiera -c /etc/puppet/hiera.yaml cellv2_discovery_hosts | sed -e '/^nil$/d' |  tr "," " "); do discoverable_hosts[$host]=1; done
+            timeout_at=$(( $(date +"%s") + ${timeout} ))
+            echo "(cellv2) Waiting ${timeout} seconds for hosts to register"
+            finished=0
+            while : ; do
+              for host in $(openstack -q compute service list -c 'Host' -c 'Zone' -f value | awk '$2 != "internal" { print $1 }'); do
+                if (( discoverable_hosts[$host] == 1 )); then
+                  echo "(cellv2) compute node $host has registered"
+                  unset discoverable_hosts[$host]
+                fi
+              done
+              finished=1
+              for host in "${!discoverable_hosts[@]}"; do
+                if (( ${discoverable_hosts[$host]} == 1 )); then
+                  echo "(cellv2) compute node $host has not registered"
+                  finished=0
+                fi
+              done
+              remaining=$(( $timeout_at - $(date +"%s") ))
+              if (( $finished == 1 )); then
+                echo "(cellv2) All nodes registered"
+                break
+              elif (( $remaining <= 0 )); then
+                echo "(cellv2) WARNING: timeout waiting for nodes to register, running host discovery regardless"
+                echo "(cellv2) Expected host list:" $(hiera -c /etc/puppet/hiera.yaml cellv2_discovery_hosts | sed -e '/^nil$/d' | sort -u |  tr ',' ' ')
+                echo "(cellv2) Detected host list:" $(openstack -q compute service list -c 'Host' -c 'Zone' -f value | awk '$2 != "internal" { print $1 }' | sort -u | tr '\n', ' ')
+                break
+              else
+                echo "(cellv2) Waiting ${remaining} seconds for hosts to register"
+                sleep $loop_wait
+              fi
+            done
+            echo "(cellv2) Running host discovery..."
+            su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 discover_hosts --verbose"
       docker_config:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
@@ -216,9 +268,16 @@ outputs:
             image: *nova_api_image
             net: host
             detach: false
-            volumes: *nova_api_bootstrap_volumes
+            volumes:
+              list_concat:
+                - *nova_api_bootstrap_volumes
+                -
+                  - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
+                  - /var/lib/docker-config-scripts/nova_api_discover_hosts.sh:/nova_api_discover_hosts.sh:ro
             user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 discover_hosts --verbose'"
+            command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_discover_hosts.sh"
       metadata_settings:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
