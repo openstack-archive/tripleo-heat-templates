@@ -60,6 +60,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  HeatApiCfnLogging:
+    type: OS::TripleO::Services::Logging::HeatApiCfn
+
 outputs:
   role_data:
     description: Role data for the Heat API CFN role.
@@ -68,6 +71,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [HeatBase, role_data, config_settings]
+          - get_attr: [HeatApiCfnLogging, config_settings]
           - apache::default_vhost: false
       logging_source: {get_attr: [HeatBase, role_data, logging_source]}
       logging_groups: {get_attr: [HeatBase, role_data, logging_groups]}
@@ -93,6 +97,8 @@ outputs:
               owner: heat:heat
               recurse: true
       docker_config:
+        step_2:
+          get_attr: [HeatApiCfnLogging, docker_config, step_2]
         step_4:
           heat_api_cfn:
             image: {get_param: DockerHeatApiCfnImage}
@@ -107,11 +113,10 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [HeatApiCfnLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/heat_api_cfn.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/heat_api_cfn/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/heat:/var/log/heat
-                  - /var/log/containers/httpd/heat-api-cfn:/var/log/httpd
                   -
                     if:
                       - internal_tls_enabled
@@ -124,14 +129,7 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/heat
-            - /var/log/containers/httpd/heat-api-cfn
+      host_prep_tasks: {get_attr: [HeatApiCfnLogging, host_prep_tasks]}
       upgrade_tasks:
         - name: Check if heat_api_cfn is deployed
           command: systemctl is-enabled openstack-heat-api-cfn
