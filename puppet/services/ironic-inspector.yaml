@@ -41,6 +41,30 @@ parameters:
     default: false
     description: Set to True to enable debugging on all services.
     type: boolean
+  IronicInspectorDiscoveryDefaultDriver:
+    default: 'ipmi'
+    description: |
+      The default driver to use for newly discovered nodes
+      (requires IronicInspectorEnableNodeDiscovery set to True). This
+      driver is automatically added to enabled_drivers.
+    type: string
+  IronicInspectorEnableNodeDiscovery:
+    default: false
+    description: |
+      Makes ironic-inspector enroll any unknown node that PXE-boots
+      introspection ramdisk in Ironic. The default driver to use for new nodes
+      is specified by the IronicInspectorDiscoveryDefaultDriver parameter.
+      Introspection rules can also be used to specify it.
+    type: boolean
+  IronicInspectorCollectors:
+    default: default,logs
+    description: Comma-separated list of IPA inspection collectors
+    type: string
+  IronicInspectorExtraProcessingHooks:
+    default: extra_hardware,lldp_basic,local_link_connection
+    description: |
+        Comma-separated list of processing hooks to append to the default list.
+    type: string
   IronicInspectorInterface:
     default: br-ex
     description: |
@@ -52,6 +76,10 @@ parameters:
     default: true
     description: Whether to use iPXE for inspection.
     type: boolean
+  IronicInspectorKernelArgs:
+    default: 'ipa-inspection-dhcp-all-interfaces=1 ipa-collect-lldp=1 ipa-debug=1'
+    description: Kernel args for the Ironic inspector.
+    type: string
   IronicInspectorIpRange:
     description: |
         Temporary IP range that will be given to nodes during the inspection
@@ -75,6 +103,7 @@ parameters:
 conditions:
   enable_ipxe: {equals : [{get_param: IronicInspectorIPXEEnabled}, true]}
   use_swift: {equals : [{get_param: IronicInspectorUseSwift}, true]}
+  enable_node_discovery: {equals : [{get_param: IronicInspectorEnableNodeDiscovery}, true]}
 
 outputs:
   role_data:
@@ -110,6 +139,9 @@ outputs:
             ironic::inspector::ironic_user_domain_name: 'Default'
             ironic::inspector::ironic_project_domain_name: 'Default'
             ironic::inspector::http_port: {get_param: IronicIPXEPort}
+            ironic::inspector::additional_processing_hooks: {get_param: IronicInspectorExtraProcessingHooks}
+            ironic::inspector::ramdisk_collectors: {get_param: IronicInspectorCollectors}
+            ironic::inspector::ramdisk_kernel_args: {get_param: IronicInspectorKernelArgs}
             ironic::inspector::db::database_connection:
               list_join:
                 - ''
@@ -135,6 +167,12 @@ outputs:
               ironic::inspector::swift_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
               ironic::inspector::swift_user_domain_name: 'Default'
               ironic::inspector::swift_project_domain_name: 'Default'
+            - {}
+          -
+            if:
+            - enable_node_discovery
+            - ironic::inspector::node_not_found_hook: 'enroll'
+              ironic::inspector::discovery_default_driver: {get_param: IronicInspectorDiscoveryDefaultDriver}
             - {}
       step_config: |
         include ::tripleo::profile::base::ironic_inspector
