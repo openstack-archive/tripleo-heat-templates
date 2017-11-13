@@ -42,7 +42,7 @@ envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
 OPTIONAL_SECTIONS = ['workflow_tasks', 'cellv2_discovery']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
-                            'config_settings', 'step_config']
+                            'config_settings']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'post_upgrade_tasks',  'update_tasks',
                             'service_config_settings', 'host_prep_tasks',
