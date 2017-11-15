@@ -69,11 +69,26 @@ parameters:
       e.g. { ec2api-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 
 conditions:
   nova_workers_zero: {equals : [{get_param: Ec2ApiWorkers}, 0]}
   external_network_unset: {equals : [{get_param: Ec2ApiExternalNetwork}, '']}
+  use_tls_proxy: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -86,6 +101,7 @@ outputs:
         - nova
       config_settings:
         map_merge:
+        - get_attr: [TLSProxyBase, role_data, config_settings]
         - tripleo.ec2_api.firewall_rules:
             '113 ec2_api':
               dport:
@@ -99,11 +115,14 @@ outputs:
           ec2api::api::enabled: true
           ec2api::package_manage: {get_param: EnablePackageInstall}
           ec2api::api::ec2api_listen:
-            str_replace:
-              template:
-                "%{hiera('fqdn_$NETWORK')}"
-              params:
-                $NETWORK: {get_param: [ServiceNetMap, Ec2ApiNetwork]}
+            if:
+            - use_tls_proxy
+            - 'localhost'
+            - str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, Ec2ApiNetwork]}
           ec2api::metadata::metadata_listen:
             str_replace:
               template:
@@ -136,6 +155,17 @@ outputs:
           - external_network_unset
           - ec2api::api::external_network: {get_param: NovaDefaultFloatingPool}
           - ec2api::api::external_network: {get_param: Ec2ApiExternalNetwork}
+        -
+          if:
+          - use_tls_proxy
+          - tripleo::profile::base::nova::ec2api::ec2_api_tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, Ec2ApiNetwork]
+            tripleo::profile::base::nova::ec2api::ec2_api_tls_proxy_fqdn:
+              str_replace:
+                template: "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, Ec2ApiNetwork]}
+          - {}
       step_config: |
         include tripleo::profile::base::nova::ec2api
       service_config_settings:
@@ -174,4 +204,5 @@ outputs:
           tags: step3
           yum: name=openstack-ec2-api state=latest
           when: ec2_api_enabled.rc != 0
-
+      metadata_settings:
+        get_attr: [TLSProxyBase, role_data, metadata_settings]
