@@ -36,6 +36,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -86,6 +93,13 @@ outputs:
             - path: /var/log/ec2api
               owner: ec2api:ec2api
               recurse: true
+        /var/lib/kolla/config_files/ec2_api_tls_proxy.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
         /var/lib/kolla/config_files/ec2_api_metadata.json:
           command: /usr/bin/ec2-api-metadata
           config_files:
@@ -121,38 +135,58 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
+                  - /var/lib/config-data/ec2_api/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                   - /var/lib/config-data/ec2_api/etc/ec2api/:/etc/ec2api/:ro
                   - /var/log/containers/ec2_api:/var/log/ec2api
             command: "/usr/bin/bootstrap_host_exec ec2_api su ec2api -s /bin/bash -c '/usr/bin/ec2-api-manage db_sync'"
         step_4:
-          ec2_api:
-            image: *ec2_api_image
-            net: host
-            privileged: false
-            restart: always
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ec2_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/ec2_api/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/ec2_api:/var/log/ec2api
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-          ec2_api_metadata:
-            image: *ec2_api_image
-            net: host
-            privileged: false
-            restart: always
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ec2_api_metadata.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/ec2_api/:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/ec2_api_metadata:/var/log/ec2api
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          map_merge:
+            - ec2_api:
+                image: *ec2_api_image
+                net: host
+                privileged: false
+                restart: always
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/ec2_api.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/ec2_api/:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/ec2_api:/var/log/ec2api
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              ec2_api_metadata:
+                image: *ec2_api_image
+                net: host
+                privileged: false
+                restart: always
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/ec2_api_metadata.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/ec2_api/:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/ec2_api_metadata:/var/log/ec2api
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - if:
+                - internal_tls_enabled
+                - ec2_api_tls_proxy:
+                    image: *ec2_api_image
+                    net: host
+                    user: root
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/ec2_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/ec2_api/:/var/lib/kolla/config_files/src:ro
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                    environment:
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                - {}
       host_prep_tasks:
         - name: create persistent log directories
           file:
