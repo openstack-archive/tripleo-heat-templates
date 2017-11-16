@@ -218,6 +218,23 @@ def validate_hci_computehci_role(hci_role_filename, hci_role_tpl):
     return 0
 
 
+def validate_with_compute_role_services(role_filename, role_tpl, exclude_service):
+    cmpt_filename = os.path.join(os.path.dirname(role_filename),
+                                 './Compute.yaml')
+    cmpt_tpl = yaml.load(open(cmpt_filename).read())
+    cmpt_services = cmpt_tpl[0]['ServicesDefault']
+    cmpt_services = [x for x in cmpt_services if (x not in exclude_service)]
+
+    role_services = set(role_tpl[0]['ServicesDefault'])
+    missing_services = list(set(cmpt_services) - role_services)
+    if missing_services:
+        print('ERROR: ServicesDefault in {0} is missing services [{1}] from '
+              'ServicesDefault in roles/Compute.yaml'.format(role_filename,
+              ', '.join(missing_services)))
+        return 1
+    return 0
+
+
 def search(item, check_item, check_key):
     if check_item(item):
         return True
@@ -530,6 +547,17 @@ def validate(filename, param_map):
 
         if filename.startswith('./roles/ComputeHCI.yaml'):
             retval = validate_hci_computehci_role(filename, tpl)
+
+        if filename.startswith('./roles/ComputeOvsDpdk.yaml') or (
+                filename.startswith('./roles/ComputeSriov.yaml')):
+            exclude = [
+                'OS::TripleO::Services::OVNController',
+                'OS::TripleO::Services::ComputeNeutronOvsAgent',
+                'OS::TripleO::Services::Tuned',
+                'OS::TripleO::Services::NeutronVppAgent',
+                'OS::TripleO::Services::Vpp',
+                'OS::TripleO::Services::NeutronLinuxbridgeAgent']
+            retval = validate_with_compute_role_services(filename, tpl, exclude)
 
     except Exception:
         print(traceback.format_exc())
