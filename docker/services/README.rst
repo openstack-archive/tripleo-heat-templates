@@ -52,11 +52,6 @@ are re-asserted when applying latter ones.
    puppet/services templates and only need to be appended
    to on accasion if docker specific config settings are required.
 
- * step_config: This setting controls the manifest that is used to
-   create docker config files via puppet. The puppet tags below are
-   used along with this manifest to generate a config directory for
-   this container.
-
  * kolla_config: Contains YAML that represents how to map config files
    into the kolla container. This config file is typically mapped into
    the container itself at the /var/lib/kolla/config_files/config.json
