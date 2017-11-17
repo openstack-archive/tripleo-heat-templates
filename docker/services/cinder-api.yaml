@@ -242,3 +242,35 @@ outputs:
           when:
             - step|int == 2
             - remove_httpd_package|bool
+      fast_forward_upgrade_tasks:
+        - name: Check is cinder_api is deployed
+          command: systemctl is-enabled --quiet openstack-cinder-api
+          ignore_errors: True
+          register: cinder_api_enabled
+        - name: Stop openstack-cinder-api
+          service: name=openstack-cinder-api state=stopped
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - cinder_api_enabled.rc == 0
+        - name: Extra migration for cinder
+          command: cinder-manage db online_data_migrations
+          when:
+            - step|int == 5
+            - release == 'pike'
+            - is_bootstrap_node|bool
+        - name: Cinder package update
+          command: yum update -y "{{ item }}"
+          with_items:
+              - puppet-cinder
+              - python2-cinderclient
+              - python-cinder
+              - openstack-cinder
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: Cinder db sync
+          command: cinder-manage db sync
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool
