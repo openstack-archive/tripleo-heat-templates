@@ -167,8 +167,23 @@ outputs:
             /var/log/containers/aodh and /var/log/containers/httpd/aodh-api.
         ignore_errors: true
       upgrade_tasks:
+        - name: Check for aodh api service running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q aodh"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: Check if httpd is running
+          tags: common
+          command: systemctl is-active --quiet httpd
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if aodh api is running"
+          shell: systemctl status 'httpd' | grep -q aodh
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
         - name: Stop and disable aodh service (running under httpd)
           tags: step2
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
           service: name=httpd state=stopped enabled=no
         - name: Remove openstack-aodh-api package if operator requests it
           yum: name=openstack-aodh-api state=removed
