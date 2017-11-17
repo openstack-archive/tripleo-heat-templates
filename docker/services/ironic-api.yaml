@@ -151,6 +151,34 @@ outputs:
               /var/log/containers/ironic and /var/log/containers/httpd/ironic-*.
           ignore_errors: true
       upgrade_tasks:
+        - name: Check if ironic_api is deployed
+          command: systemctl is-enabled --quiet openstack-ironic-api
+          tags: common
+          ignore_errors: True
+          register: ironic_api_enabled
+        - name: Check for ironic_api running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q ironic"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-ironic-api is running"
+          command: systemctl is-active --quiet openstack-ironic-api
+          when: ironic_api_enabled.rc == 0 and httpd_enabled.rc != 0
+          tags: step0,validation
         - name: Stop and disable ironic_api service
           tags: step2
+          when: ironic_api_enabled.rc == 0 and httpd_enabled.rc != 0
           service: name=openstack-ironic-api state=stopped enabled=no
+        - name: Check if httpd service is running
+          command: systemctl is-active --quiet httpd
+          tags: common
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if ironic_api_wsgi is running"
+          shell: systemctl status 'httpd' | grep -q ironic
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop ironic_api service (running under httpd)
+          tags: step2
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+          service: name=httpd state=stopped enabled=no
