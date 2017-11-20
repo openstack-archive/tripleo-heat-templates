@@ -708,6 +708,9 @@ def validate(filename, param_map):
         if filename.startswith('./roles/ControllerNoCeph.yaml'):
             retval = validate_controller_no_ceph_role(filename, tpl)
 
+        if filename.startswith('./network_data_'):
+            retval = validate_network_data_file(filename)
+
     except Exception:
         print(traceback.format_exc())
         return 1
@@ -752,6 +755,22 @@ def validate_upgrade_tasks(upgrade_tasks):
             task_name = task.get("name", "")
             print('WARNING: upgrade task (%s) is missing expected \'when: '
                    'step|int == \' condition (%s)'  % (task_name, task))
+    return 0
+
+def validate_network_data_file(data_file_path):
+    try:
+        data_file = yaml.load(open(data_file_path).read())
+        base_file_path = os.path.dirname(data_file_path) + "/network_data.yaml"
+        base_file = yaml.load(open(base_file_path).read())
+        for n in base_file:
+            if n not in data_file:
+                print('ERROR: The following network from network_data.yaml is '
+                      'missing or differs in %s : %s'
+                      % (data_file_path, n))
+                return 1
+    except Exception:
+        print(traceback.format_exc())
+        return 1
     return 0
 
 def parse_args():
