@@ -107,6 +107,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  HAProxyLogging:
+    type: OS::TripleO::Services::Logging::HAProxy
+
 outputs:
   role_data:
     description: Role data for the HAproxy role.
@@ -115,6 +118,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [HAProxyBase, role_data, config_settings]
+          - get_attr: [HAProxyLogging, config_settings]
           - tripleo::haproxy::haproxy_service_manage: false
             # NOTE(jaosorior): We disable the CRL since we have no way to restart haproxy
             # when this is updated
@@ -169,71 +173,76 @@ outputs:
               optional: true
       docker_config:
         step_1:
-          haproxy_firewall:
-            detach: false
-            image: {get_param: DockerHAProxyImage}
-            net: host
-            user: root
-            privileged: true
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    list_join:
-                      - '; '
-                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 1}' > /etc/puppet/hieradata/docker.json"
-                        - "FACTER_uuid=docker puppet apply --tags TAGS -v -e 'CONFIG'"
-                  params:
-                    TAGS: 'tripleo::firewall::rule'
-                    CONFIG:
-                      get_attr: [HAProxyBase, role_data, step_config]
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
-                  # puppet saves iptables rules in /etc/sysconfig
-                  - /etc/sysconfig:/etc/sysconfig:rw
-                  # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
-                  # the necessary bit and prevent systemd to try to reload the service in the container
-                  - /usr/libexec/iptables:/usr/libexec/iptables:ro
-                  - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
-                  - /etc/puppet:/tmp/puppet-etc:ro
-                  - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-          haproxy:
-            image: {get_param: DockerHAProxyImage}
-            net: host
-            restart: always
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
-                - if:
-                  - public_tls_enabled
-                  - - list_join:
-                      - ':'
-                      - - {get_param: DeployedSSLCertificatePath}
-                        - {get_param: DeployedSSLCertificatePath}
-                        - 'ro'
-                  - null
-                -
-                  if:
-                    - internal_tls_enabled
-                    - - /etc/pki/tls/certs/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/haproxy:ro
-                      - /etc/pki/tls/private/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/haproxy:ro
-                      - list_join:
-                          - ':'
-                          - - {get_param: InternalTLSCAFile}
-                            - {get_param: InternalTLSCAFile}
-                            - 'ro'
+          map_merge:
+          - get_attr: [HAProxyLogging, docker_config, step_1]
+          - haproxy_firewall:
+              start_order: 0
+              detach: false
+              image: {get_param: DockerHAProxyImage}
+              net: host
+              user: root
+              privileged: true
+              command:
+                - '/bin/bash'
+                - '-c'
+                - str_replace:
+                    template:
+                      list_join:
+                        - '; '
+                        - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 1}' > /etc/puppet/hieradata/docker.json"
+                          - "FACTER_uuid=docker puppet apply --tags TAGS -v -e 'CONFIG'"
+                    params:
+                      TAGS: 'tripleo::firewall::rule'
+                      CONFIG:
+                        get_attr: [HAProxyBase, role_data, step_config]
+              volumes:
+                list_concat:
+                  - {get_attr: [ContainersCommon, volumes]}
+                  -
+                    - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
+                    - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
+                    # puppet saves iptables rules in /etc/sysconfig
+                    - /etc/sysconfig:/etc/sysconfig:rw
+                    # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
+                    # the necessary bit and prevent systemd to try to reload the service in the container
+                    - /usr/libexec/iptables:/usr/libexec/iptables:ro
+                    - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
+                    - /etc/puppet:/tmp/puppet-etc:ro
+                    - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
+              environment:
+                - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            haproxy:
+              start_order: 1
+              image: {get_param: DockerHAProxyImage}
+              net: host
+              restart: always
+              volumes:
+                list_concat:
+                  - {get_attr: [ContainersCommon, volumes]}
+                  - {get_attr: [HAProxyLogging, volumes]}
+                  -
+                    - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
+                    - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
+                  - if:
+                    - public_tls_enabled
+                    - - list_join:
+                        - ':'
+                        - - {get_param: DeployedSSLCertificatePath}
+                          - {get_param: DeployedSSLCertificatePath}
+                          - 'ro'
                     - null
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - - /etc/pki/tls/certs/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/haproxy:ro
+                        - /etc/pki/tls/private/haproxy:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/haproxy:ro
+                        - list_join:
+                            - ':'
+                            - - {get_param: InternalTLSCAFile}
+                              - {get_param: InternalTLSCAFile}
+                              - 'ro'
+                      - null
+              environment:
+                - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
