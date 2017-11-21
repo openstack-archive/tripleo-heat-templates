@@ -1,0 +1,114 @@
+heat_template_version: pike
+
+description: Enables IPSEC for the overcloud
+
+parameters:
+  RoleNetIpMap:
+    default: {}
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+outputs:
+  role_data:
+    description: Role data for the IPSEC service
+    value:
+      service_name: ipsec
+      config_settings:
+        tripleo.ipsec.firewall_rules:
+          '100 IPSEC IKE INPUT':
+            dport: 500
+            sport: 500
+            proto: udp
+            chain: INPUT
+          '100 IPSEC IKE OUTPUT':
+            dport: 500
+            sport: 500
+            proto: udp
+            chain: OUTPUT
+          '100 IPSEC IKE NAT-Traversal INPUT':
+            dport: 4500
+            sport: 4500
+            proto: udp
+            chain: INPUT
+          '100 IPSEC IKE NAT-Traversal OUTPUT':
+            dport: 4500
+            sport: 4500
+            proto: udp
+            chain: OUTPUT
+          '100 IPSEC ESP INPUT':
+            proto: esp
+            chain: INPUT
+          '100 IPSEC ESP OUTPUT':
+            proto: esp
+            chain: OUTPUT
+          '100 IPSEC Authentication Header INPUT':
+            proto: ah
+            chain: INPUT
+          '100 IPSEC Authentication Header OUTPUT':
+            proto: ah
+            chain: OUTPUT
+      upgrade_tasks: []
+      step_config: ''
+      external_deploy_tasks:
+        - name: IPSEC configuration on step 1
+          when: step == '1'
+          block:
+          # FIXME: Remove this once it's vailable in the undercloud
+          - name: Ensure roles directory is present
+            file:
+              path: "{{ playbook_dir }}/roles"
+              state: directory
+          # FIXME: Remove this once it's vailable in the undercloud
+          - name: clone tripleo-ipsec repo
+            git:
+              repo: https://git.openstack.org/openstack/tripleo-ipsec
+              dest: "{{ playbook_dir }}/roles/tripleo-ipsec"
+              update: no
+          - name: Generate PSK
+            command: openssl rand -base64 48
+            register: generated_psk
+            no_log: true
+          - name: generate ipsec global vars
+            set_fact:
+              ipsec_psk: "{{ generated_psk.stdout }}"
+              ipsec_skip_firewall_rules: true
+            delegate_to: "{{item}}"
+            delegate_facts: true
+            no_log: true
+            with_items:
+            - "{{ groups.ipsec }}"
+      deploy_steps_tasks:
+        # In step 2 the pacemaker resources are created and the VIPs
+        # are assigned to the nodes. We need those VIPs to be assigned
+        # already before setting up the IPSEC tunnels. Hence we do this
+        # in step 3.
+        - name: IPSEC configuration on step 3
+          when: step == '3'
+          block:
+          - include_role:
+              name: tripleo-ipsec
