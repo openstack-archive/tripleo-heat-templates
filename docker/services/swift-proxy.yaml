@@ -147,19 +147,24 @@ outputs:
             dest: /var/log/containers/swift
             state: link
       upgrade_tasks:
-        - name: Check if swift_proxy is deployed
-          command: systemctl is-enabled --quiet openstack-swift-proxy
+        - name: Check if swift-proxy or swift-object-expirer are deployed
+          command: systemctl is-enabled --quiet "{{ item }}"
           tags: common
           ignore_errors: True
-          register: swift_proxy_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-swift-proxy is running"
-          command: systemctl is-active --quiet openstack-swift-proxy
-          when: swift_proxy_enabled.rc == 0
+          register: swift_proxy_services_enabled
+          with_items:
+            - openstack-swift-proxy
+            - openstack-swift-object-expirer
+        - name: "PreUpgrade step0,validation: Check service openstack-swift-proxy and openstack-swift-object-expirer are running"
+          command: systemctl is-active --quiet "{{ item.item }}"
+          when: item.rc == 0
           tags: step0,validation
-        - name: Stop and disable swift_proxy service
+          with_items: "{{ swift_proxy_services_enabled.results }}"
+        - name: Stop and disable swift-proxy and swift-object-expirer services
           tags: step2
-          when: swift_proxy_enabled.rc == 0
-          service: name=openstack-swift-proxy state=stopped enabled=no
+          when: item.rc == 0
+          service: name={{ item.item }} state=stopped enabled=no
+          with_items: "{{ swift_proxy_services_enabled.results }}"
         - name: Remove openstack-swift-proxy package if operator requests it
           yum: name=openstack-swift-proxy state=removed
           tags: step2
