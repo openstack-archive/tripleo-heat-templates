@@ -222,11 +222,94 @@ def validate_hci_computehci_role(hci_role_filename, hci_role_tpl):
             hci_role_services = role['ServicesDefault']
             hci_role_services.remove('OS::TripleO::Services::CephOSD')
             if sorted(hci_role_services) != sorted(compute_role_services):
-                print('ERROR: ServicesDefault in %s is different from'
+                print('ERROR: ServicesDefault in %s is different from '
                       'ServicesDefault in roles/Compute.yaml' % hci_role_filename)
                 return 1
     return 0
 
+def validate_hci_role(hci_role_filename, hci_role_tpl):
+    role_files = ['HciCephAll', 'HciCephFile', 'HciCephMon', 'HciCephObject']
+    if hci_role_filename in ['./roles/'+ x +'.yaml' for x in role_files]:
+        compute_role_filename = os.path.join(os.path.dirname(hci_role_filename),
+                                             './Compute.yaml')
+        compute_role_tpl = yaml.load(open(compute_role_filename).read())
+        compute_role_services = compute_role_tpl[0]['ServicesDefault']
+        for role in hci_role_tpl:
+            if role['name'] == 'HciCephAll':
+                hci_role_services = role['ServicesDefault']
+                hci_role_services.remove('OS::TripleO::Services::CephMds')
+                hci_role_services.remove('OS::TripleO::Services::CephMgr')
+                hci_role_services.remove('OS::TripleO::Services::CephMon')
+                hci_role_services.remove('OS::TripleO::Services::CephRbdMirror')
+                hci_role_services.remove('OS::TripleO::Services::CephRgw')
+                hci_role_services.remove('OS::TripleO::Services::CephOSD')
+            if role['name'] == 'HciCephFile':
+                hci_role_services = role['ServicesDefault']
+                hci_role_services.remove('OS::TripleO::Services::CephMds')
+                hci_role_services.remove('OS::TripleO::Services::CephOSD')
+            if role['name'] == 'HciCephMon':
+                hci_role_services = role['ServicesDefault']
+                hci_role_services.remove('OS::TripleO::Services::CephMgr')
+                hci_role_services.remove('OS::TripleO::Services::CephMon')
+                hci_role_services.remove('OS::TripleO::Services::CephOSD')
+            if role['name'] == 'HciCephObject':
+                hci_role_services = role['ServicesDefault']
+                hci_role_services.remove('OS::TripleO::Services::CephRgw')
+                hci_role_services.remove('OS::TripleO::Services::CephOSD')
+            if sorted(hci_role_services) != sorted(compute_role_services):
+                print('ERROR: ServicesDefault in %s is different from '
+                      'ServicesDefault in roles/Compute.yaml' % hci_role_filename)
+                return 1
+    return 0
+
+def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
+    role_files = ['CephAll', 'CephFile', 'CephMon', 'CephObject']
+    if ceph_role_filename in ['./roles/'+ x +'.yaml' for x in role_files]:
+        ceph_storage_role_filename = os.path.join(os.path.dirname(ceph_role_filename),
+                                             './CephStorage.yaml')
+        ceph_storage_role_tpl = yaml.load(open(ceph_storage_role_filename).read())
+        ceph_storage_role_services = ceph_storage_role_tpl[0]['ServicesDefault']
+        for role in ceph_role_tpl:
+            if role['name'] == 'CephAll':
+                ceph_role_services = role['ServicesDefault']
+                ceph_role_services.remove('OS::TripleO::Services::CephClient')
+                ceph_role_services.remove('OS::TripleO::Services::CephMds')
+                ceph_role_services.remove('OS::TripleO::Services::CephMgr')
+                ceph_role_services.remove('OS::TripleO::Services::CephMon')
+                ceph_role_services.remove('OS::TripleO::Services::CephRbdMirror')
+                ceph_role_services.remove('OS::TripleO::Services::CephRgw')
+            if role['name'] == 'CephFile':
+                ceph_role_services = role['ServicesDefault']
+                ceph_role_services.remove('OS::TripleO::Services::CephClient')
+                ceph_role_services.remove('OS::TripleO::Services::CephMds')
+            if role['name'] == 'CephObject':
+                ceph_role_services = role['ServicesDefault']
+                ceph_role_services.remove('OS::TripleO::Services::CephClient')
+                ceph_role_services.remove('OS::TripleO::Services::CephRgw')
+            if sorted(ceph_role_services) != sorted(ceph_storage_role_services):
+                print('ERROR: ServicesDefault in %s is different from '
+                      'ServicesDefault in roles/Ceph_storage.yaml' % ceph_role_filename)
+                return 1
+    return 0
+
+def validate_controller_no_ceph_role(filename, tpl):
+    control_role_filename = os.path.join(os.path.dirname(filename),
+                                         './Controller.yaml')
+    control_role_tpl = yaml.load(open(control_role_filename).read())
+    control_role_services = control_role_tpl[0]['ServicesDefault']
+    for role in tpl:
+        if role['name'] == 'ControllerNoCeph':
+            services = role['ServicesDefault']
+            services.append('OS::TripleO::Services::CephMds')
+            services.append('OS::TripleO::Services::CephMgr')
+            services.append('OS::TripleO::Services::CephMon')
+            services.append('OS::TripleO::Services::CephRbdMirror')
+            services.append('OS::TripleO::Services::CephRgw')
+            if sorted(services) != sorted(control_role_services):
+                print('ERROR: ServicesDefault in %s is different from '
+                      'ServicesDefault in roles/Controller.yaml' % filename)
+                return 1
+    return 0
 
 def validate_with_compute_role_services(role_filename, role_tpl, exclude_service):
     cmpt_filename = os.path.join(os.path.dirname(role_filename),
@@ -568,6 +651,15 @@ def validate(filename, param_map):
                 'OS::TripleO::Services::Vpp',
                 'OS::TripleO::Services::NeutronLinuxbridgeAgent']
             retval = validate_with_compute_role_services(filename, tpl, exclude)
+
+        if filename.startswith('./roles/Hci'):
+            retval = validate_hci_role(filename, tpl)
+
+        if filename.startswith('./roles/Ceph'):
+            retval = validate_ceph_role(filename, tpl)
+
+        if filename.startswith('./roles/ControllerNoCeph.yaml'):
+            retval = validate_controller_no_ceph_role(filename, tpl)
 
     except Exception:
         print(traceback.format_exc())
