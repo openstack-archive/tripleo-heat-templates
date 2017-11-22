@@ -128,6 +128,11 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
+        - name: Check if nova_conductor is deployed
+          command: systemctl is-enabled --quiet openstack-nova-conductor
+          tags: common
+          ignore_errors: True
+          register: nova_conductor_enabled
         - name: Set compute upgrade level to auto
           tags: step1
           ini_file:
@@ -135,8 +140,13 @@ outputs:
               template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
               params:
                 LEVEL: {get_param: UpgradeLevelNovaCompute}
+        - name: "PreUpgrade step0,validation: Check service openstack-nova-conductor is running"
+          command: systemctl is-active --quiet openstack-nova-conductor
+          tags: step0,validation
+          when: nova_conductor_enabled.rc == 0
         - name: Stop and disable nova_conductor service
           tags: step2
+          when: nova_conductor_enabled.rc == 0
           service: name=openstack-nova-conductor state=stopped enabled=no
         - name: Remove openstack-nova-conductor package if operator requests it
           yum: name=openstack-nova-conductor state=removed

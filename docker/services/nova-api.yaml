@@ -293,9 +293,37 @@ outputs:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
       upgrade_tasks:
+        - name: Check if nova_api is deployed
+          command: systemctl is-enabled --quiet openstack-nova-api
+          tags: common
+          ignore_errors: True
+          register: nova_api_enabled
+        - name: Check for nova-api running under apache
+          tags: common
+          shell: httpd -t -D DUMP_VHOSTS | grep -q 'nova'
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
+          command: systemctl is-active --quiet openstack-nova-api
+          tags: step0,validation
+          when: nova_api_enabled.rc == 0 and httpd_enabled.rc != 0
         - name: Stop and disable nova_api service
           tags: step2
+          when: nova_api_enabled.rc == 0 and httpd_enabled.rc != 0
           service: name=openstack-nova-api state=stopped enabled=no
+        - name: Check if httpd service is running
+          command: systemctl is-active --quiet httpd
+          tags: common
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if nova_wsgi is running"
+          tags: step0,validation
+          shell: systemctl status 'httpd' | grep -q 'nova'
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop nova_api service (running under httpd)
+          tags: step2
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+          service: name=httpd state=stopped
         - name: Remove openstack-nova-api package if operator requests it
           yum: name=openstack-nova-api state=removed
           tags: step2
