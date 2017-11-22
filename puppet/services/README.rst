@@ -124,6 +124,13 @@ The Heat guide for the `OS::Mistral::Workflow task property
 <https://docs.openstack.org/developer/heat/template_guide/openstack.html#OS::Mistral::Workflow-prop-tasks>`_
 has more details about the expected dictionary.
 
+  * external_deploy_tasks: Ansible tasks to be run each step on the undercloud
+    where a variable "step" is provided to enable conditionally running tasks
+    at a given step.
+
+  * external_post_deploy_tasks: Ansible tasks to be run on the undercloud
+    after all other deploy steps have completed.
+
 Batch Upgrade Steps
 -------------------
 
