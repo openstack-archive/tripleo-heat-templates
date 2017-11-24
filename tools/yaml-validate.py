@@ -20,9 +20,9 @@ import yaml
 # Only permit the template alias versions
 # The current template version should be the last element
 valid_heat_template_versions = [
-  'newton',
   'ocata',
   'pike',
+  'queens',
 ]
 current_heat_template_version = valid_heat_template_versions[-1]
 
