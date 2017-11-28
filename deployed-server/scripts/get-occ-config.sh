@@ -115,6 +115,7 @@ metadata_url=$deployed_server_metadata_url"
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host "echo \"$config\" > os-collect-config.conf"
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo cp os-collect-config.conf /etc/os-collect-config.conf
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl restart os-collect-config
+            ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl enable os-collect-config
         fi
 
         let i+=1
