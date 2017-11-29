@@ -198,8 +198,47 @@ resources:
         _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
         _TUNED_CORES_: {get_param: [RoleParameters, IsolCpusList]}
 
+  # Details @https://bugzilla.redhat.com/show_bug.cgi?id=1515269
+  # Ensure gid of hugetlbfs matching with kolla so that container deployment
+  # and baremetal (future migrating to container) deployment have same id. This
+  # is a new group created from ovs2.8 onwards. 42477 is the kolla hugetlbfs
+  # gid value. Ensure that it is applied and restart(ovs) or reboot(host)
+  # before starting with DPDK initialization.
+  DpdkVhostGroupConfig:
+    type: OS::Heat::SoftwareConfig
+    depends_on: HostParametersDeployment
+    condition: is_dpdk_config_required
+    properties:
+      group: ansible
+      outputs:
+        - name: result
+      config: |
+        ---
+        - hosts: localhost
+          connection: local
+          gather_facts: False
+          tasks:
+            - group:
+                name: "hugetlbfs"
+                gid: 42477
+
+  DpdkVhostGroupDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: HostParametersDeployment
+    condition: is_dpdk_config_required
+    properties:
+      name: DpdkVhostGroupDeployment
+      server:  {get_param: server}
+      config: {get_resource: DpdkVhostGroupConfig}
+      actions:
+        if:
+          - deployment_actions_empty
+          - []
+          - ['CREATE'] # Only do this on CREATE
+
   RebootConfig:
     type: OS::Heat::SoftwareConfig
+    depends_on: DpdkVhostGroupDeployment
     condition: is_reboot_config_required
     properties:
       group: script
@@ -212,7 +251,7 @@ resources:
 
   RebootDeployment:
     type: OS::Heat::SoftwareDeployment
-    depends_on: HostParametersDeployment
+    depends_on: DpdkVhostGroupDeployment
     condition: is_reboot_config_required
     properties:
       name: RebootDeployment
@@ -234,6 +273,7 @@ resources:
   # maintained, restart of ovs is required.
   EnableDpdkConfig:
     type: OS::Heat::SoftwareConfig
+    depends_on: RebootDeployment
     condition: is_dpdk_config_required
     properties:
       group: script
