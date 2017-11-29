@@ -30,15 +30,8 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  EnableInternalTLS:
-    type: boolean
-    default: false
-
-conditions:
-  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 resources:
-
   RedisBase:
     type: ./redis-base.yaml
     properties:
@@ -48,7 +41,6 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
-      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -63,41 +55,8 @@ outputs:
                 dport:
                   - 6379
                   - 26379
-            tripleo::profile::base::database::redis::tls_proxy_bind_ip:
-              get_param: [ServiceNetMap, RedisNetwork]
-            tripleo::profile::base::database::redis::tls_proxy_fqdn:
-              str_replace:
-                template:
-                  "%{hiera('fqdn_$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
-            tripleo::profile::base::database::redis::tls_proxy_port: 6379
-          - if:
-            - use_tls_proxy
-            - redis_certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/redis.crt'
-                service_key: '/etc/pki/tls/private/redis.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('cloud_name_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
-                principal:
-                  str_replace:
-                    template: "redis/%{hiera('cloud_name_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
-            - {}
       step_config: |
         include ::tripleo::profile::base::database::redis
-      metadata_settings:
-        if:
-          - use_tls_proxy
-          -
-            - service: redis
-              network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
-              type: vip
-          - null
       upgrade_tasks:
         - name: Check if redis is deployed
           command: systemctl is-enabled redis
