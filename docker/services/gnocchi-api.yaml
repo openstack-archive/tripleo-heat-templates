@@ -87,7 +87,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/gnocchi_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &gnocchi_api_kolla_config_files
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
@@ -96,7 +96,7 @@ outputs:
               dest: "/etc/ceph/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &gnocchi_api_kolla_permissions
             - path: /var/log/gnocchi
               owner: gnocchi:gnocchi
               recurse: true
@@ -107,6 +107,14 @@ outputs:
                     USER: {get_param: CephClientUserName}
               owner: gnocchi:gnocchi
               perm: '0600'
+        /var/lib/kolla/config_files/gnocchi_db_sync.json:
+          command:
+            str_replace:
+              template: /usr/bin/gnocchi-upgrade --sacks-number=SACK_NUM
+              params:
+                SACK_NUM: {get_param: NumberOfStorageSacks}
+          config_files: *gnocchi_api_kolla_config_files
+          permissions: *gnocchi_api_kolla_permissions
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
@@ -128,16 +136,13 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/config-data/gnocchi/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/gnocchi/etc/gnocchi/:/etc/gnocchi/:ro
+                  - /var/lib/kolla/config_files/gnocchi_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/gnocchi/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/gnocchi:/var/log/gnocchi
                   - /var/log/containers/httpd/gnocchi-api:/var/log/httpd
-                  - /etc/ceph:/etc/ceph:ro
-            command:
-              str_replace:
-                template: /usr/bin/bootstrap_host_exec gnocchi_api su gnocchi -s /bin/bash -c '/usr/bin/gnocchi-upgrade --sacks-number=SACK_NUM'
-                params:
-                  SACK_NUM: {get_param: NumberOfStorageSacks}
+                  - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
           gnocchi_api:
             image: *gnocchi_api_image
