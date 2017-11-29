@@ -1,0 +1,162 @@
+# NOTE: This legacy template configures the Compute role for using OVS DPDK.
+# This template is included for upgrades that originally used this file.
+# If you are deploying a new installation, you should enable the ComputeOvsDpdk
+# role and use compute-ovs-dpdk.yaml instead.
+heat_template_version: queens
+description: >
+  Software Config to drive os-net-config to configure VLANs for the compute role with DPDK.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+  {%- for network in networks %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {%- endfor %}
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  ControlPlaneDefaultRoute: # Override this via parameter_defaults
+    description: The default route of the control plane network.
+    type: string
+{%- for network in networks %}
+{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ipv6}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- elif network.gateway_ip|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ip}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- endif %}
+{%- endfor %}
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  EC2MetadataIp: # Override this via parameter_defaults
+    description: The IP address of the EC2 metadata server.
+    type: string
+  NumDpdkInterfaceRxQueues:
+    description: Number of Rx Queues required for DPDK bond or DPDK ports
+    default: 1
+    type: number
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: ../../scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: interface
+                name: nic1
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneSubnetCidr
+                routes:
+                - ip_netmask: 169.254.169.254/32
+                  next_hop:
+                    get_param: EC2MetadataIp
+                - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
+              - type: linux_bond
+                name: bond_api
+                bonding_options:
+                  get_param: BondInterfaceOvsOptions
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                members:
+                - type: interface
+                  name: nic2
+                  primary: true
+                - type: interface
+                  name: nic3
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: InternalApiNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: InternalApiIpSubnet
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: StorageNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: StorageIpSubnet
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: TenantNetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: TenantIpSubnet
+              # Uncomment when including environments/network-management.yaml
+              # If setting default route on the Management interface, comment
+              # out the default route on the Control Plane.
+              #-
+              #  type: vlan
+              #  device: bond_api
+              #  vlan_id:
+              #    get_param: ManagementNetworkVlanID
+              #  addresses:
+              #    -
+              #      ip_netmask:
+              #        get_param: ManagementIpSubnet
+              #  routes:
+              #    -
+              #      default: true
+              #      next_hop:
+              #        get_param: ManagementInterfaceDefaultRoute
+
+              # Used as a provider network with external DHCP
+              - type: ovs_user_bridge
+                name: br-dpdk0
+                members:
+                - type: ovs_dpdk_bond
+                  name: dpdkbond0
+                  rx_queue:
+                    get_param: NumDpdkInterfaceRxQueues
+                  members:
+                  - type: ovs_dpdk_port
+                    name: dpdk0
+                    members:
+                    - type: interface
+                      name: nic4
+                  - type: ovs_dpdk_port
+                    name: dpdk1
+                    members:
+                    - type: interface
+                      name: nic5
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
+

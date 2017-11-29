@@ -1,0 +1,142 @@
+heat_template_version: queens
+description: >
+  Software Config to drive os-net-config to configure VLANs for the controller role with IPv6 on the External network. The
+  IPv6 default route is on the External network, and the IPv4 default route is on the Control Plane.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+  {%- for network in networks %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {%- endfor %}
+  ControlPlaneDefaultRoute: # Override this via parameter_defaults
+    description: The default route of the control plane network.
+    type: string
+{%- for network in networks %}
+{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ipv6}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- elif network.gateway_ip|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ip}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- endif %}
+{%- endfor %}
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  EC2MetadataIp: # Override this via parameter_defaults
+    description: The IP address of the EC2 metadata server.
+    type: string
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: ../../scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: linux_bridge
+                name: bridge_name
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneSubnetCidr
+                routes:
+                - ip_netmask: 169.254.169.254/32
+                  next_hop:
+                    get_param: EC2MetadataIp
+                - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
+                members:
+                - type: interface
+                  name: interface_name
+                  primary: true
+              - type: vlan
+                vlan_id:
+                  get_param: ExternalNetworkVlanID
+                device: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: ExternalIpSubnet
+                routes:
+                - default: true
+                  next_hop:
+                    get_param: ExternalInterfaceDefaultRoute
+              - type: vlan
+                vlan_id:
+                  get_param: InternalApiNetworkVlanID
+                device: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: InternalApiIpSubnet
+              - type: vlan
+                vlan_id:
+                  get_param: StorageNetworkVlanID
+                device: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: StorageIpSubnet
+              - type: vlan
+                vlan_id:
+                  get_param: StorageMgmtNetworkVlanID
+                device: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: StorageMgmtIpSubnet
+              - type: vlan
+                vlan_id:
+                  get_param: TenantNetworkVlanID
+                device: bridge_name
+                addresses:
+                - ip_netmask:
+                    get_param: TenantIpSubnet
+              # Uncomment when including environments/network-management.yaml
+              # If setting default route on the Management interface, comment
+              # out the default route on the External interface. This will
+              # make the External API unreachable from remote subnets.
+              #-
+              #  type: vlan
+              #  vlan_id: {get_param: ManagementNetworkVlanID}
+              #  device: bridge_name
+              #  addresses:
+              #    -
+              #      ip_netmask: {get_param: ManagementIpSubnet}
+              #  routes:
+              #    -
+              #      default: true
+              #      next_hop: {get_param: ManagementInterfaceDefaultRoute}
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
+

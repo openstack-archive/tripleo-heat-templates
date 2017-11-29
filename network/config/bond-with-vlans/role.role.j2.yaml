@@ -1,0 +1,179 @@
+heat_template_version: queens
+description: >
+  Software Config to drive os-net-config with 2 bonded nics on a bridge with VLANs attached for the {{role.name}} role.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+  BondInterfaceOvsOptions:
+    default: bond_mode=active-backup
+    description: 'The ovs_options or bonding_options string for the bond
+      interface. Set things like lacp=active and/or bond_mode=balance-slb
+      for OVS bonds or like mode=4 for Linux bonds using this option.'
+    type: string
+    constraints:
+    - allowed_pattern: ^((?!balance.tcp).)*$
+      description: 'The balance-tcp bond mode is known to cause packet loss and
+        should not be used in BondInterfaceOvsOptions.'
+{%- for network in networks %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+{%- endfor %}
+  ControlPlaneDefaultRoute: # Override this via parameter_defaults
+    description: The default route of the control plane network.
+    type: string
+{%- for network in networks %}
+{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ipv6}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- elif network.gateway_ip|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ip}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- endif %}
+{%- endfor %}
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  EC2MetadataIp: # Override this via parameter_defaults
+    description: The IP address of the EC2 metadata server.
+    type: string
+{%- if role.name == 'ComputeOvsDpdk' %}
+  NumDpdkInterfaceRxQueues:
+    description: Number of Rx Queues required for DPDK bond or DPDK ports
+    default: 1
+    type: number
+{%- endif %}
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: ../../scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: interface
+                name: nic1
+                use_dhcp: false
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneSubnetCidr
+                routes:
+                - ip_netmask: 169.254.169.254/32
+                  next_hop:
+                    get_param: EC2MetadataIp
+{%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
+                - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
+{%- endif %}
+{%- if role.name != 'ComputeOvsDpdk' %}
+              - type: ovs_bridge
+                name: bridge_name
+                dns_servers:
+                  get_param: DnsServers
+                members:
+                - type: ovs_bond
+                  name: bond1
+                  ovs_options:
+                    get_param: BondInterfaceOvsOptions
+                  members:
+                  - type: interface
+                    name: nic2
+                    primary: true
+                  - type: interface
+                    name: nic3
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+                - type: vlan
+                  vlan_id:
+                    get_param: {{network.name}}NetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: {{network.name}}IpSubnet
+{%- if network.name in role.default_route_networks %}
+                  routes:
+                  - default: true
+                    next_hop:
+                      get_param: {{network.name}}InterfaceDefaultRoute
+{%- endif %}
+{%- endfor %}
+{%- else %}
+              # Linux bond for non-DPDK traffic required when using DPDK
+              - type: linux_bond
+                name: bond_api
+                bonding_options:
+                  get_param: BondInterfaceOvsOptions
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                members:
+                - type: interface
+                  name: nic2
+                  primary: true
+                - type: interface
+                  name: nic3
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+              - type: vlan
+                device: bond_api
+                vlan_id:
+                  get_param: {{network.name}}NetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: {{network.name}}IpSubnet
+{%- if network.name in role.default_route_networks %}
+                  routes:
+                  - default: true
+                    next_hop:
+                      get_param: {{network.name}}InterfaceDefaultRoute
+{%- endif %}
+{%- endfor %}
+              # Used as a provider network with external DHCP
+              - type: ovs_user_bridge
+                name: br-dpdk0
+                members:
+                - type: ovs_dpdk_bond
+                  name: dpdkbond0
+                  rx_queue:
+                    get_param: NumDpdkInterfaceRxQueues
+                  members:
+                  - type: ovs_dpdk_port
+                    name: dpdk0
+                    members:
+                    - type: interface
+                      name: nic4
+                  - type: ovs_dpdk_port
+                    name: dpdk1
+                    members:
+                    - type: interface
+                      name: nic5
+{%- endif %}
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
+

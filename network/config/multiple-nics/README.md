@@ -23,8 +23,10 @@ Or use this Heat environment file:
 Configuration with System Management Network
 --------------------------------------------
 
-To enable the optional System Management network, create a Heat environment
-that looks something like this:
+The Management network is included for upgrade compatibility with
+previous versions, but disabled. To enable the optional System
+Management network, create a Heat environment that looks something like
+this:
 
   resource\_registry:
     OS::TripleO::Network::Management: ../network/management.yaml
@@ -37,3 +39,9 @@ that looks something like this:
 Or use this Heat environment file:
 
   environments/network-management.yaml
+
+Or, enable the Management network in network_data.yaml, and add the network
+to the list of networks used by each role in the role definition file
+(e.g. roles_data.yaml). Refer to installation documentation for procedure
+to generate a role file for custom roles.
+
