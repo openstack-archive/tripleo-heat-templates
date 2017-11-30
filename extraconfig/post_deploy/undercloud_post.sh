@@ -3,12 +3,16 @@ set -eux
 
 ln -sf /etc/puppet/hiera.yaml /etc/hiera.yaml
 
-# WRITE OUT STACKRC
-if [ ! -e /root/stackrc ]; then
-    touch /root/stackrc
-    chmod 0600 /root/stackrc
+HOMEDIR="$homedir"
+USERNAME=`ls -ld $HOMEDIR | awk {'print $3'}`
+GROUPNAME=`ls -ld $HOMEDIR | awk {'print $4'}`
 
-    cat > /root/stackrc <<-EOF_CAT
+# WRITE OUT STACKRC
+if [ ! -e $HOMEDIR/stackrc ]; then
+    touch $HOMEDIR/stackrc
+    chmod 0600 $HOMEDIR/stackrc
+
+    cat > $HOMEDIR/stackrc <<-EOF_CAT
 export OS_AUTH_TYPE=password
 export OS_PASSWORD=$admin_password
 export OS_AUTH_URL=$auth_url
@@ -26,7 +30,7 @@ export OS_PROJECT_DOMAIN_NAME='Default'
 export OS_USER_DOMAIN_NAME='Default'
 EOF_CAT
 
-    cat >> /root/stackrc <<-"EOF_CAT"
+    cat >> $HOMEDIR/stackrc <<-"EOF_CAT"
 # Add OS_CLOUDNAME to PS1
 if [ -z "${CLOUDPROMPT_ENABLED:-}" ]; then
     export PS1=${PS1:-""}
@@ -36,28 +40,31 @@ fi
 EOF_CAT
 
     if [ -n "$ssl_certificate" ]; then
-cat >> /root/stackrc <<-EOF_CAT
+cat >> $HOMEDIR/stackrc <<-EOF_CAT
 export PYTHONWARNINGS="ignore:Certificate has no, ignore:A true SSLContext object is not available"
 EOF_CAT
     fi
 fi
 
-source /root/stackrc
+chown "$USERNAME:$GROUPNAME" "$HOMEDIR/stackrc"
 
-if [ ! -f /root/.ssh/authorized_keys ]; then
-    sudo mkdir -p /root/.ssh
-    sudo chmod 7000 /root/.ssh/
-    sudo touch /root/.ssh/authorized_keys
-    sudo chmod 600 /root/.ssh/authorized_keys
+source $HOMEDIR/stackrc
+
+if [ ! -f $HOMEDIR/.ssh/authorized_keys ]; then
+    sudo mkdir -p $HOMEDIR/.ssh
+    sudo chmod 7000 $HOMEDIR/.ssh/
+    sudo touch $HOMEDIR/.ssh/authorized_keys
+    sudo chmod 600 $HOMEDIR/.ssh/authorized_keys
 fi
 
-if [ ! -f /root/.ssh/id_rsa ]; then
-    ssh-keygen -b 1024 -N '' -f /root/.ssh/id_rsa
+if [ ! -f $HOMEDIR/.ssh/id_rsa ]; then
+    ssh-keygen -b 1024 -N '' -f $HOMEDIR/.ssh/id_rsa
 fi
 
-if ! grep "$(cat /root/.ssh/id_rsa.pub)" /root/.ssh/authorized_keys; then
-    cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+if ! grep "$(cat $HOMEDIR/.ssh/id_rsa.pub)" $HOMEDIR/.ssh/authorized_keys; then
+    cat $HOMEDIR/.ssh/id_rsa.pub >> $HOMEDIR/.ssh/authorized_keys
 fi
+chown -R "$USERNAME:$GROUPNAME" "$HOMEDIR/.ssh"
 
 if [ "$(hiera neutron_api_enabled)" = "true" ]; then
     PHYSICAL_NETWORK=ctlplane
