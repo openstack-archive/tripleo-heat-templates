@@ -70,7 +70,7 @@ cat > /etc/os-net-config/dhcp_all_interfaces.yaml <<EOF_CAT
 network_config:
 EOF_CAT
 
-    for iface in $(ls /sys/class/net | grep -v ^lo$); do
+    for iface in $(ls /sys/class/net | grep -v -e ^lo$ -e ^vnet$); do
         local mac_addr_type="$(cat /sys/class/net/${iface}/addr_assign_type)"
         if [ "$mac_addr_type" != "0" ]; then
             echo "Device has generated MAC, skipping."
