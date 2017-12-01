@@ -36,18 +36,8 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EnableInternalTLS:
-    type: boolean
-    default: false
-
-conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
-
-  ContainersCommon:
-    type: ../containers-common.yaml
 
   RedisBase:
     type: ../../../puppet/services/database/redis.yaml
@@ -66,8 +56,6 @@ outputs:
         map_merge:
           - {get_attr: [RedisBase, role_data, config_settings]}
           - redis::daemonize: false
-            tripleo::stunnel::manage_service: false
-            tripleo::stunnel::foreground: 'yes'
       logging_source: {get_attr: [RedisBase, role_data, logging_source]}
       logging_groups: {get_attr: [RedisBase, role_data, logging_groups]}
       step_config: &step_config
@@ -94,60 +82,31 @@ outputs:
             - path: /var/run/redis
               owner: redis:redis
               recurse: true
-        /var/lib/kolla/config_files/redis_tls_proxy.json:
-          command: stunnel /etc/stunnel/stunnel.conf
-          config_files:
-            - source: "/var/lib/kolla/config_files/src/*"
-              dest: "/"
-              merge: true
-              preserve_properties: true
       docker_config:
         step_1:
-          map_merge:
-            - redis_init_logs:
-                start_order: 0
-                detach: false
-                image: &redis_image {get_param: DockerRedisImage}
-                privileged: false
-                user: root
-                volumes:
-                  - /var/log/containers/redis:/var/log/redis
-                command: ['/bin/bash', '-c', 'chown -R redis:redis /var/log/redis']
-            - redis:
-                start_order: 1
-                image: *redis_image
-                net: host
-                privileged: false
-                restart: always
-                volumes:
-                  - /run:/run
-                  - /var/lib/kolla/config_files/redis.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/redis/:/var/lib/kolla/config_files/src:ro
-                  - /etc/localtime:/etc/localtime:ro
-                  - /var/log/containers/redis:/var/log/redis
-                environment:
-                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-            - if:
-                - internal_tls_enabled
-                - redis_tls_proxy:
-                    start_order: 2
-                    image: *redis_image
-                    net: host
-                    user: root
-                    restart: always
-                    volumes:
-                      list_concat:
-                        - {get_attr: [ContainersCommon, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/redis_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                          - /var/lib/config-data/puppet-generated/redis/:/var/lib/kolla/config_files/src:ro
-                          - /etc/pki/tls/certs/redis.crt:/etc/pki/tls/certs/redis.crt:ro
-                          - /etc/pki/tls/private/redis.key:/etc/pki/tls/private/redis.key:ro
-                    environment:
-                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-                - {}
-      metadata_settings:
-        get_attr: [RedisBase, role_data, metadata_settings]
+          redis_init_logs:
+            start_order: 0
+            detach: false
+            image: &redis_image {get_param: DockerRedisImage}
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/redis:/var/log/redis
+            command: ['/bin/bash', '-c', 'chown -R redis:redis /var/log/redis']
+          redis:
+            start_order: 1
+            image: *redis_image
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              - /run:/run
+              - /var/lib/kolla/config_files/redis.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/puppet-generated/redis/:/var/lib/kolla/config_files/src:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /var/log/containers/redis:/var/log/redis
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent directories
           file:
