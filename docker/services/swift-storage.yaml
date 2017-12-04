@@ -538,3 +538,37 @@ outputs:
           file:
             path: /var/run/rsyncd.pid
             state: absent
+      fast_forward_upgrade_tasks:
+        - name: Check if swift storage services are deployed
+          command: systemctl is-enabled --quiet "{{ item }}"
+          register: swift_services_enabled
+          with_items:
+            - openstack-swift-account-auditor
+            - openstack-swift-account-reaper
+            - openstack-swift-account-replicator
+            - openstack-swift-account
+            - openstack-swift-container-auditor
+            - openstack-swift-container-replicator
+            - openstack-swift-container-updater
+            - openstack-swift-container
+            - openstack-swift-object-auditor
+            - openstack-swift-object-replicator
+            - openstack-swift-object-updater
+            - openstack-swift-object
+          ignore_errors: True
+        - name: Stop swift storage services
+          service: name={{ item.item }} state=stopped enabled=no
+          with_items: "{{ swift_services_enabled.results }}"
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - item.rc == 0
+        - name: Update swift storage services
+          yum: name={{ item }} state=latest
+          with_items:
+            - openstack-swift-container
+            - openstack-swift-object
+            - openstack-swift-account
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
