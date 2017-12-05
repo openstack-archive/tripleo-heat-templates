@@ -42,6 +42,10 @@ def parse_opts(argv):
     parser.add_argument('-o', '--output-dir', metavar='OUTPUT_DIR',
                         help="""Output dir for all the templates""",
                         default='')
+    parser.add_argument('-c', '--clean',
+                        action='store_true',
+                        help=("""clean the templates dir by deleting """
+                              """generated templates"""))
     opts = parser.parse_args(argv[1:])
 
     return opts
@@ -220,10 +224,70 @@ def process_templates(template_path, role_data_path, output_dir,
     else:
         print('Unexpected argument %s' % template_path)
 
+def clean_templates(base_path, role_data_path, network_data_path):
+
+    def delete(f):
+        if os.path.exists(f):
+            print("Deleting %s" % f)
+            os.unlink(f)
+
+    for root, dirs, files in os.walk(base_path):
+        for f in files:
+            if f.endswith('.j2.yaml'):
+                rendered_path = os.path.join(
+                    root, '%s.yaml' % f.split('.j2.yaml')[0])
+                delete(rendered_path)
+
+    with open(network_data_path) as network_data_file:
+        network_data = yaml.safe_load(network_data_file)
+
+    for network in network_data:
+        network_path = os.path.join(
+            'network', '%s.yaml' % network['name_lower'])
+        network_from_pool_path = os.path.join(
+            'network', '%s_from_pool.yaml' % network['name_lower'])
+        network_v6_path = os.path.join(
+            'network', '%s_v6.yaml' % network['name_lower'])
+        network_from_pool_v6_path = os.path.join(
+            'network', '%s_from_pool_v6.yaml' % network['name_lower'])
+        ports_path = os.path.join(
+            'network', 'ports', '%s.yaml' % network['name_lower'])
+        ports_from_pool_path = os.path.join(
+            'network', 'ports', '%s_from_pool.yaml' % network['name_lower'])
+        ports_v6_path = os.path.join(
+            'network', 'ports', '%s_v6.yaml' % network['name_lower'])
+        ports_from_pool_v6_path = os.path.join(
+            'network', 'ports', '%s_from_pool_v6.yaml' % network['name_lower'])
+
+        delete(network_path)
+        delete(network_from_pool_path)
+        delete(network_v6_path)
+        delete(network_from_pool_v6_path)
+        delete(ports_path)
+        delete(ports_from_pool_path)
+        delete(ports_v6_path)
+        delete(ports_from_pool_v6_path)
+
+    with open(role_data_path) as role_data_file:
+        role_data = yaml.safe_load(role_data_file)
+
+    for role in role_data:
+        role_path = os.path.join(
+            'puppet', '%s-role.yaml' % role['name'].lower())
+        host_config_and_reboot_path = os.path.join(
+            'extraconfig', 'pre_network',
+            '%s-host_config_and_reboot.yaml' % role['name'].lower())
+
+        delete(role_path)
+        delete(host_config_and_reboot_path)
+
 opts = parse_opts(sys.argv)
 
 role_data_path = os.path.join(opts.base_path, opts.roles_data)
 network_data_path = os.path.join(opts.base_path, opts.network_data)
 
-process_templates(opts.base_path, role_data_path, opts.output_dir,
-                  network_data_path, (not opts.safe))
+if opts.clean:
+    clean_templates(opts.base_path, role_data_path, network_data_path)
+else:
+    process_templates(opts.base_path, role_data_path, opts.output_dir,
+                      network_data_path, (not opts.safe))
