@@ -151,6 +151,15 @@ VALIDATE_DOCKER_OVERRIDE = {
   # docker/service/sshd.yaml is a variation of the puppet sshd service
   './docker/services/sshd.yaml': False,
 }
+DEPLOYMENT_RESOURCE_TYPES = [
+    'OS::Heat::SoftwareDeploymentGroup',
+    'OS::Heat::StructuredDeploymentGroup',
+    'OS::Heat::StructuredDeployments',
+    'OS::Heat::SoftwareDeployments',
+    'OS::Heat::SoftwareDeployment',
+    'OS::Heat::StructuredDeployment',
+    'OS::TripleO::SoftwareDeployment'
+]
 
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
@@ -577,6 +586,16 @@ def validate(filename, param_map):
                 print('Warning: parameter %s in template %s '
                       'appears to be unused' % (p, filename))
 
+        resources = tpl.get('resources')
+        if resources:
+            for resource, data in resources.items():
+                if data['type'] not in DEPLOYMENT_RESOURCE_TYPES:
+                    continue
+                if 'name' not in data['properties']:
+                    print('ERROR: resource %s from %s missing name property.'
+                            % (resource, filename))
+                    return 1
+
     return retval
 
 def validate_upgrade_tasks(upgrade_steps):
@@ -605,6 +624,7 @@ def parse_args():
 
     p.add_argument('--quiet', '-q',
                    action='count',
+                   default=0,
                    help='output warnings and errors (-q) or only errors (-qq)')
     p.add_argument('path_args',
                    nargs='*',
