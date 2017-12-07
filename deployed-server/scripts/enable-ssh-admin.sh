@@ -57,7 +57,7 @@ for HOST in $OVERCLOUD_HOSTS; do
     echo "Inserting TripleO short term key for $HOST"
     # prepending an extra newline so that if authorized_keys didn't
     # end with a newline previously, we don't end up garbling it up
-    ssh -i "$OVERCLOUD_SSH_KEY" -l "$OVERCLOUD_SSH_USER" "$HOST" "echo -e '\n$SHORT_TERM_KEY_PUBLIC_CONTENT' >> \$HOME/.ssh/authorized_keys"
+    ssh -o StrictHostKeyChecking=no -i "$OVERCLOUD_SSH_KEY" -l "$OVERCLOUD_SSH_USER" "$HOST" "echo -e '\n$SHORT_TERM_KEY_PUBLIC_CONTENT' >> \$HOME/.ssh/authorized_keys"
 done
 
 echo "Starting ssh admin enablement workflow"
