@@ -131,6 +131,8 @@ process_count = int(os.environ.get('PROCESS_COUNT',
 log = get_logger()
 log.info('Running docker-puppet')
 config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
+# If specified, only this config_volume will be used
+config_volume_only = os.environ.get('CONFIG_VOLUME', None)
 log.debug('CONFIG: %s' % config_file)
 with open(config_file) as f:
     json_data = json.load(f)
@@ -187,8 +189,12 @@ for service in (json_data or []):
             log.warn("Config containers do not match even though"
                      " shared volumes are the same!")
     else:
-        log.debug("Adding new service")
-        configs[config_volume] = service
+        if not config_volume_only or (config_volume_only == config_volume):
+            log.debug("Adding new service")
+            configs[config_volume] = service
+        else:
+            log.debug("Ignoring %s due to $CONFIG_VOLUME=%s" %
+                (config_volume, config_volume_only))
 
 log.info('Service compilation completed.')
 
