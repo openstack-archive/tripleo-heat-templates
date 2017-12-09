@@ -120,8 +120,30 @@ fi
 if [ "$(hiera nova_api_enabled)" = "true" ]; then
     # Disable nova quotas
     openstack quota set --cores -1 --instances -1 --ram -1 $(openstack project show admin | awk '$2=="id" {print $4}')
-fi
 
+  # Configure flavors.
+  RESOURCES='--property resources:CUSTOM_BAREMETAL=1 --property resources:DISK_GB=0 --property resources:MEMORY_MB=0 --property resources:VCPU=0 --property capabilities:boot_option=local'
+  SIZINGS='--ram 4096 --vcpus 1 --disk 40'
+
+  if ! openstack flavor show baremetal &> /dev/null; then
+      openstack flavor create $SIZINGS $RESOURCES baremetal
+  fi
+  if ! openstack flavor show control &> /dev/null; then
+      openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=control control
+  fi
+  if ! openstack flavor show compute &> /dev/null; then
+      openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=compute compute
+  fi
+  if ! openstack flavor show ceph-storage &> /dev/null; then
+      openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=ceph-storage ceph-storage
+  fi
+  if ! openstack flavor show block-storage &> /dev/null; then
+      openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=block-storage block-storage
+  fi
+  if ! openstack flavor show swift-storage &> /dev/null; then
+    openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=swift-storage swift-storage
+  fi
+fi
 
 # Set up a default keypair.
 if [ ! -e $HOMEDIR/.ssh/id_rsa ]; then
@@ -134,7 +156,6 @@ else
     echo Creating new keypair.
     openstack keypair create 'default' < $HOMEDIR/.ssh/id_rsa.pub
 fi
-
 
 # MISTRAL WORKFLOW CONFIGURATION
 if [ "$(hiera mistral_api_enabled)" = "true" ]; then
