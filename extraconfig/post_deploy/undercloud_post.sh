@@ -122,6 +122,20 @@ if [ "$(hiera nova_api_enabled)" = "true" ]; then
     openstack quota set --cores -1 --instances -1 --ram -1 $(openstack project show admin | awk '$2=="id" {print $4}')
 fi
 
+
+# Set up a default keypair.
+if [ ! -e $HOMEDIR/.ssh/id_rsa ]; then
+    sudo -E -u $USERNAME ssh-keygen -t rsa -N '' -f $HOMEDIR/.ssh/id_rsa
+fi
+
+if openstack keypair show default; then
+    echo Keypair already exists.
+else
+    echo Creating new keypair.
+    openstack keypair create 'default' < $HOMEDIR/.ssh/id_rsa.pub
+fi
+
+
 # MISTRAL WORKFLOW CONFIGURATION
 if [ "$(hiera mistral_api_enabled)" = "true" ]; then
     # load workflows
