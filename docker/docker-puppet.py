@@ -220,7 +220,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         # Create a reference timestamp to easily find all files touched by
         # puppet. The sync ensures we get all the files we want due to
         # different timestamp.
-        touch /tmp/the_origin_of_time
+        origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
+        touch $origin_of_time
         sync
 
         set +e
@@ -246,9 +247,10 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
 
             # Also make a copy of files modified during puppet run
             # This is useful for debugging
+            echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
             mkdir -p /var/lib/config-data/puppet-generated/${NAME}
             rsync -a -R -0 --delay-updates --delete-after \
-                          --files-from=<(find $rsync_srcs -newer /tmp/the_origin_of_time -not -path '/etc/puppet*' -print0) \
+                          --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
                           / /var/lib/config-data/puppet-generated/${NAME}
 
             # Write a checksum of the config-data dir, this is used as a
@@ -274,6 +276,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--env', 'HOSTNAME=%s' % short_hostname(),
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
+                '--volume', '/etc/localtime:/etc/localtime:ro',
                 '--volume', '%s:/etc/config.pp:ro,z' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro,z',
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z',
