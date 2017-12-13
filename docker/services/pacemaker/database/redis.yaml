@@ -40,9 +40,18 @@ parameters:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
     type: boolean
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  RedisIPv6:
+    default: false
+    description: Enable IPv6 in Redis
+    type: boolean
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  redis_ipv6: {get_param: RedisIPv6}
 
 resources:
 
@@ -84,6 +93,28 @@ outputs:
                   - 3124
                   - 6379
                   - 26379
+            tripleo::stunnel::manage_service: false
+            tripleo::stunnel::foreground: 'yes'
+            tripleo::profile::pacemaker::database::redis_bundle::tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, RedisNetwork]
+            tripleo::profile::pacemaker::database::redis_bundle::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+            tripleo::profile::pacemaker::database::redis_bundle::tls_proxy_port: 6379
+          - if:
+            - internal_tls_enabled
+            - redis::extra_config_file: "/etc/redis-tls.conf"
+              tripleo::profile::pacemaker::database::redis_bundle::extra_config_file: "/etc/redis-tls.conf"
+              tripleo::profile::pacemaker::database::redis_bundle::tls_tunnel_base_port: 6660
+              tripleo::profile::pacemaker::database::redis_bundle::tls_tunnel_local_name:
+                if:
+                - redis_ipv6
+                - '::1'
+                - '127.0.0.1'
+            - {}
       logging_source: {get_attr: [RedisBase, role_data, logging_source]}
       logging_groups: {get_attr: [RedisBase, role_data, logging_groups]}
       service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
@@ -94,8 +125,7 @@ outputs:
         # /etc/redis.conf
         # https://github.com/arioch/puppet-redis/commit/1c004143223e660cbd433422ff8194508aab9763
         puppet_tags: 'exec'
-        step_config:
-          get_attr: [RedisBase, role_data, step_config]
+        step_config: 'include ::tripleo::profile::pacemaker::database::redis_bundle'
         config_image: &redis_config_image {get_param: DockerRedisConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/redis.json:
@@ -110,6 +140,11 @@ outputs:
               merge: true
               preserve_properties: true
               optional: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              optional: true
+              preserve_properties: true
           permissions:
             - path: /var/run/redis
               owner: redis:redis
@@ -120,6 +155,21 @@ outputs:
             - path: /var/log/redis
               owner: redis:redis
               recurse: true
+            - path: /etc/pki/tls/certs/redis.crt
+              owner: redis:redis
+              perm: '0600'
+              optional: true
+            - path: /etc/pki/tls/private/redis.key
+              owner: redis:redis
+              perm: '0600'
+              optional: true
+        /var/lib/kolla/config_files/redis_tls_proxy.json:
+          command: stunnel /etc/stunnel/stunnel.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_1:
@@ -146,28 +196,50 @@ outputs:
               - /usr/bin:/usr/bin:ro
               - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
-          redis_init_bundle:
-            start_order: 2
-            detach: false
-            net: host
-            user: root
-            config_volume: 'redis_init_bundle'
-            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-              list_concat:
-                - - '/docker_puppet_apply.sh'
-                  - '2'
-                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
-                  - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::redis_bundle'
-                - if:
-                  - puppet_debug_enabled
-                  - - '--debug'
-                  - - ''
-            image: *redis_config_image
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
-                - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - /dev/shm:/dev/shm:rw
+          map_merge:
+            - redis_init_bundle:
+                start_order: 2
+                detach: false
+                net: host
+                user: root
+                config_volume: 'redis_init_bundle'
+                command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+                  list_concat:
+                    - - '/docker_puppet_apply.sh'
+                      - '2'
+                      - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                      - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::redis_bundle'
+                    - if:
+                      - puppet_debug_enabled
+                      - - '--debug'
+                      - - ''
+                image: *redis_config_image
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                    - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                      - /dev/shm:/dev/shm:rw
+            - if:
+                - internal_tls_enabled
+                - redis_tls_proxy:
+                    start_order: 3
+                    image: *redis_image_pcmklatest
+                    net: host
+                    user: root
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/redis_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/redis/:/var/lib/kolla/config_files/src:ro
+                          - /etc/pki/tls/certs/redis.crt:/etc/pki/tls/certs/redis.crt:ro
+                          - /etc/pki/tls/private/redis.key:/etc/pki/tls/private/redis.key:ro
+                    environment:
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                - {}
+      metadata_settings:
+        get_attr: [RedisBase, role_data, metadata_settings]
       host_prep_tasks:
         - name: create /var/run/redis
           file:
