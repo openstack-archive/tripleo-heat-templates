@@ -227,7 +227,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
 
         set +e
         FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply \
-        --detailed-exitcodes --color=false --logdest syslog --logdest console $TAGS /etc/config.pp
+        --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
         rc=$?
         set -e
         if [ $rc -ne 2 -a $rc -ne 0 ]; then
@@ -244,6 +244,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 fi
             done
             rsync -a -R --delay-updates --delete-after $rsync_srcs /var/lib/config-data/${NAME}
+
 
             # Also make a copy of files modified during puppet run
             # This is useful for debugging
