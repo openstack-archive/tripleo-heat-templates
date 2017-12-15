@@ -52,7 +52,7 @@ source $HOMEDIR/stackrc
 
 if [ ! -f $HOMEDIR/.ssh/authorized_keys ]; then
     sudo mkdir -p $HOMEDIR/.ssh
-    sudo chmod 7000 $HOMEDIR/.ssh/
+    sudo chmod 700 $HOMEDIR/.ssh/
     sudo touch $HOMEDIR/.ssh/authorized_keys
     sudo chmod 600 $HOMEDIR/.ssh/authorized_keys
 fi
