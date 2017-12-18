@@ -35,7 +35,7 @@ PARAMS = (PARAM_CLOUD_ENDPOINTS, PARAM_ENDPOINTMAP, PARAM_NETIPMAP,
           'CloudEndpoints', 'EndpointMap', 'NetIpMap', 'ServiceNetMap')
 FIELDS = (F_PORT, F_PROTOCOL, F_HOST) = ('port', 'protocol', 'host')
 
-ENDPOINT_TYPES = frozenset(['Internal', 'Public', 'Admin'])
+ENDPOINT_TYPES = frozenset(['Internal', 'Public', 'Admin', 'UIConfig'])
 
 
 def get_file(default_fn, override=None, writable=False):
