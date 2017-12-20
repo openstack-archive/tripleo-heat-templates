@@ -14,25 +14,26 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from collections import defaultdict
 import errno
 import os
 import sys
 import yaml
 
 
-_PARAM_FORMAT = u"""  # %(description)s
-  %(mandatory)s# Type: %(type)s
-  %(name)s:%(default)s
+_PARAM_FORMAT = u"""%(indent_space)s  # %(description)s
+  %(mandatory)s%(indent_space)s# Type: %(type)s
+  %(indent_space)s%(name)s:%(default)s
 """
 _STATIC_MESSAGE_START = (
-    '  # ******************************************************\n'
-    '  # Static parameters - these are values that must be\n'
-    '  # included in the environment but should not be changed.\n'
-    '  # ******************************************************\n'
+    '%(indent_space)s  # ******************************************************\n'
+    '%(indent_space)s  # Static parameters - these are values that must be\n'
+    '%(indent_space)s  # included in the environment but should not be changed.\n'
+    '%(indent_space)s  # ******************************************************\n'
     )
-_STATIC_MESSAGE_END = ('  # *********************\n'
-                       '  # End static parameters\n'
-                       '  # *********************\n'
+_STATIC_MESSAGE_END = ('%(indent_space)s  # *********************\n'
+                       '%(indent_space)s  # End static parameters\n'
+                       '%(indent_space)s  # *********************\n'
                        )
 _FILE_HEADER = (
     '# *******************************************************************\n'
@@ -42,6 +43,7 @@ _FILE_HEADER = (
     '# of the original, if any customizations are needed.\n'
     '# *******************************************************************\n'
     )
+_PARAMETERS = "parameters"
 # Certain parameter names can't be changed, but shouldn't be shown because
 # they are never intended for direct user input.
 _PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex', 'DefaultPasswords']
@@ -52,6 +54,12 @@ _PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex', 'DefaultPasswords']
 _HIDDEN_PARAMS = ['EndpointMap', 'RoleName', 'RoleParameters',
                   'ServiceNetMap', 'ServiceData',
                   ]
+
+
+def _initialize_params_dict(params_dict, k, v):
+    for role, param_name in params_dict.items():
+        if k in param_name:
+            params_dict[role][k]['sample'] = v
 
 
 def _create_output_dir(target_file):
@@ -70,23 +78,24 @@ def _generate_environment(input_env, output_path, parent_env=None):
     env = dict(parent_env)
     env.pop('children', None)
     env.update(input_env)
-    parameter_defaults = {}
-    param_names = []
+    f_parameter_defaults = {}
+    param_names = defaultdict(list)
     sample_values = env.get('sample_values', {})
     static_names = env.get('static', [])
     for template_file, template_data in env['files'].items():
         with open(template_file) as f:
             f_data = yaml.safe_load(f)
             f_params = f_data['parameters']
-            parameter_defaults.update(f_params)
-            if template_data['parameters'] == 'all':
+            f_parameter_defaults.update(f_params)
+        for t_param_role, t_params in template_data.items():
+            if t_params == 'all':
                 new_names = [k for k, v in f_params.items()]
                 for hidden in _HIDDEN_PARAMS:
                     if (hidden not in (static_names + list(sample_values)) and
                             hidden in new_names):
                         new_names.remove(hidden)
             else:
-                new_names = template_data['parameters']
+                new_names = t_params
             missing_params = [name for name in new_names
                               if name not in f_params]
             if missing_params:
@@ -94,26 +103,28 @@ def _generate_environment(input_env, output_path, parent_env=None):
                                    'in file %s for environment %s' %
                                    (missing_params, template_file,
                                     env['name']))
-            param_names += new_names
+            param_names[t_param_role] += new_names
 
-    static_defaults = {k: v for k, v in parameter_defaults.items()
-                       if k in param_names and
-                       k in static_names
-                       }
-    parameter_defaults = {k: v for k, v in parameter_defaults.items()
-                          if k in param_names and
-                          k not in _PRIVATE_OVERRIDES and
-                          not k.startswith('_') and
-                          k not in static_names
-                          }
+    static_defaults = defaultdict(dict)
+    parameter_defaults = defaultdict(dict)
+    for role, params in param_names.items():
+        static_defaults[role] = {name: f_parameter_defaults[name]
+                                 for name in params
+                                 if name in f_parameter_defaults and
+                                 name in static_names}
+        parameter_defaults[role] = {name: f_parameter_defaults[name]
+                                    for name in params
+                                    if name in f_parameter_defaults and
+                                    name not in _PRIVATE_OVERRIDES and
+                                    not name.startswith('_') and
+                                    name not in static_names}
 
     for k, v in sample_values.items():
-        if k in parameter_defaults:
-            parameter_defaults[k]['sample'] = v
-        if k in static_defaults:
-            static_defaults[k]['sample'] = v
+        _initialize_params_dict(parameter_defaults, k, v)
+        _initialize_params_dict(static_defaults, k, v)
 
-    def write_sample_entry(f, name, value):
+    def write_sample_entry(f, name, value, indent_space_count=0):
+        indent_space = " " * indent_space_count
         default = value.get('default')
         mandatory = ''
         if default is None:
@@ -138,15 +149,28 @@ def _generate_environment(input_env, output_path, parent_env=None):
         values = {'name': name,
                   'type': value['type'],
                   'description':
-                      value.get('description', '').rstrip().replace('\n',
-                                                                    '\n  # '),
+                      value.get('description', '').rstrip().
+                      replace('\n', '\n%s  # ' % indent_space).rstrip(),
                   'default': default,
                   'mandatory': mandatory,
+                  'indent_space': indent_space,
                   }
         f.write(_PARAM_FORMAT % values + '\n')
 
     target_file = os.path.join(output_path, env['name'] + '.yaml')
     _create_output_dir(target_file)
+
+    def write_params_entry(f, parameter_defaults_tuple, static_defaults_tuple, indent_space_count):
+        for param_name, param_value in sorted(parameter_defaults_tuple.items()):
+            write_sample_entry(f, param_name,
+                               param_value, indent_space_count)
+        if static_defaults_tuple:
+            f.write(_STATIC_MESSAGE_START % {"indent_space": " " * indent_space_count})
+            for param_name, param_value in sorted(static_defaults_tuple.items()):
+                write_sample_entry(f, param_name,
+                                   param_value, indent_space_count)
+            f.write(_STATIC_MESSAGE_END % {"indent_space": " " * indent_space_count})
+
     with open(target_file, 'w') as env_file:
         env_file.write(_FILE_HEADER)
         # TODO(bnemec): Once Heat allows the title and description to live in
@@ -158,18 +182,15 @@ def _generate_environment(input_env, output_path, parent_env=None):
         env_file.write(u'# description: |\n')
         for line in env_desc.splitlines():
             env_file.write(u'#   %s\n' % line)
-
         if parameter_defaults or static_defaults:
             env_file.write(u'parameter_defaults:\n')
-        for name, value in sorted(parameter_defaults.items()):
-            write_sample_entry(env_file, name, value)
-        if static_defaults:
-            env_file.write(_STATIC_MESSAGE_START)
-        for name, value in sorted(static_defaults.items()):
-            write_sample_entry(env_file, name, value)
-        if static_defaults:
-            env_file.write(_STATIC_MESSAGE_END)
-
+            write_params_entry(env_file, parameter_defaults[_PARAMETERS],
+                               static_defaults[_PARAMETERS], 0)
+            param_names.pop(_PARAMETERS, None)
+            for name in param_names:
+                env_file.write(u'  %s:\n' % name)
+                write_params_entry(env_file, parameter_defaults[name],
+                                   static_defaults[name], 2)
         if env.get('resource_registry'):
             env_file.write(u'resource_registry:\n')
         for res, value in sorted(env.get('resource_registry', {}).items()):
