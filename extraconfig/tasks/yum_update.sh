@@ -65,9 +65,11 @@ fi
 command_arguments=${command_arguments:-}
 
 # Always ensure yum has full cache
+check_for_yum_lock
 yum makecache || echo "Yum makecache failed. This can cause failure later on."
 
 # yum check-update exits 100 if updates are available
+check_for_yum_lock
 set +e
 check_update=$(yum check-update 2>&1)
 check_update_exit=$?
@@ -86,6 +88,7 @@ fi
 special_case_ovs_upgrade_if_needed
 
 # Resolve any RPM dependency issues before attempting the update
+check_for_yum_lock
 yum_pre_update
 
 if [[ "$pacemaker_status" == "active" ]] ; then
