@@ -480,11 +480,13 @@ parameter_defaults:
                            fake_template2, fake_nested_output]
             mock_open.side_effect = mock_se
             if not self.exception:
-                environment_generator.generate_environments('ignored.yaml')
+                environment_generator.generate_environments('ignored.yaml',
+                                                            'environments')
             else:
                 self.assertRaises(self.exception,
                                   environment_generator.generate_environments,
-                                  'ignored.yaml')
+                                  'ignored.yaml',
+                                  'environments')
                 return
         expected = environment_generator._FILE_HEADER + self.expected_output
         with open(fake_output_path) as f:
