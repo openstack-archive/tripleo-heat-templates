@@ -82,7 +82,7 @@ def _generate_environment(input_env, output_path, parent_env=None):
             if template_data['parameters'] == 'all':
                 new_names = [k for k, v in f_params.items()]
                 for hidden in _HIDDEN_PARAMS:
-                    if (hidden not in (static_names + sample_values.keys()) and
+                    if (hidden not in (static_names + list(sample_values)) and
                             hidden in new_names):
                         new_names.remove(hidden)
             else:
