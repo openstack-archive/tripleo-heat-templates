@@ -98,6 +98,16 @@ parameters:
     description: >
       NFS share to mount for image storage (when GlanceNfsEnabled is true)
     type: string
+  GlanceNetappNfsEnabled:
+    default: false
+    description: >
+      When using GlanceBackend 'file', Netapp mount NFS share for image storage.
+    type: boolean
+  NetappShareLocation:
+    default: ''
+    description: >
+      Netapp share to mount for image storage (when GlanceNetappNfsEnabled is true)
+    type: string
   GlanceNfsOptions:
     default: '_netdev,bg,intr,context=system_u:object_r:glance_var_lib_t:s0'
     description: >
@@ -283,6 +293,35 @@ outputs:
             - "%{hiera('mysql_bind_host')}"
       step_config: |
         include ::tripleo::profile::base::glance::api
+
+      host_prep_tasks:
+        - name: Mount Netapp NFS
+          vars:
+            netapp_nfs_backend_enable: {get_param: GlanceNetappNfsEnabled}
+          block:
+            - name:
+              set_fact:
+                remote_file_path: /etc/glance/glance-metadata-file.conf
+            - name:
+              file:
+                path: "{{ remote_file_path }}"
+                state: touch
+            - stat: path="{{ remote_file_path }}"
+              register: file_path
+            - copy:
+                content: {"share_location" : "{{item.NETAPP_SHARE}}", "mount_point" : "/var/lib/glance/images", "type" : "nfs",}
+                dest: "{{ remote_file_path }}"
+              with_items:
+                - NETAPP_SHARE: {get_param: NetappShareLocation}
+              when:
+                - file_path.stat.exists == true
+            - name:
+              mount: name=/var/lib/glance/images src="{{item.NETAPP_SHARE}}" fstype=nfs4 opts="{{item.NFS_OPTIONS}}" state=mounted
+              with_items:
+                - NETAPP_SHARE: {get_param: NetappShareLocation}
+                  NFS_OPTIONS: {get_param: GlanceNfsOptions}
+          when: netapp_nfs_backend_enable
+
       upgrade_tasks:
         - name: Check if glance_api is deployed
           command: systemctl is-enabled openstack-glance-api
