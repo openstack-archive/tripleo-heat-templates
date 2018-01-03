@@ -36,6 +36,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -60,6 +67,10 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [OpenDaylightBase, role_data, config_settings]
+          - if:
+            - internal_tls_enabled
+            - tripleo::certmonger::opendaylight::postsave_cmd: "true" # TODO: restart the odl container here
+            - {}
       logging_source: {get_attr: [OpenDaylightBase, role_data, logging_source]}
       logging_groups: {get_attr: [OpenDaylightBase, role_data, logging_groups]}
       # BEGIN DOCKER SETTINGS
@@ -102,8 +113,20 @@ outputs:
                   - /var/lib/config-data/puppet-generated/opendaylight/:/var/lib/kolla/config_files/src:ro
                   - /var/lib/opendaylight/journal:/opt/opendaylight/journal
                   - /var/lib/opendaylight/snapshots:/opt/opendaylight/snapshots
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/odl.crt:/etc/pki/tls/certs/odl.crt:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/odl.key:/etc/pki/tls/private/odl.key:ro
+                      - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      metadata_settings:
+        get_attr: [OpenDaylightBase, role_data, metadata_settings]
       host_prep_tasks:
         - name: create persistent directories
           file:
