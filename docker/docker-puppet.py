@@ -225,7 +225,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
         sync
 
         set +e
-        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply \
+        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --summarize \
         --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
         rc=$?
         set -e
