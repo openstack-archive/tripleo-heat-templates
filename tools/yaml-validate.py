@@ -300,6 +300,7 @@ def validate_controller_no_ceph_role(filename, tpl):
     for role in tpl:
         if role['name'] == 'ControllerNoCeph':
             services = role['ServicesDefault']
+            services.remove('OS::TripleO::Services::CephClient')
             services.append('OS::TripleO::Services::CephMds')
             services.append('OS::TripleO::Services::CephMgr')
             services.append('OS::TripleO::Services::CephMon')
