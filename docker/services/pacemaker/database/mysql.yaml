@@ -154,6 +154,7 @@ outputs:
               owner: mysql:mysql
               perm: '0600'
               optional: true
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_1:
           mysql_data_ownership:
@@ -244,32 +245,23 @@ outputs:
             detach: false
             net: host
             user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    list_join:
-                      - '; '
-                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
-                        - "FACTER_uuid=docker puppet apply DEBUG --color=false --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
-                  params:
-                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,galera_ready,mysql_database,mysql_grant,mysql_user'
-                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::mysql_bundle'
-                    DEBUG:
-                      if:
-                        - puppet_debug_enabled
-                        - '--debug --verbose'
-                        - ''
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                - - '/docker_puppet_apply.sh'
+                  - '2'
+                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,galera_ready,mysql_database,mysql_grant,mysql_user'
+                  - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::database::mysql_bundle'
+                - if:
+                  - puppet_debug_enabled
+                  - - '--debug'
+                  - - ''
             image: {get_param: DockerMysqlImage}
             volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /etc/puppet:/tmp/puppet-etc:ro
-              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
-              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-              - /dev/shm:/dev/shm:rw
-              - /var/lib/mysql:/var/lib/mysql:rw
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /var/lib/mysql:/var/lib/mysql:rw
       host_prep_tasks:
         - name: create /var/lib/mysql
           file:

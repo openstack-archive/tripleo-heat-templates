@@ -50,6 +50,9 @@ conditions:
 
 resources:
 
+  ContainersCommon:
+    type: ../containers-common.yaml
+
   RabbitmqBase:
     type: ../../../puppet/services/rabbitmq.yaml
     properties:
@@ -129,6 +132,7 @@ outputs:
              optional: true
       # When using pacemaker we don't launch the container, instead that is done by pacemaker
       # itself.
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_1:
           rabbitmq_bootstrap:
@@ -184,32 +188,23 @@ outputs:
             detach: false
             net: host
             user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    list_join:
-                      - '; '
-                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
-                        - "FACTER_uuid=docker puppet apply DEBUG --color=false --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
-                  params:
-                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,rabbitmq_policy,rabbitmq_user,rabbitmq_ready'
-                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::rabbitmq_bundle'
-                    DEBUG:
-                      if:
-                        - puppet_debug_enabled
-                        - '--debug --verbose'
-                        - ''
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                - - '/docker_puppet_apply.sh'
+                  - '2'
+                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,rabbitmq_policy,rabbitmq_user,rabbitmq_ready'
+                  - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::rabbitmq_bundle'
+                - if:
+                  - puppet_debug_enabled
+                  - - '--debug'
+                  - - ''
             image: {get_param: DockerRabbitmqImage}
             volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /etc/puppet:/tmp/puppet-etc:ro
-              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
-              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-              - /dev/shm:/dev/shm:rw
-              - /bin/true:/bin/epmd
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /bin/true:/bin/epmd
       host_prep_tasks:
         - name: create /var/lib/rabbitmq
           file:
