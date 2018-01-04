@@ -46,6 +46,9 @@ conditions:
 
 resources:
 
+  ContainersCommon:
+    type: ../containers-common.yaml
+
   MySQLClient:
     type: ../../../puppet/services/database/mysql-client.yaml
 
@@ -101,6 +104,7 @@ outputs:
             - path: /var/log/manila
               owner: manila:manila
               recurse: true
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_1:
           manila_share_image_tag:
@@ -140,31 +144,22 @@ outputs:
             detach: false
             net: host
             user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    list_join:
-                      - '; '
-                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 5}' > /etc/puppet/hieradata/docker.json"
-                        - "FACTER_uuid=docker puppet apply DEBUG --color=false --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules --tags file_line,concat,augeas,TAGS --debug -v -e 'CONFIG'"
-                  params:
-                    TAGS: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
-                    CONFIG: 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::manila::share_bundle'
-                    DEBUG:
-                      if:
-                        - puppet_debug_enabled
-                        - '--debug --verbose'
-                        - ''
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                - - '/docker_puppet_apply.sh'
+                  - '5'
+                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
+                  - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::manila::share_bundle'
+                - if:
+                  - puppet_debug_enabled
+                  - - '--debug'
+                  - - ''
             image: {get_param: DockerManilaShareImage}
             volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /etc/puppet:/tmp/puppet-etc:ro
-              - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
-              - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-              - /dev/shm:/dev/shm:rw
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
       host_prep_tasks:
         - name: create persistent directories
           file:
