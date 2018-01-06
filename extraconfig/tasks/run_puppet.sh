@@ -12,6 +12,7 @@ function run_puppet {
         set +e
         puppet apply --detailed-exitcodes \
                --modulepath \
+               --summarize \
                /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
                "${manifest}"
         rc=$?
