@@ -9,7 +9,7 @@ OVERCLOUD_SSH_USER=${OVERCLOUD_SSH_USER:-"$USER"}
 SUBNODES_SSH_KEY=${SUBNODES_SSH_KEY:-"$HOME/.ssh/id_rsa"}
 # this is the intended variable for overriding
 OVERCLOUD_SSH_KEY=${OVERCLOUD_SSH_KEY:-"$SUBNODES_SSH_KEY"}
-
+SSH_TIMEOUT_OPTIONS=${SSH_TIMEOUT_OPTIONS:-"-o ConnectionAttempts=6 -o ConnectTimeout=30"}
 SHORT_TERM_KEY_COMMENT="TripleO split stack short term key"
 SLEEP_TIME=5
 
@@ -57,7 +57,7 @@ for HOST in $OVERCLOUD_HOSTS; do
     echo "Inserting TripleO short term key for $HOST"
     # prepending an extra newline so that if authorized_keys didn't
     # end with a newline previously, we don't end up garbling it up
-    ssh -o StrictHostKeyChecking=no -i "$OVERCLOUD_SSH_KEY" -l "$OVERCLOUD_SSH_USER" "$HOST" "echo -e '\n$SHORT_TERM_KEY_PUBLIC_CONTENT' >> \$HOME/.ssh/authorized_keys"
+    ssh $SSH_TIMEOUT_OPTIONS -o StrictHostKeyChecking=no -i "$OVERCLOUD_SSH_KEY" -l "$OVERCLOUD_SSH_USER" "$HOST" "echo -e '\n$SHORT_TERM_KEY_PUBLIC_CONTENT' >> \$HOME/.ssh/authorized_keys"
 done
 
 echo "Starting ssh admin enablement workflow"
@@ -80,7 +80,7 @@ echo  # newline after the previous dots
 
 for HOST in $OVERCLOUD_HOSTS; do
     echo "Removing TripleO short term key from $HOST"
-    ssh -l "$OVERCLOUD_SSH_USER" "$HOST" "sed -i -e '/$SHORT_TERM_KEY_COMMENT/d' \$HOME/.ssh/authorized_keys"
+    ssh $SSH_TIMEOUT_OPTIONS -l "$OVERCLOUD_SSH_USER" "$HOST" "sed -i -e '/$SHORT_TERM_KEY_COMMENT/d' \$HOME/.ssh/authorized_keys"
 done
 
 echo "Removing short term keys locally"
