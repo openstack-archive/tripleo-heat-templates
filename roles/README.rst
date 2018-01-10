@@ -34,6 +34,16 @@ Role Options
   defaults to '%stackname%-{{role.name.lower()}}-%index%'
   sets the default for {{role.name}}HostnameFormat parameter in overcloud.yaml
 
+* ImageDefault: (string) optional default image name or ID, defaults to
+  overcloud-full
+
+* FlavorDefault: (string) optional default flavor name or ID, defaults to
+  baremetal
+
+* RoleParametersDefault: (map) optional default to the per-role RoleParameters
+  value, this enables roles to specify specific values appropriate to their
+  configuration, defaults to an empty map.
+
 * disable_constraints: (boolean) optional, whether to disable Nova and Glance
   constraints for each role specified in the templates.
 
