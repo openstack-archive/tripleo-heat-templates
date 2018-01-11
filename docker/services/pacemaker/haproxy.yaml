@@ -67,6 +67,9 @@ conditions:
 
 resources:
 
+  ContainersCommon:
+    type: ../containers-common.yaml
+
   HAProxyBase:
     type: ../../../puppet/services/pacemaker/haproxy.yaml
     properties:
@@ -156,6 +159,7 @@ outputs:
               owner: haproxy:haproxy
               perm: '0600'
               optional: true
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_1:
           haproxy_image_tag:
@@ -188,30 +192,20 @@ outputs:
             net: host
             user: root
             privileged: true
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    list_join:
-                      - '; '
-                      - - "cp -a /tmp/puppet-etc/* /etc/puppet; echo '{\"step\": 2}' > /etc/puppet/hieradata/docker.json"
-                        - "FACTER_uuid=docker puppet apply DEBUG --color=false --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules --tags file,file_line,concat,augeas,TAGS -v -e 'CONFIG'"
-                  params:
-                    TAGS: 'tripleo::firewall::rule,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
-                    CONFIG:
-                      list_join:
-                        - ';'
-                        - - 'include ::tripleo::profile::base::pacemaker'
-                          - 'include ::tripleo::profile::pacemaker::haproxy_bundle'
-                    DEBUG:
-                      if:
-                        - puppet_debug_enabled
-                        - '--debug --verbose'
-                        - ''
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                - - '/docker_puppet_apply.sh'
+                  - '2'
+                  - 'file,file_line,concat,augeas,tripleo::firewall::rule,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                  - 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::haproxy_bundle'
+                - if:
+                  - puppet_debug_enabled
+                  - - '--debug'
+                  - - ''
             image: {get_param: DockerHAProxyImage}
             volumes:
               list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
                 - *deployed_cert_mount
                 -
                   # puppet saves iptables rules in /etc/sysconfig
@@ -220,10 +214,6 @@ outputs:
                   # the necessary bit and prevent systemd to try to reload the service in the container
                   - /usr/libexec/iptables:/usr/libexec/iptables:ro
                   - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
-                  - /etc/hosts:/etc/hosts:ro
-                  - /etc/localtime:/etc/localtime:ro
-                  - /etc/puppet:/tmp/puppet-etc:ro
-                  - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
                   - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
                   - /dev/shm:/dev/shm:rw
       metadata_settings:
