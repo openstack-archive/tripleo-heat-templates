@@ -239,6 +239,7 @@ resources:
                   bootstrap_server_id: {get_attr: [BootstrapServerId, value]}
                   puppet_step_config: {get_param: [role_data, {{role.name}}, step_config]}
                   docker_config_scripts: {get_param: [role_data, {{role.name}}, docker_config_scripts]}
+                  deploy_steps_max: {{deploy_steps_max}}
                 tasks:
                   # Join host_prep_tasks with the other per-host configuration
                   list_concat:
@@ -271,11 +272,18 @@ resources:
                       # and docker-cmd.  This lets us create command line tools to test containers.
                       # FIXME do we need the docker-container-startup-configs.json or is the new per-step
                       # data consumed by paunch enough?
+                      - name: Set docker_startup_configs_default fact
+                        set_fact:
+                          docker_startup_configs_default: "{{ '{{' }}docker_startup_configs_default|default({}) | combine( {'step_'+item: {}} ) {{ '}}'}}"
+                        with_sequence: count="{{ '{{' }}deploy_steps_max{{ '}}' }}"
+                      - name: Set docker_startup_configs_with_default fact
+                        set_fact:
+                          docker_startup_configs_with_default: "{{ '{{' }} docker_startup_configs_default | combine(docker_startup_configs) {{ '}}'}}"
                       - name: Write docker-container-startup-configs
-                        copy: content="{{ '{{' }}docker_startup_configs | to_json{{ '}}' }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
+                        copy: content="{{ '{{' }} docker_startup_configs_with_default | to_json{{ '}}' }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
                       - name: Write per-step docker-container-startup-configs
                         copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{ '{{' }}item.key{{ '}}' }}.json" force=yes mode=0600
-                        with_dict: "{{ '{{' }}docker_startup_configs{{ '}}' }}"
+                        with_dict: "{{ '{{' }} docker_startup_configs_with_default {{ '}}' }}"
                       - name: Create /var/lib/kolla/config_files directory
                         file: path=/var/lib/kolla/config_files state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
                       - name: Write kolla config json files
