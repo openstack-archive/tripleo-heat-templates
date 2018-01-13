@@ -504,10 +504,11 @@ def validate_docker_service(filename, tpl):
                       print('ERROR: bootstrap_host_exec needs to run as the root user.')
                       return 1
 
-        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks'] and \
-                validate_upgrade_tasks(role_data['upgrade_tasks']):
-            print('ERROR: upgrade_tasks validation failed')
-            return 1
+        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks']:
+            if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
+                validate_upgrade_tasks_duplicate_whens(filename)):
+                print('ERROR: upgrade_tasks validation failed')
+                return 1
 
     if 'parameters' in tpl:
         for param in required_params:
@@ -555,10 +556,12 @@ def validate_service(filename, tpl):
            validate_mysql_connection(role_data['config_settings']):
             print('ERROR: mysql connection uri should use option bind_address')
             return 1
-        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks'] and \
-                validate_upgrade_tasks(role_data['upgrade_tasks']):
-            print('ERROR: upgrade_tasks validation failed')
-            return 1
+        if 'upgrade_tasks' in role_data and role_data['upgrade_tasks']:
+            if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
+                validate_upgrade_tasks_duplicate_whens(filename)):
+                print('ERROR: upgrade_tasks validation failed')
+                return 1
+
     if 'parameters' in tpl:
         for param in required_params:
             if param not in tpl['parameters']:
@@ -566,6 +569,31 @@ def validate_service(filename, tpl):
                       % (param, filename))
                 return 1
     return 0
+
+
+
+def validate_upgrade_tasks_duplicate_whens(filename):
+    """Take a heat template and starting at the upgrade_tasks
+       try to detect duplicate 'when:' statements
+    """
+    with open(filename) as template:
+        contents = template.read()
+        upgrade_task_position = contents.index('upgrade_tasks')
+        lines = contents[upgrade_task_position:].splitlines()
+        count = 0
+        duplicate = ''
+        for line in lines:
+            if '  when:' in line:
+                count += 1
+                if count > 1:
+                    print ("ERROR: found duplicate when statements in %s "
+                           "upgrade_task: %s %s" % (filename, line, duplicate))
+                    return 1
+                duplicate = line
+            elif ' -' in line:
+                count = 0
+                duplicate = ''
+        return 0
 
 
 def validate(filename, param_map):
@@ -629,6 +657,7 @@ def validate(filename, param_map):
                 VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
             retval = validate_service(filename, tpl)
 
+
         if filename.startswith('./docker/services/logging/'):
             retval = validate_docker_logging_template(filename, tpl)
         elif VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
@@ -691,26 +720,22 @@ def validate(filename, param_map):
 
     return retval
 
-def validate_upgrade_tasks(upgrade_steps):
+def validate_upgrade_tasks(upgrade_tasks):
     # some templates define its upgrade_tasks via list_concat
-    if isinstance(upgrade_steps, dict):
-        if upgrade_steps.get('list_concat'):
-            return validate_upgrade_tasks(upgrade_steps['list_concat'][1])
-        elif upgrade_steps.get('get_attr'):
+    if isinstance(upgrade_tasks, dict):
+        if upgrade_tasks.get('list_concat'):
+            return validate_upgrade_tasks(upgrade_tasks['list_concat'][1])
+        elif upgrade_tasks.get('get_attr'):
             return 0
 
-    for step in upgrade_steps:
-        if 'tags' not in step.keys():
-            if 'name' in step.keys():
-                print('ERROR: upgrade task named (%s) is missing its tags keyword.'
-                        % step['name'])
-            else:
-                print('ERROR: upgrade task (%s) is missing its tags keyword.'
-                        % step)
-            return 1
-
+    # Don't enforce the need to have a when 'step' conditional, for now:
+    for task in upgrade_tasks:
+        whenline = task.get("when", "")
+        if 'step|int == ' not in whenline:
+            task_name = task.get("name", "")
+            print('WARNING: upgrade task (%s) is missing expected \'when: '
+                   'step|int == \' condition (%s)'  % (task_name, task))
     return 0
-
 
 def parse_args():
     p = argparse.ArgumentParser()

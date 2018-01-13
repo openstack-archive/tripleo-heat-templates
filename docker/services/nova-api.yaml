@@ -318,11 +318,10 @@ outputs:
           register: httpd_enabled
         - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
           command: systemctl is-active --quiet openstack-nova-api
-          tags: step0,validation
-          when: nova_api_enabled.rc == 0 and httpd_enabled.rc != 0
+          tags: validation
+          when: (nova_api_enabled.rc == 0) and (httpd_enabled.rc != 0) and (step|int == 0)
         - name: Stop and disable nova_api service
-          tags: step2
-          when: nova_api_enabled.rc == 0 and httpd_enabled.rc != 0
+          when: (nova_api_enabled.rc == 0) and (httpd_enabled.rc != 0) and (step|int == 2)
           service: name=openstack-nova-api state=stopped enabled=no
         - name: Check if httpd service is running
           command: systemctl is-active --quiet httpd
@@ -330,20 +329,22 @@ outputs:
           ignore_errors: True
           register: httpd_running
         - name: "PreUpgrade step0,validation: Check if nova_wsgi is running"
-          tags: step0,validation
+          tags: validation
           shell: systemctl status 'httpd' | grep -q 'nova'
-          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+          when: (httpd_enabled.rc == 0) and (httpd_running.rc == 0) and (step|int == 0)
         - name: Stop nova_api service (running under httpd)
-          tags: step2
-          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+          when: (httpd_enabled.rc == 0) and (httpd_running.rc == 0) and (step|int == 2)
           service: name=httpd state=stopped
+        - name: Set fact for removal of openstack-nova-api package
+          when: step|int == 2
+          set_fact:
+            remove_nova_api_package: {get_param: UpgradeRemoveUnusedPackages}
         - name: Remove openstack-nova-api package if operator requests it
           yum: name=openstack-nova-api state=removed
-          tags: step2
           ignore_errors: True
-          when: {get_param: UpgradeRemoveUnusedPackages}
+          when: (remove_nova_api_package|bool) and (step|int == 2)
         - name: remove old nova cron jobs
-          tags: step2
+          when: step|int == 2
           file:
             path: /var/spool/cron/nova
             state: absent

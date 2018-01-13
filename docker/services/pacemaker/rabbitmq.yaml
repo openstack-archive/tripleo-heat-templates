@@ -228,42 +228,40 @@ outputs:
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Check cluster resource status
-          tags: step2
+          when: step|int == 2
           pacemaker_resource:
             resource: {get_attr: [RabbitmqBase, role_data, service_name]}
             state: started
             check_mode: true
           ignore_errors: true
           register: rabbitmq_res
-        - name: Disable the rabbitmq cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and rabbitmq_res|succeeded
-        - name: Delete the stopped rabbitmq cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node and rabbitmq_res|succeeded
+        - when: (is_bootstrap_node) and (rabbitmq_res|succeeded) and (step|int == 2)
+          block:
+            - name: Disable the rabbitmq cluster resource.
+              pacemaker_resource:
+                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped rabbitmq cluster resource.
+              pacemaker_resource:
+                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Disable rabbitmq service
-          tags: step2
+          when: step|int == 2
           service: name=rabbitmq-server enabled=no
       update_tasks:
         - name: Get docker Rabbitmq image
           set_fact:
             docker_image: {get_param: DockerRabbitmqImage}
             docker_image_latest: *rabbitmq_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Get previous Rabbitmq image id
           shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
           register: rabbitmq_image_id
@@ -278,13 +276,13 @@ outputs:
             - name: Remove previous Rabbitmq images
               shell: "docker rmi -f {{rabbitmq_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - rabbitmq_image_id.stdout != ''
         - name: Pull latest Rabbitmq images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Retag pcmklatest to latest Rabbitmq image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.

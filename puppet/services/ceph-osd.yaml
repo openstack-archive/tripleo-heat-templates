@@ -79,66 +79,57 @@ outputs:
       step_config: |
         include ::tripleo::profile::base::ceph::osd
       upgrade_batch_tasks:
-        - name: Check status
-          tags: step1,validation
-          shell: ceph health | grep -qv HEALTH_ERR
-        - name: Get OSD IDs
-          tags: step1
-          shell: ls /var/lib/ceph/osd | awk 'BEGIN { FS = "-" } ; { print $2 }'
-          register: osd_ids
-          # "so that mirrors aren't rebalanced as if the OSD died" - gfidente / leseb
-        - name: ceph osd set noout
-          tags: step1
-          command: ceph osd set noout
-        - name: ceph osd set norebalance
-          tags: step1
-          command: ceph osd set norebalance
-        - name: ceph osd set nodeep-scrub
-          tags: step1
-          command: ceph osd set nodeep-scrub
-        - name: ceph osd set noscrub
-          tags: step1
-          command: ceph osd set noscrub
-        - name: Stop CephOSD
-          tags: step1
-          service:
-            name: ceph-osd@{{ item }}
-            state: stopped
-          with_items: "{{osd_ids.stdout.strip().split()}}"
-        - name: Update Ceph packages
-          tags: step1
-          yum:
-            name: ceph-osd
-            state: latest
-        - name: Start CephOSD
-          tags: step1
-          service:
-            name: ceph-osd@{{ item }}
-            state: started
-          with_items: "{{osd_ids.stdout.strip().split()}}"
-        # with awk we are meant to check if $2 and $4 are *the same* but it returns 1 when
-        # they are, so the check is inverted to produce an useful exit code
-        - name: Wait for clean pgs...
-          tags: step1,ceph_pgs_clean_validation
-          vars:
-            ignore_warnings: {get_param: IgnoreCephUpgradeWarnings}
-          shell: |
-            ceph pg stat | awk '{exit($2!=$4)}' && ceph health | egrep -sq "HEALTH_OK|HEALTH_WARN"
-          register: ceph_pgs_healthcheck
-          until: ceph_pgs_healthcheck.rc == 0
-          retries: {get_param: CephValidationRetries}
-          delay: {get_param: CephValidationDelay}
-          when:
-            - not ignore_warnings
-        - name: ceph osd unset noout
-          tags: step1
-          command: ceph osd unset noout
-        - name: ceph osd unset norebalance
-          tags: step1
-          command: ceph osd unset norebalance
-        - name: ceph osd unset nodeep-scrub
-          tags: step1
-          command: ceph osd unset nodeep-scrub
-        - name: ceph osd unset noscrub
-          tags: step1
-          command: ceph osd unset noscrub
+        # NOTE: upgrade_batch_tasks are deprecated in Queens.
+        - when: step|int == 1
+          block:
+            - name: Check status
+              tags: validation
+              shell: ceph health | grep -qv HEALTH_ERR
+            - name: Get OSD IDs
+              shell: ls /var/lib/ceph/osd | awk 'BEGIN { FS = "-" } ; { print $2 }'
+              register: osd_ids
+              # "so that mirrors aren't rebalanced as if the OSD died" - gfidente / leseb
+            - name: ceph osd set noout
+              command: ceph osd set noout
+            - name: ceph osd set norebalance
+              command: ceph osd set norebalance
+            - name: ceph osd set nodeep-scrub
+              command: ceph osd set nodeep-scrub
+            - name: ceph osd set noscrub
+              command: ceph osd set noscrub
+            - name: Stop CephOSD
+              service:
+                name: ceph-osd@{{ item }}
+                state: stopped
+              with_items: "{{osd_ids.stdout.strip().split()}}"
+            - name: Update Ceph packages
+              yum:
+                name: ceph-osd
+                state: latest
+            - name: Start CephOSD
+              service:
+                name: ceph-osd@{{ item }}
+                state: started
+              with_items: "{{osd_ids.stdout.strip().split()}}"
+            # with awk we are meant to check if $2 and $4 are *the same* but it returns 1 when
+            # they are, so the check is inverted to produce an useful exit code
+            - name: Wait for clean pgs...
+              tags: ceph_pgs_clean_validation
+              vars:
+                ignore_warnings: {get_param: IgnoreCephUpgradeWarnings}
+              shell: |
+                ceph pg stat | awk '{exit($2!=$4)}' && ceph health | egrep -sq "HEALTH_OK|HEALTH_WARN"
+              register: ceph_pgs_healthcheck
+              until: ceph_pgs_healthcheck.rc == 0
+              retries: {get_param: CephValidationRetries}
+              delay: {get_param: CephValidationDelay}
+              when:
+                - not ignore_warnings
+            - name: ceph osd unset noout
+              command: ceph osd unset noout
+            - name: ceph osd unset norebalance
+              command: ceph osd unset norebalance
+            - name: ceph osd unset nodeep-scrub
+              command: ceph osd unset nodeep-scrub
+            - name: ceph osd unset noscrub
+              command: ceph osd unset noscrub

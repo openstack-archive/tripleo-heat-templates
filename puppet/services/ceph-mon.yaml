@@ -152,37 +152,36 @@ outputs:
       step_config: |
         include ::tripleo::profile::base::ceph::mon
       upgrade_batch_tasks:
+        # NOTE: upgrade_batch_tasks are deprecated in Queens.
         # Note we perform these tasks in list order, but they are all step0 so
         # we can perform a rolling upgrade of all mon nodes in step0, then a
         # rolling upgrade of all osd nodes in step1
-        - name: Check status
-          tags: step0,validation
-          shell: ceph health | egrep -sq "HEALTH_OK|HEALTH_WARN"
-        - name: Stop CephMon
-          tags: step0
-          service:
-            name: ceph-mon@{{ ansible_hostname }}
-            state: stopped
-        - name: Update Ceph packages
-          tags: step0
-          yum:
-            name: ceph-mon
-            state: latest
-        - name: Start CephMon
-          tags: step0
-          service:
-            name: ceph-mon@{{ ansible_hostname }}
-            state: started
-        # ceph-ansible
-        # https://github.com/ceph/ceph-ansible/blob/master/infrastructure-playbooks/rolling_update.yml#L149-L157
-        - name: Wait for the monitor to join the quorum...
-          tags: step0,ceph_quorum_validation
-          shell: |
-            ceph -s | grep monmap | sed 's/.*quorum//' | egrep -sq {{ ansible_hostname }}
-          register: ceph_quorum_nodecheck
-          until: ceph_quorum_nodecheck.rc == 0
-          retries: {get_param: CephValidationRetries}
-          delay: {get_param: CephValidationDelay}
-        - name: ceph osd crush tunables default
-          tags: step0
-          shell: ceph osd crush tunables default
+        - when: step|int == 0
+          block:
+            - name: Check status
+              tags: validation
+              shell: ceph health | egrep -sq "HEALTH_OK|HEALTH_WARN"
+            - name: Stop CephMon
+              service:
+                name: ceph-mon@{{ ansible_hostname }}
+                state: stopped
+            - name: Update Ceph packages
+              yum:
+                name: ceph-mon
+                state: latest
+            - name: Start CephMon
+              service:
+                name: ceph-mon@{{ ansible_hostname }}
+                state: started
+            # ceph-ansible
+            # https://github.com/ceph/ceph-ansible/blob/master/infrastructure-playbooks/rolling_update.yml#L149-L157
+            - name: Wait for the monitor to join the quorum...
+              tags: ceph_quorum_validation
+              shell: |
+                ceph -s | grep monmap | sed 's/.*quorum//' | egrep -sq {{ ansible_hostname }}
+              register: ceph_quorum_nodecheck
+              until: ceph_quorum_nodecheck.rc == 0
+              retries: {get_param: CephValidationRetries}
+              delay: {get_param: CephValidationDelay}
+            - name: ceph osd crush tunables default
+              shell: ceph osd crush tunables default

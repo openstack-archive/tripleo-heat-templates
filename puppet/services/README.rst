@@ -133,6 +133,10 @@ has more details about the expected dictionary.
 
 Batch Upgrade Steps
 -------------------
+Note: the `upgrade_batch_tasks` are no longer used and deprecated for Queens.
+The information below applies to upgrade_batch_tasks as they were used for the
+Ocata major upgrade. The `upgrade_batch_tasks` were used exclusively by the
+ceph services and for Pike ceph is now configured by ceph-ansible.
 
 Each service template may optionally define a `upgrade_batch_tasks` key, which
 is a list of ansible tasks to be performed during the upgrade process.
@@ -164,26 +168,15 @@ Each service template may optionally define a `upgrade_tasks` key, which is a
 list of ansible tasks to be performed during the upgrade process.
 
 Similar to the step_config, we allow a series of steps for the per-service
-upgrade sequence, defined as ansible tasks with a tag e.g "step1" for the first
-step, "step2" for the second, etc.
+upgrade sequence, defined as ansible tasks with a "when: step|int == 1" for
+for the first step, "== 2" for the second, etc.
 
-   Steps/tags correlate to the following:
+   Steps correlate to the following:
 
-   1) Stop all control-plane services.
+   1) Perform any pre-upgrade validations.
 
-   2) Quiesce the control-plane, e.g disable LoadBalancer, stop
-      pacemaker cluster: this will stop the following resource:
-      - ocata:
-        - galera
-        - rabbit
-        - redis
-        - haproxy
-        - vips
-        - cinder-volumes
-        - cinder-backup
-        - manilla-share
-        - rbd-mirror
-
+   2) Stop the control-plane services, e.g disable LoadBalancer, stop
+      pacemaker cluster and stop any managed resources.
       The exact order is controlled by the cluster constraints.
 
    3) Perform a package update and install new packages: A general
@@ -205,9 +198,8 @@ Each service template may optionally define a `update_tasks` key, which is a
 list of ansible tasks to be performed during the minor update process.
 
 Similar to the upgrade_tasks, we allow a series of steps for the per-service
-update sequence, but note update_task selects the steps via a conditional
-referencing the step variable e.g when: step == 2, which is different to the
-tags based approach used for upgrade_tasks (the two may be aligned in future).
+update sequence via conditionals referencing a step variable e.g when:
+step|int == 2.
 
 
 Nova Server Metadata Settings

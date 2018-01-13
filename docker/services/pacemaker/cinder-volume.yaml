@@ -238,35 +238,33 @@ outputs:
         - name: set is_bootstrap_node fact
           tags: common
           set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - name: Disable the openstack-cinder-volume cluster resource
-          tags: step2
-          pacemaker_resource:
-            resource: openstack-cinder-volume
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node
-        - name: Delete the stopped openstack-cinder-volume cluster resource.
-          tags: step2
-          pacemaker_resource:
-            resource: openstack-cinder-volume
-            state: delete
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-          when: is_bootstrap_node
+        - when: (is_bootstrap_node) and (step|int == 2)
+          block:
+            - name: Disable the openstack-cinder-volume cluster resource
+              pacemaker_resource:
+                resource: openstack-cinder-volume
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Delete the stopped openstack-cinder-volume cluster resource.
+              pacemaker_resource:
+                resource: openstack-cinder-volume
+                state: delete
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Disable cinder_volume service from boot
-          tags: step2
+          when: step|int == 2
           service: name=openstack-cinder-volume enabled=no
       update_tasks:
         - name: Get docker Cinder-Volume image
           set_fact:
             docker_image: {get_param: DockerCinderVolumeImage}
             docker_image_latest: *cinder_volume_image_pcmklatest
-          when: step == '2'
+          when: step|int == 2
         - name: Get previous Cinder-Volume image id
           shell: "docker images | awk '/cinder-volume.* pcmklatest/{print $3}'"
           register: cinder_volume_image_id
@@ -281,13 +279,13 @@ outputs:
             - name: Remove previous Cinder-Volume images
               shell: "docker rmi -f {{cinder_volume_image_id.stdout}}"
           when:
-            - step == '2'
+            - step|int == 2
             - cinder_volume_image_id.stdout != ''
         - name: Pull latest Cinder-Volume images
           command: "docker pull {{docker_image}}"
-          when: step == "2"
+          when: step|int == 2
         - name: Retag pcmklatest to latest Cinder-Volume image
           shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step == "2"
+          when: step|int == 2
         # Got to check that pacemaker_is_active is working fine with bundle.
         # TODO: pacemaker_is_active resource doesn't support bundle.
