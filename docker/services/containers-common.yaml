@@ -48,14 +48,47 @@ conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
-  volumes:
-    description: Common volumes for the containers.
+  docker_config_scripts:
+    description: Shared docker config scripts
     value:
+      docker_puppet_apply.sh:
+        mode: "0700"
+        content: |
+          #!/bin/bash
+          set -eux
+          STEP=$1
+          TAGS=$2
+          CONFIG=$3
+          EXTRA_ARGS=${4:-''}
+          if [ -d /tmp/puppet-etc ]; then
+            # ignore copy failures as these may be the same file depending on docker mounts
+            cp -a /tmp/puppet-etc/* /etc/puppet || true
+          fi
+          echo "{\"step\": ${STEP}}" > /etc/puppet/hieradata/docker.json
+          export FACTOR_uuid=docker
+          set +e
+          puppet apply $EXTRA_ARGS \
+              --verbose \
+              --detailed-exitcodes \
+              --summarize \
+              --color=false \
+              --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
+              --tags $TAGS \
+              -e "${CONFIG}"
+          rc=$?
+          set -e
+          set +ux
+          if [ $rc -eq 2 -o $rc -eq 0 ]; then
+              exit 0
+          fi
+          exit $rc
+
+  volumes_base:
+    description: Base volume list
+    value: &volumes_base
       list_concat:
         - - /etc/hosts:/etc/hosts:ro
           - /etc/localtime:/etc/localtime:ro
-          # required for bootstrap_host_exec
-          - /etc/puppet:/etc/puppet:ro
           # OpenSSL trusted CAs
           - /etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro
           - /etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro
@@ -63,7 +96,6 @@ outputs:
           - /etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro
           # Syslog socket
           - /dev/log:/dev/log
-          - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
         - if:
           - internal_tls_enabled
           - - list_join:
@@ -72,3 +104,22 @@ outputs:
                 - {get_param: InternalTLSCAFile}
                 - 'ro'
           - null
+
+  volumes:
+    description: Common volumes for the containers.
+    value:
+      list_concat:
+        - *volumes_base
+        - - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+          # required for bootstrap_host_exec
+          - /etc/puppet:/etc/puppet:ro
+
+  docker_puppet_apply_volumes:
+    description: Common volumes needed to run the docker_puppet_apply.sh from docker_config_scripts
+    value:
+      list_concat:
+        - *volumes_base
+        - - /var/lib/docker-config-scripts/docker_puppet_apply.sh:/docker_puppet_apply.sh:ro
+          # docker_puppet_apply.sh will copy this to /etc/puppet in the container
+          - /etc/puppet:/tmp/puppet-etc:ro
+          - /usr/share/openstack-puppet/modules:/usr/share/openstack-puppet/modules:ro
