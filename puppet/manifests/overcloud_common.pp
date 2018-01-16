@@ -13,6 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+# Common config, from tripleo-heat-templates/puppet/manifests/overcloud_common.pp
 # The content of this file will be used to generate
 # the puppet manifests for all roles, the placeholder
 # __ROLE__ will be replaced by 'controller', 'blockstorage',
@@ -25,6 +26,4 @@ if hiera('step') >= 4 {
 $package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud___ROLE__', hiera('step')])
 package_manifest{$package_manifest_name: ensure => present}
 
-# NOTE(gfidente): ensure deprecated package manifest is absent, can be removed after Pike
-$absent_package_manifest_name = join(['/var/lib/tripleo/installed-packages/overcloud_controller_pacemaker', hiera('step')])
-package_manifest{$absent_package_manifest_name: ensure => absent}
+# End of overcloud_common.pp
