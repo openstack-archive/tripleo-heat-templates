@@ -82,6 +82,36 @@ parameters:
 resources:
   # None
 '''
+basic_role_param_template = '''
+parameters:
+  RoleParam:
+    description: Role param description
+    type: string
+    default: ''
+  FooParam:
+    description: Foo description
+    default: foo
+    type: string
+resources:
+  # None
+'''
+multiline_role_param_template = '''
+parameters:
+  RoleParam:
+    description: |
+      Role Parameter with
+      multi-line description
+    type: string
+    default: ''
+  FooParam:
+    description: |
+      Parameter with
+      multi-line description
+    type: string
+    default: ''
+resources:
+  # None
+'''
 
 
 class GeneratorTestCase(base.BaseTestCase):
@@ -455,6 +485,219 @@ parameter_defaults:
   # Type: string
   FooParam: ''
 
+''',
+          }),
+        ('basic_role_param',
+         {'template': basic_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: basic_role_param
+    title: Basic Role Parameters Environment
+    description: Basic description
+    files:
+      foo.yaml:
+        RoleParameters:
+          - RoleParam
+''',
+          'expected_output': '''# title: Basic Role Parameters Environment
+# description: |
+#   Basic description
+parameter_defaults:
+  RoleParameters:
+    # Role param description
+    # Type: string
+    RoleParam: ''
+
+''',
+          }),
+        ('multiline_role_param',
+         {'template': multiline_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: multiline_role_param
+    title: Multiline Role Parameters Environment
+    description: Multiline description
+    files:
+      foo.yaml:
+        RoleParameters:
+          - RoleParam
+''',
+          'expected_output': '''# title: Multiline Role Parameters Environment
+# description: |
+#   Multiline description
+parameter_defaults:
+  RoleParameters:
+    # Role Parameter with
+    # multi-line description
+    # Type: string
+    RoleParam: ''
+
+''',
+          }),
+        ('Basic mix params',
+         {'template': basic_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: basic_mix_params
+    title: Basic Mix Parameters Environment
+    description: Basic description
+    files:
+      foo.yaml:
+        parameters:
+          - FooParam
+        RoleParameters:
+          - RoleParam
+''',
+          'expected_output': '''# title: Basic Mix Parameters Environment
+# description: |
+#   Basic description
+parameter_defaults:
+  # Foo description
+  # Type: string
+  FooParam: foo
+
+  RoleParameters:
+    # Role param description
+    # Type: string
+    RoleParam: ''
+
+''',
+          }),
+        ('Multiline mix params',
+         {'template': multiline_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: multiline_mix_params
+    title: Multiline mix params Environment
+    description: Multiline description
+    files:
+      foo.yaml:
+        parameters:
+          - FooParam
+        RoleParameters:
+          - RoleParam
+''',
+          'expected_output': '''# title: Multiline mix params Environment
+# description: |
+#   Multiline description
+parameter_defaults:
+  # Parameter with
+  # multi-line description
+  # Type: string
+  FooParam: ''
+
+  RoleParameters:
+    # Role Parameter with
+    # multi-line description
+    # Type: string
+    RoleParam: ''
+
+''',
+          }),
+        ('Basic role static param',
+         {'template': basic_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: basic_role_static_param
+    title: Basic Role Static Prams Environment
+    description: Basic Role Static Prams description
+    files:
+      foo.yaml:
+        parameters:
+          - FooParam
+        RoleParameters:
+          - RoleParam
+    static:
+      - FooParam
+      - RoleParam
+''',
+          'expected_output': '''# title: Basic Role Static Prams Environment
+# description: |
+#   Basic Role Static Prams description
+parameter_defaults:
+  # ******************************************************
+  # Static parameters - these are values that must be
+  # included in the environment but should not be changed.
+  # ******************************************************
+  # Foo description
+  # Type: string
+  FooParam: foo
+
+  # *********************
+  # End static parameters
+  # *********************
+  RoleParameters:
+    # ******************************************************
+    # Static parameters - these are values that must be
+    # included in the environment but should not be changed.
+    # ******************************************************
+    # Role param description
+    # Type: string
+    RoleParam: ''
+
+    # *********************
+    # End static parameters
+    # *********************
+''',
+          }),
+        ('Multiline role static param',
+         {'template': multiline_role_param_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: multline_role_static_param
+    title: Multiline Role Static Prams Environment
+    description: Multiline Role Static Prams description
+    files:
+      foo.yaml:
+        parameters:
+          - FooParam
+        RoleParameters:
+          - RoleParam
+    static:
+      - FooParam
+      - RoleParam
+''',
+          'expected_output': '''# title: Multiline Role Static Prams Environment
+# description: |
+#   Multiline Role Static Prams description
+parameter_defaults:
+  # ******************************************************
+  # Static parameters - these are values that must be
+  # included in the environment but should not be changed.
+  # ******************************************************
+  # Parameter with
+  # multi-line description
+  # Type: string
+  FooParam: ''
+
+  # *********************
+  # End static parameters
+  # *********************
+  RoleParameters:
+    # ******************************************************
+    # Static parameters - these are values that must be
+    # included in the environment but should not be changed.
+    # ******************************************************
+    # Role Parameter with
+    # multi-line description
+    # Type: string
+    RoleParam: ''
+
+    # *********************
+    # End static parameters
+    # *********************
 ''',
           }),
         ]
