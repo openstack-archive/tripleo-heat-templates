@@ -162,6 +162,8 @@ DEPLOYMENT_RESOURCE_TYPES = [
     'OS::TripleO::SoftwareDeployment'
 ]
 
+VALID_ANSIBLE_UPGRADE_TAGS = [ 'common', 'validation', 'pre-upgrade' ]
+
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
@@ -756,13 +758,22 @@ def validate_upgrade_tasks(upgrade_tasks):
         elif upgrade_tasks.get('get_attr'):
             return 0
 
-    # Don't enforce the need to have a when 'step' conditional, for now:
     for task in upgrade_tasks:
-        whenline = task.get("when", "")
-        if 'step|int == ' not in whenline:
-            task_name = task.get("name", "")
-            print('WARNING: upgrade task (%s) is missing expected \'when: '
-                   'step|int == \' condition (%s)'  % (task_name, task))
+        task_name = task.get("name", "")
+        if task.get("tags"):
+            if (task["tags"] not in VALID_ANSIBLE_UPGRADE_TAGS):
+                print('ERROR: Task (%s) includes unexpected \'tags: (%s)\' ' % (task_name, task["tags"]))
+                return 1
+        else:
+
+            whenline = task.get("when", "")
+            if (type(whenline) == list):
+                if any('step|int ' in condition for condition in whenline) and ('step|int == ' not in whenline[0]):
+                        print('ERROR: \'step|int ==\' condition should be evaluated first in when conditions for task (%s)'  % (task))
+                        return 1
+            else:
+                if (' and ' in whenline) and (' or ' not in whenline):
+                    print("Warning: Consider specifying \'and\' conditions as a list to improve readability in task: \"%s\"" %  (task_name))
     return 0
 
 def validate_network_data_file(data_file_path):
