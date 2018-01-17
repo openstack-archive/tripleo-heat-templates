@@ -215,12 +215,43 @@ outputs:
               ignore_errors: True
               register: openvswitch_enabled
             - name: "PreUpgrade step0,validation: Check service openvswitch is running"
-              shell: /usr/bin/systemctl show 'openvswitch' --property ActiveState | grep '\bactive\b'
+              command: systemctl is-active --quiet openvswitch
               when: (openvswitch_enabled.rc == 0) and (step|int == 0)
               tags: validation
             - name: Stop openvswitch service
               when: (openvswitch_enabled.rc == 0) and (step|int == 1)
               service: name=openvswitch state=stopped
+              # Container upgrade steps.
+            - name: Block connections to ODL. #This rule will be inserted at the top.
+              iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP
+              when: step|int == 0
+              with_items:
+                - 6640
+                - 6653
+                - 6633
+      post_upgrade_tasks:
+        - name: Check service openvswitch is running
+          command: systemctl is-active --quiet openvswitch
+          tags: common
+          register: openvswitch_running
+        - name: Delete OVS groups and ports
+          shell: "sudo ovs-ofctl -O Openflow13 del-groups br-int; \
+                  for tun_port in $(ovs-vsctl list-ports br-int | grep 'tun'); \
+                  do; ovs-vsctl del-port br-int $(tun_port); done;"
+          when: (step|int == 0) and (openvswitch_running.rc == 0)
+        - name: Stop openvswitch service
+          when: (step|int == 1) and (openvswitch_running.rc == 0)
+          service: name=openvswitch state=stopped
+        - name: Unblock OVS port per compute node. #Delete previously added rule
+          iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP state=absent
+          when: step|int == 2
+          with_items:
+            - 6640
+            - 6653
+            - 6633
+        - name: start openvswitch service
+          when: step|int == 3
+          service : name=openvswitch state=started
       metadata_settings:
         if:
           - internal_tls_enabled
