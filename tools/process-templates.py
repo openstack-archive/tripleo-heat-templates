@@ -118,7 +118,7 @@ def process_templates(template_path, role_data_path, output_dir,
 
             # NOTE(flaper87): Ignore hidden dirs as we don't
             # generate templates for those.
-            # Note the slice assigment for `dirs` is necessary
+            # Note the slice assignment for `dirs` is necessary
             # because we need to modify the *elements* in the
             # dirs list rather than the reference to the list.
             # This way we'll make sure os.walk will iterate over
