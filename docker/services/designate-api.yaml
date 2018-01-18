@@ -1,0 +1,154 @@
+heat_template_version: queens
+
+description: >
+  OpenStack containerized Designate API service
+
+parameters:
+  DockerDesignateApiImage:
+    description: image
+    type: string
+  DockerDesignateConfigImage:
+    description: The container image to use for the designate config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
+  DesignatePassword:
+    description: The password for the Designate's database account.
+    type: string
+    hidden: true
+
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  DesignateBase:
+    type: ../../puppet/services/designate-base.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  DesignateApiBase:
+    type: ../../puppet/services/designate-api.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Designate API role.
+    value:
+      service_name: {get_attr: [DesignateApiBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [DesignateBase, role_data, config_settings]
+          - designate::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            designate::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            designate::keystone::authtoken::project_name: 'service'
+            designate::keystone::authtoken::password: {get_param: DesignatePassword}
+            tripleo::profile::base::designate::api::listen_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
+            tripleo::profile::base::designate::api::listen_port: 9001
+            tripleo.designate_api.firewall_rules:
+              '139 designate api':
+                dport:
+                  - 9001
+                  - 13001
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::api::workers: {get_param: DesignateWorkers}
+      logging_source: {get_attr: [DesignateApiBase, role_data, logging_source]}
+      logging_groups: {get_attr: [DesignateApiBase, role_data, logging_groups]}
+      service_config_settings: {get_attr: [DesignateApiBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: designate
+        puppet_tags: designate_config
+        step_config: {get_attr: [DesignateApiBase, role_data, step_config]}
+        config_image: {get_param: DockerDesignateConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/designate_api.json:
+          command: /usr/bin/designate-api --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/api.log
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/designate
+              owner: designate:designate
+              recurse: true
+      docker_config:
+        step_4:
+          designate_api:
+            start_order: 15
+            image: &designate_api_image {get_param: DockerDesignateApiImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/designate_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/designate/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/designate:/var/log/designate
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/designate
+            state: directory
+        - name: designate logs readme
+          copy:
+            dest: /var/log/designate/readme.txt
+            content: |
+              Log files from designate containers can be found under
+              /var/log/containers/designate.
+          ignore_errors: true
