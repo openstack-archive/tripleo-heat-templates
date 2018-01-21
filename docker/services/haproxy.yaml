@@ -171,6 +171,9 @@ outputs:
               preserve_properties: true
               optional: true
           permissions:
+            - path: /var/lib/haproxy
+              owner: haproxy:haproxy
+              recurse: true
             - path: /etc/pki/tls/certs/haproxy
               owner: haproxy:haproxy
               recurse: true
@@ -181,7 +184,7 @@ outputs:
           map_merge:
           - get_attr: [HAProxyLogging, docker_config, step_1]
           - haproxy_firewall:
-              start_order: 0
+              start_order: 1
               detach: false
               image: {get_param: DockerHAProxyImage}
               net: host
@@ -208,6 +211,7 @@ outputs:
                     # the necessary bit and prevent systemd to try to reload the service in the container
                     - /usr/libexec/iptables:/usr/libexec/iptables:ro
                     - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
+                    - /var/lib/haproxy:/var/lib/haproxy
               environment:
                 - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             haproxy:
@@ -243,5 +247,20 @@ outputs:
                       - null
               environment:
                 - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/log/containers/haproxy
+            - /var/lib/haproxy
+        - name: haproxy logs readme
+          copy:
+            dest: /var/log/haproxy/readme.txt
+            content: |
+              Log files from the haproxy containers can be found under
+              /var/log/containers/haproxy.
+          ignore_errors: true
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
