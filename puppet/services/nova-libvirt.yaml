@@ -75,13 +75,22 @@ parameters:
     default: true
     description: If set to true and if EnableInternalTLS is enabled, it will
                  set the libvirt URI's transport to tls and configure the
-                 relevant keys for libvirt. NOTE. this is currently being
-                 ignored and TLS for libvirtd is always disabled for now.
+                 relevant keys for libvirt.
+  UseTLSTransportForVnc:
+    type: boolean
+    default: true
+    description: If set to true and if EnableInternalTLS is enabled, it will
+                 enable TLS transaport for libvirt VNC and configure the
+                 relevant keys for libvirt.
   InternalTLSCAFile:
     default: '/etc/ipa/ca.crt'
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  InternalTLSVncCAFile:
+    default: '/etc/ipa/vnc.crt'
+    type: string
+    description: Specifies the CA cert to use for VNC TLS.
   LibvirtCACert:
     type: string
     default: ''
@@ -92,6 +101,16 @@ parameters:
                  be less than 65K (so we can't use the system's CA bundle).
                  This parameter should be used if the default (which comes from
                  the InternalTLSCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
+  LibvirtVncCACert:
+    type: string
+    default: ''
+    description: This specifies the CA certificate to use for VNC TLS.
+                 This file will be symlinked to the default CA path,
+                 which is /etc/pki/libvirt-vnc/ca-cert.pem.
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSVncCAFile parameter) is not desired. The current
                  default reflects TripleO's default CA, which is FreeIPA.
                  It will only be used if internal TLS is enabled.
   MigrationSshKey:
@@ -127,6 +146,21 @@ conditions:
     equals:
       - {get_param: LibvirtCACert}
       - ''
+
+  use_tls_for_vnc:
+    and:
+    - equals:
+      - {get_param: EnableInternalTLS}
+      - true
+    - equals:
+      - {get_param: UseTLSTransportForVnc}
+      - true
+
+  libvirt_vnc_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtVncCACert}
+      - ''
+
 
 resources:
   NovaBase:
@@ -234,13 +268,54 @@ outputs:
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
               - {}
+          -
+            if:
+              - use_tls_for_vnc
+              -
+                nova::compute::libvirt::qemu::vnc_tls: true
+                nova::compute::libvirt::qemu::vnc_tls_verify: true
+                generate_service_certificates: true
+                tripleo::certmonger::ca::libvirt_vnc::origin_ca_pem:
+                  if:
+                    - libvirt_vnc_specific_ca_unset
+                    - get_param: InternalTLSVncCAFile
+                    - get_param: LibvirtVncCACert
+                tripleo::certmonger::libvirt_vnc_dirs::certificate_dir: '/etc/pki/libvirt-vnc'
+                libvirt_vnc_certificates_specs:
+                  libvirt-vnc-server-cert:
+                    cacertfile:
+                      if:
+                        - libvirt_vnc_specific_ca_unset
+                        - get_param: InternalTLSVncCAFile
+                        - null
+                    service_certificate: '/etc/pki/libvirt-vnc/server-cert.pem'
+                    service_key: '/etc/pki/libvirt-vnc/server-key.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              - {}
       step_config: |
         include tripleo::profile::base::nova::libvirt
       metadata_settings:
-        if:
-          - use_tls_for_live_migration
-          -
-            - service: libvirt
-              network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-              type: node
-          - null
+        list_concat:
+          - if:
+            - use_tls_for_live_migration
+            -
+              - service: libvirt
+                network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                type: node
+            - null
+          - if:
+            - use_tls_for_vnc
+            -
+              - service: libvirt-vnc
+                network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                type: node
+            - null

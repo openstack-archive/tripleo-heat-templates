@@ -46,8 +46,7 @@ parameters:
     default: true
     description: If set to true and if EnableInternalTLS is enabled, it will
                  set the libvirt URI's transport to tls and configure the
-                 relevant keys for libvirt. NOTE. this is currently being
-                 ignored and TLS for libvirtd is always disabled for now.
+                 relevant keys for libvirt.
   DockerNovaMigrationSshdPort:
     default: 2022
     description: Port that dockerized nova migration target sshd service
@@ -80,6 +79,44 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  UseTLSTransportForVnc:
+    type: boolean
+    default: true
+    description: If set to true and if EnableInternalTLS is enabled, it will
+                 enable TLS transaport for libvirt VNC and configure the
+                 relevant keys for libvirt.
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+  InternalTLSVncCAFile:
+    default: '/etc/ipa/vnc.crt'
+    type: string
+    description: Specifies the CA cert to use for VNC TLS.
+  LibvirtCACert:
+    type: string
+    default: ''
+    description: This specifies the CA certificate to use for TLS in libvirt.
+                 This file will be symlinked to the default CA path in libvirt,
+                 which is /etc/pki/CA/cacert.pem. Note that due to limitations
+                 GNU TLS, which is the TLS backend for libvirt, the file must
+                 be less than 65K (so we can't use the system's CA bundle).
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
+  LibvirtVncCACert:
+    type: string
+    default: ''
+    description: This specifies the CA certificate to use for VNC TLS.
+                 This file will be symlinked to the default CA path,
+                 which is /etc/pki/libvirt-vnc/ca-cert.pem.
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSVncCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
+
 
 conditions:
 
@@ -92,6 +129,11 @@ conditions:
       - {get_param: UseTLSTransportForLiveMigration}
       - true
 
+  libvirt_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtCACert}
+      - ''
+
   need_libvirt_secret:
     or:
     - equals:
@@ -100,6 +142,21 @@ conditions:
     - equals:
       - {get_param: CinderEnableRbdBackend}
       - true
+
+  use_tls_for_vnc:
+    and:
+    - equals:
+      - {get_param: EnableInternalTLS}
+      - true
+    - equals:
+      - {get_param: UseTLSTransportForVnc}
+      - true
+
+  libvirt_vnc_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtVncCACert}
+      - ''
+
 
 resources:
 
@@ -152,23 +209,42 @@ outputs:
               - /usr/sbin/libvirtd --listen
               - /usr/sbin/libvirtd
           config_files:
-            - source: "/var/lib/kolla/config_files/src/*"
-              dest: "/"
-              merge: true
-              preserve_properties: true
-            - source: "/var/lib/kolla/config_files/src-ceph/"
-              dest: "/etc/ceph/"
-              merge: true
-              preserve_properties: true
+            list_concat:
+              -
+                - source: "/var/lib/kolla/config_files/src/*"
+                  dest: "/"
+                  merge: true
+                  preserve_properties: true
+                - source: "/var/lib/kolla/config_files/src-ceph/"
+                  dest: "/etc/ceph/"
+                  merge: true
+                  preserve_properties: true
+              - if:
+                - use_tls_for_vnc
+                -
+                  - source: /var/lib/kolla/config_files/src-libvirt-vnc-pki/server-*.pem
+                    dest: /etc/pki/libvirt-vnc/
+                    merge: true
+                    preserve_properties: true
+                - null
           permissions:
-            - path:
-                str_replace:
-                  template: /etc/ceph/CLUSTER.client.USER.keyring
-                  params:
-                    CLUSTER: {get_param: CephClusterName}
-                    USER: {get_param: CephClientUserName}
-              owner: nova:nova
-              perm: '0600'
+            list_concat:
+              -
+                - path:
+                    str_replace:
+                      template: /etc/ceph/CLUSTER.client.USER.keyring
+                      params:
+                        CLUSTER: {get_param: CephClusterName}
+                        USER: {get_param: CephClientUserName}
+                  owner: nova:nova
+                  perm: '0600'
+              - if:
+                - use_tls_for_vnc
+                -
+                  - path: /etc/pki/libvirt-vnc/server-key.pem
+                    owner: root:qemu
+                    perm: '0640'
+                - null
         /var/lib/kolla/config_files/nova_virtlogd.json:
           command: /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
           config_files:
@@ -232,11 +308,32 @@ outputs:
                   if:
                     - use_tls_for_live_migration
                     -
-                      - /etc/ipa/ca.crt:/etc/pki/CA/cacert.pem:ro
+                      - str_replace:
+                          template: "CACERT:/etc/pki/CA/cacert.pem:ro"
+                          params:
+                            CACERT:
+                              if:
+                                - libvirt_specific_ca_unset
+                                - get_param: InternalTLSCAFile
+                                - get_param: LibvirtCACert
                       - /etc/pki/libvirt/servercert.pem:/etc/pki/libvirt/servercert.pem:ro
                       - /etc/pki/libvirt/private/serverkey.pem:/etc/pki/libvirt/private/serverkey.pem:ro
                       - /etc/pki/libvirt/clientcert.pem:/etc/pki/libvirt/clientcert.pem:ro
                       - /etc/pki/libvirt/private/clientkey.pem:/etc/pki/libvirt/private/clientkey.pem:ro
+                    - null
+                -
+                  if:
+                    - use_tls_for_vnc
+                    -
+                      - str_replace:
+                          template: "CACERT:/etc/pki/libvirt-vnc/ca-cert.pem:ro"
+                          params:
+                            CACERT:
+                              if:
+                                - libvirt_vnc_specific_ca_unset
+                                - get_param: InternalTLSVncCAFile
+                                - get_param: LibvirtVncCACert
+                      - /etc/pki/libvirt-vnc:/var/lib/kolla/config_files/src-libvirt-vnc-pki:ro
                     - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
