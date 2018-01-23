@@ -44,6 +44,14 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  ODLUpdateLevel:
+    default: 1
+    description: Specify the level of update
+    type: number
+    constraints:
+      - allowed_values:
+          - 1
+          - 2
 
 conditions:
 
@@ -167,23 +175,25 @@ outputs:
             - opendaylight_enabled.rc == 0
           service: name=opendaylight state=stopped enabled=no
         # Containarised deployment upgrade steps
-        - name: remove journal and snapshots
-          when: step|int == 0
-          file:
-            path: /var/lib/opendaylight/{{item}}
-            state: absent
-            with_items:
-            - snapshots
-            - journal
-        - name: Set ODL upgrade flag to True
-          copy:
-            dest: /var/lib/opendaylight/etc/opendaylight/datastore/initial/config/genius-mdsalutil-config.xml
-            content: |
-              <config xmlns="urn:opendaylight:params:xml:ns:yang:mdsalutil">
-                  <upgradeInProgress>true</upgradeInProgress>
-              </config>
-          when: step|int == 1
-      post_upgrade_tasks:
+        - name: ODL container L2 update and upgrade tasks
+          block: &odl_container_upgrade_tasks
+            - name: remove journal and snapshots
+              when: step|int == 0
+              file:
+                path: /var/lib/opendaylight/{{item}}
+                state: absent
+                with_items:
+                - snapshots
+                - journal
+            - name: Set ODL upgrade flag to True
+              copy:
+                dest: /var/lib/opendaylight/etc/opendaylight/datastore/initial/config/genius-mdsalutil-config.xml
+                content: |
+                  <config xmlns="urn:opendaylight:params:xml:ns:yang:mdsalutil">
+                      <upgradeInProgress>true</upgradeInProgress>
+                  </config>
+              when: step|int == 1
+      post_upgrade_tasks: &odl_container_post_upgrade_tasks
         - name: Unset upgrade flag in ODL
           shell:
             str_replace:
@@ -192,7 +202,20 @@ outputs:
                          -H "Content-Type: application/json" \
                          $ODL_URI/restconf/config/genius-mdsalutil:config'
               params:
-                $ODL_USERNAME: {get_param: [OpenDaylightBase, OpenDaylightUsername]}
-                $ODL_PASSWORD: {get_param: [OpenDaylightBase, OpenDaylightPassword]}
+                $ODL_USERNAME: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::username']}
+                $ODL_PASSWORD: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::password']}
                 $ODL_URI: {get_param: [EndpointMap, OpenDaylightInternal, uri]}
           when: step|int == 0
+      update_tasks:
+        - name: Get ODL update level
+          block: &get_odl_update_level
+            - name: store update level to update_level variable
+              set_fact:
+                odl_update_level: {get_param: ODLUpdateLevel}
+        - name: Run L2 update tasks that are similar to upgrade_tasks when update level is 2
+          block: *odl_container_upgrade_tasks
+          when: odl_update_level == 2
+      post_update_tasks:
+        - block: *get_odl_update_level
+        - block: *odl_container_post_upgrade_tasks
+          when: odl_update_level == 2
