@@ -22,6 +22,73 @@ BlockStorage_hosts=${BlockStorage_hosts:-"$BLOCKSTORAGE_HOSTS"}
 ObjectStorage_hosts=${ObjectStorage_hosts:-"$OBJECTSTORAGE_HOSTS"}
 CephStorage_hosts=${CephStorage_hosts:-"$CEPHSTORAGE_HOSTS"}
 
+#######################################
+# Retry with backoff interval
+#######################################
+function with_backoff {
+    local max_attempts=${ATTEMPTS:-5}
+    local sleep_timeout=${SLEEP_TIME:-1}
+    local attempt=0
+    local rc=0
+
+    while [ ${attempt} -lt ${max_attempts} ]; do
+        set +e
+        set -o pipefail
+        "$@"
+        rc=$?
+        set +o pipefail
+        set -e
+
+        if [ ${rc} -eq 0 ]; then
+            break
+        fi
+
+        echo "Warning! Retrying in ${sleep_timeout} seconds ..." 1>&2
+        sleep ${sleep_timeout}
+        attempt=$(( attempt + 1 ))
+        sleep_timeout=$(( sleep_timeout * 2 ))
+    done
+
+    if [ ${rc} -ne 0 ]; then
+        echo "Warning! Return code is not 0 on the last try for ($@)" 1>&2
+    fi
+
+    return ${rc}
+}
+
+#######################################
+# Return 1 if empty output received
+#######################################
+function fail_if_empty {
+    local output="$(${@})"
+    if [ -z "${output}" ]; then
+        echo "Warning! Empty output for ($@)" 1>&2
+        return 1
+    else
+        echo "${output}"
+    fi
+}
+
+function check_stack {
+    local stack_to_check=${1:-""}
+    local rc=0
+
+    if [ -z "${stack_to_check}" ]; then
+        echo No Stacks received.
+        return 1
+    fi
+
+    with_backoff openstack stack resource list $stack_to_check
+    rc=${?}
+
+    if [ ${rc} -ne 0 ]; then
+        echo Stack ${stack_to_check} not yet created
+    fi
+
+    return ${rc}
+
+}
+
 # Set the _hosts_a vars for each role defined
 for role in $OVERCLOUD_ROLES; do
     eval hosts=\${${role}_hosts}
@@ -31,40 +98,17 @@ done
 admin_user_id=$(openstack user show admin -c id -f value)
 admin_project_id=$(openstack project show admin -c id -f value)
 
-function check_stack {
-    local stack_to_check=${1:-""}
-
-    if [ "$stack_to_check" = "" ]; then
-        echo Stack not created
-        return 1
-    fi
-
-    echo Checking if $1 stack is created
-    set +e
-    openstack stack resource list $stack_to_check
-    rc=$?
-    set -e
-
-    if [ ! "$rc" = "0" ]; then
-        echo Stack $1 not yet created
-    fi
-
-    return $rc
-}
-
-
 for role in $OVERCLOUD_ROLES; do
     while ! check_stack $STACK_NAME; do
         sleep $SLEEP_TIME
     done
 
-    rg_stack=$(openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
+    rg_stack=$(with_backoff fail_if_empty openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
     while ! check_stack $rg_stack; do
-        sleep $SLEEP_TIME
-        rg_stack=$(openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
+        rg_stack=$(with_backoff fail_if_empty openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
     done
 
-    stacks=$(openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
+    stacks=$(with_backoff fail_if_empty openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
 
     i=0
 
@@ -74,19 +118,17 @@ for role in $OVERCLOUD_ROLES; do
             server_resource_name="NovaCompute"
         fi
 
-        server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
+        server_stack=$(with_backoff fail_if_empty openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         while ! check_stack $server_stack; do
-            sleep $SLEEP_TIME
-            server_stack=$(openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
+            server_stack=$(with_backoff fail_if_empty openstack stack resource show $stack $server_resource_name -c physical_resource_id -f value)
         done
 
         while true; do
-            deployed_server_metadata_url=$(openstack stack resource metadata $server_stack deployed-server | jq -r '.["os-collect-config"].request.metadata_url')
-            if [ "$deployed_server_metadata_url" = "null" ]; then
-                continue
-            else
+            deployed_server_metadata_url=$(with_backoff openstack stack resource metadata $server_stack deployed-server | jq -r '.["os-collect-config"].request.metadata_url')
+            if [ "$deployed_server_metadata_url" != "null" ]; then
                 break
             fi
+            sleep $SLEEP_TIME
         done
 
         echo "======================"
@@ -116,7 +158,7 @@ for role in $OVERCLOUD_ROLES; do
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl enable os-collect-config
         fi
 
-        let i+=1
+        ((i++))
 
     done
 
