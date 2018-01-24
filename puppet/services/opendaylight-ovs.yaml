@@ -17,10 +17,6 @@ parameters:
     type: string
     description: The password for the opendaylight server.
     hidden: true
-  OpenDaylightConnectionProtocol:
-    description: L7 protocol used for REST access
-    type: string
-    default: 'http'
   OpenDaylightCheckURL:
     description: URL postfix to verify ODL has finished starting up
     type: string
@@ -96,6 +92,28 @@ parameters:
     description: |
       Enable OVS Hardware Offload. This feature supported from OVS 2.8.0
     type: boolean
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+parameter_groups:
+- label: deprecated
+  description: |
+   The following parameters are deprecated and will be removed. They should not
+   be relied on for new deployments. If you have concerns regarding deprecated
+   parameters, please contact the TripleO development team on IRC or the
+   OpenStack mailing list.
+  parameters:
+    - OpenDaylightConnectionProtocol
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
   Ovs:
@@ -146,7 +164,6 @@ outputs:
             neutron::plugins::ovs::opendaylight::odl_username: {get_param: OpenDaylightUsername}
             neutron::plugins::ovs::opendaylight::odl_password: {get_param: OpenDaylightPassword}
             opendaylight_check_url: {get_param: OpenDaylightCheckURL}
-            opendaylight::nb_connection_protocol: {get_param: OpenDaylightConnectionProtocol}
             neutron::agents::ml2::ovs::local_ip: {get_param: [ServiceNetMap, NeutronTenantNetwork]}
             tripleo.opendaylight_ovs.firewall_rules:
               '118 neutron vxlan networks':
@@ -154,6 +171,26 @@ outputs:
                dport: 4789
               '136 neutron gre networks':
                proto: 'gre'
+          -
+            if:
+              - internal_tls_enabled
+              - generate_service_certificates: true
+                tripleo::profile::base::neutron::plugins::ovs::opendaylight::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/ovs.crt'
+                  service_key: '/etc/pki/tls/private/ovs.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                  principal:
+                    str_replace:
+                       template: "ovs/%{hiera('fqdn_NETWORK')}"
+                       params:
+                         NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                neutron::plugins::ovs::opendaylight::tls_ca_cert_file: {get_param: InternalTLSCAFile}
+                tripleo::profile::base::neutron::plugins::ovs::opendaylight::conn_proto: 'https'
+              - {}
           - get_attr: [Ovs, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
       step_config: |
@@ -174,3 +211,11 @@ outputs:
             - name: Stop openvswitch service
               when: (openvswitch_enabled.rc == 0) and (step|int == 1)
               service: name=openvswitch state=stopped
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: ovs
+              network: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+              type: node
+          - null

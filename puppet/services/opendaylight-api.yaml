@@ -17,10 +17,6 @@ parameters:
     type: string
     description: The password for the opendaylight server.
     hidden: true
-  OpenDaylightConnectionProtocol:
-    description: L7 protocol used for REST access
-    type: string
-    default: 'http'
   OpenDaylightFeatures:
     description: List of features to install with ODL
     type: comma_delimited_list
@@ -74,6 +70,34 @@ parameters:
       - allowed_values:
           - file
           - console
+  OpenDaylightTLSKeystorePassword:
+    default: 'opendaylight'
+    type: string
+    description: The password for the opendaylight TLS keystore.
+                 Must be at least 6 characters.
+    hidden: true
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+parameter_groups:
+- label: deprecated
+  description: |
+   The following parameters are deprecated and will be removed. They should not
+   be relied on for new deployments. If you have concerns regarding deprecated
+   parameters, please contact the TripleO development team on IRC or the
+   OpenStack mailing list.
+  parameters:
+    - OpenDaylightConnectionProtocol
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -81,14 +105,15 @@ outputs:
     value:
       service_name: opendaylight_api
       config_settings:
-        opendaylight::odl_rest_port: {get_param: OpenDaylightPort}
-        opendaylight::username: {get_param: OpenDaylightUsername}
-        opendaylight::password: {get_param: OpenDaylightPassword}
-        opendaylight::extra_features: {get_param: OpenDaylightFeatures}
-        opendaylight::odl_bind_ip: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
-        opendaylight::nb_connection_protocol: {get_param: OpenDaylightConnectionProtocol}
-        opendaylight::manage_repositories: {get_param: OpenDaylightManageRepositories}
-        tripleo.opendaylight_api.firewall_rules:
+        map_merge:
+          -
+            opendaylight::odl_rest_port: {get_param: OpenDaylightPort}
+            opendaylight::username: {get_param: OpenDaylightUsername}
+            opendaylight::password: {get_param: OpenDaylightPassword}
+            opendaylight::extra_features: {get_param: OpenDaylightFeatures}
+            opendaylight::odl_bind_ip: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+            opendaylight::manage_repositories: {get_param: OpenDaylightManageRepositories}
+            tripleo.opendaylight_api.firewall_rules:
               '137 opendaylight api':
                 dport:
                   - {get_param: OpenDaylightPort}
@@ -96,8 +121,28 @@ outputs:
                   - 6653
                   - 2550
                   - 8185
-        opendaylight::snat_mechanism: {get_param: OpenDaylightSNATMechanism}
-        opendaylight::log_mechanism: {get_param: OpenDaylightLogMechanism}
+            opendaylight::snat_mechanism: {get_param: OpenDaylightSNATMechanism}
+            opendaylight::log_mechanism: {get_param: OpenDaylightLogMechanism}
+          -
+            if:
+              - internal_tls_enabled
+              - generate_service_certificates: true
+                tripleo::profile::base::neutron::opendaylight::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/odl.crt'
+                  service_key: '/etc/pki/tls/private/odl.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                  principal:
+                    str_replace:
+                      template: "odl/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                opendaylight::tls_ca_cert_file: {get_param: InternalTLSCAFile}
+                opendaylight::tls_keystore_password: {get_param: OpenDaylightTLSKeystorePassword}
+              - {}
       step_config: |
         include tripleo::profile::base::neutron::opendaylight
       upgrade_tasks:
@@ -122,3 +167,11 @@ outputs:
             - snapshots
             - data
             - journal
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: odl
+              network: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+              type: node
+          - null
