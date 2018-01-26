@@ -693,6 +693,12 @@ def validate(filename, param_map):
                 'OS::TripleO::Services::NeutronLinuxbridgeAgent']
             retval = validate_with_compute_role_services(filename, tpl, exclude)
 
+        if filename.startswith('./roles/ComputeRealTime.yaml'):
+            exclude = [
+                'OS::TripleO::Services::Tuned',
+            ]
+            retval = validate_with_compute_role_services(filename, tpl, exclude)
+
         if filename.startswith('./roles/Hci'):
             retval = validate_hci_role(filename, tpl)
 
