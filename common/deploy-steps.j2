@@ -100,6 +100,18 @@ resources:
         - name: enable_debug
         - name: docker_puppet_debug
         - name: docker_puppet_process_count
+        - name: role_data_step_config
+        - name: role_data_puppet_config
+          type: Json
+        - name: role_data_docker_config_scripts
+          type: Json
+        - name: role_data_docker_puppet_tasks
+          type: Json
+        - name: role_data_docker_config
+          type: Json
+        - name: role_data_kolla_config
+          type: Json
+
       config:
         str_replace:
           template: |
@@ -237,15 +249,8 @@ resources:
               - hosts: localhost
                 connection: local
                 vars:
-                  puppet_config: {get_param: [role_data, {{role.name}}, puppet_config]}
                   docker_puppet_script: {get_file: ../docker/docker-puppet.py}
-                  docker_puppet_tasks: {get_param: [role_data, {{role.name}}, docker_puppet_tasks]}
-                  docker_startup_configs: {get_param: [role_data, {{role.name}}, docker_config]}
-                  kolla_config: {get_param: [role_data, {{role.name}}, kolla_config]}
                   bootstrap_server_id: {get_attr: [BootstrapServerId, value]}
-                  puppet_step_config: {get_param: [role_data, {{role.name}}, step_config]}
-                  docker_config_scripts: {get_param: [role_data, {{role.name}}, docker_config_scripts]}
-                  deploy_steps_max: {{deploy_steps_max}}
                 tasks:
                   # Join host_prep_tasks with the other per-host configuration
                   list_concat:
@@ -255,60 +260,11 @@ resources:
                     - {get_param: [role_data, {{role.name}}, host_prep_tasks]}
 {%- endif %}
                     -
-                      # Write the manifest for baremetal puppet configuration
-                      - name: Create /var/lib/tripleo-config directory
-                        file: path=/var/lib/tripleo-config state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
-                      - name: Write the puppet step_config manifest
-                        copy: content="{{ '{{' }}puppet_step_config{{ '}}' }}" dest=/var/lib/tripleo-config/puppet_step_config.pp force=yes mode=0600
-                      # this creates a JSON config file for our docker-puppet.py script
+                      # FIXME: can we move docker-puppet somewhere so it's installed via a package?
                       - name: Create /var/lib/docker-puppet
                         file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
-                      - name: Write docker-puppet-tasks json files
-                        copy: content="{{ '{{' }}puppet_config | to_json{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes mode=0600
-                      # FIXME: can we move docker-puppet somewhere so it's installed via a package?
                       - name: Write docker-puppet.py
                         copy: content="{{ '{{' }}docker_puppet_script{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
-                      - name: Create /var/lib/docker-config-scripts
-                        file: path=/var/lib/docker-config-scripts state=directory
-                      - name: Write docker config scripts
-                        copy: content="{{ '{{' }}item.value.content{{ '}}' }}" dest="/var/lib/docker-config-scripts/{{ '{{' }}item.key{{ '}}' }}" force=yes mode="{{ '{{' }}item.value.mode|default('0600', true){{ '}}' }}"
-                        with_dict: "{{ '{{' }}docker_config_scripts{{ '}}' }}"
-                      # Here we are dumping all the docker container startup configuration data
-                      # so that we can have access to how they are started outside of heat
-                      # and docker-cmd.  This lets us create command line tools to test containers.
-                      # FIXME do we need the docker-container-startup-configs.json or is the new per-step
-                      # data consumed by paunch enough?
-                      - name: Set docker_startup_configs_default fact
-                        set_fact:
-                          docker_startup_configs_default: "{{ '{{' }}docker_startup_configs_default|default({}) | combine( {'step_'+item: {}} ) {{ '}}'}}"
-                        with_sequence: count="{{ '{{' }}deploy_steps_max{{ '}}' }}"
-                      - name: Set docker_startup_configs_with_default fact
-                        set_fact:
-                          docker_startup_configs_with_default: "{{ '{{' }} docker_startup_configs_default | combine(docker_startup_configs) {{ '}}'}}"
-                      - name: Write docker-container-startup-configs
-                        copy: content="{{ '{{' }} docker_startup_configs_with_default | to_json{{ '}}' }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
-                      - name: Write per-step docker-container-startup-configs
-                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{ '{{' }}item.key{{ '}}' }}.json" force=yes mode=0600
-                        with_dict: "{{ '{{' }} docker_startup_configs_with_default {{ '}}' }}"
-                      - name: Create /var/lib/kolla/config_files directory
-                        file: path=/var/lib/kolla/config_files state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
-                      - name: Write kolla config json files
-                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest="{{ '{{' }}item.key{{ '}}' }}" force=yes mode=0600
-                        with_dict: "{{ '{{' }}kolla_config{{ '}}' }}"
-                      ########################################################
-                      # Bootstrap tasks, only performed on bootstrap_server_id
-                      ########################################################
-                      - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
-                        file:
-                          path: "{{ '{{' }}item{{ '}}' }}"
-                          state: absent
-                        with_fileglob:
-                          - /var/lib/docker-puppet/docker-puppet-tasks*.json
-                        when: deploy_server_id == bootstrap_server_id
-                      - name: Write docker-puppet-tasks json files
-                        copy: content="{{ '{{' }}item.value|to_json{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{ '{{' }}item.key.replace("step_", ""){{ '}}' }}.json force=yes mode=0600
-                        with_dict: "{{ '{{' }}docker_puppet_tasks{{ '}}' }}"
-                        when: deploy_server_id == bootstrap_server_id
 
   {{role.name}}HostPrepDeployment:
     type: OS::Heat::SoftwareDeploymentGroup
@@ -362,6 +318,14 @@ resources:
         enable_debug: {get_param: ConfigDebug}
         docker_puppet_debug: {get_param: DockerPuppetDebug}
         docker_puppet_process_count: {get_param: DockerPuppetProcessCount}
+        role_data_step_config: {get_param: [role_data, {{role.name}}, step_config]}
+        role_data_puppet_config: {get_param: [role_data, {{role.name}}, puppet_config]}
+        role_data_docker_config_scripts: {get_param: [role_data, {{role.name}}, docker_config_scripts]}
+        role_data_docker_puppet_tasks: {get_param: [role_data, {{role.name}}, docker_puppet_tasks]}
+        role_data_docker_config: {get_param: [role_data, {{role.name}}, docker_config]}
+        role_data_kolla_config: {get_param: [role_data, {{role.name}}, kolla_config]}
+        deploy_steps_max: {{deploy_steps_max}}
+
   {% endfor %}
   # END CONFIG STEPS
 
@@ -398,6 +362,8 @@ outputs:
   RoleConfig:
     description: Mapping of config data for all roles
     value:
+      global_vars:
+        deploy_steps_max: {{deploy_steps_max}}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       deploy_steps_playbook:
         str_replace:
@@ -415,6 +381,11 @@ outputs:
               gather_facts: yes
               tags:
                 - facts
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
             - hosts: overcloud
               name: Bootstrap TripleO servers
               gather_facts: no

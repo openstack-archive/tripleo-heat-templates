@@ -1,6 +1,73 @@
     # Note the indentation here is required as it's joined
     # to create a playbook in deploy-steps.j2
-   
+    ##################################################
+    # Step 1 block, write data for subsequent steps
+    ##################################################
+    - name: Write config data at the start of step 1
+      when: step == "1"
+      become: true
+      block:
+        - name: Create /var/lib/tripleo-config directory
+          file: path=/var/lib/tripleo-config state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+        # Puppet manifest for baremetal host configuration
+        - name: Write the puppet step_config manifest
+          copy: content="{{role_data_step_config}}" dest=/var/lib/tripleo-config/puppet_step_config.pp force=yes mode=0600
+        # Config file for our docker-puppet.py script, used to generate container configs
+        - name: Create /var/lib/docker-puppet
+          file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+        - name: Write docker-puppet-tasks json files
+          copy: content="{{role_data_puppet_config | to_json}}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes mode=0600
+        - name: Create /var/lib/docker-config-scripts
+          file: path=/var/lib/docker-config-scripts state=directory
+
+
+        # The container config files
+        # /var/lib/docker-container-startup-configs.json is removed as we now write
+        # per-step files instead
+        - name: Clean old /var/lib/docker-container-startup-configs.json file
+          file:
+            path: /var/lib/docker-container-startup-configs.json
+            state: absent
+        - name: Write docker config scripts
+          copy: content="{{item.value.content}}" dest="/var/lib/docker-config-scripts/{{item.key}}" force=yes mode="{{item.value.mode|default('0600', true)}}"
+          with_dict: "{{role_data_docker_config_scripts}}"
+        # Here we are dumping all the docker container startup configuration data
+        # so that we can have access to how they are started outside of heat
+        # and docker-cmd.  This lets us create command line tools to test containers.
+        # FIXME We need to update the defaults e.g in docker-toool so we can remove the
+        # docker-container-startup-configs.json and use per-step configs instead
+        - name: Set docker_config_default fact
+          set_fact:
+            docker_config_default: "{{ docker_config_default|default({}) | combine( {'step_'+item: {}} ) }}"
+          with_sequence: count={{deploy_steps_max}}
+        - name: Set docker_startup_configs_with_default fact
+          set_fact:
+            docker_config_with_default: "{{docker_config_default | combine(role_data_docker_config)}}"
+        - name: Write docker-container-startup-configs
+          copy: content="{{docker_config_with_default | to_json }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
+        - name: Write per-step docker-container-startup-configs
+          copy: content="{{item.value|to_json}}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{item.key}}.json" force=yes mode=0600
+          with_dict: "{{docker_config_with_default}}"
+        - name: Create /var/lib/kolla/config_files directory
+          file: path=/var/lib/kolla/config_files state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+        - name: Write kolla config json files
+          copy: content="{{item.value|to_json}}" dest="{{item.key}}" force=yes mode=0600
+          with_dict: "{{role_data_kolla_config}}"
+        ########################################################
+        # Bootstrap tasks, only performed on bootstrap_server_id
+        ########################################################
+        - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
+          file:
+            path: "{{item}}"
+            state: absent
+          with_fileglob:
+            - /var/lib/docker-puppet/docker-puppet-tasks*.json
+          when: deploy_server_id == bootstrap_server_id
+        - name: Write docker-puppet-tasks json files
+          copy: content="{{item.value|to_json}}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{item.key.replace("step_", "")}}.json force=yes mode=0600
+          with_dict: "{{role_data_docker_puppet_tasks}}"
+          when: deploy_server_id == bootstrap_server_id
+
     #####################################################
     # Per step puppet configuration of the baremetal host
     #####################################################
