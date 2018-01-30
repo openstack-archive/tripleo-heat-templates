@@ -266,80 +266,88 @@ outputs:
             state: directory
       metadata_settings:
         get_attr: [MysqlPuppetBase, role_data, metadata_settings]
-      upgrade_tasks:
-        - name: get bootstrap nodeid
-          tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - name: Check cluster resource status
-          when: step|int == 2
-          pacemaker_resource:
-            resource: galera
-            state: master
-            check_mode: true
-          ignore_errors: true
-          register: galera_res
-        - when:
-            - step|int == 2
-            - is_bootstrap_node|bool
-            - galera_res|succeeded
-          block:
-            - name: Disable the galera cluster resource
-              pacemaker_resource:
-                resource: galera
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Delete the stopped galera cluster resource.
-              when: step|int == 2
-              pacemaker_resource:
-                resource: galera
-                state: delete
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Disable mysql service
-          when: step|int == 2
-          service: name=mariadb enabled=no
-        - name: Remove clustercheck service from xinetd
-          when: step|int == 2
-          file: state=absent path=/etc/xinetd.d/galera-monitor
-        - name: Restart xinetd service after clustercheck removal
-          when: step|int == 2
-          service: name=xinetd state=restarted
       update_tasks:
-        - name: Get docker Mariadb image
-          set_fact:
-            docker_image: {get_param: DockerMysqlImage}
-            docker_image_latest: *mysql_image_pcmklatest
+        - name: Mariadb fetch and retag container image for pacemaker
           when: step|int == 2
-        - name: Get previous Mariadb image id
-          shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}'"
-          register: mariadb_image_id
-        - block:
-            - name: Get a list of container using Mariadb image
-              shell: "docker ps -a -q -f 'ancestor={{mariadb_image_id.stdout}}'"
-              register: mariadb_containers_to_destroy
-            # It will be recreated with the delpoy step.
-            - name: Remove any container using the same Mariadb image
-              shell: "docker rm -fv {{item}}"
-              with_items: "{{ mariadb_containers_to_destroy.stdout_lines }}"
-            - name: Remove previous Mariadb images
-              shell: "docker rmi -f {{mariadb_image_id.stdout}}"
+          block: &mysql_fetch_retag_container_tasks
+            - name: Get docker Mariadb image
+              set_fact:
+                docker_image: {get_param: DockerMysqlImage}
+                docker_image_latest: *mysql_image_pcmklatest
+            - name: Get previous Mariadb image id
+              shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}'"
+              register: mariadb_image_id
+            - block:
+                - name: Get a list of container using Mariadb image
+                  shell: "docker ps -a -q -f 'ancestor={{mariadb_image_id.stdout}}'"
+                  register: mariadb_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same Mariadb image
+                  shell: "docker rm -fv {{item}}"
+                  with_items: "{{ mariadb_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous Mariadb images
+                  shell: "docker rmi -f {{mariadb_image_id.stdout}}"
+              when:
+                - mariadb_image_id.stdout != ''
+            - name: Pull latest Mariadb images
+              command: "docker pull {{docker_image}}"
+            - name: Retag pcmklatest to latest Mariadb image
+              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+            # Got to check that pacemaker_is_active is working fine with bundle.
+            # TODO: pacemaker_is_active resource doesn't support bundle.
+      upgrade_tasks:
+        - name: Get docker Mysql image
+          set_fact:
+            docker_image_latest: *mysql_image_pcmklatest
+        - name: Check if Mysql is already containerized
+          shell: "docker ps -a | grep {{docker_image_latest}}"
+          ignore_errors: true
+          register: mysql_containerized
+        - name: Retag the pacemaker image if containerized
           when:
             - step|int == 2
-            - mariadb_image_id.stdout != ''
-        - name: Pull latest Mariadb images
-          command: "docker pull {{docker_image}}"
-          when: step|int == 2
-        - name: Retag pcmklatest to latest Mariadb image
-          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step|int == 2
-        # Got to check that pacemaker_is_active is working fine with bundle.
-        # TODO: pacemaker_is_active resource doesn't support bundle.
+            - mysql_containerized|succeeded
+          block: *mysql_fetch_retag_container_tasks
+        - name: Mysql baremetal to container upgrade tasks
+          when:
+            - step|int == 2
+            - mysql_containerized|failed
+          block:
+            - name: get bootstrap nodeid
+              tags: common
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              tags: common
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Check cluster resource status
+              pacemaker_resource:
+                resource: galera
+                state: master
+                check_mode: true
+              ignore_errors: true
+              register: galera_res
+            - when: (is_bootstrap_node) and (galera_res|succeeded)
+              block:
+                - name: Disable the galera cluster resource
+                  pacemaker_resource:
+                    resource: galera
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped galera cluster resource.
+                  pacemaker_resource:
+                    resource: galera
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable mysql service
+              service: name=mariadb enabled=no
+            - name: Remove clustercheck service from xinetd
+              file: state=absent path=/etc/xinetd.d/galera-monitor
+            - name: Restart xinetd service after clustercheck removal
+              service: name=xinetd state=restarted

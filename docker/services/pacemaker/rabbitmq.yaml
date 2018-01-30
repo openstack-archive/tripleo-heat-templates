@@ -219,73 +219,82 @@ outputs:
             for pid in $(pgrep epmd --ns 1 --nslist pid); do kill $pid; done
       metadata_settings:
         get_attr: [RabbitmqBase, role_data, metadata_settings]
-      upgrade_tasks:
-        - name: get bootstrap nodeid
-          tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - name: Check cluster resource status
-          when: step|int == 2
-          pacemaker_resource:
-            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-            state: started
-            check_mode: true
-          ignore_errors: true
-          register: rabbitmq_res
-        - when:
-            - step|int == 2
-            - is_bootstrap_node|bool
-            - rabbitmq_res|succeeded
-          block:
-            - name: Disable the rabbitmq cluster resource.
-              pacemaker_resource:
-                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Delete the stopped rabbitmq cluster resource.
-              pacemaker_resource:
-                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-                state: delete
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Disable rabbitmq service
-          when: step|int == 2
-          service: name=rabbitmq-server enabled=no
       update_tasks:
+        - name: Rabbit fetch and retag container image for pacemaker
+          when: step|int == 2
+          block: &rabbitmq_fetch_retag_container_tasks
+            - name: Get docker Rabbitmq image
+              set_fact:
+                docker_image: {get_param: DockerRabbitmqImage}
+                docker_image_latest: *rabbitmq_image_pcmklatest
+            - name: Get previous Rabbitmq image id
+              shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
+              register: rabbitmq_image_id
+            - block:
+                - name: Get a list of container using Rabbitmq image
+                  shell: "docker ps -a -q -f 'ancestor={{rabbitmq_image_id.stdout}}'"
+                  register: rabbitmq_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same Rabbitmq image
+                  shell: "docker rm -fv {{item}}"
+                  with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous Rabbitmq images
+                  shell: "docker rmi -f {{rabbitmq_image_id.stdout}}"
+              when:
+                - rabbitmq_image_id.stdout != ''
+            - name: Pull latest Rabbitmq images
+              command: "docker pull {{docker_image}}"
+            - name: Retag pcmklatest to latest Rabbitmq image
+              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+            # Got to check that pacemaker_is_active is working fine with bundle.
+            # TODO: pacemaker_is_active resource doesn't support bundle.
+      upgrade_tasks:
         - name: Get docker Rabbitmq image
           set_fact:
-            docker_image: {get_param: DockerRabbitmqImage}
             docker_image_latest: *rabbitmq_image_pcmklatest
-          when: step|int == 2
-        - name: Get previous Rabbitmq image id
-          shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
-          register: rabbitmq_image_id
-        - block:
-            - name: Get a list of container using Rabbitmq image
-              shell: "docker ps -a -q -f 'ancestor={{rabbitmq_image_id.stdout}}'"
-              register: rabbitmq_containers_to_destroy
-            # It will be recreated with the delpoy step.
-            - name: Remove any container using the same Rabbitmq image
-              shell: "docker rm -fv {{item}}"
-              with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
-            - name: Remove previous Rabbitmq images
-              shell: "docker rmi -f {{rabbitmq_image_id.stdout}}"
+        - name: Check if Rabbitmq is already containerized
+          shell: "docker ps -a | grep {{docker_image_latest}}"
+          ignore_errors: true
+          register: rabbit_containerized
+        - name: Retag the pacemaker image if containerized
           when:
             - step|int == 2
-            - rabbitmq_image_id.stdout != ''
-        - name: Pull latest Rabbitmq images
-          command: "docker pull {{docker_image}}"
-          when: step|int == 2
-        - name: Retag pcmklatest to latest Rabbitmq image
-          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step|int == 2
-        # Got to check that pacemaker_is_active is working fine with bundle.
-        # TODO: pacemaker_is_active resource doesn't support bundle.
+            - rabbit_containerized|succeeded
+          block: *rabbitmq_fetch_retag_container_tasks
+        - name: Rabbitmq baremetal to container upgrade tasks
+          when:
+            - step|int == 2
+            - rabbit_containerized|failed
+          block:
+            - name: get bootstrap nodeid
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Check cluster resource status
+              pacemaker_resource:
+                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                state: started
+                check_mode: true
+              ignore_errors: true
+              register: rabbitmq_res
+            - when: (is_bootstrap_node) and (rabbitmq_res|succeeded)
+              block:
+                - name: Disable the rabbitmq cluster resource.
+                  pacemaker_resource:
+                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped rabbitmq cluster resource.
+                  pacemaker_resource:
+                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable rabbitmq service
+              service: name=rabbitmq-server enabled=no

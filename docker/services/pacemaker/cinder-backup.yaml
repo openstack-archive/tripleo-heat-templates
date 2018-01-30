@@ -205,64 +205,84 @@ outputs:
           file:
             path: /etc/ceph
             state: directory
-      upgrade_tasks:
-        - name: get bootstrap nodeid
-          tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - when:
-            - step|int == 2
-            - is_bootstrap_node|bool
-          block:
-            - name: Disable the openstack-cinder-backup cluster resource
-              pacemaker_resource:
-                resource: openstack-cinder-backup
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Delete the stopped openstack-cinder-backup cluster resource.
-              pacemaker_resource:
-                resource: openstack-cinder-backup
-                state: delete
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Disable cinder_backup service
-          when: step|int == 2
-          service: name=openstack-cinder-backup enabled=no
       update_tasks:
+        - name: Cinder-Backup fetch and retag container image for pacemaker
+          when: step|int == 2
+          block: &cinder_backup_fetch_retag_container_tasks
+            - name: Get docker Cinder-Backup image
+              set_fact:
+                docker_image: {get_param: DockerCinderBackupImage}
+                docker_image_latest: *cinder_backup_image_pcmklatest
+            - name: Pull latest Cinder-Backup images
+              command: "docker pull {{docker_image}}"
+            - name: Get previous Cinder-Backup image id
+              shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}'"
+              register: cinder_backup_image_id
+            - block:
+                - name: Get a list of container using Cinder-Backup image
+                  shell: "docker ps -a -q -f 'ancestor={{cinder_backup_image_id.stdout}}'"
+                  register: cinder_backup_containers_to_destroy
+                # It will be recreated with the deploy step.
+                - name: Remove any container using the same Cinder-Backup image
+                  shell: "docker rm -fv {{item}}"
+                  with_items: "{{ cinder_backup_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous Cinder-Backup images
+                  shell: "docker rmi -f {{cinder_backup_image_id.stdout}}"
+              when:
+                - cinder_backup_image_id.stdout != ''
+            - name: Retag pcmklatest to latest Cinder-Backup image
+              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+            # Got to check that pacemaker_is_active is working fine with bundle.
+            # TODO: pacemaker_is_active resource doesn't support bundle.
+      upgrade_tasks:
         - name: Get docker Cinder-Backup image
           set_fact:
-            docker_image: {get_param: DockerCinderBackupImage}
             docker_image_latest: *cinder_backup_image_pcmklatest
-          when: step|int == 2
-        - name: Pull latest Cinder-Backup images
-          command: "docker pull {{docker_image}}"
-          when: step|int == 2
-        - name: Get previous Cinder-Backup image id
-          shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}'"
-          register: cinder_backup_image_id
-        - block:
-            - name: Get a list of container using Cinder-Backup image
-              shell: "docker ps -a -q -f 'ancestor={{cinder_backup_image_id.stdout}}'"
-              register: cinder_backup_containers_to_destroy
-            # It will be recreated with the delpoy step.
-            - name: Remove any container using the same Cinder-Backup image
-              shell: "docker rm -fv {{item}}"
-              with_items: "{{ cinder_backup_containers_to_destroy.stdout_lines }}"
-            - name: Remove previous Cinder-Backup images
-              shell: "docker rmi -f {{cinder_backup_image_id.stdout}}"
+        - name: Check if Cinder-Backup is already containerized
+          shell: "docker ps -a | grep {{docker_image_latest}}"
+          ignore_errors: true
+          register: cinder_backup_containerized
+        - name: Retag the pacemaker image if containerized
           when:
             - step|int == 2
-            - cinder_backup_image_id.stdout != ''
-        - name: Retag pcmklatest to latest Cinder-Backup image
-          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step|int == 2
-        # Got to check that pacemaker_is_active is working fine with bundle.
-        # TODO: pacemaker_is_active resource doesn't support bundle.
+            - cinder_backup_containerized|succeeded
+          block: *cinder_backup_fetch_retag_container_tasks
+        - name: Cinder-Backup baremetal to container upgrade tasks
+          when:
+            - step|int == 2
+            - cinder_backup_containerized|failed
+          block:
+            - name: get bootstrap nodeid
+              tags: common
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              tags: common
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Check cluster resource status
+              pacemaker_resource:
+              resource: {get_attr: [CinderBackupBase, role_data, service_name]}
+              state: started
+              check_mode: true
+              ignore_errors: true
+              register: cinder_backup_res
+            - when: (is_bootstrap_node) and (cinder_backup_res|succeeded)
+              block:
+                - name: Disable the openstack-cinder-backup cluster resource
+                  pacemaker_resource:
+                    resource: openstack-cinder-backup
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped openstack-cinder-backup cluster resource.
+                  pacemaker_resource:
+                    resource: openstack-cinder-backup
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable cinder_backup service
+              service: name=openstack-cinder-backup enabled=no
