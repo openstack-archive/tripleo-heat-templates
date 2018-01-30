@@ -387,6 +387,35 @@ def validate_with_compute_role_services(role_filename, role_tpl, exclude_service
 
     return 0
 
+def validate_multiarch_compute_roles(role_filename, role_tpl):
+    errors = 0
+    roles_dir = os.path.dirname(role_filename)
+    compute_services = set(role_tpl[0].get('ServicesDefault', []))
+    compute_networks = set(role_tpl[0].get('networks', []))
+
+    for arch in ['ppc64le']:
+        arch_filename = os.path.join(roles_dir,
+                                     'Compute%s.yaml' % (arch.upper()))
+        with open(arch_filename) as f:
+            arch_tpl = yaml.safe_load(f)
+
+        arch_services = set(arch_tpl[0].get('ServicesDefault', []))
+        if compute_services != arch_services:
+            print('ERROR ServicesDefault in %s and %s do not match' %
+                  (role_filename, arch_filename))
+            print('ERROR problems with: %s' % (','.join(compute_services.symmetric_difference(arch_services))))
+            errors = 1
+
+        arch_networks = set(arch_tpl[0].get('networks', []))
+        if compute_networks != arch_networks:
+            print('ERROR networks in %s and %s do not match' %
+                  (role_filename, arch_filename))
+            print('ERROR problems with: %s' % (','.join(compute_networks.symmetric_difference(arch_networks))))
+            errors = 1
+
+    return errors
+
+
 def search(item, check_item, check_key):
     if check_item(item):
         return True
@@ -799,6 +828,9 @@ def validate(filename, param_map):
         if filename in ('./roles/ComputeLocalEphemeral.yaml',
                         './roles/ComputeRBDEphemeral.yaml'):
             retval |= validate_with_compute_role_services(filename, tpl)
+
+        if filename == './roles/Compute.yaml':
+            retval |= validate_multiarch_compute_roles(filename, tpl)
 
         if filename.startswith('./network_data_'):
             retval = validate_network_data_file(filename)
