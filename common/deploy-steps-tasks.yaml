@@ -3,12 +3,14 @@
     ##################################################
     # Step 1 block, write data for subsequent steps
     ##################################################
+
     - name: Write config data at the start of step 1
       when: step == "1"
       become: true
       block:
         - name: Create /var/lib/tripleo-config directory
           file: path=/var/lib/tripleo-config state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+
         # Puppet manifest for baremetal host configuration
         - name: Check if puppet step_config.pp manifest exists
           delegate_to: localhost
@@ -16,30 +18,36 @@
           stat:
             path: "{{ role_name + '/step_config.pp' }}"
           register: stat_step_config
+
         - name: Set fact when file existed
           set_fact:
             role_data_step_config: "{{lookup('file', role_name + '/step_config.pp')}}"
           when: stat_step_config.stat.exists
+
         - name: Write the puppet step_config manifest
           copy: content="{{role_data_step_config}}" dest=/var/lib/tripleo-config/puppet_step_config.pp force=yes mode=0600
+
         # Config file for our docker-puppet.py script, used to generate container configs
         - name: Create /var/lib/docker-puppet
           file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+
         - name: Check if docker-puppet puppet_config.yaml configuration file exists
           delegate_to: localhost
           become: false
           stat:
             path: "{{ role_name + '/puppet_config.yaml' }}"
           register: stat_puppet_config
+
         - name: Set fact when file existed
           set_fact:
             role_data_puppet_config: "{{lookup('file', role_name + '/puppet_config.yaml') | from_yaml | to_json}}"
           when: stat_puppet_config.stat.exists
+
         - name: Write docker-puppet.json file
           copy: content="{{role_data_puppet_config}}" dest=/var/lib/docker-puppet/docker-puppet.json force=yes mode=0600
+
         - name: Create /var/lib/docker-config-scripts
           file: path=/var/lib/docker-config-scripts state=directory
-
 
         # The container config files
         # /var/lib/docker-container-startup-configs.json is removed as we now write
@@ -48,19 +56,23 @@
           file:
             path: /var/lib/docker-container-startup-configs.json
             state: absent
+
         - name: Check if docker_config_scripts.yaml file exists
           delegate_to: localhost
           become: false
           stat:
             path: "{{ role_name + '/docker_config_scripts.yaml' }}"
           register: stat_docker_config_scripts
+
         - name: Set fact when file existed
           set_fact:
             role_data_docker_config_scripts: "{{lookup('file', role_name + '/docker_config_scripts.yaml') | from_yaml}}"
           when: stat_docker_config_scripts.stat.exists
+
         - name: Write docker config scripts
           copy: content="{{item.value.content}}" dest="/var/lib/docker-config-scripts/{{item.key}}" force=yes mode="{{item.value.mode|default('0600', true)}}"
           with_dict: "{{role_data_docker_config_scripts}}"
+
         # Here we are dumping all the docker container startup configuration data
         # so that we can have access to how they are started outside of heat
         # and docker-cmd.  This lets us create command line tools to test containers.
@@ -70,42 +82,53 @@
           set_fact:
             docker_config_default: "{{ docker_config_default|default({}) | combine( {'step_'+item: {}} ) }}"
           with_sequence: count={{deploy_steps_max}}
+
         - name: Check if docker_config.yaml file exists
           delegate_to: localhost
           become: false
           stat:
             path: "{{ role_name + '/docker_config.yaml' }}"
           register: stat_docker_config
+
         - name: Set fact when file existed
           set_fact:
             role_data_docker_config: "{{lookup('file', role_name + '/docker_config.yaml') | from_yaml}}"
           when: stat_docker_config.stat.exists
+
         - name: Set docker_startup_configs_with_default fact
           set_fact:
             docker_config_with_default: "{{docker_config_default | combine(role_data_docker_config)}}"
+
         - name: Write docker-container-startup-configs
           copy: content="{{docker_config_with_default | to_json }}" dest=/var/lib/docker-container-startup-configs.json force=yes mode=0600
+
         - name: Write per-step docker-container-startup-configs
           copy: content="{{item.value|to_json}}" dest="/var/lib/tripleo-config/docker-container-startup-config-{{item.key}}.json" force=yes mode=0600
           with_dict: "{{docker_config_with_default}}"
+
         - name: Create /var/lib/kolla/config_files directory
           file: path=/var/lib/kolla/config_files state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+
         - name: Check if kolla_config.yaml file exists
           delegate_to: localhost
           become: false
           stat:
             path: "{{ role_name + '/kolla_config.yaml' }}"
           register: stat_kolla_config
+
         - name: Set fact when file existed
           set_fact:
             role_data_kolla_config: "{{lookup('file', role_name + '/kolla_config.yaml') | from_yaml}}"
           when: stat_kolla_config.stat.exists
+
         - name: Write kolla config json files
           copy: content="{{item.value|to_json}}" dest="{{item.key}}" force=yes mode=0600
           with_dict: "{{role_data_kolla_config}}"
+
         ########################################################
         # Bootstrap tasks, only performed on bootstrap_server_id
         ########################################################
+
         - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
           file:
             path: "{{item}}"
@@ -113,16 +136,19 @@
           with_fileglob:
             - /var/lib/docker-puppet/docker-puppet-tasks*.json
           when: deploy_server_id == bootstrap_server_id
+
         - name: Check if docker_puppet_tasks.yaml file exists
           delegate_to: localhost
           become: false
           stat:
             path: "{{ role_name + '/docker_puppet_tasks.yaml' }}"
           register: stat_docker_puppet_tasks
+
         - name: Set fact when file existed
           set_fact:
             role_data_docker_puppet_tasks: "{{lookup('file', role_name + '/docker_puppet_tasks.yaml') | from_yaml}}"
           when: stat_docker_puppet_tasks.stat.exists
+
         - name: Write docker-puppet-tasks json files
           copy: content="{{item.value|to_json}}" dest=/var/lib/docker-puppet/docker-puppet-tasks{{item.key.replace("step_", "")}}.json force=yes mode=0600
           with_dict: "{{role_data_docker_puppet_tasks}}"
@@ -131,15 +157,18 @@
     #####################################################
     # Per step puppet configuration of the baremetal host
     #####################################################
+
     - name: Set host puppet debugging fact string
       set_fact:
         host_puppet_config_debug: "--debug --verbose"
       when:
       - enable_puppet|default(true)|bool
       - enable_debug|default(false)|bool
+
     - name: Write the config_step hieradata
       copy: content="{{dict(step=step|int)|to_json}}" dest=/etc/puppet/hieradata/config_step.json force=true mode=0600
       become: true
+
     - name: Run puppet host configuration for step {{step}}
       when: enable_puppet|default(true)|bool
       command: >-
@@ -155,15 +184,18 @@
       failed_when: false
       no_log: true
       become: true
+
     - name: "Debug output for task which failed: Run puppet host configuration for step {{step}}"
       debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
       when:
       - enable_puppet|default(true)|bool
       - outputs.rc is defined
       failed_when: outputs.rc not in [0, 2]
+
     ######################################
     # Generate config via docker-puppet.py
     ######################################
+
     - name: Run docker-puppet tasks (generate config) during step {{step}}
       shell: python /var/lib/docker-puppet/docker-puppet.py
       environment:
@@ -177,13 +209,16 @@
       failed_when: false
       no_log: true
       become: true
+
     - name: "Debug output for task which failed: Run docker-puppet tasks (generate config) during step {{step}}"
       debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+
     ##################################################
     # Per step starting of the containers using paunch
     ##################################################
+
     # Note docker-puppet.py generates the hashed-*.json file, which is a copy of
     # the *step_n.json with a hash of the generated external config added
     # This acts as a salt to enable restarting the container if config changes
@@ -198,18 +233,22 @@
       failed_when: false
       no_log: true
       become: true
+
     - name: "Debug output for task which failed: Start containers for step {{step}}"
       debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+
     ########################################################
     # Bootstrap tasks, only performed on bootstrap_server_id
     ########################################################
+
     - name: Check if /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json exists
       stat:
         path: /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json
       register: docker_puppet_tasks_json
       become: true
+
     - name: Run docker-puppet tasks (bootstrap tasks) for step {{step}}
       shell: python /var/lib/docker-puppet/docker-puppet.py
       environment:
@@ -224,7 +263,9 @@
       failed_when: false
       no_log: true
       become: true
+
     - name: "Debug output for task which failed: Run docker-puppet tasks (bootstrap tasks) for step {{step}}"
       debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+
