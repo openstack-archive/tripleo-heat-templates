@@ -113,10 +113,14 @@ parameters:
     description: Driver or drivers to handle sending notifications.
     constraints:
       - allowed_values: [ 'messagingv2', 'noop' ]
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   dhcp_agents_zero: {equals : [{get_param: NeutronDhcpAgentsPerNetwork}, 0]}
   service_debug_unset: {equals : [{get_param: NeutronDebug}, '']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
@@ -152,3 +156,28 @@ outputs:
             - dhcp_agents_zero
             - {}
             - tripleo::profile::base::neutron::dhcp_agents_per_network: {get_param: NeutronDhcpAgentsPerNetwork}
+          - if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::profile::base::neutron::certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/neutron.crt'
+                service_key: '/etc/pki/tls/private/neutron.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+                principal:
+                  str_replace:
+                    template: "neutron/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+            - null
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: neutron
+              network: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+              type: node
+          - null

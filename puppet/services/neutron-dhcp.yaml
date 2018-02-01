@@ -69,9 +69,18 @@ parameters:
     default: 'neutron.agent.linux.interface.OVSInterfaceDriver'
     description: Neutron DHCP Agent interface driver
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
 
 conditions:
   service_debug_unset: {equals: [{get_param: NeutronDhcpAgentDebug}, '']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -112,6 +121,12 @@ outputs:
                 proto: 'udp'
                 chain: 'OUTPUT'
                 dport: 68
+          - if:
+              - internal_tls_enabled
+              - neutron::agents::dhcp::ovsdb_agent_ssl_key_file: '/etc/pki/tls/private/neutron.key'
+                neutron::agents::dhcp::ovsdb_agent_ssl_cert_file: '/etc/pki/tls/certs/neutron.crt'
+                neutron::agents::dhcp::ovsdb_agent_ssl_ca_file: {get_param: InternalTLSCAFile}
+              - {}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_neutron_dhcp:
@@ -137,3 +152,5 @@ outputs:
             - step|int == 1
             - neutron_dhcp_agent_enabled.rc == 0
           service: name=neutron-dhcp-agent state=stopped
+      metadata_settings:
+        get_attr: [NeutronBase, role_data, metadata_settings]
