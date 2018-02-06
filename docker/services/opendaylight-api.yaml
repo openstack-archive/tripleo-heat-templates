@@ -39,6 +39,11 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
 
 conditions:
 
@@ -76,8 +81,20 @@ outputs:
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: opendaylight
+        volumes:
+          list_concat:
+          - if:
+            - internal_tls_enabled
+            - - /etc/pki/tls/certs/odl.crt:/etc/pki/tls/certs/odl.crt:ro
+              - /etc/pki/tls/private/odl.key:/etc/pki/tls/private/odl.key:ro
+              - list_join:
+                  - ':'
+                  - - {get_param: InternalTLSCAFile}
+                    - {get_param: InternalTLSCAFile}
+                    - 'ro'
+            - null
         # 'file,concat,file_line,augeas' are included by default
-        puppet_tags: odl_user
+        puppet_tags: odl_user,odl_keystore
         step_config:
           get_attr: [OpenDaylightBase, role_data, step_config]
         config_image: {get_param: DockerOpendaylightConfigImage}
@@ -114,16 +131,6 @@ outputs:
                   - /var/lib/opendaylight/journal:/opt/opendaylight/journal
                   - /var/lib/opendaylight/snapshots:/opt/opendaylight/snapshots
                   - /var/lib/opendaylight/etc:/opt/opendaylight/etc
-                  -
-                    if:
-                      - internal_tls_enabled
-                      - /etc/pki/tls/certs/odl.crt:/etc/pki/tls/certs/odl.crt:ro
-                      - ''
-                  -
-                    if:
-                      - internal_tls_enabled
-                      - /etc/pki/tls/private/odl.key:/etc/pki/tls/private/odl.key:ro
-                      - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
