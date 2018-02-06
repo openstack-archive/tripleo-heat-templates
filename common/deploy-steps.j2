@@ -372,6 +372,7 @@ outputs:
       global_vars:
         deploy_steps_max: {{deploy_steps_max}}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
+      docker_puppet_script: {get_file: ../docker/docker-puppet.py}
       deploy_steps_playbook:
         str_replace:
           params:
@@ -571,6 +572,34 @@ outputs:
                 - include_tasks: fast_forward_upgrade_prep_tasks.yaml
                 - include_tasks: fast_forward_upgrade_bootstrap_tasks.yaml
       fast_forward_upgrade_prep_tasks: |
+{%- for role in roles %}
+                - shell: |
+                    #!/bin/bash
+                    if [ ! -f /root/.ffu_workaround ]; then
+                      touch /root/.ffu_workaround
+                      os-apply-config -m /var/lib/os-collect-config/{{role.deprecated_server_resource_name|default(role.name)}}Deployment.json
+                      systemctl stop os-collect-config
+                      rm -r /var/lib/os-collect-config/*
+                      rm -f /usr/libexec/os-refresh-config/configure.d/40-hiera-datafiles
+                      rm -f /usr/libexec/os-apply-config/templates/etc/puppet/hiera.yaml
+                      rm -f /usr/libexec/os-refresh-config/configure.d/10-hiera-disable
+                    fi
+                  when: role_name == '{{role.name}}'
+                  name: Run Fast Forward Upgrade Prep Workarounds for {{role.name}}
+{%- endfor %}
+{% raw %}
+                - name: get bootstrap nodeid
+                  tags: common
+                  command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+                  register: bootstrap_node
+                - name: set is_bootstrap_node fact
+                  tags: common
+                  set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+{% endraw %}
+                - name: Create /var/lib/docker-puppet
+                  file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+                - name: Write docker-puppet.py
+                  copy: src=docker_puppet_script.yaml dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
                 - include_tasks: fast_forward_upgrade_prep_role_tasks.yaml
                   with_sequence: start=0 end={{fast_forward_upgrade_prep_steps_max}}
                   loop_control:
