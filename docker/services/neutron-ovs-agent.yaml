@@ -151,23 +151,32 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if neutron_ovs_agent is deployed
-          command: systemctl is-enabled --quiet neutron-openvswitch-agent
-          tags: common
-          ignore_errors: True
-          register: neutron_ovs_agent_enabled
-        - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
-          command: systemctl is-active --quiet neutron-openvswitch-agent
-          when: (neutron_ovs_agent_enabled.rc == 0) and (step|int == 0)
-          tags: validation
-        - name: Stop and disable neutron_ovs_agent service
-          when: (neutron_ovs_agent_enabled.rc == 0) and (step|int == 2)
-          service: name=neutron-openvswitch-agent state=stopped enabled=no
-        - name: Set fact for removal of openstack-neutron-openvswitch package
-          when: step|int == 2
-          set_fact:
-            remove_neutron_openvswitch_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-neutron-openvswitch package if operator requests it
-          yum: name=openstack-neutron-openvswitch state=removed
-          ignore_errors: True
-          when: (remove_neutron_openvswitch_package|bool) and (step|int == 2)
+        list_concat:
+          - get_attr: [NeutronOvsAgentBase, role_data, ovs_upgrade_tasks]
+          -
+            - name: Check if neutron_ovs_agent is deployed
+              command: systemctl is-enabled --quiet neutron-openvswitch-agent
+              tags: common
+              ignore_errors: True
+              register: neutron_ovs_agent_enabled
+            - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
+              command: systemctl is-active --quiet neutron-openvswitch-agent
+              when:
+                - step|int == 0
+                - neutron_ovs_agent_enabled.rc == 0
+              tags: validation
+            - name: Stop and disable neutron_ovs_agent service
+              when:
+                - step|int == 2
+                - neutron_ovs_agent_enabled.rc == 0
+              service: name=neutron-openvswitch-agent state=stopped enabled=no
+            - name: Set fact for removal of openstack-neutron-openvswitch package
+              when: step|int == 2
+              set_fact:
+                remove_neutron_openvswitch_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-neutron-openvswitch package if operator requests it
+              yum: name=openstack-neutron-openvswitch state=removed
+              ignore_errors: True
+              when:
+                - step|int == 2
+                - remove_neutron_openvswitch_package|bool
