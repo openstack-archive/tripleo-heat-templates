@@ -33,6 +33,11 @@ parameters:
                  via parameter_defaults in the resource registry.
     type: json
 
+  OpenShiftGlobalVariables:
+    default: {}
+    description: Global Ansible variables for OpenShift-Ansible installer.
+    type: json
+
 outputs:
   role_data:
     description: Role data for the Openshift Service
@@ -95,9 +100,9 @@ outputs:
                       masters: {}
                       nodes: {}
 
-            - name: generate openshift global vars
+            - name: generate openshift global defaults
               copy:
-                dest: "{{playbook_dir}}/openshift/global_vars.yml"
+                dest: "{{playbook_dir}}/openshift/global_defaults.yml"
                 content: |
                   containerized: true
                   openshift_master_cluster_method: native
@@ -110,7 +115,15 @@ outputs:
                   osm_etcd_image: "registry.fedoraproject.org/f27/etcd"
                   # NOTE(flaper87): Needed for the gate
                   openshift_disable_check: disk_availability,docker_storage,memory_availability,docker_image_availability
-                  skip_ovs_svc_handlers: true
+
+            - name: set openshift global vars fact
+              set_fact:
+                openshift_global_vars: {get_param: OpenShiftGlobalVariables}
+
+            - name: generate openshift global vars
+              copy:
+                dest: "{{playbook_dir}}/openshift/global_vars.yml"
+                content: "{{openshift_global_vars|to_nice_yaml}}"
 
             - name: generate openshift playbook
               copy:
@@ -162,6 +175,7 @@ outputs:
                   ANSIBLE_HOST_KEY_CHECKING=False
                   ansible-playbook
                   -i '{{playbook_dir}}/openshift/inventory.yml'
+                  --extra-vars '@{{playbook_dir}}/openshift/global_defaults.yml'
                   --extra-vars '@{{playbook_dir}}/openshift/global_vars.yml'
                   '{{playbook_dir}}/openshift/playbook.yml'
                   {%- endif -%}
