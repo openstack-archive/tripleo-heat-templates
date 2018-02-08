@@ -1,0 +1,128 @@
+heat_template_version: queens
+
+description: >
+  OpenStack containerized Keepalived service
+
+parameters:
+  DockerKeepalivedImage:
+    description: image
+    type: string
+  DockerKeepalivedConfigImage:
+    description: The container image to use for the keepalived config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  KeepalivedBase:
+    type: ../../puppet/services/keepalived.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Keepalived API role.
+    value:
+      service_name: {get_attr: [KeepalivedBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [KeepalivedBase, role_data, config_settings]
+          - tripleo::keepalived:custom_vrrp_script: 'echo "show info" | socat unix-connect:/var/lib/haproxy/haproxy.sock stdio > /dev/null'
+      logging_source: {get_attr: [KeepalivedBase, role_data, logging_source]}
+      logging_groups: {get_attr: [KeepalivedBase, role_data, logging_groups]}
+      service_config_settings: {get_attr: [KeepalivedBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: 'keepalived'
+        puppet_tags: 'file'
+        step_config: {get_attr: [KeepalivedBase, role_data, step_config]}
+        config_image: {get_param: DockerKeepalivedConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/keepalived.json:
+          command: /usr/sbin/keepalived -nldD | tee -a /var/log/keepalived.log
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+      docker_config:
+        step_1:
+          keepalived:
+            start_order: 0
+            image: {get_param: DockerKeepalivedImage}
+            net: host
+            privileged: true
+            restart: always
+            # FIXME: needs to be added to the container first
+            #healthcheck:
+              #test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keepalived.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keepalived/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/keepalived/:/var/log/
+                  - /lib/modules/:/lib/modules/:ro
+                  - /var/lib/haproxy/:/var/lib/haproxy/
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            command: /usr/local/bin/kolla_start
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: /var/log/containers/keepalived
+            state: directory
+        - name: keepalived logs readme
+          copy:
+            dest: /var/log/keepalived-readme.txt
+            content: |
+              Log files from keepalived containers can be found under
+              /var/log/containers/keepalived.
+          ignore_errors: true
+      upgrade_tasks:
+        - name: Check if keepalived is deployed
+          command: systemctl is-enabled --quiet keepalived
+          tags: common
+          ignore_errors: True
+          register: keepalived_enabled
+        - name: "PreUpgrade step0,validation: Check service keepalived is running"
+          command: systemctl is-active --quiet keepalived
+          when: (keepalived_enabled.rc == 0) and (step|int == 0)
+          tags: validation
+        - name: Stop and disable keepalived service
+          when: (keepalived_enabled.rc == 0) and (step|int == 2)
+          service: name=keepalived state=stopped enabled=no
