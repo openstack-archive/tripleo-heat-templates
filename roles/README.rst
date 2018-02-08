@@ -11,7 +11,7 @@ roles_data.yaml
 ---------------
 
 The roles_data.yaml specifies which roles (groups of nodes) will be deployed.
-Note this file is used as an input the the various \*.j2.yaml jinja2 templates,
+Note this file is used as an input to the various \*.j2.yaml jinja2 templates,
 so that they are converted into \*.yaml during the plan creation. This occurs
 via a mistral action/workflow. The file format of this file is a yaml list.
 
