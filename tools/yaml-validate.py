@@ -688,8 +688,10 @@ def validate(filename, param_map):
         if filename.startswith('./roles/ComputeHCI.yaml'):
             retval = validate_hci_computehci_role(filename, tpl)
 
-        if filename.startswith('./roles/ComputeOvsDpdk.yaml') or (
-                filename.startswith('./roles/ComputeSriov.yaml')):
+        if filename.startswith('./roles/ComputeOvsDpdk.yaml') or \
+                filename.startswith('./roles/ComputeSriov.yaml') or \
+                filename.startswith('./roles/ComputeOvsDpdkRT.yaml') or \
+                filename.startswith('./roles/ComputeSriovRT.yaml'):
             exclude = [
                 'OS::TripleO::Services::OVNController',
                 'OS::TripleO::Services::ComputeNeutronOvsAgent',
