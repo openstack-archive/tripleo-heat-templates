@@ -33,13 +33,3 @@ class YAQLTestCase(base.BaseTestCase):
                 data = data[i]
             return data['yaql']['expression']
 
-    def test_apache_networks(self):
-        snippet = self.get_snippet(
-            'puppet/services/apache.yaml',
-            'resources.ApacheNetworks.properties.value')
-        self.assertEqual(
-            ['service'],
-            yaql.eval(
-                snippet,
-                {'data': {'nova': 'tenant', 'cinder': 'service',
-                          'glance': 'service'}}))
