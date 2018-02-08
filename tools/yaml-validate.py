@@ -51,7 +51,7 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'global_config_settings', 'logging_source',
                             'logging_groups', 'external_deploy_tasks',
                             'external_post_deploy_tasks',
-                            'docker_config_scripts']
+                            'docker_config_scripts', 'step_config']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
@@ -440,6 +440,12 @@ def validate_docker_service(filename, tpl):
 
         for section_name in REQUIRED_DOCKER_SECTIONS:
             if section_name not in role_data:
+                # add an exception if both step_config is used in docker
+                # service, docker/services/ceph-ansible/ceph-nfs.yaml uses
+                # additional step_config to add pacemaker resources
+                if (section_name == 'docker_config' and
+                        role_data.get('step_config', '')):
+                    continue
                 print('ERROR: %s is required in role_data for %s.'
                       % (section_name, filename))
                 return 1
