@@ -206,7 +206,6 @@ resources:
   # before starting with DPDK initialization.
   DpdkVhostGroupConfig:
     type: OS::Heat::SoftwareConfig
-    depends_on: HostParametersDeployment
     condition: is_dpdk_config_required
     properties:
       group: ansible
@@ -224,7 +223,6 @@ resources:
 
   DpdkVhostGroupDeployment:
     type: OS::Heat::SoftwareDeployment
-    depends_on: HostParametersDeployment
     condition: is_dpdk_config_required
     properties:
       name: DpdkVhostGroupDeployment
@@ -238,7 +236,6 @@ resources:
 
   RebootConfig:
     type: OS::Heat::SoftwareConfig
-    depends_on: DpdkVhostGroupDeployment
     condition: is_reboot_config_required
     properties:
       group: script
@@ -251,7 +248,7 @@ resources:
 
   RebootDeployment:
     type: OS::Heat::SoftwareDeployment
-    depends_on: DpdkVhostGroupDeployment
+    depends_on: [HostParametersDeployment, DpdkVhostGroupDeployment]
     condition: is_reboot_config_required
     properties:
       name: RebootDeployment
@@ -264,6 +261,38 @@ resources:
           - ['CREATE'] # Only do this on CREATE
       signal_transport: NO_SIGNAL
 
+  # For successful RebootDeployment, the signal_transport should be NO_SIGNAL,
+  # which will make the resource as COMPLETE immediately. If the
+  # RebootDeployment is the last resource of the tree, then it will be
+  # synchronized, else the next resource (EnableDpdkDeployment), is also sent
+  # along with RebootDeployment. Because of which sometimes, EnableDpdkDeployment
+  # is executed before rebooting. As hugepages are not set to bootargs (waiting
+  # for reboot), EnableDpdkDeployment will fail. To ensure synchronization,
+  # a dummpy deployment RebootEnsureDeployment has been introduced to wait
+  # for reboot to enable DPDK.
+  RebootEnsureConfig:
+    type: OS::Heat::SoftwareConfig
+    condition: is_reboot_config_required
+    properties:
+      group: script
+      config: |
+        #!/bin/bash
+        echo "Reboot completed"
+
+  RebootEnsureDeployment:
+    type: OS::Heat::SoftwareDeployment
+    depends_on: RebootDeployment
+    condition: is_reboot_config_required
+    properties:
+      name: RebootEnsureDeployment
+      server:  {get_param: server}
+      config: {get_resource: RebootEnsureConfig}
+      actions:
+        if:
+          - deployment_actions_empty
+          - []
+          - ['CREATE'] # Only do this on CREATE
+
   # With OvS2.7 (which is default with pike), ovs-vswitchd will start dpdk
   # immediately after setting dpdk-init (behaviour change from ovs2.6).
   # Starting of DPDK require the huge page configuration to be enabled. So
@@ -273,7 +302,6 @@ resources:
   # maintained, restart of ovs is required.
   EnableDpdkConfig:
     type: OS::Heat::SoftwareConfig
-    depends_on: RebootDeployment
     condition: is_dpdk_config_required
     properties:
       group: script
@@ -330,7 +358,7 @@ resources:
   EnableDpdkDeployment:
     type: OS::Heat::SoftwareDeployment
     condition: is_dpdk_config_required
-    depends_on: RebootDeployment
+    depends_on: RebootEnsureDeployment
     properties:
       name: EnableDpdkDeployment
       server:  {get_param: server}
