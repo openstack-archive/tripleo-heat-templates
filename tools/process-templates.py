@@ -22,6 +22,22 @@ import yaml
 __tht_root_dir = os.path.dirname(os.path.dirname(__file__))
 
 
+def _shutil_copy_if_not_same(src, dst):
+    """Copy with shutil ignoring the same file errors."""
+    if hasattr(shutil, 'SameFileError'):
+        try:
+            shutil.copy(src, dst)
+        except shutil.SameFileError:
+            pass
+    else:
+        try:
+            shutil.copy(src, dst)
+        except Exception as ex:
+            if 'are the same file' in six.text_type(ex):
+                pass
+            else:
+                raise
+
 def parse_opts(argv):
     parser = argparse.ArgumentParser(
         description='Configure host network interfaces using a JSON'
@@ -139,10 +155,10 @@ def process_templates(template_path, role_data_path, output_dir,
                     os.mkdir(out_dir)
 
             # Ensure template is on its expected search path
-            # for upcoming pasring and rendering
+            # for upcoming parsing and rendering
             for f in files:
                 if f.endswith('.j2') and output_dir:
-                    shutil.copy(os.path.join(subdir, f), out_dir)
+                    _shutil_copy_if_not_same(os.path.join(subdir, f), out_dir)
 
             for f in files:
                 file_path = os.path.join(subdir, f)
@@ -225,7 +241,7 @@ def process_templates(template_path, role_data_path, output_dir,
                         _j2_render_to_file(template_data, j2_data, out_f_path,
                                            overwrite)
                 elif output_dir:
-                    shutil.copy(os.path.join(subdir, f), out_dir)
+                    _shutil_copy_if_not_same(os.path.join(subdir, f), out_dir)
 
     else:
         print('Unexpected argument %s' % template_path)
