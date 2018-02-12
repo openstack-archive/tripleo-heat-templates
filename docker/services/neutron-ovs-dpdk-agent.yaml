@@ -1,0 +1,102 @@
+heat_template_version: queens
+
+description: >
+  OpenStack Neutron OVS DPDK configured with Puppet for Compute Role (Containerized)
+
+parameters:
+  DockerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  NeutronOvsDpdkAgentBase:
+    type: ../../puppet/services/neutron-ovs-dpdk-agent.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NeutronOvsAgentDockerBase:
+    type: ../../docker/services/neutron-ovs-agent.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NeutronLogging:
+    type: OS::TripleO::Services::Logging::NeutronCommon
+
+outputs:
+  role_data:
+    description: Role data for Neutron openvswitch DPDK service
+    value:
+      service_name: {get_attr: [NeutronOvsDpdkAgentBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronOvsDpdkAgentBase, role_data, config_settings]
+          - get_attr: [NeutronLogging, config_settings]
+      service_config_settings:
+        get_attr: [NeutronOvsDpdkAgentBase, role_data, service_config_settings]
+      logging_source:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, logging_source]
+      logging_groups:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, logging_groups]
+      puppet_config:
+        config_volume: neutron
+        puppet_tags: neutron_config,neutron_agent_ovs,neutron_plugin_ml2
+        step_config:
+          get_attr: [NeutronOvsDpdkAgentBase, role_data, step_config]
+        config_image: {get_param: DockerNeutronConfigImage}
+        # We need to mount /run for puppet_config step. This is because
+        # puppet-vswitch runs the commands "ovs-vsctl list open_vswitch ."
+        # when running vswitch::ovs::enable_hw_offload: true
+        # ovs-vsctl talks to the ovsdb-server (hosting conf.db)
+        # on the unix domain socket - /run/openvswitch/db.sock
+        volumes:
+          - /lib/modules:/lib/modules:ro
+          - /run/openvswitch:/run/openvswitch
+      kolla_config:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, kolla_config]
+      docker_config:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, docker_config]
+      host_prep_tasks:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, host_prep_tasks]
+      upgrade_tasks:
+        get_attr: [NeutronOvsAgentDockerBase, role_data, kolla_config]
+
