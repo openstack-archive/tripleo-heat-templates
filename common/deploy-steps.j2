@@ -21,6 +21,8 @@
 {% set update_steps_max = 6 -%}
 {% set upgrade_steps_max = 6 -%}
 {% set post_upgrade_steps_max = 4 -%}
+{% set fast_forward_upgrade_steps_max = 9 -%}
+{% set fast_forward_upgrade_prep_steps_max = 3 -%}
 
 heat_template_version: queens
 
@@ -71,6 +73,10 @@ parameters:
     description: List of hostnames belong to blacklisted servers
     type: comma_delimited_list
     default: []
+  FastForwardUpgradeReleases:
+    type: comma_delimited_list
+    default: ['ocata', 'pike']
+    description: List of releases to fast forward through during upgrade.
 
 conditions:
 {% for step in range(1, deploy_steps_max) %}
@@ -553,3 +559,34 @@ outputs:
               with_sequence: start=0 end={{post_upgrade_steps_max-1}}
               loop_control:
                 loop_var: step
+      fast_forward_upgrade_playbook:
+        - hosts: overcloud
+          become: true
+          tasks:
+            - include_tasks: fast_forward_upgrade_release_tasks.yaml
+              loop_control:
+                loop_var: release
+              with_items: {get_param: [FastForwardUpgradeReleases]}
+      fast_forward_upgrade_release_tasks: |
+                - include_tasks: fast_forward_upgrade_prep_tasks.yaml
+                - include_tasks: fast_forward_upgrade_bootstrap_tasks.yaml
+      fast_forward_upgrade_prep_tasks: |
+                - include_tasks: fast_forward_upgrade_prep_role_tasks.yaml
+                  with_sequence: start=0 end={{fast_forward_upgrade_prep_steps_max}}
+                  loop_control:
+                    loop_var: step
+      fast_forward_upgrade_prep_role_tasks: |
+{%- for role in roles %}
+                - include_tasks: {{role.name}}/fast_forward_upgrade_tasks.yaml
+                  when: role_name == '{{role.name}}'
+{%- endfor %}
+      fast_forward_upgrade_bootstrap_tasks: |
+                - include_tasks: fast_forward_upgrade_bootstrap_role_tasks.yaml
+                  with_sequence: start={{fast_forward_upgrade_prep_steps_max+1}} end={{fast_forward_upgrade_steps_max}}
+                  loop_control:
+                    loop_var: step
+      fast_forward_upgrade_bootstrap_role_tasks: |
+{%- for role in roles %}
+                - include_tasks: {{role.name}}/fast_forward_upgrade_tasks.yaml
+                  when: role_name == '{{role.name}}' and ansible_hostname == {{role.name}}[0]
+{%- endfor %}
