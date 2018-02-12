@@ -138,6 +138,12 @@ def process_templates(template_path, role_data_path, output_dir,
                 if not os.path.exists(out_dir):
                     os.mkdir(out_dir)
 
+            # Ensure template is on its expected search path
+            # for upcoming pasring and rendering
+            for f in files:
+                if f.endswith('.j2') and output_dir:
+                    shutil.copy(os.path.join(subdir, f), out_dir)
+
             for f in files:
                 file_path = os.path.join(subdir, f)
                 # We do three templating passes here:
