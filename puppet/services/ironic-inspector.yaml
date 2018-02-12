@@ -82,11 +82,32 @@ parameters:
     type: string
   IronicInspectorIpRange:
     description: |
+        DEPRECATED: Use IronicInspectorSubnets instead.
         Temporary IP range that will be given to nodes during the inspection
         process. This should not overlap with any range that Neutron's DHCP
         gives away, but it has to be routeable back to ironic-inspector API.
         This option has no meaningful defaults, and thus is required.
     type: string
+    default: ''
+  IronicInspectorSubnets:
+    description: |
+        Temporary IP ranges that will be given to nodes during the inspection
+        process. This should not overlap with any range that Neutron's DHCP
+        gives away, but they need to be routeable back to ironic-inspector API.
+        This option has no meaningful defaults, and thus is required.
+
+        List of dictionaries with keys: 'tag', 'ip_range', 'netmask', and
+        'gateway'. 'ip_range' is the only required key. Assigning multiple
+        tagged subnets allow dnsmasq to serve dhcp request that came in via
+        dhcp relay/helper.
+
+        Example: - ip_range: 192.168.0.100,192.168.0.120
+                 - ip_range: 192.168.1.100,192.168.1.200
+                   netmask: 255.255.255.0
+                   gateway: 192.168.1.254
+                   tag: subnet1
+    type: json
+    default: {}
   IronicInspectorUseSwift:
     default: true
     description: Whether to use Swift for storing introspection data.
@@ -104,6 +125,7 @@ conditions:
   enable_ipxe: {equals : [{get_param: IronicInspectorIPXEEnabled}, true]}
   use_swift: {equals : [{get_param: IronicInspectorUseSwift}, true]}
   enable_node_discovery: {equals : [{get_param: IronicInspectorEnableNodeDiscovery}, true]}
+  ironic_inspection_subnets_not_set: {equals : [{get_param: IronicInspectorSubnets}, {}]}
 
 outputs:
   role_data:
@@ -125,7 +147,11 @@ outputs:
                    "%{hiera('$NETWORK')}"
                  params:
                    $NETWORK: {get_param: [ServiceNetMap, IronicInspectorNetwork]}
-            ironic::inspector::dnsmasq_ip_range: {get_param: IronicInspectorIpRange}
+            ironic::inspector::dnsmasq_ip_subnets:
+              if:
+              - ironic_inspection_subnets_not_set
+              - [{ip_range: {get_param: IronicInspectorIpRange}}]
+              - get_param: IronicInspectorSubnets
             ironic::inspector::dnsmasq_interface: {get_param: IronicInspectorInterface}
             ironic::inspector::debug: {get_param: Debug}
             ironic::inspector::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
