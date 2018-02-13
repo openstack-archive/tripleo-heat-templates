@@ -48,6 +48,28 @@ parameters:
     default: {}
     description: OpenShift node vars specific for the worker nodes
     type: json
+  OpenShiftGlusterDisks:
+    default:
+      - /dev/vdb
+      - /dev/vdc
+      - /dev/vdd
+    description: List of disks for openshift_glusterfs service to use
+    type: comma_delimited_list
+    tags:
+      - role_specific
+
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - OpenShiftGlusterDisks: OpenShiftGlusterDisks
+            - values: {get_param: [RoleParameters]}
+          - values:
+              OpenShiftGlusterDisks: {get_param: OpenShiftGlusterDisks}
 
 outputs:
   role_data:
@@ -82,6 +104,7 @@ outputs:
                 openshift_global_vars: {get_param: OpenShiftGlobalVariables}
                 openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
                 openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
+                openshift_gluster_disks: {get_attr: [RoleParametersValue, value, OpenShiftGlusterDisks]}
 
             - name: generate openshift inventory
               copy:
@@ -127,6 +150,21 @@ outputs:
 
                       {% endfor %}
 
+                  {% if groups['openshift_glusterfs'] | default([]) %}
+                  glusterfs:
+                    hosts:
+                      {% for host in groups['openshift_glusterfs'] | default([]) -%}
+                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                        glusterfs_ip: {{hostvars.raw_get(host)['storage_ip']}}
+                        glusterfs_devices:
+                          {{openshift_gluster_disks | to_nice_yaml() | indent(8) }}
+                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                        ansible_become: true
+                        openshift_schedulable: true
+                      {% endfor %}
+                  {% endif %}
+
                   etcd:
                     children:
                       masters: {}
@@ -135,6 +173,7 @@ outputs:
                     children:
                       masters: {}
                       nodes: {}
+                      {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
 
             - name: generate openshift global defaults
               copy:
