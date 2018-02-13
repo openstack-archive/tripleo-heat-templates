@@ -30,6 +30,17 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  RedisIPv6:
+    default: false
+    description: Enable IPv6 in Redis
+    type: boolean
+
+conditions:
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
+  redis_ipv6: {get_param: RedisIPv6}
 
 resources:
   RedisBase:
@@ -53,5 +64,27 @@ outputs:
           - redis::service_manage: false
             redis::notify_service: false
             redis::managed_by_cluster_manager: true
+            tripleo::profile::pacemaker::database::redis::tls_proxy_bind_ip:
+              get_param: [ServiceNetMap, RedisNetwork]
+            tripleo::profile::pacemaker::database::redis::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+            tripleo::profile::pacemaker::database::redis::tls_proxy_port: 6379
+          - if:
+            - use_tls_proxy
+            - redis::extra_config_file: "/etc/redis-tls.conf"
+              tripleo::profile::pacemaker::database::redis::extra_config_file: "/etc/redis-tls.conf"
+              tripleo::profile::pacemaker::database::redis::tls_tunnel_base_port: 6660
+              tripleo::profile::pacemaker::database::redis::tls_tunnel_local_name:
+                if:
+                - redis_ipv6
+                - '::1'
+                - '127.0.0.1'
+            - {}
       step_config: |
         include ::tripleo::profile::pacemaker::database::redis
+      metadata_settings:
+        get_attr: [RedisBase, role_data, metadata_settings]
