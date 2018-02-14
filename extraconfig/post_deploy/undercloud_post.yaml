@@ -13,21 +13,6 @@ parameters:
     description: The HOME directory where the stackrc and ssh credentials for the Undercloud will be installed. Set to /home/<user> to customize the location.
     type: string
     default: '/root'
-  UndercloudDhcpRangeStart:
-    type: string
-    default: '192.168.24.5'
-  UndercloudDhcpRangeEnd:
-    type: string
-    default: '192.168.24.24'
-  UndercloudNetworkCidr:
-    type: string
-    default: '192.168.24.0/24'
-  UndercloudNetworkGateway:
-    type: string
-    default: '192.168.24.1'
-  UndercloudNameserver:
-    type: string
-    default: ''
   AdminPassword: #supplied by tripleo-undercloud-passwords.yaml
     type: string
     description: The password for the keystone admin account, used for monitoring, querying neutron etc.
@@ -52,6 +37,33 @@ parameters:
     description: >
       Whether the TripleO validations are enabled.
     type: boolean
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  CtlplaneLocalPhysicalNetwork:
+    default: ctlplane
+    type: string
+    description: Physical network name for the ctlplane network local to the undercloud
+  UndercloudCtlplaneSubnets:
+    description: >
+      Dictionary of subnets to configure on the Undercloud ctlplan network
+    default: {}
+    type: json
+  UndercloudCtlplaneLocalSubnet:
+    description: The subnet local to the undercloud on the ctlplane network
+    default: ctlplane-subnet
+    type: string
+  UndercloudEnableRoutedNetworks:
+    description: Enable support for routed ctlplane networks.
+    default: False
+    type: boolean
+  UndercloudLocalMtu: # Override this via parameter_defaults
+    default: 1500
+    description: MTU to use for the Undercloud local_interface.
+    type: number
+    constraints:
+      - range: { min: 1000, max: 65536 }
 
 conditions:
 
@@ -74,12 +86,6 @@ resources:
       group: script
       inputs:
         - name: deploy_identifier
-        - name: local_ip
-        - name: undercloud_dhcp_start
-        - name: undercloud_dhcp_end
-        - name: undercloud_network_cidr
-        - name: undercloud_network_gateway
-        - name: undercloud_nameserver
         - name: admin_password
         - name: auth_url
         - name: snmp_readonly_user_password
@@ -93,12 +99,6 @@ resources:
       servers: {get_param: servers}
       config: {get_resource: UndercloudPostConfig}
       input_values:
-        local_ip: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
-        undercloud_dhcp_start: {get_param: UndercloudDhcpRangeStart}
-        undercloud_dhcp_end: {get_param: UndercloudDhcpRangeEnd}
-        undercloud_network_cidr: {get_param: UndercloudNetworkCidr}
-        undercloud_network_gateway: {get_param: UndercloudNetworkGateway}
-        undercloud_nameserver: {get_param: UndercloudNameserver}
         ssl_certificate: {get_param: SSLCertificate}
         homedir: {get_param: UndercloudHomeDir}
         admin_password: {get_param: AdminPassword}
@@ -118,3 +118,48 @@ resources:
               host: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
               port: 5000
               path: /
+
+  UndercloudCtlplaneNetworkConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: admin_password
+        - name: auth_url
+        - name: config
+      config: {get_file: ./undercloud_ctlplane_network.py}
+
+  UndercloudCtlplaneNetworkDeployment:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      name: UndercloudCtlplaneNetworkDeployment
+      servers: {get_param: servers}
+      config: {get_resource: UndercloudCtlplaneNetworkConfig}
+      input_values:
+        admin_password: {get_param: AdminPassword}
+        # if SSL is enabled we use the public virtual ip as the stackrc endpoint
+        auth_url:
+          if:
+          - tls_enabled
+          - make_url:
+              scheme: https
+              host: {get_param: [DeployedServerPortMap, 'public_virtual_ip', fixed_ips, 0, ip_address]}
+              port: 13000
+              path: /
+          - make_url:
+              scheme: http
+              host: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
+              port: 5000
+              path: /
+        config:
+          str_replace:
+            template: JSON
+            params:
+              JSON:
+                local_ip: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
+                local_subnet: {get_param: UndercloudCtlplaneLocalSubnet}
+                nameservers: {get_param: DnsServers}
+                physical_network: {get_param: CtlplaneLocalPhysicalNetwork}
+                subnets: {get_param: UndercloudCtlplaneSubnets}
+                enable_routed_networks: {get_param: UndercloudEnableRoutedNetworks}
+                mtu: {get_param: UndercloudLocalMtu}

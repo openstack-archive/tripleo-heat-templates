@@ -64,57 +64,6 @@ if ! grep "$(cat $HOMEDIR/.ssh/id_rsa.pub)" $HOMEDIR/.ssh/authorized_keys; then
 fi
 chown -R "$USERNAME:$GROUPNAME" "$HOMEDIR/.ssh"
 
-if [ "$(hiera neutron_api_enabled)" = "true" ]; then
-    PHYSICAL_NETWORK=ctlplane
-
-    ctlplane_id=$(openstack network list -f csv -c ID -c Name --quote none | tail -n +2 | grep ctlplane | cut -d, -f1)
-    subnet_ids=$(openstack subnet list -f csv -c ID --quote none | tail -n +2)
-    subnet_id=
-
-    for subnet_id in $subnet_ids; do
-        network_id=$(openstack subnet show -f value -c network_id $subnet_id)
-        if [ "$network_id" = "$ctlplane_id" ]; then
-            break
-        fi
-    done
-
-    net_create=1
-    if [ -n "$subnet_id" ]; then
-        cidr=$(openstack subnet show $subnet_id -f value -c cidr)
-        if [ "$cidr" = "$undercloud_network_cidr" ]; then
-            net_create=0
-        else
-            echo "New cidr $undercloud_network_cidr does not equal old cidr $cidr"
-            echo "Will attempt to delete and recreate subnet $subnet_id"
-        fi
-    fi
-
-    if [ "$net_create" -eq "1" ]; then
-        # Delete the subnet and network to make sure it doesn't already exist
-        if openstack subnet list | grep start; then
-            openstack subnet delete $(openstack subnet list | grep start | awk '{print $4}')
-        fi
-        if openstack network show ctlplane; then
-            openstack network delete ctlplane
-        fi
-
-
-        NETWORK_ID=$(openstack network create --provider-network-type=flat --provider-physical-network=ctlplane ctlplane | grep " id " | awk '{print $4}')
-
-        NAMESERVER_ARG=""
-        if [ -n "${undercloud_nameserver:-}" ]; then
-            NAMESERVER_ARG="--dns-nameserver $undercloud_nameserver"
-        fi
-
-        openstack subnet create --network=$NETWORK_ID \
-            --gateway=$undercloud_network_gateway \
-            --subnet-range=$undercloud_network_cidr \
-            --allocation-pool start=$undercloud_dhcp_start,end=$undercloud_dhcp_end \
-            --host-route destination=169.254.169.254/32,gateway=$local_ip \
-            $NAMESERVER_ARG ctlplane-subnet
-    fi
-fi
-
 if [ "$(hiera nova_api_enabled)" = "true" ]; then
     # Disable nova quotas
     openstack quota set --cores -1 --instances -1 --ram -1 $(openstack project show admin | awk '$2=="id" {print $4}')
