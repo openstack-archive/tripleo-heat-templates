@@ -113,7 +113,7 @@ if [ "$(hiera neutron_api_enabled)" = "true" ]; then
             --subnet-range=$undercloud_network_cidr \
             --allocation-pool start=$undercloud_dhcp_start,end=$undercloud_dhcp_end \
             --host-route destination=169.254.169.254/32,gateway=$local_ip \
-            $NAMESERVER_ARG ctlplane
+            $NAMESERVER_ARG ctlplane-subnet
     fi
 fi
 
