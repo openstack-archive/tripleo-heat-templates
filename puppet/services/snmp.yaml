@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   SNMP client configured with Puppet, to facilitate Ceilometer Hardware
@@ -32,6 +32,13 @@ parameters:
     description: An array of bind host addresses on which SNMP daemon will listen.
     type: comma_delimited_list
     default: ['udp:161','udp6:[::1]:161']
+  SnmpdIpSubnet:
+    default: ''
+    description: IP address/subnet on the snmpd network. If empty (default), SnmpdNetwork
+                 will be taken.
+    type: string
+conditions:
+  snmpd_network_unset: {equals : [{get_param: SnmpdIpSubnet}, '']}
 
 outputs:
   role_data:
@@ -42,9 +49,19 @@ outputs:
         tripleo::profile::base::snmp::snmpd_user: {get_param: SnmpdReadonlyUserName}
         tripleo::profile::base::snmp::snmpd_password: {get_param: SnmpdReadonlyUserPassword}
         snmp::agentaddress: {get_param: SnmpdBindHost}
+        snmpd_network:
+          str_replace:
+            template: "NETWORK_subnet"
+            params:
+              NETWORK: {get_param: [ServiceNetMap, SnmpdNetwork]}
         tripleo.snmp.firewall_rules:
-          '127 snmp':
+          '124 snmp':
             dport: 161
             proto: 'udp'
+            source:
+              if:
+              - snmpd_network_unset
+              - "%{hiera('snmpd_network')}"
+              - {get_param: SnmpdIpSubnet}
       step_config: |
         include ::tripleo::profile::base::snmp
