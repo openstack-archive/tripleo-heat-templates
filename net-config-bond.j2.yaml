@@ -1,0 +1,55 @@
+heat_template_version: queens
+description: >
+  Software Config to drive os-net-config with 2 bonded nics on a bridge.
+parameters:
+  BondInterfaceOvsOptions:
+    default: ''
+    description: The ovs_options or bonding_options string for the bond
+      interface. Set things like lacp=active and/or bond_mode=balance-slb
+      for OVS bonds or like mode=4 for Linux bonds using this option.
+    type: string
+    constraints:
+    - allowed_pattern: ^((?!balance.tcp).)*$
+      description: The balance-tcp bond mode is known to cause packet loss and
+        should not be used in BondInterfaceOvsOptions.
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: network/scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: ovs_bridge
+                name: bridge_name
+                use_dhcp: true
+                members:
+                - type: ovs_bond
+                  name: bond1
+                  use_dhcp: true
+                  ovs_options:
+                    get_param: BondInterfaceOvsOptions
+                  members:
+                  - type: interface
+                    name: nic1
+                  - type: interface
+                    name: nic2
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl

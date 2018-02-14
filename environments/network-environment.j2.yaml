@@ -1,0 +1,61 @@
+#This file is an example of an environment file for defining the isolated
+#networks and related parameters.
+resource_registry:
+  # Network Interface templates to use (these files must exist). You can
+  # override these by including one of the net-*.yaml environment files,
+  # such as net-bond-with-vlans.yaml, or modifying the list here.
+{%- for role in roles %}
+  # Port assignments for the {{role.name}}
+  OS::TripleO::{{role.name}}::Net::SoftwareConfig:
+    ../network/config/single-nic-vlans/{{role.deprecated_nic_config_name|default(role.name.lower().yaml)}}
+{%- endfor %}
+
+parameter_defaults:
+  # This section is where deployment-specific configuration is done
+  # CIDR subnet mask length for provisioning network
+  ControlPlaneSubnetCidr: '24'
+  # Gateway router for the provisioning network (or Undercloud IP)
+  ControlPlaneDefaultRoute: 192.168.24.254
+  EC2MetadataIp: 192.168.24.1  # Generally the IP of the Undercloud
+  # Customize the IP subnets to match the local environment
+{%- for network in networks if network.enabled|default(true) %}
+{%- if network.ipv6|default(false) %}
+  {{network.name}}NetCidr: '{{network.ipv6_subnet}}'
+{%- else %}
+  {{network.name}}NetCidr: '{{network.ip_subnet}}'
+{%- endif %}
+{%- endfor %}
+  # Customize the VLAN IDs to match the local environment
+{%- for network in networks if network.enabled|default(true) %}
+  {{network.name}}NetworkVlanID: {{network.vlan}}
+{%- endfor %}
+{%- for network in networks if network.enabled|default(true) %}
+{%- if network.name == 'External' %}
+  # Leave room if the external network is also used for floating IPs
+{%- endif %}
+{%- if network.ipv6|default(false) %}
+  {{network.name}}AllocationPools: {{network.ipv6_allocation_pools}}
+{%- else %}
+  {{network.name}}AllocationPools: {{network.allocation_pools}}
+{%- endif %}
+{%- endfor %}
+  # Gateway routers for routable networks
+{%- for network in networks if network.enabled|default(true) %}
+{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}InterfaceDefaultRoute: '{{network.gateway_ipv6}}'
+{%- elif network.gateway_ip|default(false) %}
+  {{network.name}}InterfaceDefaultRoute: '{{network.gateway_ip}}'
+{%- endif %}
+{%- endfor %}
+{#- FIXME: These global parameters should be defined in a YAML file, e.g. network_data.yaml. #}
+  # Define the DNS servers (maximum 2) for the overcloud nodes
+  DnsServers: ["8.8.8.8","8.8.4.4"]
+  # List of Neutron network types for tenant networks (will be used in order)
+  NeutronNetworkType: 'vxlan,vlan'
+  # The tunnel type for the tenant network (vxlan or gre). Set to '' to disable tunneling.
+  NeutronTunnelTypes: 'vxlan'
+  # Neutron VLAN ranges per network, for example 'datacentre:1:499,tenant:500:1000':
+  NeutronNetworkVLANRanges: 'datacentre:1:1000'
+  # Customize bonding options, e.g. "mode=4 lacp_rate=1 updelay=1000 miimon=100"
+  # for Linux bonds w/LACP, or "bond_mode=active-backup" for OVS active/backup.
+  BondInterfaceOvsOptions: "bond_mode=active-backup"

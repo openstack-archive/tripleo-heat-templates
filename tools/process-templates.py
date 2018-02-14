@@ -183,6 +183,14 @@ def process_templates(template_path, role_data_path, output_dir,
                                  os.path.basename(f).replace('.role.j2.yaml',
                                                              '.yaml')])
                             out_f_path = os.path.join(out_dir, out_f)
+                            if ('network/config' in file_path and
+                                r_map[role].get('deprecated_nic_config_name')):
+                                d_name = r_map[role].get(
+                                    'deprecated_nic_config_name')
+                                out_f_path = os.path.join(out_dir, d_name)
+                            elif ('network/config' in file_path):
+                                d_name = "%s.yaml" % role.lower()
+                                out_f_path = os.path.join(out_dir, d_name)
                             if not (out_f_path in excl_templates):
                                 if '{{role.name}}' in template_data:
                                     j2_data = {'role': r_map[role],
@@ -201,7 +209,7 @@ def process_templates(template_path, role_data_path, output_dir,
                                                        False):
                                         j2_data['disable_constraints'] = True
                                     _j2_render_to_file(
-                                        template_data,j2_data,
+                                        template_data, j2_data,
                                         out_f_path, overwrite)
 
                             else:

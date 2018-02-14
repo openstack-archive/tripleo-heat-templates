@@ -1,0 +1,103 @@
+heat_template_version: queens
+description: >
+  Software Config to drive os-net-config to configure VLANs for the {{role.name}} role.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+  {%- for network in networks %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {%- endfor %}
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  ControlPlaneDefaultRoute: # Override this via parameter_defaults
+    description: The default route of the control plane network.
+    type: string
+{%- for network in networks %}
+{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ipv6}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- elif network.gateway_ip|default(false) %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: '{{network.gateway_ip}}'
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- endif %}
+{%- endfor %}
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  EC2MetadataIp: # Override this via parameter_defaults
+    description: The IP address of the EC2 metadata server.
+    type: string
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: ../../scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: ovs_bridge
+                name: bridge_name
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneSubnetCidr
+                routes:
+                - ip_netmask: 169.254.169.254/32
+                  next_hop:
+                    get_param: EC2MetadataIp
+{%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
+                - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
+{%- endif %}
+                members:
+                - type: interface
+                  name: nic1
+                  # force the MAC address of the bridge to this interface
+                  primary: true
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+                - type: vlan
+                  vlan_id:
+                    get_param: {{network.name}}NetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: {{network.name}}IpSubnet
+{%- if network.name in role.default_route_network %}
+                  routes:
+                  - default: true
+                    next_hop:
+                      get_param: {{network.name}}InterfaceDefaultRoute
+{%- endif %}
+{%- endfor %}
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
