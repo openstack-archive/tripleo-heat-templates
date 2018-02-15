@@ -42,6 +42,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephNfsAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          ceph_nfs_bind_addr: {get_param: [EndpointMap, GaneshaInternal, host]}
+          ceph_nfs_enable_service: false
+          ceph_nfs_use_pacemaker: true
+          ceph_nfs_dynamic_exports: true
+          ceph_nfs_service_suffix: pacemaker
+          nfs_obj_gw: false
+          ceph_nfs_rados_backend: true
+
 outputs:
   role_data:
     description: Role data for the Ceph NFS Ganesha service.
@@ -55,6 +69,19 @@ outputs:
         step_config: ''
       # step_config seems to be ignored if docker_config is present
       #docker_config: {}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_nfs_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars nfss
+                set_fact:
+                  ceph_ansible_group_vars_nfss: {get_attr: [CephNfsAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars nfss
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/nfss.yml"
+                  content: "{{ceph_ansible_group_vars_nfss|to_nice_yaml}}"
       config_settings:
         map_merge:
         - tripleo.ceph_nfs.firewall_rules:

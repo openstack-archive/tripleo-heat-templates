@@ -50,6 +50,16 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephOsdAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          map_merge:
+          - osd_objectstore: filestore
+          - {get_param: CephAnsibleDisksConfig}
+
 outputs:
   role_data:
     description: Role data for the Ceph OSD service.
@@ -66,6 +76,19 @@ outputs:
         step_config: ''
       docker_config: {}
       workflow_tasks: {get_attr: [CephBase, role_data, workflow_tasks]}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_osd_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars osds
+                set_fact:
+                  ceph_ansible_group_vars_osds: {get_attr: [CephOsdAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars osds
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/osds.yml"
+                  content: "{{ceph_ansible_group_vars_osds|to_nice_yaml}}"
       config_settings:
         map_merge:
         - tripleo.ceph_osd.firewall_rules:

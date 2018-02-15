@@ -50,6 +50,17 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephRgwAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          radosgw_keystone: true
+          radosgw_keystone_ssl: false
+          radosgw_address_block: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephRgwNetwork]}]}
+          radosgw_civetweb_port: {get_param: [EndpointMap, CephRgwInternal, port]}
+
 outputs:
   role_data:
     description: Role data for the Ceph RadosGW service.
@@ -62,6 +73,19 @@ outputs:
         step_config: ''
       docker_config: {}
       workflow_tasks: {get_attr: [CephBase, role_data, workflow_tasks]}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_rgw_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars rgws
+                set_fact:
+                  ceph_ansible_group_vars_rgws: {get_attr: [CephRgwAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars rgws
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/rgws.yml"
+                  content: "{{ceph_ansible_group_vars_rgws|to_nice_yaml}}"
       config_settings:
         map_merge:
         - tripleo.ceph_rgw.firewall_rules:

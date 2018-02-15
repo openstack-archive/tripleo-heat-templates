@@ -42,6 +42,11 @@ parameters:
     type: string
     default: '{}'
     description: json string containing per-node configuration map
+  DeploymentServerBlacklist:
+    default: []
+    type: comma_delimited_list
+    description: >
+      List of server hostnames to blacklist from any triggered deployments.
   CephAnsibleWorkflowName:
     type: string
     description: Name of the Mistral workflow to execute
@@ -150,9 +155,11 @@ parameters:
     description: image
     type: string
   CephAnsiblePlaybookVerbosity:
-    default: 0
-    description: number of '-v', '-vv', etc. passed to ansible-playbook command (max 5)
+    default: 1
+    description: The number of '-v', '-vv', etc. passed to ansible-playbook command
     type: number
+    constraints:
+    - range: { min: 1, max: 5 }
   CephAnsibleEnvironmentVariables:
     default: {}
     description: Mapping of Ansible environment variables to override defaults.
@@ -165,6 +172,11 @@ conditions:
       expression: $.data.split('/')[0].matches('(\.|:)')
   perform_upgrade:
     equals: [{get_param: StackUpdateType}, 'UPGRADE']
+  ceph_ansible_skip_tags_set:
+    not:
+      equals:
+        - {get_param: CephAnsibleSkipTags}
+        - ''
 
 resources:
   DockerImageUrlParts:
@@ -193,35 +205,12 @@ resources:
             expression: $.data.rightSplit(':', 1)[1]
             data: {get_param: DockerCephDaemonImage}
 
-outputs:
-  role_data:
-    description: Role data for the Ceph base service.
-    value:
-      service_name: ceph_base
-      upgrade_tasks: []
-      puppet_config:
-        config_image: ''
-        config_volume: ''
-        step_config: ''
-      docker_config: {}
-      workflow_tasks:
-        step2:
-          - name: ceph_base_ansible_workflow
-            workflow: {get_param: CephAnsibleWorkflowName}
-            input:
-              ansible_skip_tags: {get_param: CephAnsibleSkipTags}
-              ceph_ansible_extra_vars: {get_param: CephAnsibleExtraConfig}
-              ceph_ansible_playbook:
-                if:
-                  - perform_upgrade
-                  - {get_param: CephAnsibleUpgradePlaybook}
-                  - {get_param: CephAnsiblePlaybook}
-              ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
-              node_data_lookup: {get_param: NodeDataLookup}
-              ansible_env_variables: {get_param: CephAnsibleEnvironmentVariables}
-      config_settings:
-        ceph_common_ansible_vars:
-          ireallymeanit: 'yes'
+  CephBaseAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
           fsid: { get_param: CephClusterFSID }
           cluster: { get_param: CephClusterName }
           docker: true
@@ -333,3 +322,139 @@ outputs:
             - {get_param: CephIPv6}
             - ipv6
             - ipv4
+
+outputs:
+  role_data:
+    description: Role data for the Ceph base service.
+    value:
+      service_name: ceph_base
+      upgrade_tasks: []
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      workflow_tasks:
+        step2:
+          - name: ceph_base_ansible_workflow
+            workflow: {get_param: CephAnsibleWorkflowName}
+            input:
+              ansible_skip_tags: {get_param: CephAnsibleSkipTags}
+              ceph_ansible_extra_vars: {get_param: CephAnsibleExtraConfig}
+              ceph_ansible_playbook:
+                if:
+                  - perform_upgrade
+                  - {get_param: CephAnsibleUpgradePlaybook}
+                  - {get_param: CephAnsiblePlaybook}
+              ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
+              node_data_lookup: {get_param: NodeDataLookup}
+              ansible_env_variables: {get_param: CephAnsibleEnvironmentVariables}
+      config_settings:
+        ceph_common_ansible_vars:
+          map_merge:
+            - ireallymeanit: 'yes'
+            - {get_attr: [CephBaseAnsibleVars, value, vars]}
+      external_deploy_tasks:
+        - name: ceph_base_external_deploy_init
+          when: step == '1'
+          block:
+            - name: set blacklisted_hostnames
+              set_fact:
+                blacklisted_hostnames: {get_param: DeploymentServerBlacklist}
+            - name: create ceph-ansible temp dirs
+              file:
+                path: "{{item}}"
+                state: directory
+              with_items:
+                - "{{playbook_dir}}/ceph-ansible/group_vars"
+                - "{{playbook_dir}}/ceph-ansible/host_vars"
+                - "{{playbook_dir}}/ceph-ansible/fetch_dir"
+            - name: generate inventory
+              copy:
+                dest: "{{playbook_dir}}/ceph-ansible/inventory.yml"
+                content: |
+                  {%- set ceph_groups = ['mgr', 'mon', 'osd', 'mds', 'rgw', 'nfs', 'rbdmirror', 'client'] -%}
+                  {%- for ceph_group in ceph_groups -%}
+                  {%- if 'ceph_' ~ ceph_group in groups %}
+
+                  {{ ceph_group ~ 's:' }}
+                    hosts:
+                      {% for host in groups['ceph_' ~ ceph_group] -%}
+                      {%- if hostvars.raw_get(host)['ansible_hostname'] not in blacklisted_hostnames -%}
+                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                        ansible_user: {{ hostvars.raw_get(host)['ansible_ssh_user'] | default('root') }}
+                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                        ansible_become: true
+                      {% endif -%}
+                      {%- endfor -%}
+
+                  {%- endif -%}
+                  {%- endfor %}
+            - name: set ceph-ansible group vars all
+              set_fact:
+                ceph_ansible_group_vars_all: {get_attr: [CephBaseAnsibleVars, value, vars]}
+            - name: generate ceph-ansible group vars all
+              copy:
+                dest: "{{playbook_dir}}/ceph-ansible/group_vars/all.yml"
+                content: "{{ceph_ansible_group_vars_all|to_nice_yaml}}"
+            - name: set ceph-ansible extra vars
+              set_fact:
+                ceph_ansible_extra_vars:
+                  map_merge:
+                  - {get_param: CephAnsibleExtraConfig}
+                  - ireallymeanit: "yes"
+                    fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
+            - name: generate ceph-ansible extra vars
+              copy:
+                dest: "{{playbook_dir}}/ceph-ansible/extra_vars.yml"
+                content: "{{ceph_ansible_extra_vars|to_nice_yaml}}"
+            # TODO(gfidente): match the nodes machine uuids with
+            # hostnames and paste node specific configs into host vars
+            - name: generate collect nodes uuid playbook
+              copy:
+                dest: "{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml"
+                content: |
+                  - hosts: mgrs:mons:osds:mdss:rgws:nfss:rbdmirrors:clients
+                    gather_facts: no
+                    tasks:
+                      - name: collect machine id
+                        command: dmidecode -s system-uuid
+        - name: ceph_base_external_deploy_task
+          when: step == '2'
+          block:
+            - name: set ceph-ansible verbosity
+              set_fact:
+                ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
+            - name: set ceph-ansible command
+              set_fact:
+                ceph_ansible_command:
+                  list_join:
+                  - ' '
+                  - - ANSIBLE_ACTION_PLUGINS=/usr/share/ceph-ansible/plugins/actions/
+                    - ANSIBLE_ROLES_PATH=/usr/share/ceph-ansible/roles/
+                    - ANSIBLE_LOG_PATH="{{playbook_dir}}/ceph-ansible/ceph_ansible_command.log"
+                    - ANSIBLE_LIBRARY=/usr/share/ceph-ansible/library/
+                    - ANSIBLE_RETRY_FILES_ENABLED=False
+                    - ANSIBLE_SSH_RETRIES=3
+                    - ANSIBLE_HOST_KEY_CHECKING=False
+                    - DEFAULT_FORKS=25
+                    - yaql:
+                        data: {get_param: CephAnsibleEnvironmentVariables}
+                        expression: $.data.items().select($[0] + '=' + $[1]).join(' ')
+                    - ansible-playbook
+                    - '{% if ansible_ssh_private_key_file is defined %}--private-key {{ansible_ssh_private_key_file}}{% endif %}'
+                    - '-{%- for number in range(0, ceph_ansible_playbook_verbosity) -%}v{% endfor %}'
+                    - if:
+                      - ceph_ansible_skip_tags_set
+                      - list_join:
+                        - ' '
+                        - - '--skip-tags'
+                          - {get_param:  CephAnsibleSkipTags}
+                      - ''
+                    - '-i'
+                    - '{{playbook_dir}}/ceph-ansible/inventory.yml'
+                    - '--extra-vars'
+                    - '@{{playbook_dir}}/ceph-ansible/extra_vars.yml'
+            - name: run ceph-ansible
+              with_items: {get_param: CephAnsiblePlaybook}
+              shell: "{{ceph_ansible_command}} {{item}}"

@@ -59,6 +59,15 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephMonAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          monitor_secret: {get_param: CephMonKey}
+          admin_secret: {get_param: CephAdminKey}
+
 outputs:
   role_data:
     description: Role data for the Ceph Monitor service.
@@ -71,6 +80,19 @@ outputs:
         step_config: ''
       docker_config: {}
       workflow_tasks: {get_attr: [CephBase, role_data, workflow_tasks]}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_mon_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars mons
+                set_fact:
+                  ceph_ansible_group_vars_mons: {get_attr: [CephMonAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars mons
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/mons.yml"
+                  content: "{{ceph_ansible_group_vars_mons|to_nice_yaml}}"
       config_settings:
         map_merge:
         - tripleo.ceph_mon.firewall_rules:

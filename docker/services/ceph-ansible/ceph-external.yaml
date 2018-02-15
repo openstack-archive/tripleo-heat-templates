@@ -46,6 +46,14 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephExternalAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          external_cluster_mon_ips: {get_param: CephExternalMonHost}
+
 outputs:
   role_data:
     description: Role data for the Ceph External service.
@@ -63,3 +71,17 @@ outputs:
           map_merge:
           - {get_attr: [CephBase, role_data, config_settings, ceph_common_ansible_vars]}
           - external_cluster_mon_ips: {get_param: CephExternalMonHost}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_external_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars clients
+                set_fact:
+                  ceph_ansible_group_vars_clients: {get_attr: [CephExternalAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars clients
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/clients.yml"
+                  content: "{{ceph_ansible_group_vars_clients|to_nice_yaml}}"
+      config_settings: {}

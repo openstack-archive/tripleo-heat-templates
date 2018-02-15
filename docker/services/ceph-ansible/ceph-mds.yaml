@@ -62,6 +62,19 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  CephMdsAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          cephfs_data: {get_param: ManilaCephFSDataPoolName}
+          cephfs_metadata: {get_param: ManilaCephFSMetadataPoolName}
+          cephfs: {get_param: ManilaCephFSNativeShareBackendName}
+          cephfs_pools:
+          - { name: {get_param: ManilaCephFSDataPoolName}, pgs: {get_param: ManilaCephFSDataPoolPGNum} }
+          - { name: {get_param: ManilaCephFSMetadataPoolName}, pgs: {get_param: ManilaCephFSMetadataPoolPGNum} }
+
 outputs:
   role_data:
     description: Role data for the Ceph Metadata service.
@@ -74,6 +87,19 @@ outputs:
         step_config: ''
       docker_config: {}
       workflow_tasks: {get_attr: [CephBase, role_data, workflow_tasks]}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_mds_external_deploy_init
+            when: step == '1'
+            block:
+              - name: set ceph-ansible group vars mdss
+                set_fact:
+                  ceph_ansible_group_vars_mdss: {get_attr: [CephMdsAnsibleVars, value, vars]}
+              - name: generate ceph-ansible group vars mdss
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/mdss.yml"
+                  content: "{{ceph_ansible_group_vars_mdss|to_nice_yaml}}"
       config_settings:
         map_merge:
         - tripleo.ceph_mds.firewall_rules:
