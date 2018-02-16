@@ -68,8 +68,8 @@ parameters:
     description: The number of seconds sensu-plugin-aware handlers should wait before taking second action.
     default: 90
 
-resources:
 
+resources:
   ContainersCommon:
     type: ./containers-common.yaml
 
@@ -80,6 +80,7 @@ resources:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+
 
 outputs:
   role_data:
@@ -129,7 +130,16 @@ outputs:
             user: root
             restart: always
             healthcheck:
-              test: /openstack/healthcheck
+              test:
+                list_join:
+                  - ' '
+                  - - '/openstack/healthcheck'
+                    - yaql:
+                        expression: >
+                          switch(bool($.data.cluster) => $.data.cluster, bool($.data.single_node) => $.data.single_node).select($.port).distinct().join(' ')
+                        data:
+                          cluster: {get_attr: [SensuClientBase, role_data, config_settings, 'sensu::rabbitmq_cluster']}
+                          single_node: [{port: {get_attr: [SensuClientBase, role_data, config_settings, 'sensu::rabbitmq_port']}}]
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
