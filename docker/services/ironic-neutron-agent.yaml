@@ -1,0 +1,122 @@
+heat_template_version: queens
+
+description: >
+  OpenStack ironic-neutron-agent service
+
+parameters:
+  DockerIronicNeutronAgentImage:
+    description: The container image to use for the ironic-neutron-agent
+    type: string
+  DockerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ./containers-common.yaml
+
+  IronicNeutronAgentBase:
+    type: ../../puppet/services/ironic-neutron-agent.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NeutronLogging:
+    type: OS::TripleO::Services::Logging::NeutronCommon
+    properties:
+      NeutronServiceName: ironic-neutron-agent
+
+outputs:
+  role_data:
+    description: Role data for ironic-neutron-agent service
+    value:
+      service_name: {get_attr: [IronicNeutronAgentBase, role_data, service_name]}
+      config_settings:
+        map_merge:
+          - get_attr: [IronicNeutronAgentBase, role_data, config_settings]
+          - get_attr: [NeutronLogging, config_settings]
+      puppet_config:
+        config_volume: neutron
+        puppet_tags: neutron_config,ironic_neutron_agent_config
+        step_config:
+          get_attr: [IronicNeutronAgentBase, role_data, step_config]
+        config_image: {get_param: DockerNeutronConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/ironic_neutron_agent.json:
+          command: /usr/bin/ironic-neutron-agent --config-file /usr/share/neutron/neutron-dist.conf --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ironic_neutron_agent.ini --config-dir /etc/neutron/conf.d/common
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
+      docker_config:
+        step_4:
+          ironic_neutron_agent:
+            start_order: 80
+            image: {get_param: DockerIronicNeutronAgentImage}
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NeutronLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ironic_neutron_agent.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
+      upgrade_tasks:
+        - name: Check if ironic-neutron-agent is deployed
+          command: systemctl is-enabled --quiet ironic-neutron-agent
+          tags: common
+          ignore_errors: True
+          register: ironic_neutron_agent_enabled
+        - name: "PreUpgrade step0,validation: Check service ironic-neutron-agent is running"
+          command: systemctl is-active --quiet ironic-neutron-agent
+          when:
+            - step|int == 0
+            - ironic_neutron_agent_enabled.rc == 0
+          tags: validation
+        - name: Stop and disable ironic-neutron-agent service
+          when:
+            - step|int == 2
+            - ironic_neutron_agent_enabled.rc == 0
+          service: name=ironic-neutron-agent state=stopped enabled=no
