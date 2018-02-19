@@ -72,6 +72,10 @@ Role Options
    access to when network isolation is enabled. The names should match
    those defined in network_data.yaml.
 
+ * networks_skip_config: (list), optional list of networks for which the
+   configuration would be skipped for the role. The names should match
+   those defined in network_data.yaml
+
 Working with Roles
 ==================
 The tripleoclient provides a series of commands that can be used to view
