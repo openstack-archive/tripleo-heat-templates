@@ -253,73 +253,84 @@ outputs:
           file:
             path: /var/lib/redis
             state: directory
-      upgrade_tasks:
-        - name: get bootstrap nodeid
-          tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-        - name: Check cluster resource status
-          when: step|int == 2
-          pacemaker_resource:
-            resource: {get_attr: [RedisBase, role_data, service_name]}
-            state: master
-            check_mode: true
-          ignore_errors: true
-          register: redis_res
-        - when:
-            - step|int == 2
-            - is_bootstrap_node|bool
-            - redis_res|succeeded
-          block:
-            - name: Disable the redis cluster resource
-              pacemaker_resource:
-                resource: {get_attr: [RedisBase, role_data, service_name]}
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Delete the stopped redis cluster resource.
-              pacemaker_resource:
-                resource: {get_attr: [RedisBase, role_data, service_name]}
-                state: delete
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Disable redis service
-          when: step|int == 2
-          service: name=redis enabled=no
       update_tasks:
-        - name: Get docker Redis image
-          set_fact:
-            docker_image: {get_param: DockerRedisImage}
-            docker_image_latest: *redis_image_pcmklatest
+        - name: Redis fetch and retag container image for pacemaker
           when: step|int == 2
-        - name: Get previous Redis image id
-          shell: "docker images | awk '/redis.* pcmklatest/{print $3}'"
-          register: redis_image_id
-        - block:
-            - name: Get a list of container using Redis image
-              shell: "docker ps -a -q -f 'ancestor={{redis_image_id.stdout}}'"
-              register: redis_containers_to_destroy
-            # It will be recreated with the delpoy step.
-            - name: Remove any container using the same Redis image
-              shell: "docker rm -fv {{item}}"
-              with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
-            - name: Remove previous Redis images
-              shell: "docker rmi -f {{redis_image_id.stdout}}"
+          block: &redis_fetch_retag_container_tasks
+            - name: Get docker Redis image
+              set_fact:
+                docker_image: {get_param: DockerRedisImage}
+                docker_image_latest: *redis_image_pcmklatest
+            - name: Get previous Redis image id
+              shell: "docker images | awk '/redis.* pcmklatest/{print $3}'"
+              register: redis_image_id
+            - block:
+                - name: Get a list of container using Redis image
+                  shell: "docker ps -a -q -f 'ancestor={{redis_image_id.stdout}}'"
+                  register: redis_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same Redis image
+                  shell: "docker rm -fv {{item}}"
+                  with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous Redis images
+                  shell: "docker rmi -f {{redis_image_id.stdout}}"
+              when:
+                - redis_image_id.stdout != ''
+            - name: Pull latest Redis images
+              command: "docker pull {{docker_image}}"
+            - name: Retag pcmklatest to latest Redis image
+              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+            # Got to check that pacemaker_is_active is working fine with bundle.
+            # TODO: pacemaker_is_active resource doesn't support bundle.
+      upgrade_tasks:
+        - name: Get docker redis image
+          set_fact:
+            docker_image_latest: *redis_image_pcmklatest
+        - name: Check if redis is already containerized
+          shell: "docker ps -a | grep {{docker_image_latest}}"
+          ignore_errors: true
+          register: redis_containerized
+        - name: Retag the pacemaker image if containerized
           when:
             - step|int == 2
-            - redis_image_id.stdout != ''
-        - name: Pull latest Redis images
-          command: "docker pull {{docker_image}}"
-          when: step|int == 2
-        - name: Retag pcmklatest to latest Redis image
-          shell: "docker tag {{docker_image}} {{docker_image_latest}}"
-          when: step|int == 2
-        # Got to check that pacemaker_is_active is working fine with bundle.
-        # TODO: pacemaker_is_active resource doesn't support bundle.
+            - redis_containerized|succeeded
+          block: *redis_fetch_retag_container_tasks
+        - name: redis baremetal to container upgrade tasks
+          when:
+            - step|int == 2
+            - redis_containerized|failed
+          block:
+            - name: get bootstrap nodeid
+              tags: common
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              tags: common
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Check cluster resource status
+              pacemaker_resource:
+                resource: {get_attr: [RedisBase, role_data, service_name]}
+                state: master
+                check_mode: true
+              ignore_errors: true
+              register: redis_res
+            - when: (is_bootstrap_node) and (redis_res|succeeded)
+              block:
+                - name: Disable the redis cluster resource
+                  pacemaker_resource:
+                    resource: {get_attr: [RedisBase, role_data, service_name]}
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped redis cluster resource.
+                  pacemaker_resource:
+                    resource: {get_attr: [RedisBase, role_data, service_name]}
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable redis service
+              service: name=redis enabled=no
