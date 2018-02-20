@@ -24,12 +24,9 @@ CephStorage_hosts=${CephStorage_hosts:-"$CEPHSTORAGE_HOSTS"}
 
 # Set the _hosts_a vars for each role defined
 for role in $OVERCLOUD_ROLES; do
-    eval hosts=\${${role}_hosts}
+    eval "hosts=\${${role}_hosts}"
     read -a ${role}_hosts_a <<< $hosts
 done
-
-admin_user_id=$(openstack user show admin -c id -f value)
-admin_project_id=$(openstack project show admin -c id -f value)
 
 function check_stack {
     local stack_to_check=${1:-""}
@@ -107,7 +104,7 @@ for role in $OVERCLOUD_ROLES; do
 
 
         host=
-        eval host=\${${role}_hosts_a[i]}
+        eval "host=\${${role}_hosts_a[$i]}"
         if [ -n "$host" ]; then
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host "echo '$config' > deployed-server.json"
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo mkdir -p -m 0700 /var/lib/os-collect-config/local-data/ || true
@@ -116,7 +113,7 @@ for role in $OVERCLOUD_ROLES; do
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl enable os-collect-config
         fi
 
-        let i+=1
+        ((i++))
 
     done
 
