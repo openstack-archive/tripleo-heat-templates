@@ -36,6 +36,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  SwiftEncryptionEnabled:
+    description: Set to True to enable data-at-rest encryption in Swift
+    default: false
+    type: boolean
   EnableInternalTLS:
     type: boolean
     default: false
@@ -47,6 +51,7 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  swift_encryption_enabled: {equals : [{get_param: SwiftEncryptionEnabled}, true]}
 
 resources:
 
@@ -75,7 +80,7 @@ outputs:
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: swift
-        puppet_tags: swift_config,swift_proxy_config
+        puppet_tags: swift_config,swift_proxy_config,swift_keymaster_config
         step_config:
           get_attr: [SwiftProxyBase, role_data, step_config]
         config_image: {get_param: DockerSwiftConfigImage}
@@ -94,11 +99,100 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+      docker_config_scripts:
+        create_swift_secret.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            export OS_PROJECT_DOMAIN_ID=$(crudini --get /etc/swift/keymaster.conf kms_keymaster project_domain_id)
+            export OS_USER_DOMAIN_ID=$(crudini --get /etc/swift/keymaster.conf kms_keymaster user_domain_id)
+            export OS_PROJECT_NAME=$(crudini --get /etc/swift/keymaster.conf kms_keymaster project_name)
+            export OS_USERNAME=$(crudini --get /etc/swift/keymaster.conf kms_keymaster username)
+            export OS_PASSWORD=$(crudini --get /etc/swift/keymaster.conf kms_keymaster password)
+            export OS_AUTH_URL=$(crudini --get /etc/swift/keymaster.conf kms_keymaster auth_endpoint)
+            export OS_AUTH_TYPE=password
+            export OS_IDENTITY_API_VERSION=3
+
+            echo "Check if secret already exists"
+            secret_href=$(openstack secret list --name swift_root_secret_uuid)
+            rc=$?
+            if [[ $rc != 0 ]]; then
+              echo "Failed to check secrets, check if Barbican in enabled and responding properly"
+              exit $rc;
+            fi
+            if [ -z "$secret_href" ]; then
+              echo "Create new secret"
+              order_href=$(openstack secret order create --name swift_root_secret_uuid --payload-content-type="application/octet-stream" --algorithm aes --bit-length 256 --mode ctr key -f value -c "Order href")
+            fi
+        set_swift_keymaster_key_id.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            export OS_PROJECT_DOMAIN_ID=$(crudini --get /etc/swift/keymaster.conf kms_keymaster project_domain_id)
+            export OS_USER_DOMAIN_ID=$(crudini --get /etc/swift/keymaster.conf kms_keymaster user_domain_id)
+            export OS_PROJECT_NAME=$(crudini --get /etc/swift/keymaster.conf kms_keymaster project_name)
+            export OS_USERNAME=$(crudini --get /etc/swift/keymaster.conf kms_keymaster username)
+            export OS_PASSWORD=$(crudini --get /etc/swift/keymaster.conf kms_keymaster password)
+            export OS_AUTH_URL=$(crudini --get /etc/swift/keymaster.conf kms_keymaster auth_endpoint)
+            export OS_AUTH_TYPE=password
+            export OS_IDENTITY_API_VERSION=3
+            echo "retrieve key_id"
+            loop_wait=2
+            for i in {0..5}; do
+              #TODO update uuid from mistral here too
+              secret_href=$(openstack secret list --name swift_root_secret_uuid)
+              if [ "$secret_href" ]; then
+                echo "set key_id in keymaster.conf"
+                secret_href=$(openstack secret list --name swift_root_secret_uuid -f value -c "Secret href")
+                crudini --set /etc/swift/keymaster.conf kms_keymaster key_id ${secret_href##*/}
+                exit 0
+              else
+                echo "no key, wait for $loop_wait and check again"
+                sleep $loop_wait
+                ((loop_wait++))
+              fi
+            done
+            echo "Failed to set secret in keymaster.conf, check if Barbican is enabled and responding properly"
+            exit 1
       docker_config:
         step_4:
           map_merge:
+            - if:
+                - swift_encryption_enabled
+                - create_swift_secret:
+                    # NOTE: Barbican should be started before creating secrets
+                    start_order: 0
+                    image: &swift_proxy_image {get_param: DockerSwiftProxyImage}
+                    net: host
+                    detach: false
+                    volumes:
+                        list_concat:
+                          - {get_attr: [ContainersCommon, volumes]}
+                          -
+                            - /var/lib/config-data/puppet-generated/swift/etc/swift:/etc/swift:ro
+                            - /var/lib/docker-config-scripts/create_swift_secret.sh:/create_swift_secret.sh:ro
+                    user: root
+                    command: "/usr/bin/bootstrap_host_exec swift_proxy /create_swift_secret.sh"
+                - {}
+            - if:
+                - swift_encryption_enabled
+                - set_swift_secret:
+                    start_order: 1
+                    image: *swift_proxy_image
+                    net: host
+                    detach: false
+                    volumes:
+                        list_concat:
+                          - {get_attr: [ContainersCommon, volumes]}
+                          -
+                            - /var/lib/config-data/puppet-generated/swift/etc/swift:/etc/swift:rw
+                            - /var/lib/docker-config-scripts/set_swift_keymaster_key_id.sh:/set_swift_keymaster_key_id.sh:ro
+                    user: root
+                    command: "/set_swift_keymaster_key_id.sh"
+                - {}
             - swift_proxy:
-                image: &swift_proxy_image {get_param: DockerSwiftProxyImage}
+                image: *swift_proxy_image
+                start_order: 2
                 net: host
                 user: swift
                 restart: always
