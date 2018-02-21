@@ -401,3 +401,36 @@ outputs:
             - step|int == 3
             - mysql_containerized|bool
           block: *mysql_fetch_retag_container_tasks
+        - name: Check and upgrade Mysql database after major version upgrade
+          when: step|int == 4
+          block:
+            - name: Mysql upgrade script
+              set_fact:
+                mysql_upgrade_script:
+                  # idempotency: mysql_upgrade leaves a marker file
+                  # in datadir, it does nothing if it has already been
+                  # executed for the current version of MariaDB.
+                  list_join:
+                    - ' '
+                    - - '{% if mysql_containerized %}sudo -E kolla_set_configs; {% endif %}'
+                      - 'mysqld_safe --user=mysql --wsrep-provider=none --skip-networking --wsrep-on=off &'
+                      - 'timeout 60 sh -c ''while ! mysqladmin ping --silent; do sleep 1; done'';'
+                      - 'mysql_upgrade;'
+                      - 'mysqladmin shutdown'
+            - name: Bind mounts for temporary container
+              set_fact:
+                mysql_upgrade_db_bind_mounts: *mysql_volumes
+            - name: Upgrade Mysql database from a temporary container
+              shell:
+                str_replace:
+                  template:
+                    '/usr/bin/docker run --rm --log-driver=syslog -u root --net=host UPGRADE_ENV UPGRADE_VOLUMES "UPGRADE_IMAGE" /bin/bash -ecx "UPGRADE_SCRIPT"'
+                  params:
+                    UPGRADE_ENV: '-e "KOLLA_CONFIG_STRATEGY=COPY_ALWAYS"'
+                    UPGRADE_IMAGE: *mysql_image_pcmklatest
+                    UPGRADE_VOLUMES: "-v {{ mysql_upgrade_db_bind_mounts | union(['/tmp/mariadb-upgrade:/var/log/mariadb:rw']) | join(' -v ')}}"
+                    UPGRADE_SCRIPT: "{{mysql_upgrade_script}}"
+              when: mysql_containerized|bool
+            - name: Upgrade Mysql database from the host
+              shell: /bin/bash -ecx "{{mysql_upgrade_script}}"
+              when: not mysql_containerized|bool
