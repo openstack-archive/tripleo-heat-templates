@@ -67,16 +67,38 @@ outputs:
           yum: name=docker state=latest
       update_tasks:
         block:
+          - name: Detect if puppet on the docker profile would restart the service
+            # Note that due to https://tickets.puppetlabs.com/browse/PUP-686 --noop
+            # always exits 0, so we cannot rely on that to detect if puppet is going to change stuff
+            shell: |
+              puppet apply --noop --summarize --detailed-exitcodes --verbose \
+                --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
+                --color=false -e "class { 'tripleo::profile::base::docker': step => 1, }" 2>&1 | \
+              awk -F ":" '/Out of sync:/ { print $2}'
+            register: puppet_docker_noop_output
+            failed_when: false
+          - name: Is docker going to be updated
+            shell: yum check-update docker
+            register: docker_check_update
+            failed_when: docker_check_update.rc not in [0, 100]
+            changed_when: docker_check_update.rc == 100
+          - name: Set docker_rpm_needs_update fact
+            set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
+          - name: Set puppet_docker_is_outofsync fact
+            set_fact: puppet_docker_is_outofsync={{ puppet_docker_noop_output.stdout|trim|int >= 1 }}
           - name: Stop all containers
             # xargs is preferable to docker stop $(docker ps -q) as that might generate a
             # a too long command line
             shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+            when: puppet_docker_is_outofsync or docker_rpm_needs_update
           - name: Stop docker
             service:
               name: docker
               state: stopped
+            when: puppet_docker_is_outofsync or docker_rpm_needs_update
           - name: Update the docker package
             yum: name=docker state=latest update_cache=yes # cache for tripleo/+bug/1703830
+            when: docker_rpm_needs_update
           - name: Apply puppet which will start the service again
             shell: |
               puppet apply --detailed-exitcodes --verbose \
