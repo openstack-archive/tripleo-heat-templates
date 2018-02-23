@@ -454,13 +454,26 @@ resources:
             fqdn_management: {get_attr: [NetHostMap, value, management, fqdn]}
             fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
             fqdn_external: {get_attr: [NetHostMap, value, external, fqdn]}
+  {%- if 'controller' in role.lower() %}
+            tripleo::haproxy::service_certificate: {get_attr: [NodeTLSData, deployed_ssl_certificate_path]}
+  {%- endif -%}
 
   # Resource for site-specific injection of root certificate
   NodeTLSCAData:
-    depends_on: {{role}}Deployment
+    depends_on: NetworkDeployment
     type: OS::TripleO::NodeTLSCAData
     properties:
       server: {get_resource: {{role}}}
+
+  {%- if 'controller' in role.lower() %}
+  # Resource for site-specific passing of private keys/certificates
+  NodeTLSData:
+    depends_on: NodeTLSCAData
+    type: OS::TripleO::NodeTLSData
+    properties:
+      server: {get_resource: {{role}}}
+      NodeIndex: {get_param: NodeIndex}
+  {%- endif -%}
 
   # Hook for site-specific additional pre-deployment config, e.g extra hieradata
   {{role}}ExtraConfigPre:
@@ -472,7 +485,13 @@ resources:
   # Hook for site-specific additional pre-deployment config,
   # applying to all nodes, e.g node registration/unregistration
   NodeExtraConfig:
-    depends_on: [{{role}}ExtraConfigPre, NodeTLSCAData]
+    depends_on:
+      - {{role}}ExtraConfigPre
+  {%- if 'controller' in role.lower() %}
+      - NodeTLSData
+  {%- else %}
+      - NodeTLSCAData
+  {%- endif %}
     type: OS::TripleO::NodeExtraConfig
     properties:
         server: {get_resource: {{role}}}
@@ -596,3 +615,11 @@ CTLPLANEIP,CTLPLANEHOST.DOMAIN,CTLPLANEHOST HOSTSSHPUBKEY"
   management_ip_address:
     description: IP address of the server in the management network
     value: {get_attr: [ManagementPort, ip_address]}
+  {%- if 'controller' in role.lower() %}
+  tls_key_modulus_md5:
+    description: MD5 checksum of the TLS Key Modulus
+    value: {get_attr: [NodeTLSData, key_modulus_md5]}
+  tls_cert_modulus_md5:
+    description: MD5 checksum of the TLS Certificate Modulus
+    value: {get_attr: [NodeTLSData, cert_modulus_md5]}
+  {%- endif %}
