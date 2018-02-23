@@ -243,19 +243,18 @@ outputs:
         - name: Get docker Cinder-Backup image
           set_fact:
             docker_image_latest: *cinder_backup_image_pcmklatest
-        - name: Check if Cinder-Backup is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
+        - name: Check for Cinder-Backup Kolla configuration
+          command: grep '^backup_driver[ \t]*=' /var/lib/config-data/puppet-generated/cinder/etc/cinder/cinder.conf
+          changed_when: no
           ignore_errors: true
-          register: cinder_backup_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - cinder_backup_containerized|succeeded
-          block: *cinder_backup_fetch_retag_container_tasks
+          register: cinder_backup_kolla_config
+        - name: Check if Cinder-Backup is already containerized
+          set_fact:
+            cinder_backup_containerized: "{{cinder_backup_kolla_config|succeeded}}"
         - name: Cinder-Backup baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - cinder_backup_containerized|failed
+            - step|int == 1
+            - not cinder_backup_containerized|bool
           block:
             - name: get bootstrap nodeid
               tags: common
@@ -291,3 +290,8 @@ outputs:
                   until: output.rc == 0
             - name: Disable cinder_backup service
               service: name=openstack-cinder-backup enabled=no
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - cinder_backup_containerized|bool
+          block: *cinder_backup_fetch_retag_container_tasks

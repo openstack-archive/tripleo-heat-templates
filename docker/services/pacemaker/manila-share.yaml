@@ -209,19 +209,22 @@ outputs:
         - name: Get docker Manila-Share image
           set_fact:
             docker_image_latest: *manila_share_image_pcmklatest
+        - name: Check for Manila-Share Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/manila
+          register: manila_share_kolla_config
         - name: Check if Manila-Share is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
-          ignore_errors: true
-          register: manila_share_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - manila_share_containerized|succeeded
-          block: *manila_share_fetch_retag_container_tasks
+          set_fact:
+            manila_share_containerized: "{{manila_share_kolla_config.stat.isdir | default(false)}}"
         - name: Manila-Share baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - manila_share_containerized|failed
+            - step|int == 1
+            - not manila_share_containerized|bool
           block:
             - name: Stop and disable manila_share service
               service: name=openstack-manila-share state=stopped enabled=no
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - manila_share_containerized|bool
+          block: *manila_share_fetch_retag_container_tasks
