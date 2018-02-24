@@ -307,11 +307,11 @@ outputs:
             - name: set is_bootstrap_node fact
               tags: common
               set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
-            - name: Check cluster resource status
+            - name: Check cluster resource status of redis
               pacemaker_resource:
                 resource: {get_attr: [RedisBase, role_data, service_name]}
-                state: master
-                check_mode: true
+                state: show
+                check_mode: false
               ignore_errors: true
               register: redis_res
             - when: (is_bootstrap_node) and (redis_res|succeeded)
@@ -334,3 +334,35 @@ outputs:
                   until: output.rc == 0
             - name: Disable redis service
               service: name=redis enabled=no
+      fast_forward_upgrade_tasks:
+        - name: Check cluster resource status of redis
+          pacemaker_resource:
+            resource: {get_attr: [RedisBase, role_data, service_name]}
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: redis_res_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Set fact redis_res
+          set_fact:
+            redis_res: "{{ redis_res_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Disable the redis cluster resource
+          pacemaker_resource:
+            resource:  {get_attr: [RedisBase, role_data, service_name]}
+            state: disable
+            wait_for_resource: true
+          register: redis_output
+          retries: 5
+          until: redis_output.rc == 0
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+            - redis_res|bool
