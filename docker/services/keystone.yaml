@@ -232,33 +232,43 @@ outputs:
           tags: common
           shell: "httpd -t -D DUMP_VHOSTS | grep -q keystone_wsgi"
           ignore_errors: true
-          register: httpd_enabled
+          register: keystone_httpd_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact keystone_httpd_enabled
+          set_fact:
+            keystone_httpd_enabled: "{{ keystone_httpd_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
         - name: Check if httpd is running
           ignore_errors: True
-          register: httpd_running
           command: systemctl is-active --quiet httpd
+          register: httpd_running_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - httpd_running is undefined
+        - name: Set fact httpd_running if undefined
+          set_fact:
+            httpd_running: "{{ httpd_running_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - httpd_running is undefined
         - name: Stop and disable keystone (under httpd)
           service: name=httpd state=stopped enabled=no
           when:
-            - step|int == 2
+            - step|int == 1
             - release == 'ocata'
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
+            - keystone_httpd_enabled|bool
+            - httpd_running|bool
         - name: Keystone package update
-          yum:
-            name: '{{ package }}'
-            state: latest
+          yum: name=openstack-keystone* state=latest
           when:
             - step|int == 6
             - is_bootstrap_node|bool
-          loop_control:
-            loop_var: package
-          with_items:
-            - openstack-keystone
-            - python2-keystoneclient
-            - python-keystone
-            - python2-keystonemiddleware
-            - python2-keystoneauth1
         - name: keystone db sync
           command: keystone-manage db_sync
           when:
