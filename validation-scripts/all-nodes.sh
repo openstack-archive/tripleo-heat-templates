@@ -33,7 +33,7 @@ function ping_controller_ips() {
       networks=$(ip r | grep -v default | cut -d " " -f 1)
     fi
     for LOCAL_NETWORK in $networks; do
-      in_network=$(python -c "import ipaddr; net=ipaddr.IPNetwork('$LOCAL_NETWORK'); addr=ipaddr.IPAddress('$REMOTE_IP'); print(addr in net)")
+      in_network=$(python -c "import ipaddress; net=ipaddress.ip_network(unicode('$LOCAL_NETWORK')); addr=ipaddress.ip_address(unicode('$REMOTE_IP')); print(addr in net)")
       if [[ $in_network == "True" ]]; then
         echo "Trying to ping $REMOTE_IP for local network ${LOCAL_NETWORK}."
         set +e

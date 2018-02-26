@@ -4,7 +4,7 @@ set -eux
 
 yum install -y \
     jq \
-    python-ipaddr \
+    python-ipaddress \
     puppet-tripleo\
     os-net-config \
     openvswitch \
