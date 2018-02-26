@@ -248,13 +248,32 @@ outputs:
         - name: Check is cinder_api is deployed
           command: systemctl is-enabled --quiet openstack-cinder-api
           ignore_errors: True
-          register: cinder_api_enabled
+          register: cinder_api_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact cinder_api_enabled
+          set_fact:
+            cinder_api_enabled: "{{ cinder_api_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
         - name: Stop openstack-cinder-api
           service: name=openstack-cinder-api state=stopped
           when:
-            - step|int == 2
+            - step|int == 1
             - release == 'ocata'
-            - cinder_api_enabled.rc == 0
+            - cinder_api_enabled|bool
+        - name: Extra removal of services for cinder
+          shell: |
+            cinder-manage service list |\
+            grep -v Binary | tr '@' ' ' |\
+            awk '{print $1 " " $2}' |\
+            while read i ; do cinder-manage service remove $i ; done
+          when:
+            - step|int == 5
+            - release == 'pike'
+            - is_bootstrap_node|bool
         - name: Extra migration for cinder
           command: cinder-manage db online_data_migrations
           when:
@@ -262,12 +281,7 @@ outputs:
             - release == 'pike'
             - is_bootstrap_node|bool
         - name: Cinder package update
-          command: yum update -y "{{ item }}"
-          with_items:
-              - puppet-cinder
-              - python2-cinderclient
-              - python-cinder
-              - openstack-cinder
+          yum: name=openstack-cinder* state=latest
           when:
             - step|int == 6
             - is_bootstrap_node|bool
