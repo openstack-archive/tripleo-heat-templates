@@ -541,7 +541,6 @@ outputs:
       fast_forward_upgrade_tasks:
         - name: Check if swift storage services are deployed
           command: systemctl is-enabled --quiet "{{ item }}"
-          register: swift_services_enabled
           with_items:
             - openstack-swift-account-auditor
             - openstack-swift-account-reaper
@@ -556,19 +555,20 @@ outputs:
             - openstack-swift-object-updater
             - openstack-swift-object
           ignore_errors: True
+          register: swift_services_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact swift_services_enabled
+          set_fact:
+            swift_services_enabled: "{{ swift_services_enabled_result }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
         - name: Stop swift storage services
           service: name={{ item.item }} state=stopped enabled=no
           with_items: "{{ swift_services_enabled.results }}"
           when:
-            - step|int == 2
+            - step|int == 1
             - release == 'ocata'
             - item.rc == 0
-        - name: Update swift storage services
-          yum: name={{ item }} state=latest
-          with_items:
-            - openstack-swift-container
-            - openstack-swift-object
-            - openstack-swift-account
-          when:
-            - step|int == 6
-            - is_bootstrap_node|bool
