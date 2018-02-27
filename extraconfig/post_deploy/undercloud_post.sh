@@ -178,9 +178,3 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
    fi
 
 fi
-
-# IP forwarding is needed to allow the overcloud nodes access to the outside
-# internet in cases where they are on an isolated network.
-sysctl -w net.ipv4.ip_forward=1
-# Make it persistent
-echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/ip-forward.conf
