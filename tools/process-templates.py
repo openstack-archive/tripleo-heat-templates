@@ -311,6 +311,16 @@ def clean_templates(base_path, role_data_path, network_data_path):
         delete(role_path)
         delete(host_config_and_reboot_path)
 
+        nic_config_dir = os.path.join(base_path, 'network', 'config')
+        for sample_nic_config_dir in os.listdir(nic_config_dir):
+            delete(os.path.join(
+                    nic_config_dir, sample_nic_config_dir,
+                    '%s.yaml' % role['name'].lower()))
+            delete(os.path.join(
+                    nic_config_dir, sample_nic_config_dir,
+                    role['deprecated_nic_config_name']))
+
+
 opts = parse_opts(sys.argv)
 
 role_data_path = os.path.join(opts.base_path, opts.roles_data)
