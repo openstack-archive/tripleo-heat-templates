@@ -721,6 +721,10 @@ def validate(filename, param_map):
         if filename.startswith('./network_data_'):
             retval = validate_network_data_file(filename)
 
+        if retval == 0 and is_heat_template:
+            # check for old style nic config files
+            retval = validate_nic_config_file(filename, tpl)
+
     except Exception:
         print(traceback.format_exc())
         return 1
@@ -787,6 +791,22 @@ def validate_network_data_file(data_file_path):
                       'missing or differs in %s : %s'
                       % (data_file_path, n))
                 return 1
+    except Exception:
+        print(traceback.format_exc())
+        return 1
+    return 0
+
+def validate_nic_config_file(filename, tpl):
+    try:
+        if isinstance(tpl.get('resources', {}), dict):
+            for r in (tpl.get('resources', {})).items():
+                if (r[1].get('type') == 'OS::Heat::StructuredConfig' and
+                    r[1].get('properties', {}).get('group') == 'os-apply-config' and
+                    r[1].get('properties', {}).get('config', {}).get('os_net_config')):
+                    print('ERROR: Using old format of nic configuration file: %s' % filename)
+                    print('tools/yaml-nic-config-2-script.py can be used to convert to new format')
+                    return 1
+
     except Exception:
         print(traceback.format_exc())
         return 1
