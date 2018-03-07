@@ -30,6 +30,14 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  StackUpdateType:
+    type: string
+    description: >
+      Type of update, to differentiate between UPGRADE and UPDATE cases
+      when StackAction is UPDATE (both are the same stack action).
+    constraints:
+    - allowed_values: ['', 'UPGRADE', 'FASTFORWARDUPGRADE']
+    default: ''
   MonitoringSubscriptionNovaVNCProxy:
     default: 'overcloud-nova-vncproxy'
     type: string
@@ -38,6 +46,50 @@ parameters:
     default:
       tag: openstack.nova.vncproxy
       path: /var/log/nova/nova-vncproxy.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  UseTLSTransportForVnc:
+    type: boolean
+    default: true
+    description: If set to true and if EnableInternalTLS is enabled, it will
+                 enable TLS transaport for libvirt VNC and configure the
+                 relevant keys for libvirt.
+  InternalTLSVncCAFile:
+    default: '/etc/ipa/vnc.crt'
+    type: string
+    description: Specifies the CA cert to use for VNC TLS.
+  LibvirtVncCACert:
+    type: string
+    default: ''
+    description: This specifies the CA certificate to use for VNC TLS.
+                 This file will be symlinked to the default CA path,
+                 which is /etc/pki/libvirt-vnc/ca-cert.pem.
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSVncCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
+
+conditions:
+
+  use_tls_for_vnc:
+    and:
+    - equals:
+      - {get_param: EnableInternalTLS}
+      - true
+    - equals:
+      - {get_param: UseTLSTransportForVnc}
+      - true
+
+  libvirt_vnc_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtVncCACert}
+      - ''
+
+  allow_noauth:
+    # Allow noauth VNC connections during P->Q upgrade. Remove in Rocky.
+    equals: [{get_param: StackUpdateType}, 'UPGRADE']
+
 
 resources:
   NovaBase:
@@ -74,6 +126,43 @@ outputs:
                 dport:
                   - 6080
                   - 13080
+          -
+            if:
+              - use_tls_for_vnc
+              -
+                nova::vncproxy::allow_vencrypt: true
+                nova::vncproxy::allow_noauth: {if: [allow_noauth, true, false]}
+                nova::vncproxy::vencrypt_key: /etc/pki/libvirt-vnc/client-key.pem
+                nova::vncproxy::vencrypt_cert: /etc/pki/libvirt-vnc/client-cert.pem
+                nova::vncproxy::vencrypt_ca: /etc/pki/libvirt-vnc/ca-cert.pem
+                generate_service_certificates: true
+                tripleo::certmonger::ca::libvirt_vnc::origin_ca_pem:
+                  if:
+                    - libvirt_vnc_specific_ca_unset
+                    - get_param: InternalTLSVncCAFile
+                    - get_param: LibvirtVncCACert
+                tripleo::certmonger::libvirt_vnc_dirs::certificate_dir: '/etc/pki/libvirt-vnc'
+                libvirt_vnc_certificates_specs:
+                  libvirt-vnc-client-cert:
+                    cacertfile:
+                      if:
+                        - libvirt_vnc_specific_ca_unset
+                        - get_param: InternalTLSVncCAFile
+                        - null
+                    service_certificate: '/etc/pki/libvirt-vnc/client-cert.pem'
+                    service_key: '/etc/pki/libvirt-vnc/client-key.pem'
+                    notify_service: '%{::nova::params::vncproxy_service_name}'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              - {}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_nova_vnc_proxy:
@@ -86,3 +175,11 @@ outputs:
         - name: Stop nova_vnc_proxy service
           when: step|int == 1
           service: name=openstack-nova-consoleauth state=stopped
+      metadata_settings:
+        if:
+          - use_tls_for_vnc
+          -
+            - service: libvirt-vnc
+              network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              type: node
+          - null
