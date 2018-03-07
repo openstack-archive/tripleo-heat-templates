@@ -67,6 +67,11 @@ parameters:
                  images). Set to 'netboot' to make the instances boot from
                  controllers using PXE/iPXE.
     type: string
+  IronicDefaultInspectInterface:
+    default: ''
+    description: Inspect interface implementation to use by default. Leave empty to
+                 use the hardware type default.
+    type: string
   IronicDefaultNetworkInterface:
     default: 'flat'
     description: Network interface implementation to use by default.
@@ -164,6 +169,10 @@ parameters:
                  created yet) and should be changed to an actual UUID in
                  a post-deployment stack update.
     type: string
+  IronicForcePowerStateDuringSync:
+    default: true
+    description: Whether to force power state during sync.
+    type: boolean
   MonitoringSubscriptionIronicConductor:
     default: 'overcloud-ironic-conductor'
     type: string
@@ -182,6 +191,7 @@ resources:
       IronicDebug: {get_param: IronicDebug}
 
 conditions:
+  default_inspect_interface_unset: {equals : [{get_param: IronicDefaultInspectInterface}, '']}
   service_debug:
     or:
       - equals: [{get_param: IronicDebug}, 'true']
@@ -198,6 +208,11 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
+          -
+            if:
+            - default_inspect_interface_unset
+            - {}
+            - ironic::drivers::interfaces::default_inspect_interface: {get_param: IronicDefaultInspectInterface}
           - ironic::conductor::api_url: {get_param: [EndpointMap, IronicInternal, uri_no_suffix]}
             ironic::conductor::cleaning_disk_erase: {get_param: IronicCleaningDiskErase}
             ironic::conductor::cleaning_network: {get_param: IronicCleaningNetwork}
@@ -206,6 +221,7 @@ outputs:
             ironic::conductor::enabled_drivers: {get_param: IronicEnabledDrivers}
             ironic::conductor::automated_clean: {get_param: IronicAutomatedClean}
             ironic::conductor::enabled_hardware_types: {get_param: IronicEnabledHardwareTypes}
+            ironic::conductor::force_power_state_during_sync: {get_param: IronicForcePowerStateDuringSync}
             # We need an endpoint containing a real IP, not a VIP here
             ironic_conductor_http_host:
               str_replace:
@@ -249,6 +265,8 @@ outputs:
               - service_debug
               - 'always'
               - 'on_failure'
+            # NOTE(emilien): ILO defaulting to UEFI does not match other drivers so bios is used.
+            ironic::drivers::ilo::default_boot_mode: 'bios'
             ironic::drivers::interfaces::enabled_boot_interfaces: {get_param: IronicEnabledBootInterfaces}
             ironic::drivers::interfaces::enabled_console_interfaces: {get_param: IronicEnabledConsoleInterfaces}
             ironic::drivers::interfaces::enabled_deploy_interfaces: {get_param: IronicEnabledDeployInterfaces}
