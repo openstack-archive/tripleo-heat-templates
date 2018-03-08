@@ -59,9 +59,19 @@ def short_hostname():
 
 
 def pull_image(name):
-    log.info('Pulling image: %s' % name)
+
+    subproc = subprocess.Popen(['/usr/bin/docker', 'inspect', name],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+    cmd_stdout, cmd_stderr = subproc.communicate()
+    retval = subproc.returncode
+    if retval == 0:
+        log.info('Image already exists: %s' % name)
+        return
+
     retval = -1
     count = 0
+    log.info('Pulling image: %s' % name)
     while retval != 0:
         count += 1
         subproc = subprocess.Popen(['/usr/bin/docker', 'pull', name],
