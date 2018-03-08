@@ -8,11 +8,10 @@ USERNAME=`ls -ld $HOMEDIR | awk {'print $3'}`
 GROUPNAME=`ls -ld $HOMEDIR | awk {'print $4'}`
 
 # WRITE OUT STACKRC
-if [ ! -e $HOMEDIR/stackrc ]; then
-    touch $HOMEDIR/stackrc
-    chmod 0600 $HOMEDIR/stackrc
+touch $HOMEDIR/stackrc
+chmod 0600 $HOMEDIR/stackrc
 
-    cat > $HOMEDIR/stackrc <<-EOF_CAT
+cat > $HOMEDIR/stackrc <<-EOF_CAT
 export OS_AUTH_TYPE=password
 export OS_PASSWORD=$admin_password
 export OS_AUTH_URL=$auth_url
@@ -30,7 +29,7 @@ export OS_PROJECT_DOMAIN_NAME='Default'
 export OS_USER_DOMAIN_NAME='Default'
 EOF_CAT
 
-    cat >> $HOMEDIR/stackrc <<-"EOF_CAT"
+cat >> $HOMEDIR/stackrc <<-"EOF_CAT"
 # Add OS_CLOUDNAME to PS1
 if [ -z "${CLOUDPROMPT_ENABLED:-}" ]; then
     export PS1=${PS1:-""}
@@ -39,11 +38,10 @@ if [ -z "${CLOUDPROMPT_ENABLED:-}" ]; then
 fi
 EOF_CAT
 
-    if [ -n "$ssl_certificate" ]; then
-cat >> $HOMEDIR/stackrc <<-EOF_CAT
+if [ -n "$ssl_certificate" ]; then
+    cat >> $HOMEDIR/stackrc <<-EOF_CAT
 export PYTHONWARNINGS="ignore:Certificate has no, ignore:A true SSLContext object is not available"
 EOF_CAT
-    fi
 fi
 
 chown "$USERNAME:$GROUPNAME" "$HOMEDIR/stackrc"
