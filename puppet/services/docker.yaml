@@ -65,3 +65,24 @@ outputs:
         - name: Install docker packages on upgrade if missing
           tags: step3
           yum: name=docker state=latest
+      update_tasks:
+        block:
+          - name: Stop all containers
+            # xargs is preferable to docker stop $(docker ps -q) as that might generate a
+            # a too long command line
+            shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+          - name: Stop docker
+            service:
+              name: docker
+              state: stopped
+          - name: Update the docker package
+            yum: name=docker state=latest update_cache=yes # cache for tripleo/+bug/1703830
+          - name: Apply puppet which will start the service again
+            shell: |
+              puppet apply --detailed-exitcodes --verbose \
+                --modulepath  /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
+                -e "class { 'tripleo::profile::base::docker': step => 1, }"
+            register: puppet_docker_apply
+            failed_when: puppet_docker_apply.rc not in [0, 2]
+            changed_when: puppet_docker_apply.rc == 2
+        when: step|int == 2
