@@ -157,22 +157,39 @@ fi
 
 # MISTRAL WORKFLOW CONFIGURATION
 if [ "$(hiera mistral_api_enabled)" = "true" ]; then
-    # load workflows
+    echo Configuring Mistral workbooks.
     for workbook in $(openstack workbook list | grep tripleo | cut -f 2 -d ' '); do
         openstack workbook delete $workbook
     done
-    for workflow in $(openstack workflow list | grep tripleo | cut -f 2 -d ' '); do
-        openstack workflow delete $workflow
+    if openstack cron trigger show publish-ui-logs-hourly &>/dev/null; then
+        openstack cron trigger delete publish-ui-logs-hourly
+    fi
+    #TODO In the future we should be able to run something like
+    # openstack workflow list --filter=tag=tripleo-common-managed
+    # but right now this is broken in Mistral, so we'll fix later.
+    for workflow in $(openstack workflow list -c Name -c Tags | grep tripleo-common-managed); do
+        NAME=$(echo ${workflow} | awk '{print $2}')
+        TAG=$(echo ${workflow} | awk '{print $4}')
+        if echo $TAG | grep -q tripleo-common-managed; then
+            openstack workflow delete $NAME
+        fi
     done
     for workbook in $(ls /usr/share/openstack-tripleo-common/workbooks/*); do
         openstack workbook create $workbook
     done
+    openstack cron trigger create publish-ui-logs-hourly tripleo.plan_management.v1.publish_ui_logs_to_swift --pattern '0 * * * *'
+    echo Mistral workbooks configured successfully.
 
   # Store the SNMP password in a mistral environment
   if ! openstack workflow env show tripleo.undercloud-config &>/dev/null; then
       TMP_MISTRAL_ENV=$(mktemp)
       echo "{\"name\": \"tripleo.undercloud-config\", \"variables\": {\"undercloud_ceilometer_snmpd_password\": \"$snmp_readonly_user_password\"}}" > $TMP_MISTRAL_ENV
+      echo Configure Mistral environment with undercloud-config
       openstack workflow env create $TMP_MISTRAL_ENV
-   fi
+  fi
 
+  if [ "$(enable_validations)" = "true" ]; then
+      echo Execute copy_ssh_key validations
+      openstack workflow execution create tripleo.validations.v1.copy_ssh_key
+  fi
 fi
