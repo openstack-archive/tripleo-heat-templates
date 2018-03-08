@@ -14,6 +14,10 @@ parameters:
                  via parameter_defaults in the resource registry.  This
                  mapping overrides those in ServiceNetMapDefaults.
     type: json
+  Debug:
+    default: false
+    description: Set to True to enable debugging on all services.
+    type: boolean
   DefaultPasswords:
     default: {}
     type: json
@@ -44,6 +48,12 @@ parameters:
                  created yet) and should be changed to an actual UUID in
                  a post-deployment stack update.
     type: string
+  IronicDebug:
+    default: ''
+    description: Set to True to enable debugging Ironic services.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
   IronicDefaultBootOption:
     default: 'local'
     description: How to boot the bare metal instances. Set to 'local' (the
@@ -59,6 +69,11 @@ parameters:
                  ML2 driver to enable other network types and certain
                  advances networking features. Requires
                  IronicProvisioningNetwork to be correctly set.
+    type: string
+  IronicDeployLogsStorageBackend:
+    default: 'local'
+    description: Backend to use to store ramdisk logs, either "local"
+                 or "swift".
     type: string
   IronicEnabledDrivers:
     default: ['pxe_ipmitool', 'pxe_drac', 'pxe_ilo']
@@ -157,6 +172,16 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+      Debug: {get_param: Debug}
+      IronicDebug: {get_param: IronicDebug}
+
+conditions:
+  service_debug:
+    or:
+      - equals: [{get_param: IronicDebug}, 'true']
+      - equals: [{get_param: IronicDebug}, 'True']
+      - equals: [{get_param: IronicDebug}, 'TRUE']
+      - equals: [{get_param: Debug}, true]
 
 outputs:
   role_data:
@@ -195,6 +220,13 @@ outputs:
             # NOTE(dtantsur): UEFI only works with iPXE currently for us
             ironic::drivers::pxe::uefi_pxe_config_template: '$pybasedir/drivers/modules/ipxe_config.template'
             ironic::drivers::pxe::uefi_pxe_bootfile_name: 'ipxe.efi'
+            ironic::drivers::agent::deploy_logs_storage_backend: {get_param: IronicDeployLogsStorageBackend}
+            ironic::drivers::agent::deploy_logs_local_path: '/var/log/ironic/deploy/'
+            ironic::drivers::agent::deploy_logs_collect:
+              if:
+              - service_debug
+              - 'always'
+              - 'on_failure'
             ironic::drivers::interfaces::enabled_boot_interfaces: {get_param: IronicEnabledBootInterfaces}
             ironic::drivers::interfaces::enabled_console_interfaces: {get_param: IronicEnabledConsoleInterfaces}
             ironic::drivers::interfaces::enabled_deploy_interfaces: {get_param: IronicEnabledDeployInterfaces}
