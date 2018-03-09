@@ -1,4 +1,4 @@
-heat_template_version: 2016-04-08
+heat_template_version: 2016-10-14
 
 description: >
   Memcached service configured with Puppet
@@ -21,6 +21,16 @@ parameters:
   MonitoringSubscriptionMemcached:
     default: 'overcloud-memcached'
     type: string
+  MemcachedIpSubnet:
+    default: ''
+    description: IP address/subnet on the memcached network. If empty (default), MemcachedNetwork
+                 will be taken. Useful in the case where an operator wants to open Memcached outside
+                 of the internal network. Use this parameter with caution and be aware of
+                 opening memcached to external network can be dangerous.
+    type: string
+
+conditions:
+  memcached_network_unset: {equals : [{get_param: MemcachedIpSubnet}, '']}
 
 outputs:
   role_data:
@@ -29,14 +39,33 @@ outputs:
       service_name: memcached
       monitoring_subscription: {get_param: MonitoringSubscriptionMemcached}
       config_settings:
+        memcached_network:
+          str_replace:
+            template: "NETWORK_subnet"
+            params:
+              NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
         # NOTE: bind IP is found in Heat replacing the network name with the local node IP
         # for the given network; replacement examples (eg. for internal_api):
         # internal_api -> IP
         # internal_api_uri -> [IP]
         # internal_api_subnet - > IP/CIDR
         memcached::listen_ip: {get_param: [ServiceNetMap, MemcachedNetwork]}
+        # https://access.redhat.com/security/cve/cve-2018-1000115
+        # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
+        memcached::udp_port: 0
         tripleo.memcached.firewall_rules:
           '121 memcached':
             dport: 11211
+            # https://access.redhat.com/security/cve/cve-2018-1000115
+            # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
+            proto: 'tcp'
+            # Memcached traffic shouldn't be open on the internet.
+            # Even if binding is configured on internal_api network, enforce it
+            # via firewall as well.
+            source:
+              if:
+              - memcached_network_unset
+              - "%{hiera('memcached_network')}"
+              - {get_param: MemcachedIpSubnet}
       step_config: |
         include ::tripleo::profile::base::memcached
