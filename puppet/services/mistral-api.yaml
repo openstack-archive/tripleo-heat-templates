@@ -43,9 +43,21 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  MistralExecutionInterval:
+    default: 600
+    description: This setting defines how frequently Mistral checks for cron
+                 triggers that need execution. The default is 10 minutes and
+                 reduces the load that is has on the system.
+    type: number
+  MistralCorsAllowedOrigin:
+    type: string
+    default: ''
+    description: Indicate whether this resource may be shared with the domain received in the request
+                 "origin" header.
 
 conditions:
   mistral_workers_zero: {equals : [{get_param: MistralWorkers}, 0]}
+  cors_allowed_origin_unset: {equals : [{get_param: MistralCorsAllowedOrigin}, '']}
 
 resources:
   ApacheServiceBase:
@@ -74,10 +86,18 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [MistralBase, role_data, config_settings]
+          -
+            if:
+            - cors_allowed_origin_unset
+            - {}
+            - mistral::cors::allowed_origin: {get_param: MistralCorsAllowedOrigin}
           - mistral::api::api_workers: {get_param: MistralWorkers}
             mistral::api::bind_host: {get_param: [ServiceNetMap, MistralApiNetwork]}
             mistral::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             mistral::policy::policies: {get_param: MistralApiPolicies}
+            mistral::cron_trigger::execution_interval: {get_param: MistralExecutionInterval}
+            mistral::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            mistral::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
             tripleo.mistral_api.firewall_rules:
               '133 mistral':
                 dport:
