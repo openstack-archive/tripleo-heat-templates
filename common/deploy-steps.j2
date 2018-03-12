@@ -19,6 +19,7 @@
 # primary role is: {{primary_role_name}}
 {% set deploy_steps_max = 6 -%}
 {% set update_steps_max = 6 -%}
+{% set pre_upgrade_rolling_steps_max = 1 -%}
 {% set upgrade_steps_max = 6 -%}
 {% set post_upgrade_steps_max = 4 -%}
 {% set fast_forward_upgrade_steps_max = 9 -%}
@@ -535,6 +536,33 @@ outputs:
                 loop_var: step
             - include: common_deploy_steps_tasks.yaml
               with_sequence: start=1 end={{deploy_steps_max-1}}
+              loop_control:
+                loop_var: step
+      pre_upgrade_rolling_steps_tasks: |
+{%- for role in roles %}
+            - include: {{role.name}}/pre_upgrade_rolling_tasks.yaml
+              when: role_name == '{{role.name}}'
+{%- endfor %}
+      pre_upgrade_rolling_steps_playbook: |
+        - hosts: undercloud
+          name: Gather facts undercloud
+          gather_facts: yes
+          become: false
+        - hosts: overcloud
+          name: Gather facts overcloud
+          gather_facts: yes
+        - hosts: all
+          name: Load global variables
+          gather_facts: no
+          tasks:
+            - include_vars: global_vars.yaml
+        - hosts: overcloud
+          name: Run pre-upgrade rolling tasks
+          serial: 1
+          gather_facts: no
+          tasks:
+            - include: pre_upgrade_rolling_steps_tasks.yaml
+              with_sequence: start=0 end={{pre_upgrade_rolling_steps_max-1}}
               loop_control:
                 loop_var: step
       upgrade_steps_tasks: |
