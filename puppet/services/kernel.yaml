@@ -72,11 +72,31 @@ parameters:
     default: {}
     description: Hash of extra Kernel modules to load.
     type: json
+    tags:
+      - role_specific
   ExtraSysctlSettings:
     default: {}
     description: Hash of extra sysctl settings to apply.
     type: json
+    tags:
+      - role_specific
 
+resources:
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - extra_kernel_modules: ExtraKernelModules
+              extra_sysctl_settings: ExtraSysctlSettings
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ExtraKernelModules: {get_param: ExtraKernelModules}
+              ExtraSysctlSettings: {get_param: ExtraSysctlSettings}
 
 outputs:
   role_data:
@@ -88,7 +108,7 @@ outputs:
           map_merge:
             - nf_conntrack: {}
               nf_conntrack_proto_sctp: {}
-            - {get_param: ExtraKernelModules}
+            - {get_attr: [RoleParametersValue, value, extra_kernel_modules]}
         sysctl_settings:
           map_merge:
             - net.ipv4.tcp_keepalive_intvl:
@@ -155,7 +175,7 @@ outputs:
               # set inotify value for neutron/dnsmasq scale
               fs.inotify.max_user_instances:
                 value: {get_param: InotifyIntancesMax}
-            - {get_param: ExtraSysctlSettings}
+            - {get_attr: [RoleParametersValue, value, extra_sysctl_settings]}
 
       step_config: |
         include ::tripleo::profile::base::kernel
