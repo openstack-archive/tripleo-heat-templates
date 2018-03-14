@@ -138,7 +138,6 @@ outputs:
                   - /var/lib/config-data/puppet-generated/opendaylight/:/var/lib/kolla/config_files/src:ro
                   - /var/lib/opendaylight/journal:/opt/opendaylight/journal
                   - /var/lib/opendaylight/snapshots:/opt/opendaylight/snapshots
-                  - /var/lib/opendaylight/etc:/opt/opendaylight/etc
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
@@ -155,7 +154,7 @@ outputs:
           copy:
             dest: /var/log/opendaylight/readme.txt
             content: |
-              Logs from opendaylight container can be found by running "docker logs opendaylight_api"
+              Logs from opendaylight container can be found by running "sudo docker logs opendaylight_api"
           ignore_errors: true
       upgrade_tasks:
         - name: Check if opendaylight is deployed
@@ -174,7 +173,7 @@ outputs:
             - step|int == 2
             - opendaylight_enabled.rc == 0
           service: name=opendaylight state=stopped enabled=no
-        # Containarised deployment upgrade steps
+        # Containerized deployment upgrade steps
         - name: ODL container L2 update and upgrade tasks
           block: &odl_container_upgrade_tasks
             - name: remove journal and snapshots
@@ -187,14 +186,17 @@ outputs:
                 - journal
             - name: Set ODL upgrade flag to True
               copy:
-                dest: /var/lib/opendaylight/etc/opendaylight/datastore/initial/config/genius-mdsalutil-config.xml
+                dest: /var/lib/config-data/puppet-generated/opendaylight/etc/opendaylight/datastore/initial/config/genius-mdsalutil-config.xml
                 content: |
                   <config xmlns="urn:opendaylight:params:xml:ns:yang:mdsalutil">
                       <upgradeInProgress>true</upgradeInProgress>
                   </config>
+              owner: odl
+              group: odl
+              mode: 0644
               when: step|int == 1
       post_upgrade_tasks: &odl_container_post_upgrade_tasks
-        - name: Unset upgrade flag in ODL
+        - name: Disable Upgrade Flag via Rest
           shell:
             str_replace:
               template: 'curl -k -v --silent --fail -u ODL_USERNAME:$ODL_PASSWORD -X \
@@ -205,6 +207,17 @@ outputs:
                 $ODL_USERNAME: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::username']}
                 $ODL_PASSWORD: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::password']}
                 $ODL_URI: {get_param: [EndpointMap, OpenDaylightInternal, uri]}
+          when: step|int == 0
+        - name: Disable Upgrade in Config File
+          copy:
+            dest: /var/lib/config-data/puppet-generated/opendaylight/etc/opendaylight/datastore/initial/config/genius-mdsalutil-config.xml
+            content: |
+              <config xmlns="urn:opendaylight:params:xml:ns:yang:mdsalutil">
+                  <upgradeInProgress>false</upgradeInProgress>
+              </config>
+            owner: odl
+            group: odl
+            mode: 0644
           when: step|int == 0
       update_tasks:
         - name: Get ODL update level
