@@ -128,7 +128,8 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
                                    'NovaComputeExtraConfig': ['description'],
                                    'controllerExtraConfig': ['description'],
                                    'DockerSwiftConfigImage': ['default'],
-                                   'input_values': ['default']
+                                   'input_values': ['default'],
+                                   'fixed_ips': ['default', 'type']
                                    }
 
 PREFERRED_CAMEL_CASE = {
