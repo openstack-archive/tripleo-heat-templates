@@ -217,3 +217,38 @@ outputs:
             - remove_neutron_package|bool
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]
+      fast_forward_upgrade_tasks:
+        - name: Check if neutron_server is deployed
+          command: systemctl is-enabled --quiet neutron-server
+          ignore_errors: True
+          register: neutron_server_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact neutron_server_enabled
+          set_fact:
+            neutron_server_enabled: "{{ neutron_server_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Stop neutron_server
+          service: name=neutron-server state=stopped enabled=no
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - neutron_server_enabled|bool
+        - name: Neutron package update
+          yum: name=openstack-neutron* state=latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: Neutron package update workaround
+          yum: name=python-networking-odl state=latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: Neutron db sync
+          command: neutron-db-manage upgrade head
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool
