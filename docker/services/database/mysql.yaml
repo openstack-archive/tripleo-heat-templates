@@ -48,6 +48,10 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  MigrateLegacyNeutronDb:
+    type: boolean
+    description: Used to rename the undercloud database from neutron to ovs_neutron.
+    default: false
 
 conditions:
 
@@ -233,6 +237,31 @@ outputs:
               Log files from mysql containers can be found under
               /var/log/containers/mysql.
           ignore_errors: true
+        # https://bugs.launchpad.net/tripleo/+bug/1753247
+        - name: Rename old neutron database to ovs_neutron
+          shell: >
+            if [ -d /var/lib/mysql/neutron ] ; then
+              mysql -e "CREATE DATABASE IF NOT EXISTS \`ovs_neutron\`;"
+              for table in `mysql -B -N -e "SHOW TABLES;" neutron`
+                do
+                  mysql -e "RENAME TABLE \`neutron\`.\`$table\` to \`ovs_neutron\`.\`$table\`"
+                done
+              mysql -e "DROP DATABASE \`neutron\`;"
+            fi
+          become: true
+          when: {get_param: MigrateLegacyNeutronDb}
+          register: neutron_db_migration
+        - name: Check if mysql service is deployed
+          command: systemctl is-enabled --quiet mariadb
+          ignore_errors: True
+          register: mariadb_enabled
+          when: {get_param: MigrateLegacyNeutronDb}
+        - name: Stop and disable mysql service when undercloud is containerized
+          when:
+            - {get_param: MigrateLegacyNeutronDb}
+            - mariadb_enabled.rc == 0
+            - neutron_db_migration.rc == 0
+          service: name=mariadb state=stopped enabled=no
       upgrade_tasks:
         - name: Check if mysql service is deployed
           command: systemctl is-enabled --quiet mariadb
