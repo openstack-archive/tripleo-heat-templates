@@ -145,6 +145,9 @@ outputs:
               optional: true
               preserve_properties: true
           permissions:
+            - path: /var/log/mysql
+              owner: mysql:mysql
+              recurse: true
             - path: /etc/pki/tls/certs/mysql.crt
               owner: mysql:mysql
               perm: '0600'
@@ -260,10 +263,20 @@ outputs:
                   - /dev/shm:/dev/shm:rw
                   - /var/lib/mysql:/var/lib/mysql:rw
       host_prep_tasks:
-        - name: create /var/lib/mysql
+        - name: create persistent directories
           file:
-            path: /var/lib/mysql
+            path: "{{ item }}"
             state: directory
+          with_items:
+            - /var/log/containers/mysql
+            - /var/lib/mysql
+        - name: mysql logs readme
+          copy:
+            dest: /var/log/mariadb/readme.txt
+            content: |
+              Log files from mysql containers can be found under
+              /var/log/containers/mysql.
+          ignore_errors: true
       metadata_settings:
         get_attr: [MysqlPuppetBase, role_data, metadata_settings]
       update_tasks:
@@ -306,18 +319,18 @@ outputs:
         - name: Check if Mysql is already containerized
           set_fact:
             mysql_containerized: "{{mysql_kolla_config.stat.isdir | default(false)}}"
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Mysql baremetal to container upgrade tasks
           when:
             - step|int == 1
             - not mysql_containerized|bool
           block:
-            - name: get bootstrap nodeid
-              tags: common
-              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-              register: bootstrap_node
-            - name: set is_bootstrap_node fact
-              tags: common
-              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check cluster resource status
               pacemaker_resource:
                 resource: galera
@@ -349,6 +362,40 @@ outputs:
               file: state=absent path=/etc/xinetd.d/galera-monitor
             - name: Restart xinetd service after clustercheck removal
               service: name=xinetd state=restarted
+        - name: Move Mysql logging to /var/log/containers
+          when:
+            - step|int == 1
+            - mysql_containerized|bool
+            - is_bootstrap_node
+          block:
+            - name: Check Mysql logging configuration in pacemaker
+              command: cibadmin --query --xpath "//storage-mapping[@id='mysql-log']"
+              ignore_errors: true
+              register: mysql_logs_moved
+            - name: Change Mysql logging configuration in pacemaker
+              # rc == 6 means the configuration doesn't exist in the CIB
+              when: mysql_logs_moved.rc == 6
+              block:
+                - name: Disable the galera cluster resource
+                  pacemaker_resource:
+                    resource: galera
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Add a bind mount for logging in the galera bundle
+                  command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
+                - name: Reconfigure Mysql log file in the galera resource agent
+                  command: pcs resource update galera log=/var/log/mysql/mysqld.log
+                - name: Enable the galera cluster resource
+                  pacemaker_resource:
+                    resource: galera
+                    state: enable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
