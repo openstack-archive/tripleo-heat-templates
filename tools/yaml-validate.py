@@ -275,7 +275,6 @@ def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
         for role in ceph_role_tpl:
             if role['name'] == 'CephAll':
                 ceph_role_services = role['ServicesDefault']
-                ceph_role_services.remove('OS::TripleO::Services::CephClient')
                 ceph_role_services.remove('OS::TripleO::Services::CephMds')
                 ceph_role_services.remove('OS::TripleO::Services::CephMgr')
                 ceph_role_services.remove('OS::TripleO::Services::CephMon')
