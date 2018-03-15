@@ -53,6 +53,10 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  NovaPassword:
+    description: The password for the nova service and db account
+    type: string
+    hidden: true
 
 conditions:
 
@@ -370,10 +374,22 @@ outputs:
         - name: Check if nova-api is deployed
           command: systemctl is-enabled --quiet openstack-nova-api
           ignore_errors: True
-          register: nova_api_enabled
+          register: nova_api_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact nova_api_enabled
+          set_fact:
+            nova_api_enabled: "{{ nova_api_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
         - name: Stop openstack-nova-api service
           service: name=openstack-nova-api state=stopped
-          when: (step|int == 2) and (nova_api_enabled.rc == 0) and (release == 'ocata')
+          when:
+            - step|int == 1
+            - nova_api_enabled|bool
+            - release == 'ocata'
         - name: Extra migration for nova tripleo/+bug/1656791
           command: nova-manage db online_data_migrations
           when:
@@ -426,7 +442,17 @@ outputs:
               failed_when: puppet_apply_nova_api_upgrade.rc not in [0,2]
               changed_when: puppet_apply_nova_api_upgrade.rc == 2
             - name: Setup cell_v2 (map cell0)
-              shell: nova-manage cell_v2 map_cell0 --database_connection=$(hiera nova::cell0_database_connection)
+              shell:
+                str_replace:
+                  template: nova-manage cell_v2 map_cell0 --database_connection=CELL
+                  params:
+                    CELL:
+                      make_url:
+                        scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                        username: nova
+                        password: {get_param: NovaPassword}
+                        host: {get_param: [EndpointMap, MysqlInternal, host]}
+                        path: /nova_cell0
             - name: Setup cell_v2 (create default cell)
               # (owalsh) puppet-nova expects the cell name 'default'
               # (owalsh) pass the db uri explicitly to avoid https://bugs.launchpad.net/tripleo/+bug/1662344
