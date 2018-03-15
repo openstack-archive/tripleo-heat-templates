@@ -291,9 +291,9 @@ outputs:
               set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check cluster resource status
               pacemaker_resource:
-              resource: {get_attr: [CinderBase, role_data, service_name]}
-              state: started
-              check_mode: true
+                resource: openstack-cinder-volume
+                state: show
+                check_mode: false
               ignore_errors: true
               register: cinder_volume_res
             - when: (is_bootstrap_node) and (cinder_volume_res|succeeded)
@@ -316,3 +316,35 @@ outputs:
                   until: output.rc == 0
             - name: Disable cinder_volume service from boot
               service: name=openstack-cinder-volume enabled=no
+      fast_forward_upgrade_tasks:
+        - name: Check cluster resource status
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: cinder_volume_res_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Set fact cinder_volume_res
+          set_fact:
+            cinder_volume_res: "{{ cinder_volume_res_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Disable the openstack-cinder-volume cluster resource
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: disable
+            wait_for_resource: true
+          register: cinder_volume_output
+          retries: 5
+          until: cinder_volume_output.rc == 0
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+            - cinder_volume_res|bool
