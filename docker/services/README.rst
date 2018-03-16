@@ -157,8 +157,9 @@ The individual steps then correspond to the following tasks during the upgrade:
 
 Prep steps:
 
-- Step=1: Stop the cluster
-- Step=2: Stop the service
+- Step=0: Check running services
+- Step=1: Stop the service
+- Step=2: Stop the cluster
 - Step=3: Update repos
 
 Bootstrap steps:
