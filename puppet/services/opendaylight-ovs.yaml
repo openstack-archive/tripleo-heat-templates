@@ -104,6 +104,14 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  ODLUpdateLevel:
+    default: 1
+    description: Specify the level of update
+    type: number
+    constraints:
+      - allowed_values:
+          - 1
+          - 2
 
 parameter_groups:
 - label: deprecated
@@ -230,14 +238,16 @@ outputs:
                 - openvswitch_enabled.rc == 0
               service: name=openvswitch state=stopped
               # Container upgrade steps.
-            - name: Block connections to ODL. #This rule will be inserted at the top.
-              iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP
-              when: step|int == 0
-              with_items:
-                - 6640
-                - 6653
-                - 6633
-      post_upgrade_tasks:
+            - name: ODL container L2 update and upgrade tasks
+              block: &odl_container_upgrade_tasks
+              - name: Block connections to ODL. #This rule will be inserted at the top.
+                iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP
+                when: step|int == 0
+                with_items:
+                  - 6640
+                  - 6653
+                  - 6633
+      post_upgrade_tasks: &odl_container_post_upgrade_tasks
         - name: Check service openvswitch is running
           command: systemctl is-active --quiet openvswitch
           tags: common
@@ -260,6 +270,20 @@ outputs:
         - name: start openvswitch service
           when: step|int == 3
           service : name=openvswitch state=started
+      update_tasks:
+        - name: Get ODL update level
+          block: &get_odl_update_level
+            - name: store update level to update_level variable
+              set_fact:
+                odl_update_level: {get_param: ODLUpdateLevel}
+        - name: Run L2 update tasks that are similar to upgrade_tasks when update level is 2
+          block: *odl_container_upgrade_tasks
+          when: odl_update_level == 2
+      post_update_tasks:
+        - block: *get_odl_update_level
+        - block: *odl_container_post_upgrade_tasks
+          when: odl_update_level == 2
+
       metadata_settings:
         if:
           - internal_tls_enabled
