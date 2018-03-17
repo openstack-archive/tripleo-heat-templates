@@ -135,6 +135,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
 PREFERRED_CAMEL_CASE = {
     'ec2api': 'Ec2Api',
     'haproxy': 'HAProxy',
+    'tripleo-ui': 'TripleoUI',
 }
 
 # Overrides for docker/puppet validation
