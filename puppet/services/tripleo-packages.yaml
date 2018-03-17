@@ -38,7 +38,7 @@ parameters:
     default: 'tripleo-repos'
     type: string
   FastForwardRepoArgs:
-    default: {'tripleo_repos': {'ocata': '-b ocata current', 'pike': '-b pike current'}}
+    default: {'tripleo_repos': {'ocata': '-b ocata current', 'pike': '-b pike current', 'queens': '-b queens current'}}
     type: json
 
 outputs:
@@ -117,5 +117,26 @@ outputs:
               command: "tripleo-repos {{ fast_forward_repo_args.tripleo_repos[release] }}"
           when:
           - step|int == 3
-          - is_bootstrap_node|bool
+          - ffu_packages_apply|bool
+          - fast_forward_repo_type == 'tripleo-repos'
+      fast_forward_post_upgrade_tasks:
+        - name: Register repo type and args
+          set_fact:
+            fast_forward_repo_type: {get_param: FastForwardRepoType}
+            fast_forward_repo_args: {get_param: FastForwardRepoArgs}
+        - debug:
+            msg: "fast_forward_repo_type: {{ fast_forward_repo_type }} fast_forward_repo_args: {{ fast_forward_repo_args }}"
+        - block:
+            - name: clone tripleo-repos
+              git:
+                repo: https://github.com/openstack/tripleo-repos.git
+                dest: /home/stack/tripleo-repos/
+            - name: install tripleo-repos
+              command: python setup.py install
+              args:
+                chdir: /home/stack/tripleo-repos/
+            - name: Enable tripleo-repos
+              command: "tripleo-repos {{ fast_forward_repo_args.tripleo_repos[release] }}"
+          when:
+          - ffu_packages_apply|bool
           - fast_forward_repo_type == 'tripleo-repos'

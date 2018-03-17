@@ -45,6 +45,7 @@ REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'fast_forward_upgrade_tasks',
+                            'fast_forward_post_upgrade_tasks',
                             'post_upgrade_tasks',  'update_tasks',
                             'post_update_tasks', 'service_config_settings',
                             'host_prep_tasks', 'metadata_settings',
@@ -524,6 +525,11 @@ def validate_docker_service(filename, tpl):
                 print('ERROR: fast_forward_upgrade_tasks validation failed')
                 return 1
 
+        if 'fast_forward_post_upgrade_tasks' in role_data and role_data['fast_forward_post_upgrade_tasks']:
+            if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
+                print('ERROR: fast_forward_post_upgrade_tasks validation failed')
+                return 1
+
     if 'parameters' in tpl:
         for param in required_params:
             if param not in tpl['parameters']:
@@ -579,6 +585,11 @@ def validate_service(filename, tpl):
         if 'fast_forward_upgrade_tasks' in role_data and role_data['fast_forward_upgrade_tasks']:
             if validate_upgrade_tasks(role_data['fast_forward_upgrade_tasks']):
                 print('ERROR: fast_forward_upgrade_tasks validation failed')
+                return 1
+
+        if 'fast_forward_post_upgrade_tasks' in role_data and role_data['fast_forward_post_upgrade_tasks']:
+            if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
+                print('ERROR: fast_forward_post_upgrade_tasks validation failed')
                 return 1
 
     if 'parameters' in tpl:
