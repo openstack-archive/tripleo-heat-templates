@@ -275,37 +275,27 @@ outputs:
         - name: Check if glance_api is deployed
           command: systemctl is-enabled --quiet openstack-glance-api
           ignore_errors: True
-          register: glance_api_enabled
-        - name: Check if glance_registry is deployed
-          command: systemctl is-enabled --quiet openstack-glance-registry
-          ignore_errors: True
-          register: glance_registry_enabled
+          register: glance_api_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact glance_api_enabled
+          set_fact:
+            glance_api_enabled: "{{ glance_api_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
         - name: Stop openstack-glance-api
           service: name=openstack-glance-api state=stopped enabled=no
           when:
-            - step|int == 2
+            - step|int == 1
             - release == 'ocata'
-            - glance_api_enabled.rc == 0
-        - name: Stop openstack-glance-registry
-          service: name=openstack-glance-registry state=stopped enabled=no
-          when:
-            - step|int == 2
-            - release == 'ocata'
-            - glance_registry_enabled.rc == 0
+            - glance_api_enabled|bool
         - name: glance package update
-          yum:
-            name: '{{ package }}'
-            state: latest
+          yum: name=openstack-glance state=latest
           when:
             - step|int == 6
             - is_bootstrap_node|bool
-          loop_control:
-            loop_var: package
-          with_items:
-            - python-glance-store
-            - python-glanceclient
-            - openstack-glance
-            - python-glance
         - name: glance db sync
           command: glance-manage db_sync
           when:
