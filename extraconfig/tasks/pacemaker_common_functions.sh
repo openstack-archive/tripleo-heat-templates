@@ -346,6 +346,33 @@ function special_case_ovs_upgrade_if_needed {
 
 }
 
+function special_case_iptables_services_upgrade_if_needed {
+    # Always ensure yum has full cache
+    yum makecache || echo "Yum makecache failed. This can cause failure later on."
+    # Return 0 when no upgrade is needed
+    if yum check-upgrade iptables-services; then
+        echo "Either iptables-services is not installed or a newer version is already there, skipping workaround."
+    fi
+    if rpm -q --scripts iptables-services | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart" ; then
+        echo "Manual upgrade of iptables-services - restart in postun detected"
+        rm -rf ~/IPTABLES_UPGRADE
+        mkdir -p ~/IPTABLES_UPGRADE && pushd ~/IPTABLES_UPGRADE
+        echo "Attempting to download latest iptables-services with yumdownloader"
+        yumdownloader iptables-services # no deps on purpose.
+        pkg="$(ls -1 iptables-services-*.x86_64.rpm)"
+        if [ -z "${pkg}" ]; then
+            echo "Cannot find a valid package for iptables-services, aborting"
+            exit 1
+        fi
+        echo "Updating iptables-services to $pkg with --nopostun --notriggerun --nodeps"
+        rpm -U --replacepkgs --nopostun --notriggerun --nodeps ./${pkg}
+        systemctl daemon-reload
+        popd
+    else
+        echo "Skipping manual upgrade of iptables-services  - no restart in postun detected"
+    fi
+}
+
 # update os-net-config before ovs see https://bugs.launchpad.net/tripleo/+bug/1695893
 function update_os_net_config() {
   set +e
@@ -379,6 +406,7 @@ function update_network() {
     update_os_net_config
     # special case https://bugs.launchpad.net/tripleo/+bug/1635205 +bug/1669714
     special_case_ovs_upgrade_if_needed
+    special_case_iptables_services_upgrade_if_needed
 }
 
 # https://bugs.launchpad.net/tripleo/+bug/1704131 guard against yum update

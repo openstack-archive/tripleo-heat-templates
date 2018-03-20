@@ -9,6 +9,7 @@ set -o pipefail
 UPGRADE_SCRIPT=/root/tripleo_upgrade_node.sh
 
 declare -f update_os_net_config > $UPGRADE_SCRIPT
+declare -f special_case_iptables_services_upgrade_if_needed >> $UPGRADE_SCRIPT
 declare -f special_case_ovs_upgrade_if_needed >> $UPGRADE_SCRIPT
 declare -f update_network >> $UPGRADE_SCRIPT
 # use >> here so we don't lose the declaration we added above

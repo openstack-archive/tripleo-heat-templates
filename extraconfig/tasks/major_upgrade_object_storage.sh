@@ -24,6 +24,7 @@ function systemctl_swift {
 }
 
 $(declare -f update_os_net_config)
+$(declare -f special_case_iptables_services_upgrade_if_needed)
 $(declare -f special_case_ovs_upgrade_if_needed)
 $(declare -f update_network)
 update_network
