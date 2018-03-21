@@ -37,9 +37,20 @@ parameters:
   FastForwardRepoType:
     default: 'tripleo-repos'
     type: string
+    constraints:
+      - allowed_values: ['tripleo-repos', 'custom-script']
   FastForwardRepoArgs:
     default: {'tripleo_repos': {'ocata': '-b ocata current', 'pike': '-b pike current', 'queens': '-b queens current'}}
     type: json
+  FastForwardCustomRepoScriptContent:
+    default: |
+      #!/bin/bash
+      set -e
+      echo "If you use FastForwardRepoType 'custom-script' you have to provide the upgrade repo script content."
+      echo "It will be installed as /root/ffu_upgrade_repo.sh on the node"
+      echo "and passed the upstream name (ocata, pike, queens) of the release as first argument"
+      exit 1
+    type: string
 
 outputs:
   role_data:
@@ -119,6 +130,18 @@ outputs:
           - step|int == 3
           - ffu_packages_apply|bool
           - fast_forward_repo_type == 'tripleo-repos'
+        - block:
+            - name: Create custom Script for upgrading repo.
+              copy:
+                dest: /root/ffu_update_repo.sh
+                content: {get_param: FastForwardCustomRepoScriptContent}
+                mode: 0700
+            - name: Execute custom script for upgrading repo.
+              shell: "/root/ffu_update_repo.sh {{release}}"
+          when:
+            - step|int == 3
+            - ffu_packages_apply|bool
+            - fast_forward_repo_type == 'custom-script'
       fast_forward_post_upgrade_tasks:
         - name: Register repo type and args
           set_fact:
@@ -140,3 +163,15 @@ outputs:
           when:
           - ffu_packages_apply|bool
           - fast_forward_repo_type == 'tripleo-repos'
+
+        - block:
+            - name: Create custom Script for upgrading repo.
+              copy:
+                dest: /root/ffu_update_repo.sh
+                content: {get_param: FastForwardCustomRepoScriptContent}
+                mode: 0700
+            - name: Execute custom script for upgrading repo.
+              shell: "/root/ffu_update_repo.sh {{release}}"
+          when:
+            - ffu_packages_apply|bool
+            - fast_forward_repo_type == 'custom-script'
