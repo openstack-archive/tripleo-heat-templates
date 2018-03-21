@@ -14,6 +14,10 @@ If you are adding a config setting that applies to both docker and
 baremetal that setting should (so long as we use puppet) go into the
 puppet/services templates themselves.
 
+Also see the
+`Puppet services README file <https://github.com/openstack/tripleo-heat-templates/blob/master/puppet/services/README.rst>`_
+for more information about how the service templates work in general.
+
 Building Kolla Images
 ---------------------
 

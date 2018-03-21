@@ -131,8 +131,9 @@ has more details about the expected dictionary.
   * external_post_deploy_tasks: Ansible tasks to be run on the undercloud
     after all other deploy steps have completed.
 
-Batch Upgrade Steps
--------------------
+Batch Upgrade Steps (deprecated)
+--------------------------------
+
 Note: the `upgrade_batch_tasks` are no longer used and deprecated for Queens.
 The information below applies to upgrade_batch_tasks as they were used for the
 Ocata major upgrade. The `upgrade_batch_tasks` were used exclusively by the
@@ -161,15 +162,33 @@ and upgraded during `upgrade_tasks`
 The default batch size is 1, but this can be overridden for each role via the
 `upgrade_batch_size` option in roles_data.yaml
 
+Update Steps
+------------
+
+Each service template may optionally define a `update_tasks` key,
+which is a list of ansible tasks to be performed during the minor
+update process. These are executed in a rolling manner node-by-node.
+
+We allow a series of steps for the per-service update sequence via
+conditionals referencing a step variable e.g `when: step|int == 2`.
+
+Pre-upgrade Rolling Steps
+-------------------------
+
+Each service template may optionally define a
+`pre_upgrade_rolling_tasks` key, which is a list of ansible tasks to
+be performed before the main upgrade phase, and these tasks are
+executed in a node-by-node rolling manner on the overcloud, similarly as `update_tasks`.
+
 Upgrade Steps
 -------------
 
 Each service template may optionally define a `upgrade_tasks` key, which is a
 list of ansible tasks to be performed during the upgrade process.
 
-Similar to the step_config, we allow a series of steps for the per-service
-upgrade sequence, defined as ansible tasks with a "when: step|int == 1" for
-for the first step, "== 2" for the second, etc.
+Similar to the `update_tasks`, we allow a series of steps for the
+per-service upgrade sequence, defined as ansible tasks with a "when:
+step|int == 1" for for the first step, "== 2" for the second, etc.
 
    Steps correlate to the following:
 
@@ -190,17 +209,6 @@ for the first step, "== 2" for the second, etc.
 Note that the services are not started in the upgrade tasks - we instead re-run
 puppet which does any reconfiguration required for the new version, then starts
 the services.
-
-Update Steps
-------------
-
-Each service template may optionally define a `update_tasks` key, which is a
-list of ansible tasks to be performed during the minor update process.
-
-Similar to the upgrade_tasks, we allow a series of steps for the per-service
-update sequence via conditionals referencing a step variable e.g when:
-step|int == 2.
-
 
 Nova Server Metadata Settings
 -----------------------------
