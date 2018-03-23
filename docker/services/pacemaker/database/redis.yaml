@@ -290,19 +290,17 @@ outputs:
         - name: Get docker redis image
           set_fact:
             docker_image_latest: *redis_image_pcmklatest
+        - name: Check for redis Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/redis
+          register: redis_kolla_config
         - name: Check if redis is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
-          ignore_errors: true
-          register: redis_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - redis_containerized|succeeded
-          block: *redis_fetch_retag_container_tasks
+          set_fact:
+            redis_containerized: "{{redis_kolla_config.stat.isdir | default(false)}}"
         - name: redis baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - redis_containerized|failed
+            - step|int == 1
+            - not redis_containerized|bool
           block:
             - name: get bootstrap nodeid
               tags: common
@@ -338,6 +336,11 @@ outputs:
                   until: output.rc == 0
             - name: Disable redis service
               service: name=redis enabled=no
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - redis_containerized|bool
+          block: *redis_fetch_retag_container_tasks
       fast_forward_upgrade_tasks:
         - name: Check cluster resource status of redis
           pacemaker_resource:
