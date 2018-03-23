@@ -151,47 +151,54 @@ outputs:
               /var/log/containers/ironic and /var/log/containers/httpd/ironic-*.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if ironic_api is deployed
-          command: systemctl is-enabled --quiet openstack-ironic-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ironic_api_enabled
-        - name: Check for ironic_api running under apache
-          tags: common
-          shell: "httpd -t -D DUMP_VHOSTS | grep -q ironic"
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-ironic-api is running"
-          command: systemctl is-active --quiet openstack-ironic-api
-          when:
-            - step|int == 0
-            - ironic_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-          tags: validation
-        - name: Stop and disable ironic_api service
-          when:
-            - step|int == 2
-            - ironic_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-          service: name=openstack-ironic-api state=stopped enabled=no
-        - name: Check if httpd service is running
-          command: systemctl is-active --quiet httpd
-          tags: common
-          ignore_errors: True
-          register: httpd_running
-        - name: "PreUpgrade step0,validation: Check if ironic_api_wsgi is running"
-          shell: systemctl status 'httpd' | grep -q ironic
-          tags: validation
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-        - name: Stop ironic_api service (running under httpd)
-          when:
-            - step|int == 2
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-          service: name=httpd state=stopped enabled=no
+          block:
+            - name: Check if ironic_api is deployed
+              command: systemctl is-enabled --quiet openstack-ironic-api
+              ignore_errors: True
+              register: ironic_api_enabled_result
+            - name: Set fact ironic_api_enabled
+              set_fact:
+                ironic_api_enabled: "{{ ironic_api_enabled_result.rc == 0 }}"
+            - name: Check for ironic_api running under apache
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q ironic"
+              ignore_errors: True
+              register: ironic_httpd_enabled_result
+            - name: Set fact ironic_httpd_enabled
+              set_fact:
+                ironic_httpd_enabled: "{{ ironic_httpd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-ironic-api is running"
+              command: systemctl is-active --quiet openstack-ironic-api
+              when:
+                - ironic_api_enabled|bool
+              tags: validation
+            - name: Check if httpd service is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - name: Set fact httpd_running
+              set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: "PreUpgrade step0,validation: Check if ironic_api_wsgi is running"
+              shell: systemctl status 'httpd' | grep -q ironic
+              tags: validation
+              when:
+                - ironic_httpd_enabled|bool
+                - httpd_running|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ironic_api service
+              when:
+                - ironic_api_enabled|bool
+              service: name=openstack-ironic-api state=stopped enabled=no
+            - name: Stop ironic_api service (running under httpd)
+              when:
+                - ironic_httpd_enabled|bool
+                - httpd_running|bool
+              service: name=httpd state=stopped enabled=no
       fast_forward_upgrade_tasks:
         - block:
             - name: Check if ironic_api is deployed
