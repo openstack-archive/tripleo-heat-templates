@@ -143,6 +143,9 @@ outputs:
               optional: true
               preserve_properties: true
           permissions:
+            - path: /var/lib/haproxy
+              owner: haproxy:haproxy
+              recurse: true
             - path:
                 list_join:
                 - ''
@@ -216,6 +219,13 @@ outputs:
                   - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
                   - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
                   - /dev/shm:/dev/shm:rw
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/lib/haproxy
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
       update_tasks:
@@ -258,18 +268,18 @@ outputs:
         - name: Check if haproxy is already containerized
           set_fact:
             haproxy_containerized: "{{haproxy_kolla_config.stat.isdir | default(false)}}"
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: haproxy baremetal to container upgrade tasks
           when:
             - step|int == 1
             - not haproxy_containerized|bool
           block:
-            - name: get bootstrap nodeid
-              tags: common
-              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-              register: bootstrap_node
-            - name: set is_bootstrap_node fact
-              tags: common
-              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check cluster resource status
               pacemaker_resource:
                 resource: {get_attr: [HAProxyBase, role_data, service_name]}
@@ -291,6 +301,38 @@ outputs:
                   pacemaker_resource:
                     resource: {get_attr: [HAProxyBase, role_data, service_name]}
                     state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+        - name: Expose HAProxy stats socket on the host
+          when:
+            - step|int == 1
+            - haproxy_containerized|bool
+            - is_bootstrap_node
+          block:
+            - name: Check haproxy stats socket configuration in pacemaker
+              command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
+              ignore_errors: true
+              register: haproxy_stats_exposed
+            - name: Change haproxy stats socket configuration in pacemaker
+              # rc == 6 means the configuration doesn't exist in the CIB
+              when: haproxy_stats_exposed.rc == 6
+              block:
+                - name: Disable the haproxy cluster resource
+                  pacemaker_resource:
+                    resource: haproxy-bundle
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Add a bind mount for stats socket in the haproxy bundle
+                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
+                - name: Enable the haproxy cluster resource
+                  pacemaker_resource:
+                    resource: haproxy-bundle
+                    state: enable
                     wait_for_resource: true
                   register: output
                   retries: 5
