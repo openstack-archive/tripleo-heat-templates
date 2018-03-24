@@ -46,7 +46,7 @@ fi
 
 chown "$USERNAME:$GROUPNAME" "$HOMEDIR/stackrc"
 
-source $HOMEDIR/stackrc
+. $HOMEDIR/stackrc
 
 if [ ! -f $HOMEDIR/.ssh/authorized_keys ]; then
     sudo mkdir -p $HOMEDIR/.ssh
@@ -123,22 +123,22 @@ if [ "$(hiera nova_api_enabled)" = "true" ]; then
   RESOURCES='--property resources:CUSTOM_BAREMETAL=1 --property resources:DISK_GB=0 --property resources:MEMORY_MB=0 --property resources:VCPU=0 --property capabilities:boot_option=local'
   SIZINGS='--ram 4096 --vcpus 1 --disk 40'
 
-  if ! openstack flavor show baremetal &> /dev/null; then
+  if ! openstack flavor show baremetal >/dev/null 2>&1; then
       openstack flavor create $SIZINGS $RESOURCES baremetal
   fi
-  if ! openstack flavor show control &> /dev/null; then
+  if ! openstack flavor show control >/dev/null 2>&1; then
       openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=control control
   fi
-  if ! openstack flavor show compute &> /dev/null; then
+  if ! openstack flavor show compute >/dev/null 2>&1; then
       openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=compute compute
   fi
-  if ! openstack flavor show ceph-storage &> /dev/null; then
+  if ! openstack flavor show ceph-storage >/dev/null 2>&1; then
       openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=ceph-storage ceph-storage
   fi
-  if ! openstack flavor show block-storage &> /dev/null; then
+  if ! openstack flavor show block-storage >/dev/null 2>&1; then
       openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=block-storage block-storage
   fi
-  if ! openstack flavor show swift-storage &> /dev/null; then
+  if ! openstack flavor show swift-storage >/dev/null 2>&1; then
     openstack flavor create $SIZINGS $RESOURCES --property capabilities:profile=swift-storage swift-storage
   fi
 fi
@@ -161,7 +161,7 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
     for workbook in $(openstack workbook list | grep tripleo | cut -f 2 -d ' '); do
         openstack workbook delete $workbook
     done
-    if openstack cron trigger show publish-ui-logs-hourly &>/dev/null; then
+    if openstack cron trigger show publish-ui-logs-hourly >/dev/null 2>&1; then
         openstack cron trigger delete publish-ui-logs-hourly
     fi
     #TODO In the future we should be able to run something like
@@ -181,14 +181,14 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
     echo Mistral workbooks configured successfully.
 
   # Store the SNMP password in a mistral environment
-  if ! openstack workflow env show tripleo.undercloud-config &>/dev/null; then
+  if ! openstack workflow env show tripleo.undercloud-config >/dev/null 2>&1; then
       TMP_MISTRAL_ENV=$(mktemp)
       echo "{\"name\": \"tripleo.undercloud-config\", \"variables\": {\"undercloud_ceilometer_snmpd_password\": \"$snmp_readonly_user_password\"}}" > $TMP_MISTRAL_ENV
       echo Configure Mistral environment with undercloud-config
       openstack workflow env create $TMP_MISTRAL_ENV
   fi
 
-  if [ "$(enable_validations)" = "true" ]; then
+  if [ "$(hiera enable_validations)" = "true" ]; then
       echo Execute copy_ssh_key validations
       openstack workflow execution create tripleo.validations.v1.copy_ssh_key
   fi
