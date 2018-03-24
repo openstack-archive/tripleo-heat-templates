@@ -152,7 +152,7 @@ if openstack keypair show default; then
     echo Keypair already exists.
 else
     echo Creating new keypair.
-    openstack keypair create 'default' < $HOMEDIR/.ssh/id_rsa.pub
+    openstack keypair create --public-key $HOMEDIR/.ssh/id_rsa.pub 'default'
 fi
 
 # MISTRAL WORKFLOW CONFIGURATION
