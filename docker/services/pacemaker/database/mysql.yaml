@@ -299,19 +299,17 @@ outputs:
         - name: Get docker Mysql image
           set_fact:
             docker_image_latest: *mysql_image_pcmklatest
+        - name: Check for Mysql Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/mysql
+          register: mysql_kolla_config
         - name: Check if Mysql is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
-          ignore_errors: true
-          register: mysql_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - mysql_containerized|succeeded
-          block: *mysql_fetch_retag_container_tasks
+          set_fact:
+            mysql_containerized: "{{mysql_kolla_config.stat.isdir | default(false)}}"
         - name: Mysql baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - mysql_containerized|failed
+            - step|int == 1
+            - not mysql_containerized|bool
           block:
             - name: get bootstrap nodeid
               tags: common
@@ -351,3 +349,8 @@ outputs:
               file: state=absent path=/etc/xinetd.d/galera-monitor
             - name: Restart xinetd service after clustercheck removal
               service: name=xinetd state=restarted
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - mysql_containerized|bool
+          block: *mysql_fetch_retag_container_tasks

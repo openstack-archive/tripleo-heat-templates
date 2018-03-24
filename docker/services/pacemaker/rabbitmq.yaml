@@ -252,19 +252,17 @@ outputs:
         - name: Get docker Rabbitmq image
           set_fact:
             docker_image_latest: *rabbitmq_image_pcmklatest
+        - name: Check for Rabbitmq Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/rabbitmq
+          register: rabbit_kolla_config
         - name: Check if Rabbitmq is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
-          ignore_errors: true
-          register: rabbit_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - rabbit_containerized|succeeded
-          block: *rabbitmq_fetch_retag_container_tasks
+          set_fact:
+            rabbit_containerized: "{{rabbit_kolla_config.stat.isdir | default(false)}}"
         - name: Rabbitmq baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - rabbit_containerized|failed
+            - step|int == 1
+            - not rabbit_containerized|bool
           block:
             - name: get bootstrap nodeid
               command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
@@ -298,6 +296,11 @@ outputs:
                   until: output.rc == 0
             - name: Disable rabbitmq service
               service: name=rabbitmq-server enabled=no
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - rabbit_containerized|bool
+          block: *rabbitmq_fetch_retag_container_tasks
       fast_forward_upgrade_tasks:
         - name: Check cluster resource status of rabbitmq
           pacemaker_resource:

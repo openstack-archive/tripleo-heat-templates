@@ -251,19 +251,17 @@ outputs:
         - name: Get docker haproxy image
           set_fact:
             docker_image_latest: *haproxy_image_pcmklatest
+        - name: Check for haproxy Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/haproxy
+          register: haproxy_kolla_config
         - name: Check if haproxy is already containerized
-          shell: "docker ps -a | grep {{docker_image_latest}}"
-          ignore_errors: true
-          register: haproxy_containerized
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 2
-            - haproxy_containerized|succeeded
-          block: *haproxy_fetch_retag_container_tasks
+          set_fact:
+            haproxy_containerized: "{{haproxy_kolla_config.stat.isdir | default(false)}}"
         - name: haproxy baremetal to container upgrade tasks
           when:
-            - step|int == 2
-            - haproxy_containerized|failed
+            - step|int == 1
+            - not haproxy_containerized|bool
           block:
             - name: get bootstrap nodeid
               tags: common
@@ -297,3 +295,8 @@ outputs:
                   register: output
                   retries: 5
                   until: output.rc == 0
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - haproxy_containerized|bool
+          block: *haproxy_fetch_retag_container_tasks
