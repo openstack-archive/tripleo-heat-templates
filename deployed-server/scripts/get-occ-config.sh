@@ -157,7 +157,7 @@ for role in $OVERCLOUD_ROLES; do
             ssh $SSH_OPTIONS -i $SUBNODES_SSH_KEY $host sudo systemctl enable os-collect-config
         fi
 
-        ((i++))
+        let i+=1
 
     done
 
