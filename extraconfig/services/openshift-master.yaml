@@ -32,7 +32,6 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-
   OpenShiftGlobalVariables:
     default: {}
     description: Global Ansible variables for OpenShift-Ansible installer.
@@ -41,6 +40,14 @@ parameters:
     default: '/usr/share/ansible/openshift-ansible/playbooks/byo/config.yml'
     description: Path to OpenShift-Ansible playbook.
     type: string
+  OpenShiftMasterNodeVars:
+    default: {}
+    description: OpenShift node vars specific for the master nodes
+    type: json
+  OpenShiftWorkerNodeVars:
+    default: {}
+    description: OpenShift node vars specific for the worker nodes
+    type: json
 
 outputs:
   role_data:
@@ -69,6 +76,13 @@ outputs:
                 state: directory
               with_items:
                 - "{{playbook_dir}}/openshift"
+
+            - name: set openshift global vars fact
+              set_fact:
+                openshift_global_vars: {get_param: OpenShiftGlobalVariables}
+                openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
+                openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
+
             - name: generate openshift inventory
               copy:
                 dest: "{{playbook_dir}}/openshift/inventory.yml"
@@ -85,6 +99,10 @@ outputs:
                         openshift_public_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
                         openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
                         openshift_public_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                        {% if openshift_master_node_vars -%}
+                        {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
+                        {%- endif %}
+
                       {% endfor %}
 
                   nodes:
@@ -103,6 +121,10 @@ outputs:
                         openshift_node_labels:
                           region: 'infra'
                           zone: 'default'
+                        {% if openshift_worker_node_vars -%}
+                        {{openshift_worker_node_vars | to_nice_yaml() | indent(6)}}
+                        {%- endif %}
+
                       {% endfor %}
 
                   etcd:
@@ -122,10 +144,6 @@ outputs:
                   openshift_master_cluster_method: native
                   openshift_use_dnsmasq: true
                   openshift_use_external_openvswitch: true
-
-            - name: set openshift global vars fact
-              set_fact:
-                openshift_global_vars: {get_param: OpenShiftGlobalVariables}
 
             - name: generate openshift global vars
               copy:
