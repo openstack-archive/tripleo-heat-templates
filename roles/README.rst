@@ -47,10 +47,6 @@ Role Options
 * disable_constraints: (boolean) optional, whether to disable Nova and Glance
   constraints for each role specified in the templates.
 
-* disable_upgrade_deployment: (boolean) optional, whether to run the
-  ansible upgrade steps for all services that are deployed on the role. If set
-  to True, the operator will drive the upgrade for this role's nodes.
-
 * upgrade_batch_size: (number): batch size for upgrades where tasks are
   specified by services to run in batches vs all nodes at once.
   This defaults to 1, but larger batches may be specified here.
