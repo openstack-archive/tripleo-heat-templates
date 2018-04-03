@@ -298,6 +298,45 @@ function systemctl_swift {
     done
 }
 
+# Special case for OVS 2.9 where we need to change the OVS config file
+# to run with the right user
+function change_ovs_2_9_user {
+    local ovs_config_file="/etc/sysconfig/openvswitch"
+
+    if ! grep -q '^OVS_USER_ID="*openvswitch:hugetlbfs"*' $ovs_config_file; then
+        if grep -q "^\#*OVS_USER_ID=" $ovs_config_file; then
+            sed -i 's/^\#*OVS_USER_ID=.*/OVS_USER_ID="openvswitch:hugetlbfs"/' $ovs_config_file
+        else
+            sed -i '$ a OVS_USER_ID="openvswitch:hugetlbfs"' $ovs_config_file
+        fi
+    fi
+}
+
+# Special case for OVS 2.9 where we need to create a one-time service file,
+# that will change any remaining permissions after reboot if needed
+function change_ovs_2_9_perms {
+    local ovs_owner=$(find /etc/openvswitch /var/log/openvswitch ! -user openvswitch ! -group hugetlbfs 2> /dev/null)
+    if [ ! -z "${ovs_owner}" ]; then
+            cat >/etc/systemd/system/multi-user.target.wants/fix-ovs-permissions.service <<EOL
+[Unit]
+Description=One time service to fix permissions in OpenvSwitch
+Before=openvswitch.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/bash -c "/usr/bin/chown -R openvswitch:hugetlbfs /etc/openvswitch /var/log/openvswitch || true"
+ExecStartPost=/usr/bin/rm /etc/systemd/system/multi-user.target.wants/fix-ovs-permissions.service
+TimeoutStartSec=0
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target
+EOL
+        chmod a+x /etc/systemd/system/multi-user.target.wants/fix-ovs-permissions.service
+    fi
+}
+
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
 # Update condition and add --notriggerun for +bug/1669714
 function special_case_ovs_upgrade_if_needed {
@@ -316,25 +355,32 @@ function special_case_ovs_upgrade_if_needed {
         useradd -r -d / -s /sbin/nologin -c "Open vSwitch Daemons" openvswitch
     usermod -a -G hugetlbfs openvswitch
 
-    if rpm -qa | grep "^openvswitch-2.5.0-14" || rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart" ; then
-        echo "Manual upgrade of openvswitch - ovs-2.5.0-14 or restart in postun detected"
-        rm -rf OVS_UPGRADE
-        mkdir OVS_UPGRADE && pushd OVS_UPGRADE
-        echo "Attempting to downloading latest openvswitch with yumdownloader"
-        yumdownloader --resolve openvswitch
-        for pkg in $(ls -1 *.rpm);  do
-            if rpm -U --test $pkg 2>&1 | grep "already installed" ; then
-                echo "Looks like newer version of $pkg is already installed, skipping"
-            else
+    # first check if ovs needs upgrade
+    OVS_NEEDS_UPGRADE=$(yum check-upgrade openvswitch | awk '/openvswitch/{print}')
+    if [ -z "${OVS_NEEDS_UPGRADE}" ]; then
+        echo "Looks like newer version of openvswitch is already installed, skipping"
+    else
+        if rpm -qa | grep "^openvswitch-2.5.0-14" || rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart" ; then
+            echo "Manual upgrade of openvswitch - ovs-2.5.0-14 or restart in postun detected"
+            rm -rf OVS_UPGRADE
+            mkdir OVS_UPGRADE && pushd OVS_UPGRADE
+            echo "Attempting to downloading latest openvswitch with yumdownloader"
+            yumdownloader --resolve openvswitch
+            for pkg in $(ls -1 *.rpm);  do
                 echo "Updating $pkg with --nopostun --notriggerun"
                 rpm -U --replacepkgs --nopostun --notriggerun $pkg
-            fi
-        done
-        popd
-    else
-        echo "Skipping manual upgrade of openvswitch - no restart in postun detected"
-    fi
+                break
+            done
+            popd
 
+        else
+            echo "Skipping manual upgrade of openvswitch - no restart in postun detected. Performing automated upgrade"
+            yum update -y openvswitch
+        fi
+
+        change_ovs_2_9_user
+        change_ovs_2_9_perms
+    fi
 }
 
 # This code is meant to fix https://bugs.launchpad.net/tripleo/+bug/1686357 on
