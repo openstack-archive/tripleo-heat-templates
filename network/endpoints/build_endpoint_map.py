@@ -65,7 +65,8 @@ def net_param_name(endpoint_type_defn):
 def endpoint_map_default(config):
     def map_item(ep_name, ep_type, svc):
         values = collections.OrderedDict([
-            (F_PROTOCOL, svc.get(F_PROTOCOL, 'http')),
+            (F_PROTOCOL, str(svc[ep_type].get(F_PROTOCOL,
+                                              svc.get(F_PROTOCOL, 'http')))),
             (F_PORT, str(svc[ep_type].get(F_PORT, svc[F_PORT]))),
             (F_HOST, SUBST_IP_ADDRESS),
         ])
