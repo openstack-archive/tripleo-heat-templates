@@ -196,8 +196,8 @@ for service in (json_data or []):
             configs[config_volume][2] = '%s\n%s' % (configs[config_volume][2],
                                                     manifest)
         if configs[config_volume][3] != config_image:
-            log.warn("Config containers do not match even though"
-                     " shared volumes are the same!")
+            log.warning("Config containers do not match even though"
+                        " shared volumes are the same!")
     else:
         if not config_volume_only or (config_volume_only == config_volume):
             log.debug("Adding new service")
