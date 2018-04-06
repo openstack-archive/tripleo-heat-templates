@@ -149,6 +149,43 @@ resources:
   default_key_pair:
     type: OS::Nova::KeyPair
     external_id: default
+  OctaviaVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          os_auth_type: "password"
+          os_identity_api_version: "3"
+          amp_image_name: { get_param: OctaviaAmphoraImageName }
+          amp_image_filename: {get_param: OctaviaAmphoraImageFilename }
+          amp_image_tag: { get_param: OctaviaAmphoraImageTag }
+          amp_ssh_key_name: { get_param: OctaviaAmphoraSshKeyName }
+          amp_ssh_key_path: { get_param: OctaviaAmphoraSshKeyFile }
+          amp_ssh_key_data: { get_attr: [default_key_pair, public_key] }
+          auth_username: { get_param: OctaviaUserName }
+          auth_password: { get_param: OctaviaPassword }
+          auth_project_name: { get_param: OctaviaProjectName }
+          lb_mgmt_net_name: { get_param: OctaviaControlNetwork }
+          lb_mgmt_subnet_name: { get_param: OctaviaControlSubnet }
+          lb_sec_group_name: { get_param: OctaviaControlSubnet }
+          lb_mgmt_subnet_cidr: { get_param: OctaviaControlSubnetCidr }
+          lb_mgmt_subnet_gateway: { get_param: OctaviaControlSubnetGateway }
+          lb_mgmt_subnet_pool_start: { get_param: OctaviaControlSubnetPoolStart }
+          lb_mgmt_subnet_pool_end: { get_param: OctaviaControlSubnetPoolEnd }
+          ca_cert_path: { get_param: OctaviaCaCertFile }
+          ca_private_key_path: { get_param: OctaviaCaKeyFile }
+          ca_passphrase: { get_param: OctaviaCaKeyPassphrase }
+          client_cert_path: { get_param: OctaviaClientCertFile }
+          generate_certs: { get_param: OctaviaGenerateCerts }
+          mgmt_port_dev: { get_param: OctaviaMgmtPortDevName }
+          os_password: { get_param: AdminPassword }
+          os_project_name: 'admin'
+          os_username: 'admin'
+          octavia_ansible_playbook: '/usr/share/tripleo-common/playbooks/octavia-files.yaml'
+          os_auth_url: { get_param: [EndpointMap, KeystoneV3Public, uri] }
+          octavia_local_tmpdir: "{{playbook_dir}}/octavia-ansible/local_dir"
+          octavia_group_vars_dir: "{{playbook_dir}}/octavia-ansible/group_vars"
 
 outputs:
   role_data:
@@ -162,35 +199,79 @@ outputs:
         step_config: ''
       docker_config: {}
       config_settings: {}
-      workflow_tasks:
-        step5:
-          - name: octavia_post_workflow
-            workflow: { get_param: OctaviaPostWorkflowName }
-            input:
-              amp_image_name: { get_param: OctaviaAmphoraImageName }
-              amp_image_filename: {get_param: OctaviaAmphoraImageFilename }
-              amp_image_tag: { get_param: OctaviaAmphoraImageTag }
-              amp_ssh_key_name: { get_param: OctaviaAmphoraSshKeyName }
-              amp_ssh_key_path: { get_param: OctaviaAmphoraSshKeyFile }
-              amp_ssh_key_data: { get_attr: [default_key_pair, public_key] }
-              auth_username: { get_param: OctaviaUserName }
-              auth_password: { get_param: OctaviaPassword }
-              auth_project_name: { get_param: OctaviaProjectName }
-              lb_mgmt_net_name: { get_param: OctaviaControlNetwork }
-              lb_mgmt_subnet_name: { get_param: OctaviaControlSubnet }
-              lb_sec_group_name: { get_param: OctaviaControlSubnet }
-              lb_mgmt_subnet_cidr: { get_param: OctaviaControlSubnetCidr }
-              lb_mgmt_subnet_gateway: { get_param: OctaviaControlSubnetGateway }
-              lb_mgmt_subnet_pool_start: { get_param: OctaviaControlSubnetPoolStart }
-              lb_mgmt_subnet_pool_end: { get_param: OctaviaControlSubnetPoolEnd }
-              ca_cert_path: { get_param: OctaviaCaCertFile }
-              ca_private_key_path: { get_param: OctaviaCaKeyFile }
-              ca_passphrase: { get_param: OctaviaCaKeyPassphrase }
-              client_cert_path: { get_param: OctaviaClientCertFile }
-              generate_certs: { get_param: OctaviaGenerateCerts }
-              mgmt_port_dev: { get_param: OctaviaMgmtPortDevName }
-              overcloud_password: { get_param: AdminPassword }
-              overcloud_project: 'admin'
-              overcloud_admin: 'admin'
-              octavia_ansible_playbook: '/usr/share/tripleo-common/playbooks/octavia-files.yaml'
-              overcloud_pub_auth_uri: { get_param: [EndpointMap, KeystoneV3Public, uri] }
+      external_deploy_tasks:
+        - name: octavia_post_deploy
+          when: step == '5'
+          block:
+            - name: Set up group_vars
+              set_fact:
+                octavia_ansible_group_vars: { get_attr: [OctaviaVars, value, vars] }
+            - name: Make needed directories on the undercloud
+              file:
+                path: "{{item}}"
+                state: directory
+              with_items:
+                - "{{ octavia_ansible_group_vars.octavia_local_tmpdir }}"
+                - "{{ octavia_ansible_group_vars.octavia_group_vars_dir }}"
+            - name: Write group_vars file
+              copy:
+                dest: "{{ octavia_ansible_group_vars.octavia_group_vars_dir }}/octavia_vars.yaml"
+                content: "{{ octavia_ansible_group_vars|to_nice_yaml }}"
+            - name: Write octavia inventory
+              copy:
+                dest: "{{playbook_dir}}/octavia-ansible/inventory.yaml"
+                content: |
+                  octavia_nodes:
+                    hosts:
+
+                  {%- set octavia_groups = ['worker'] -%}
+                  {%- for octavia_group in octavia_groups -%}
+                  {%- if 'octavia_' ~ octavia_groups %}
+
+                      {% for host in groups['octavia_' ~ octavia_group] -%}
+                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                        ansible_user: {{ hostvars.raw_get(host)['ansible_ssh_user'] | default('heat-admin') }}
+                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                        ansible_become: true
+                      {% endfor %}
+
+                  {%- endif -%}
+                  {%- endfor %}
+
+                  Undercloud:
+                    hosts:
+                      {% for host in groups['Undercloud'] -%}
+                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                        ansible_become: false
+                        ansible_connection: local
+
+                      {%- endfor -%}
+            - name: Check for ssh_private_key in working directory
+              stat:
+                path: "{{playbook_dir}}/ssh_private_key"
+              register: st
+            - name: Set private key location
+              set_fact:
+                ansible_ssh_key: "{{ playbook_dir+'/ssh_private_key' if st.stat.exists else '~/.ssh/id_rsa' }}"
+            - name: Configure octavia command
+              set_fact:
+                config_octavia_cmd: ansible-playbook -i "{{playbook_dir}}/octavia-ansible/inventory.yaml" --extra-vars @"{{ octavia_ansible_group_vars.octavia_group_vars_dir }}"/octavia_vars.yaml "{{ octavia_ansible_group_vars.octavia_ansible_playbook }}" --private-key "{{ ansible_ssh_key }}"
+            - set_fact:
+                octavia_log_dir: "{{playbook_dir}}/octavia-ansible/"
+            - debug:
+                msg: "Configure Octavia command is: {{ config_octavia_cmd }}"
+            - name: Configure octavia on overcloud
+              environment:
+                ANSIBLE_HOST_KEY_CHECKING: False
+                ANSIBLE_SSH_RETRIES: 3
+                ANSIBLE_RETRY_FILES_ENABLED: false
+                ANSIBLE_LOCAL_TEMP: "{{ octavia_ansible_group_vars.octavia_local_tmpdir }}"
+                ANSIBLE_LOG_PATH:  "{{ octavia_log_dir }}/octavia-ansible.log"
+              shell: "{{ config_octavia_cmd }}"
+            - name: Purge temp dirs
+              file:
+                state: absent
+                path: "{{ item }}"
+              with_items:
+              - "{{ octavia_ansible_group_vars.octavia_local_tmpdir }}"
