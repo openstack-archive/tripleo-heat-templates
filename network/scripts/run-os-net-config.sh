@@ -146,4 +146,12 @@ if [ -n '$network_config' ]; then
         echo "ERROR: os-net-config configuration failed." >&2
         exit 1
     fi
+
+    # Remove files used by os-apply-config for old style configs
+    if [ -f /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json ]; then
+        rm /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json
+    fi
+    if [ -f /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json ]; then
+        rm /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json
+    fi
 fi
