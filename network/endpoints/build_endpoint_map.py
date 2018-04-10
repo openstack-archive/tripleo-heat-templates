@@ -68,7 +68,7 @@ def endpoint_map_default(config):
             (F_PROTOCOL, str(svc[ep_type].get(F_PROTOCOL,
                                               svc.get(F_PROTOCOL, 'http')))),
             (F_PORT, str(svc[ep_type].get(F_PORT, svc[F_PORT]))),
-            (F_HOST, SUBST_IP_ADDRESS),
+            (F_HOST, SUBST_IP_ADDRESS if ep_type != 'Public' else SUBST_CLOUDNAME),
         ])
         return ep_name + ep_type, values
 
