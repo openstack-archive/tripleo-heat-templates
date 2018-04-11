@@ -269,7 +269,7 @@ outputs:
                 docker_image: {get_param: DockerRedisImage}
                 docker_image_latest: *redis_image_pcmklatest
             - name: Get previous Redis image id
-              shell: "docker images | awk '/redis.* pcmklatest/{print $3}'"
+              shell: "docker images | awk '/redis.* pcmklatest/{print $3}' | uniq"
               register: redis_image_id
             - block:
                 - name: Get a list of container using Redis image
@@ -292,7 +292,7 @@ outputs:
       upgrade_tasks:
         - name: Get docker redis image
           set_fact:
-            docker_image_latest: *redis_image_pcmklatest
+            redis_docker_image_latest: *redis_image_pcmklatest
         - name: Check for redis Kolla configuration
           stat:
             path: /var/lib/config-data/puppet-generated/redis
@@ -339,6 +339,28 @@ outputs:
                   until: output.rc == 0
             - name: Disable redis service
               service: name=redis enabled=no
+        - name: Prepare the switch to new redis container image name in pacemaker
+          when:
+            - step|int == 0
+            - redis_containerized|bool
+          block:
+            - name: Get redis image id currently used by pacemaker
+              shell: "docker images | awk '/redis.* pcmklatest/{print $3}' | uniq"
+              register: redis_current_pcmklatest_id
+            - name: Temporarily tag the current redis image id with the upgraded image name
+              shell: "docker tag {{redis_current_pcmklatest_id.stdout}} {{redis_docker_image_latest}}"
+        - name: Disable the redis cluster resource before container upgrade
+          when:
+            - step|int == 1
+            - redis_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: redis-bundle
+            state: disable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Move redis logging to /var/log/containers
           when:
             - step|int == 1
@@ -353,26 +375,28 @@ outputs:
               # rc == 6 means the configuration doesn't exist in the CIB
               when: redis_logs_moved.rc == 6
               block:
-                - name: Disable the redis cluster resource
-                  pacemaker_resource:
-                    resource: redis
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
                 - name: Remove old bind mount for logging in the redis bundle
                   command: pcs resource bundle update redis-bundle storage-map remove redis-log
                 - name: Add a bind mount for logging in the redis bundle
                   command: pcs resource bundle update redis-bundle storage-map add id=redis-log source-dir=/var/log/containers/redis target-dir=/var/log/redis options=rw
-                - name: Enable the redis cluster resource
-                  pacemaker_resource:
-                    resource: redis
-                    state: enable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
+        - name: Update the redis bundle to use the new container image name
+          when:
+            - step|int == 1
+            - redis_containerized|bool
+            - is_bootstrap_node
+          command: "pcs resource bundle update redis-bundle container image={{redis_docker_image_latest}}"
+        - name: Enable the redis cluster resource
+          when:
+            - step|int == 1
+            - redis_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: redis-bundle
+            state: enable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
