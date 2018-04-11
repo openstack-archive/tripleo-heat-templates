@@ -58,7 +58,10 @@ resources:
         # If the HAProxy container tried to load this, it'll be a directory and
         # will make this fail.
         if [ -d ${cert_path} ]; then
-            rm -rf ${cert_path}
+            rmdir ${cert_path}
+            HAPROXY_TLS_UPDATE_NEEDED=1
+        else
+            HAPROXY_TLS_UPDATE_NEEDED=0
         fi
         cat > ${cert_path} << EOF
         ${cert_chain_content}
@@ -78,6 +81,34 @@ resources:
         if [ "$haproxy_status" = "active" ]; then
             systemctl reload haproxy
         fi
+        pacemaker_status=$(systemctl is-active pacemaker)
+        # If we need an update and pacemaker is being used, we need to restart
+        # the pacemaker resource on the bootstrap node. We don't support the update
+        # in non-pacemaker cases.
+        if [[ $HAPROXY_TLS_UPDATE_NEEDED -eq 1 && "$pacemaker_status" == "active" ]]; then
+            BOOTSTRAPNODE=$(hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid)
+            MY_HOSTNAME=$(hostname)
+            if [[ "$BOOTSTRAPNODE" == "$MY_HOSTNAME" ]]; then
+                # Triggers an update
+                HAPROXY_RESOURCE_NAME=$(pcs status | grep container | grep haproxy | sed 's/^.*container.*: \(.*\) .*/\1/')
+                if [[ -n "$HAPROXY_RESOURCE_NAME" ]]; then
+                    pcs resource restart "$HAPROXY_RESOURCE_NAME"
+                fi
+            fi
+        elif [[ $HAPROXY_TLS_UPDATE_NEEDED -eq 0 ]]; then
+            # Handles reloading HAProxy and fetching a new certificate if
+            # necessary
+            HAPROXY_CONTAINER_ID=$(docker ps | grep haproxy | awk '{print $1}')
+            if [[ -n "$HAPROXY_CONTAINER_ID" ]]; then
+                if [[ "$pacemaker_status" == "active" ]]; then
+                    # We copy the certificate from the mount point to the desired
+                    # path
+                    docker exec "$HAPROXY_CONTAINER_ID" cp /var/lib/kolla/config_files/src-tls${cert_path} ${cert_path}
+                fi
+                docker kill --signal=HUP "$HAPROXY_CONTAINER_ID"
+            fi
+        fi
+
 
   ControllerTLSDeployment:
     type: OS::Heat::SoftwareDeployment
