@@ -288,7 +288,7 @@ outputs:
                 docker_image: {get_param: DockerMysqlImage}
                 docker_image_latest: *mysql_image_pcmklatest
             - name: Get previous Mariadb image id
-              shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}'"
+              shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
               register: mariadb_image_id
             - block:
                 - name: Get a list of container using Mariadb image
@@ -311,7 +311,7 @@ outputs:
       upgrade_tasks:
         - name: Get docker Mysql image
           set_fact:
-            docker_image_latest: *mysql_image_pcmklatest
+            mysql_docker_image_latest: *mysql_image_pcmklatest
         - name: Check for Mysql Kolla configuration
           stat:
             path: /var/lib/config-data/puppet-generated/mysql
@@ -362,6 +362,28 @@ outputs:
               file: state=absent path=/etc/xinetd.d/galera-monitor
             - name: Restart xinetd service after clustercheck removal
               service: name=xinetd state=restarted
+        - name: Prepare the switch to new galera container image name in pacemaker
+          when:
+            - step|int == 0
+            - mysql_containerized|bool
+          block:
+            - name: Get galera image id currently used by pacemaker
+              shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
+              register: galera_current_pcmklatest_id
+            - name: Temporarily tag the current galera image id with the upgraded image name
+              shell: "docker tag {{galera_current_pcmklatest_id.stdout}} {{mysql_docker_image_latest}}"
+        - name: Disable the galera cluster resource before container upgrade
+          when:
+            - step|int == 1
+            - mysql_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: galera
+            state: disable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Move Mysql logging to /var/log/containers
           when:
             - step|int == 1
@@ -376,34 +398,42 @@ outputs:
               # rc == 6 means the configuration doesn't exist in the CIB
               when: mysql_logs_moved.rc == 6
               block:
-                - name: Disable the galera cluster resource
-                  pacemaker_resource:
-                    resource: galera
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
                 - name: Add a bind mount for logging in the galera bundle
                   command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
                 - name: Reconfigure Mysql log file in the galera resource agent
                   command: pcs resource update galera log=/var/log/mysql/mysqld.log
-                - name: Enable the galera cluster resource
-                  pacemaker_resource:
-                    resource: galera
-                    state: enable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
+        - name: Update the galera bundle to use the new container image name
+          when:
+            - step|int == 1
+            - mysql_containerized|bool
+            - is_bootstrap_node
+          command: "pcs resource bundle update galera-bundle container image={{mysql_docker_image_latest}}"
+        - name: Enable the galera cluster resource
+          when:
+            - step|int == 1
+            - mysql_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: galera
+            state: enable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
             - mysql_containerized|bool
           block: *mysql_fetch_retag_container_tasks
         - name: Check and upgrade Mysql database after major version upgrade
-          when: step|int == 4
+          when: step|int == 3
           block:
+            # mariadb package changes ownership of /var/lib/mysql on package
+            # update, so update here rather than in tripleo-package, to
+            # guarantee that ownership is fixed at the end of step 3
+            - name: Update host mariadb packages
+              when: step|int == 3
+              yum: name=mariadb-server-galera state=latest
             - name: Mysql upgrade script
               set_fact:
                 mysql_upgrade_script:
@@ -412,7 +442,8 @@ outputs:
                   # executed for the current version of MariaDB.
                   list_join:
                     - ' '
-                    - - '{% if mysql_containerized %}sudo -E kolla_set_configs; {% endif %}'
+                    - - '{% if mysql_containerized %}kolla_set_configs; {% endif %}'
+                      - 'chown -R mysql:mysql /var/lib/mysql;'
                       - 'mysqld_safe --user=mysql --wsrep-provider=none --skip-networking --wsrep-on=off &'
                       - 'timeout 60 sh -c ''while ! mysqladmin ping --silent; do sleep 1; done'';'
                       - 'mysql_upgrade;'
