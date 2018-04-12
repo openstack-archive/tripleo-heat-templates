@@ -183,6 +183,44 @@ outputs:
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
       upgrade_tasks:
+        - name: Check if octavia_api is deployed
+          command: systemctl is-enabled --quiet openstack-octavia-api
+          tags: common
+          ignore_errors: True
+          register: octavia_api_enabled
+        - name: Check for octavia-api running under apache
+          tags: common
+          shell: httpd -t -D DUMP_VHOSTS | grep -q 'octavia'
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-octavia-api is running"
+          command: systemctl is-active --quiet openstack-octavia-api
+          tags: validation
+          when:
+            - step|int == 0
+            - octavia_api_enabled.rc == 0
+            - httpd_enabled.rc != 0
         - name: Stop and disable octavia_api service
-          when: step|int == 2
           service: name=openstack-octavia-api state=stopped enabled=no
+          when:
+            - step|int == 2
+            - octavia_api_enabled.rc == 0
+            - httpd_enabled.rc != 0
+        - name: Check if httpd service is running
+          command: systemctl is-active --quiet httpd
+          tags: common
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if octavia_api_cfn_wsgi is running"
+          tags: validation
+          when:
+            - step|int == 0
+            - httpd_enabled.rc == 0
+            - httpd_running.rc == 0
+          shell: systemctl status 'httpd' | grep -q 'octavia'
+        - name: Stop octavia_api service (running under httpd)
+          when:
+            - step|int == 2
+            - httpd_enabled.rc == 0
+            - httpd_running.rc == 0
+          service: name=httpd state=stopped
