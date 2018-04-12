@@ -33,7 +33,8 @@ required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
 # transition to generated environments we have two copies of these files,
 # so they need to be listed twice.  Once the deprecated version can be removed
 # the duplicate entries can be as well.
-envs_containing_endpoint_map = ['tls-endpoints-public-dns.yaml',
+envs_containing_endpoint_map = ['no-tls-endpoints-public-ip.yaml',
+                                'tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml',
                                 'tls-endpoints-public-dns.yaml',
