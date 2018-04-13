@@ -49,6 +49,10 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  UndercloudUpgrade:
+    type: boolean
+    description: Flag to indicate undercloud upgrade process is being run.
+    default: false
 
 resources:
 
@@ -207,7 +211,20 @@ outputs:
           puppet_tags: 'keystone_config,keystone_domain_config,keystone_endpoint,keystone_identity_provider,keystone_paste_ini,keystone_role,keystone_service,keystone_tenant,keystone_user,keystone_user_role,keystone_domain'
           step_config: 'include ::tripleo::profile::base::keystone'
           config_image: *keystone_config_image
-      host_prep_tasks: {get_attr: [KeystoneLogging, host_prep_tasks]}
+      host_prep_tasks:
+        list_concat:
+          - {get_attr: [KeystoneLogging, host_prep_tasks]}
+          - - name: Stop and disable the httpd service
+              service:
+                name: httpd
+                state: stopped
+                enabled: no
+              when: {get_param: UndercloudUpgrade}
+            - name: remove keystone cron jobs
+              file:
+                path: /var/spool/cron/keystone
+                state: absent
+              when: {get_param: UndercloudUpgrade}
       upgrade_tasks:
         - name: Check for keystone running under apache
           tags: common
