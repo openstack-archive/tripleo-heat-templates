@@ -30,6 +30,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  LocalContainerRegistry:
+    default: ''
+    description: The IP address used to bind the local container registry
+    type: string
+
+conditions:
+  local_container_registry_is_empty: {equals : [{get_param: LocalContainerRegistry}, '']}
 
 outputs:
   role_data:
@@ -37,21 +44,27 @@ outputs:
     value:
       service_name: docker_registry
       config_settings:
-        tripleo::profile::base::docker_registry::registry_host:
-          str_replace:
-             template:
-               "%{hiera('$NETWORK')}"
-             params:
-               $NETWORK: {get_param: [ServiceNetMap, DockerRegistryNetwork]}
-        tripleo::profile::base::docker_registry::registry_port:
-          {get_param: [EndpointMap, DockerRegistryInternal, port]}
         tripleo.docker_registry.firewall_rules:
           '155 docker-registry':
             dport:
               - 8787
               - 13787
-      step_config: |
-        include ::tripleo::profile::base::docker_registry
+      step_config: ''
+      host_prep_tasks: []
+      deploy_steps_tasks:
+        - name: Install, Configure and Run Docker Distribution
+          when: step|int == 1
+          vars:
+            container_registry_host:
+              if:
+              - local_container_registry_is_empty
+              - {get_param: [EndpointMap, DockerRegistryInternal, host]}
+              - {get_param: LocalContainerRegistry}
+            container_registry_port: {get_param: [EndpointMap, DockerRegistryInternal, port]}
+          block:
+          - include_role:
+              name: container-registry
+              tasks_from: docker-distribution
       upgrade_tasks:
         - name: Install docker packages on upgrade if missing
           when: step|int == 3

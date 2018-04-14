@@ -66,92 +66,71 @@ parameters:
 
 conditions:
   insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
-  insecure_registry_mirror_is_empty: {equals : [{get_param: DockerRegistryMirror}, '']}
   service_debug_unset: {equals : [{get_param: DockerDebug}, '']}
-  deployment_user_is_empty: {equals : [{get_param: DeploymentUser}, '']}
-  additional_sockets_is_empty: {equals : [{get_param: DockerAdditionalSockets}, []]}
 
 outputs:
   role_data:
     description: Role data for the docker service
     value:
       service_name: docker
-      config_settings:
-        map_merge:
-          - tripleo::profile::base::docker::configure_network: true
-            tripleo::profile::base::docker::network_options: "--bip=172.31.0.1/24"
-            tripleo::profile::base::docker::docker_options: {get_param: DockerOptions}
-            tripleo::profile::base::docker::debug:
+      config_settings: {}
+      step_config: ''
+      host_prep_tasks: []
+      deploy_steps_tasks:
+        - name: Install, Configure and Run Docker
+          when: step|int == 1
+          vars:
+            container_registry_debug:
               if:
                 - service_debug_unset
                 - {get_param: Debug }
                 - {get_param: DockerDebug}
-          -
-            if:
-            - insecure_registry_is_empty
-            - {}
-            - tripleo::profile::base::docker::insecure_registries: {get_param: DockerInsecureRegistryAddress}
-          -
-            if:
-            - insecure_registry_mirror_is_empty
-            - {}
-            - tripleo::profile::base::docker::registry_mirror: {get_param: DockerRegistryMirror}
-          -
-            if:
-            - deployment_user_is_empty
-            - {}
-            - tripleo::profile::base::docker::deployment_user: {get_param: DeploymentUser}
-          -
-            if:
-            - additional_sockets_is_empty
-            - {}
-            - tripleo::profile::base::docker::additional_sockets: {get_param: DockerAdditionalSockets}
-      step_config: |
-        include ::tripleo::profile::base::docker
+            container_registry_deployment_user: {get_param: DeploymentUser}
+            container_registry_docker_options: {get_param: DockerOptions}
+            container_registry_additional_sockets: {get_param: DockerAdditionalSockets}
+            container_registry_insecure_registries:
+              if:
+                - insecure_registry_is_empty
+                - []
+                - {get_param: DockerInsecureRegistryAddress}
+            container_registry_mirror: {get_param: DockerRegistryMirror}
+            container_registry_network_options: '--bip=172.31.0.1/24'
+          block:
+          - include_role:
+              name: container-registry
+              tasks_from: docker
+      service_config_settings:
+        neutron_l3:
+          docker_additional_sockets: {get_param: DockerAdditionalSockets}
+        neutron_dhcp:
+          docker_additional_sockets: {get_param: DockerAdditionalSockets}
       upgrade_tasks:
         - name: Install docker packages on upgrade if missing
           when: step|int == 3
           yum: name=docker state=latest
       update_tasks:
-        block:
-          - name: Detect if puppet on the docker profile would restart the service
-            # Note that due to https://tickets.puppetlabs.com/browse/PUP-686 --noop
-            # always exits 0, so we cannot rely on that to detect if puppet is going to change stuff
-            shell: |
-              puppet apply --noop --summarize --detailed-exitcodes --verbose \
-                --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
-                --color=false -e "class { 'tripleo::profile::base::docker': step => 1, }" 2>&1 | \
-              awk -F ":" '/Out of sync:/ { print $2}'
-            register: puppet_docker_noop_output
-            failed_when: false
-          - name: Is docker going to be updated
-            shell: yum check-update docker
-            register: docker_check_update
-            failed_when: docker_check_update.rc not in [0, 100]
-            changed_when: docker_check_update.rc == 100
-          - name: Set docker_rpm_needs_update fact
-            set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
-          - name: Set puppet_docker_is_outofsync fact
-            set_fact: puppet_docker_is_outofsync={{ puppet_docker_noop_output.stdout|trim|int >= 1 }}
-          - name: Stop all containers
-            # xargs is preferable to docker stop $(docker ps -q) as that might generate a
-            # a too long command line
-            shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
-            when: puppet_docker_is_outofsync or docker_rpm_needs_update
-          - name: Stop docker
-            service:
-              name: docker
-              state: stopped
-            when: puppet_docker_is_outofsync or docker_rpm_needs_update
-          - name: Update the docker package
-            yum: name=docker state=latest update_cache=yes # cache for tripleo/+bug/1703830
-            when: docker_rpm_needs_update
-          - name: Apply puppet which will start the service again
-            shell: |
-              puppet apply --detailed-exitcodes --verbose \
-                --modulepath  /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules \
-                -e "class { 'tripleo::profile::base::docker': step => 1, }"
-            register: puppet_docker_apply
-            failed_when: puppet_docker_apply.rc not in [0, 2]
-            changed_when: puppet_docker_apply.rc == 2
-        when: step|int == 2
+        - name: Restart Docker when needed
+          when: step|int == 2
+          block:
+            # TODO(emilien)
+            # This block will move to ansible-role-container-registry
+            - name: Is docker going to be updated
+              shell: yum check-update docker
+              register: docker_check_update
+              failed_when: docker_check_update.rc not in [0, 100]
+              changed_when: docker_check_update.rc == 100
+            - name: Set docker_rpm_needs_update fact
+              set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
+            - name: Stop all containers
+              # xargs is preferable to docker stop $(docker ps -q) as that might generate a
+              # a too long command line
+              shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+              when: docker_rpm_needs_update
+            - name: Stop docker
+              service:
+                name: docker
+                state: stopped
+              when: docker_rpm_needs_update
+            - name: Update the docker package
+              yum: name=docker state=latest update_cache=yes # cache for tripleo/+bug/1703830
+              when: docker_rpm_needs_update
