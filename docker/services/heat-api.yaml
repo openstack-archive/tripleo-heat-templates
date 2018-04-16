@@ -179,30 +179,40 @@ outputs:
               /var/log/containers/heat and /var/log/containers/httpd/heat-api*.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check is heat_api is deployed
-          command: systemctl is-enabled openstack-heat-api
+        - name: Check if heat_api is deployed
+          command: systemctl is-enabled --quiet openstack-heat-api
           tags: common
           ignore_errors: True
           register: heat_api_enabled
-        - name: remove old heat cron jobs
-          tags: step2
-          file:
-            path: /var/spool/cron/heat
-            state: absent
-        - name: check for heat_api running under apache (post upgrade)
-          tags: step2
+        - name: Check for heat_api running under apache
+          tags: common
           shell: "httpd -t -D DUMP_VHOSTS | grep -q heat_api_wsgi"
-          register: heat_api_apache
-          ignore_errors: true
-          changed_when: false
-          check_mode: no
-        - name: Stop heat_api service (running under httpd)
-          tags: step2
-          service: name=httpd state=stopped
-          when: heat_api_apache.rc == 0
+          ignore_errors: True
+          register: httpd_enabled
+        - name: "PreUpgrade step0,validation: Check service openstack-heat-api is running"
+          command: systemctl is-active --quiet openstack-heat-api
+          when: heat_api_enabled.rc == 0 and httpd_enabled.rc != 0
+          tags: step0,validation
         - name: Stop and disable heat_api service (pre-upgrade not under httpd)
           tags: step2
           service: name=openstack-heat-api state=stopped enabled=no
-          when: heat_api_enabled.rc == 0
+          when: heat_api_enabled.rc == 0 and httpd_enabled.rc != 0
+        - name: Check if httpd is running
+          tags: common
+          command: systemctl is-active --quiet httpd
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if heat_api_wsgi is running"
+          shell: systemctl status 'httpd' | grep -q heat_api_wsgi
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Stop heat_api service (running under httpd)
+          tags: step2
+          service: name=httpd state=stopped
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: remove old heat cron jobs
+          file:
+            path: /var/spool/cron/heat
+            state: absent
       metadata_settings:
         get_attr: [HeatBase, role_data, metadata_settings]
