@@ -168,6 +168,22 @@ DEPLOYMENT_RESOURCE_TYPES = [
 ]
 
 VALID_ANSIBLE_UPGRADE_TAGS = [ 'common', 'validation', 'pre-upgrade' ]
+WORKFLOW_TASKS_EXCLUSIONS = [
+    './docker/services/octavia/octavia-deployment-config.yaml',
+    './docker/services/ceph-ansible/ceph-external.yaml',
+    './docker/services/ceph-ansible/ceph-osd.yaml',
+    './docker/services/ceph-ansible/ceph-rbdmirror.yaml',
+    './docker/services/ceph-ansible/ceph-client.yaml',
+    './docker/services/ceph-ansible/ceph-mds.yaml',
+    './docker/services/ceph-ansible/ceph-rgw.yaml',
+    './docker/services/ceph-ansible/ceph-base.yaml',
+    './docker/services/ceph-ansible/ceph-mon.yaml',
+    './docker/services/ceph-ansible/ceph-mgr.yaml',
+    './docker/services/skydive/skydive-base.yaml',
+    './docker/services/skydive/skydive-agent.yaml',
+    './docker/services/skydive/skydive-analyzer.yaml',
+]
+
 
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
@@ -532,6 +548,12 @@ def validate_docker_service(filename, tpl):
             if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
                 print('ERROR: fast_forward_post_upgrade_tasks validation failed')
                 return 1
+
+        if 'workflow_tasks' in role_data and \
+                filename not in WORKFLOW_TASKS_EXCLUSIONS:
+            print('ERROR: workflow_tasks are no longer supported '
+                  'with config-download in %s.' % filename)
+            return 1
 
     if 'parameters' in tpl:
         for param in required_params:
