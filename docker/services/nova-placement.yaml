@@ -148,8 +148,23 @@ outputs:
               /var/log/containers/nova and /var/log/containers/httpd/nova-*.
           ignore_errors: true
       upgrade_tasks:
+        - name: Check for nova placement running under apache
+          tags: common
+          shell: "httpd -t -D DUMP_VHOSTS | grep -q placement_wsgi"
+          ignore_errors: True
+          register: httpd_enabled
+        - name: Check if httpd is running
+          tags: common
+          command: systemctl is-active --quiet httpd
+          ignore_errors: True
+          register: httpd_running
+        - name: "PreUpgrade step0,validation: Check if placement_wsgi is running"
+          shell: systemctl status 'httpd' | grep -q placement_wsgi
+          tags: step0,validation
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
         - name: Stop and disable nova_placement service (running under httpd)
           tags: step2
+          when: httpd_enabled.rc == 0 and httpd_running.rc == 0
           service: name=httpd state=stopped enabled=no
         - name: Remove httpd package if operator requests it
           yum: name=httpd state=removed
