@@ -831,6 +831,7 @@ def validate(filename, param_map):
                                 },
                                 ...
                            ]}
+    Returns a global retval that indicates any failures had been in the check progress.
     """
     if args.quiet < 1:
         print('Validating %s' % filename)
@@ -867,23 +868,23 @@ def validate(filename, param_map):
         if VALIDATE_PUPPET_OVERRIDE.get(filename, False) or (
                 filename.startswith('./puppet/services/') and
                 VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
-            retval = validate_service(filename, tpl)
+            retval |= validate_service(filename, tpl)
 
         if re.search(r'(puppet|docker)\/services', filename):
-            retval = validate_service_hiera_interpol(filename, tpl)
+            retval |= validate_service_hiera_interpol(filename, tpl)
 
         if filename.startswith('./docker/services/logging/'):
-            retval = validate_docker_logging_template(filename, tpl)
+            retval |= validate_docker_logging_template(filename, tpl)
         elif VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
                 filename.startswith('./docker/services/') and
                 VALIDATE_DOCKER_OVERRIDE.get(filename, True)):
-            retval = validate_docker_service(filename, tpl)
+            retval |= validate_docker_service(filename, tpl)
 
         if filename.endswith('hyperconverged-ceph.yaml'):
-            retval = validate_hci_compute_services_default(filename, tpl)
+            retval |= validate_hci_compute_services_default(filename, tpl)
 
         if filename.startswith('./roles/ComputeHCI.yaml'):
-            retval = validate_hci_computehci_role(filename, tpl)
+            retval |= validate_hci_computehci_role(filename, tpl)
 
         if filename.startswith('./roles/ComputeOvsDpdk.yaml') or \
                 filename.startswith('./roles/ComputeSriov.yaml') or \
@@ -896,29 +897,32 @@ def validate(filename, param_map):
                 'OS::TripleO::Services::NeutronVppAgent',
                 'OS::TripleO::Services::Vpp',
                 'OS::TripleO::Services::NeutronLinuxbridgeAgent']
-            retval = validate_with_compute_role_services(filename, tpl, exclude)
+            retval |= validate_with_compute_role_services(filename, tpl, exclude)
 
         if filename.startswith('./roles/ComputeRealTime.yaml'):
             exclude = [
                 'OS::TripleO::Services::Tuned',
             ]
-            retval = validate_with_compute_role_services(filename, tpl, exclude)
+            retval |= validate_with_compute_role_services(filename, tpl, exclude)
 
         if filename.startswith('./roles/Hci'):
-            retval = validate_hci_role(filename, tpl)
+            retval |= validate_hci_role(filename, tpl)
 
         if filename.startswith('./roles/Ceph'):
-            retval = validate_ceph_role(filename, tpl)
+            retval |= validate_ceph_role(filename, tpl)
 
         if filename.startswith('./roles/ControllerNoCeph.yaml'):
-            retval = validate_controller_no_ceph_role(filename, tpl)
+            retval |= validate_controller_no_ceph_role(filename, tpl)
 
         if filename.startswith('./network_data_'):
-            retval = validate_network_data_file(filename)
+            result = validate_network_data_file(filename)
+            retval |= result
+        else:
+            result = retval
 
-        if retval == 0 and is_heat_template:
+        if result == 0 and is_heat_template:
             # check for old style nic config files
-            retval = validate_nic_config_file(filename, tpl)
+            retval |= validate_nic_config_file(filename, tpl)
 
     except Exception:
         print(traceback.format_exc())
