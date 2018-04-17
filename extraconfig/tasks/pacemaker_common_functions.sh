@@ -303,6 +303,19 @@ function systemctl_swift {
 function special_case_ovs_upgrade_if_needed {
     # Always ensure yum has full cache
     yum makecache || echo "Yum makecache failed. This can cause failure later on."
+    # Ovs uses openvswitch:hugetlbfs as user and group settings
+    # when updating to 2.8 onwards, but openvswitch user is not
+    # created during package update. This adds workaround to
+    # make sure openvswitch user exist before running package
+    # update. Details can be found at:
+    # https://bugzilla.redhat.com/show_bug.cgi?id=1559374
+    # 42477 is the kolla hugetlbfs gid value.
+    getent group hugetlbfs >/dev/null || \
+        groupadd hugetlbfs -g 42477 && groupmod -g 42477 hugetlbfs
+    getent passwd openvswitch >/dev/null || \
+        useradd -r -d / -s /sbin/nologin -c "Open vSwitch Daemons" openvswitch
+    usermod -a -G hugetlbfs openvswitch
+
     if rpm -qa | grep "^openvswitch-2.5.0-14" || rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep "systemctl.*try-restart" ; then
         echo "Manual upgrade of openvswitch - ovs-2.5.0-14 or restart in postun detected"
         rm -rf OVS_UPGRADE
