@@ -231,30 +231,30 @@ outputs:
             environment: *kolla_env
       host_prep_tasks: {get_attr: [BarbicanApiLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if openstack-barbican-api is deployed
-          command: systemctl is-enabled --quiet openstack-barbican-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: barbican_enabled
-        - name: "PreUpgrade step0,validation: Check service barbican-api is running"
-          command: systemctl is-active --quiet openstack-barbican-api
-          when:
-            - step|int == 0
-            - barbican_enabled.rc == 0
-        - name: Stop and disable barbican_api service
-          when:
-            - step|int == 2
-            - barbican_enabled.rc == 0
-          service: name=openstack-barbican-api state=stopped enabled=no
-        - name: Set fact for removal of openstack-barbican-api package
-          when: step|int == 2
-          set_fact:
-            remove_barbican_api_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-barbican-api package if operator requests it
-          yum: name=openstack-barbican-api state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_barbican_api_package|bool
+          block:
+            - name: Check if openstack-barbican-api is deployed
+              command: systemctl is-enabled --quiet openstack-barbican-api
+              ignore_errors: True
+              register: barbican_enabled_result
+            - name: Set fact barbican_enabled
+              set_fact:
+                barbican_enabled: "{{ barbican_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service barbican-api is running"
+              command: systemctl is-active --quiet openstack-barbican-api
+              when: barbican_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable barbican_api service
+              when: barbican_enabled|bool
+              service: name=openstack-barbican-api state=stopped enabled=no
+            - name: Set fact for removal of openstack-barbican-api package
+              set_fact:
+                remove_barbican_api_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-barbican-api package if operator requests it
+              yum: name=openstack-barbican-api state=removed
+              ignore_errors: True
+              when: remove_barbican_api_package|bool
       metadata_settings:
         get_attr: [BarbicanApiBase, role_data, metadata_settings]

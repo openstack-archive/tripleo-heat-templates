@@ -110,54 +110,50 @@ outputs:
               /var/log/containers/ceilometer.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if openstack-ceilometer-compute is deployed
-          command: systemctl is-enabled --quiet openstack-ceilometer-compute
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: openstack_ceilometer_compute_enabled
-        - name: Check if openstack-ceilometer-polling is deployed
-          command: systemctl is-enabled --quiet openstack-ceilometer-polling
-          tags: common
-          ignore_errors: True
-          register: openstack_ceilometer_polling_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-compute is running"
-          command: systemctl is-active --quiet openstack-ceilometer-compute
-          when:
-            - step|int == 0
-            - openstack_ceilometer_compute_enabled.rc == 0
-          tags: validation
-        - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-polling is running"
-          command: systemctl is-active --quiet openstack-ceilometer-polling
-          when:
-            - step|int == 0
-            - openstack_ceilometer_polling_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ceilometer compute agent
-          service: name=openstack-ceilometer-compute state=stopped enabled=no
-          when:
-            - step|int == 2
-            - openstack_ceilometer_compute_enabled.rc|default('') == 0
-        - name: Stop and disable ceilometer polling agent
-          service: name=openstack-ceilometer-polling state=stopped enabled=no
-          when:
-            - step|int == 2
-            - openstack_ceilometer_polling_enabled.rc|default('') == 0
-        - name: Set fact for removal of openstack-ceilometer-compute and polling package
-          when: step|int == 2
-          set_fact:
-            remove_ceilometer_compute_polling_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-ceilometer-compute package if operator requests it
-          yum: name=openstack-ceilometer-compute state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_ceilometer_compute_polling_package|bool
-        - name: Remove openstack-ceilometer-polling package if operator requests it
-          yum: name=openstack-ceilometer-polling state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_ceilometer_compute_polling_package|bool
+          block:
+            - name: Check if openstack-ceilometer-compute is deployed
+              command: systemctl is-enabled --quiet openstack-ceilometer-compute
+              ignore_errors: True
+              register: openstack_ceilometer_compute_enabled_result
+            - name: Set fact openstack_ceilometer_compute_enabled
+              set_fact:
+                openstack_ceilometer_compute_enabled: "{{ openstack_ceilometer_compute_enabled_result.rc == 0 }}"
+            - name: Check if openstack-ceilometer-polling is deployed
+              command: systemctl is-enabled --quiet openstack-ceilometer-polling
+              ignore_errors: True
+              register: openstack_ceilometer_polling_enabled_result
+            - name: Set fact openstack_ceilometer_polling_enabled
+              set_fact:
+                openstack_ceilometer_polling_enabled: "{{ openstack_ceilometer_polling_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-compute is running"
+              command: systemctl is-active --quiet openstack-ceilometer-compute
+              when: openstack_ceilometer_compute_enabled|bool
+              tags: validation
+            - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-polling is running"
+              command: systemctl is-active --quiet openstack-ceilometer-polling
+              when: openstack_ceilometer_polling_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ceilometer compute agent
+              service: name=openstack-ceilometer-compute state=stopped enabled=no
+              when: openstack_ceilometer_compute_enabled|bool
+            - name: Stop and disable ceilometer polling agent
+              service: name=openstack-ceilometer-polling state=stopped enabled=no
+              when: openstack_ceilometer_polling_enabled|bool
+            - name: Set fact for removal of openstack-ceilometer-compute and polling package
+              set_fact:
+                remove_ceilometer_compute_polling_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-ceilometer-compute package if operator requests it
+              yum: name=openstack-ceilometer-compute state=removed
+              ignore_errors: True
+              when: remove_ceilometer_compute_polling_package|bool
+            - name: Remove openstack-ceilometer-polling package if operator requests it
+              yum: name=openstack-ceilometer-polling state=removed
+              ignore_errors: True
+              when: remove_ceilometer_compute_polling_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-ceilometer-compute is deployed
           command: systemctl is-enabled openstack-ceilometer-compute

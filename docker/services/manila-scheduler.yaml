@@ -114,22 +114,25 @@ outputs:
               /var/log/containers/manila and /var/log/containers/httpd/manila-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if manila_scheduler is deployed
-          command: systemctl is-enabled --quiet openstack-manila-scheduler
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: manila_scheduler_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-manila-scheduler is running"
-          command: systemctl is-active --quiet openstack-manila-scheduler
-          when:
-            - step|int == 0
-            - manila_scheduler_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable manila_scheduler service
-          when:
-            - step|int == 2
-            - manila_scheduler_enabled.rc == 0
-          service: name=openstack-manila-scheduler state=stopped enabled=no
+          block:
+            - name: Check if manila_scheduler is deployed
+              command: systemctl is-enabled --quiet openstack-manila-scheduler
+              ignore_errors: True
+              register: manila_scheduler_enabled_result
+            - name: Set fact manila_scheduler_enabled
+              set_fact:
+                manila_scheduler_enabled: "{{ manila_scheduler_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-manila-scheduler is running"
+              command: systemctl is-active --quiet openstack-manila-scheduler
+              when: manila_scheduler_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable manila_scheduler service
+              when: manila_scheduler_enabled|bool
+              service: name=openstack-manila-scheduler state=stopped enabled=no
       fast_forward_upgrade_tasks:
         - name: Check if manila_scheduler is deployed
           command: systemctl is-enabled --quiet openstack-manila-scheduler

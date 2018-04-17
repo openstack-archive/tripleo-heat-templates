@@ -145,59 +145,29 @@ outputs:
               /var/log/containers/sahara.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if sahara_api is deployed
-          command: systemctl is-enabled --quiet openstack-sahara-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: sahara_api_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-sahara-api is running"
-          command: systemctl is-active --quiet openstack-sahara-api
-          when:
-            - step|int == 0
-            - sahara_api_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable sahara_api service
-          when:
-            - step|int == 2
-            - sahara_api_enabled.rc == 0
-          service: name=openstack-sahara-api state=stopped enabled=no
-        - name: Set fact for removal of openstack-sahara-api package
-          when: step|int == 2
-          set_fact:
-            remove_sahara_api_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-sahara-api package if operator requests it
-          yum: name=openstack-sahara-api state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_sahara_api_package|bool
-      fast_forward_upgrade_tasks:
-        - name: FFU check openstack-sahara-api is enabled
-          command: systemctl is-enabled openstack-sahara-api
-          ignore_errors: True
-          register: sahara_api_enabled_result
-          when:
-            - step|int == 0
-            - release == 'ocata'
-        - name: Set fact sahara_api_enabled
-          set_fact:
-            sahara_api_enabled: "{{ sahara_api_enabled_result.rc == 0 }}"
-          when:
-            - step|int == 0
-            - release == 'ocata'
-        - name: FFU stop and disable openstack-sahara-api
-          service: name=openstack-sahara-api state=stopped enabled=no
-          when:
-            - step|int == 1
-            - release == 'ocata'
-            - sahara_api_enabled|bool
-        - name: FFU Sahara package update
-          shell: yum -y update openstack-sahara*
-          when:
-            - step|int == 6
-            - is_bootstrap_node|bool
-        - name: FFU Sahara db upgrade
-          command: sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
-          when:
-            - step|int == 8
-            - is_bootstrap_node|bool
+          block:
+            - name: Check if sahara_api is deployed
+              command: systemctl is-enabled --quiet openstack-sahara-api
+              ignore_errors: True
+              register: sahara_api_enabled_result
+            - name: Set fact sahara_api_enabled
+              set_fact:
+                sahara_api_enabled: "{{ sahara_api_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-sahara-api is running"
+              command: systemctl is-active --quiet openstack-sahara-api
+              when: sahara_api_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable sahara_api service
+              when: sahara_api_enabled|bool
+              service: name=openstack-sahara-api state=stopped enabled=no
+            - name: Set fact for removal of openstack-sahara-api package
+              set_fact:
+                remove_sahara_api_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-sahara-api package if operator requests it
+              yum: name=openstack-sahara-api state=removed
+              ignore_errors: True
+              when: remove_sahara_api_package|bool

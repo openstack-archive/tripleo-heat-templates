@@ -167,22 +167,25 @@ outputs:
             - httpboot
             - tftpboot
       upgrade_tasks:
-        - name: Check if ironic_conductor is deployed
-          command: systemctl is-enabled --quiet openstack-ironic-conductor
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ironic_conductor_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-ironic-conductor is running"
-          command: systemctl is-active --quiet openstack-ironic-conductor
-          tags: validation
-          when:
-            - step|int == 0
-            - ironic_conductor_enabled.rc == 0
-        - name: Stop and disable ironic_conductor service
-          when:
-            - step|int == 2
-            - ironic_conductor_enabled.rc == 0
-          service: name=openstack-ironic-conductor state=stopped enabled=no
+          block:
+            - name: Check if ironic_conductor is deployed
+              command: systemctl is-enabled --quiet openstack-ironic-conductor
+              ignore_errors: True
+              register: ironic_conductor_enabled_result
+            - name: Set fact ironic_conductor_enabled
+              set_fact:
+                ironic_conductor_enabled: "{{ ironic_conductor_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-ironic-conductor is running"
+              command: systemctl is-active --quiet openstack-ironic-conductor
+              tags: validation
+              when: ironic_conductor_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ironic_conductor service
+              when: ironic_conductor_enabled|bool
+              service: name=openstack-ironic-conductor state=stopped enabled=no
       fast_forward_upgrade_tasks:
         - block:
             - name: Check if ironic_conductor is deployed

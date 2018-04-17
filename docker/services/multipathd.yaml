@@ -88,19 +88,22 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
       upgrade_tasks:
-        - name: Check if multipathd is deployed
-          command: systemctl is-enabled --quiet multipathd
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: multipathd_enabled
-        - name: "PreUpgrade step0,validation: Check service multipathd is running"
-          command: systemctl is-active --quiet multipathd
-          when:
-            - step|int == 0
-            - multipathd_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable multipathd service
-          when:
-            - step|int == 2
-            - multipathd_enabled.rc == 0
-          service: name=multipathd state=stopped enabled=no
+          block:
+            - name: Check if multipathd is deployed
+              command: systemctl is-enabled --quiet multipathd
+              ignore_errors: True
+              register: multipathd_enabled_result
+            - name: Set fact multipathd_enabled
+              set_fact:
+                multipathd_enabled: "{{ multipathd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service multipathd is running"
+              command: systemctl is-active --quiet multipathd
+              when: multipathd_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable multipathd service
+              when: multipathd_enabled|bool
+              service: name=multipathd state=stopped enabled=no

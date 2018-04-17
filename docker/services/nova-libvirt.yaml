@@ -444,19 +444,22 @@ outputs:
       metadata_settings:
         get_attr: [NovaLibvirtBase, role_data, metadata_settings]
       upgrade_tasks:
-        - name: Check if nova_libvirt is deployed
-          command: systemctl is-enabled --quiet libvirtd
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_libvirt_enabled
-        - name: "PreUpgrade step0,validation: Check service libvirtd is running"
-          command: systemctl is-active --quiet libvirtd
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_libvirt_enabled.rc == 0
-        - name: Stop and disable libvirtd service
-          when:
-            - step|int == 2
-            - nova_libvirt_enabled.rc == 0
-          service: name=libvirtd state=stopped enabled=no
+          block:
+            - name: Check if nova_libvirt is deployed
+              command: systemctl is-enabled --quiet libvirtd
+              ignore_errors: True
+              register: nova_libvirt_enabled_result
+            - name: Set fact nova_libvirt_enabled
+              set_fact:
+                nova_libvirt_enabled: "{{ nova_libvirt_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service libvirtd is running"
+              command: systemctl is-active --quiet libvirtd
+              tags: validation
+              when: nova_libvirt_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable libvirtd service
+              when: nova_libvirt_enabled|bool
+              service: name=libvirtd state=stopped enabled=no

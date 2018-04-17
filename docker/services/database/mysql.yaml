@@ -234,22 +234,38 @@ outputs:
               /var/log/containers/mysql.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if mysql service is deployed
-          command: systemctl is-enabled --quiet mariadb
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: mariadb_enabled
-        - name: "PreUpgrade step0,validation: Check if mysql service is running"
-          command: systemctl is-active --quiet mariadb
-          when:
-            - step|int == 0
-            - mariadb_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable mysql service
-          when:
-            - step|int == 2
-            - mariadb_enabled.rc == 0
-          service: name=mariadb state=stopped enabled=no
+          block:
+            - name: Check if mysql service is deployed
+              command: systemctl is-enabled --quiet mariadb
+              ignore_errors: True
+              register: mariadb_enabled_result
+            - name: Set fact mariadb_enabled
+              set_fact:
+                mariadb_enabled: "{{ mariadb_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if mysql service is running"
+              command: systemctl is-active --quiet mariadb
+              when: mariadb_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            # https://bugs.launchpad.net/tripleo/+bug/1753247
+            - name: Rename old neutron database to ovs_neutron
+              shell: >
+                if [ -d /var/lib/mysql/neutron ] ; then
+                  mysql -e "CREATE DATABASE IF NOT EXISTS \`ovs_neutron\`;"
+                  for table in `mysql -B -N -e "SHOW TABLES;" neutron`
+                    do
+                      mysql -e "RENAME TABLE \`neutron\`.\`$table\` to \`ovs_neutron\`.\`$table\`"
+                    done
+                  mysql -e "DROP DATABASE \`neutron\`;"
+                fi
+              become: true
+              when: {get_param: UndercloudUpgrade}
+            - name: Stop and disable mysql service
+              when: mariadb_enabled|bool
+              service: name=mariadb state=stopped enabled=no
       post_upgrade_tasks:
         - name: Check and upgrade Mysql database after major version upgrade
           command: docker exec -u root mysql mysql_upgrade

@@ -164,16 +164,29 @@ outputs:
             path: /etc/ceph
             state: directory
       upgrade_tasks:
-        - name: Stop and disable cinder_backup service
-          when: step|int == 2
-          service: name=openstack-cinder-backup state=stopped enabled=no
-        - name: Set fact for removal of openstack-cinder package
-          when: step|int == 2
-          set_fact:
-            remove_cinder_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-cinder package if operator requests it
-          yum: name=openstack-cinder state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_cinder_package|bool
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: Check if cinder_backup is deployed
+              command: systemctl is-enabled openstack-cinder-backup
+              ignore_errors: True
+              register: cinder_backup_enabled_result
+            - name: Set fact cinder_backup_enabled
+              set_fact:
+                cinder_backup_enabled: "{{ cinder_backup_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-cinder-backup is running"
+              shell: systemctl is-active --quiet openstack-cinder-backup
+              when: cinder_backup_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable cinder_backup service
+              when: cinder_backup_enabled|bool
+              service: name=openstack-cinder-backup state=stopped enabled=no
+            - name: Set fact for removal of openstack-cinder package
+              set_fact:
+                remove_cinder_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-cinder package if operator requests it
+              yum: name=openstack-cinder state=removed
+              ignore_errors: True
+              when: remove_cinder_package|bool

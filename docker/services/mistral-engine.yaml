@@ -121,19 +121,22 @@ outputs:
               /var/log/containers/mistral.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if mistral engine is deployed
-          command: systemctl is-enabled --quiet openstack-mistral-engine
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: mistral_engine_enabled
-        - name: "PreUpgrade step0,validation: Check if openstack-mistral-engine is running"
-          command: systemctl is-active --quiet openstack-mistral-engine
-          when:
-            - step|int == 0
-            - mistral_engine_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable mistral_engine service
-          when:
-            - step|int == 2
-            - mistral_engine_enabled.rc == 0
-          service: name=openstack-mistral-engine state=stopped enabled=no
+          block:
+            - name: Check if mistral engine is deployed
+              command: systemctl is-enabled --quiet openstack-mistral-engine
+              ignore_errors: True
+              register: mistral_engine_enabled_result
+            - name: Set fact mistral_engine_enabled
+              set_fact:
+                mistral_engine_enabled: "{{ mistral_engine_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if openstack-mistral-engine is running"
+              command: systemctl is-active --quiet openstack-mistral-engine
+              when: mistral_engine_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable mistral_engine service
+              when: mistral_engine_enabled|bool
+              service: name=openstack-mistral-engine state=stopped enabled=no
