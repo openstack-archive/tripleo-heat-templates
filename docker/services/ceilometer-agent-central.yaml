@@ -151,32 +151,32 @@ outputs:
               /var/log/containers/ceilometer.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if ceilometer_agent_central is deployed
-          command: systemctl is-enabled --quiet openstack-ceilometer-central
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ceilometer_agent_central_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-central is running"
-          command: systemctl is-active --quiet openstack-ceilometer-central
-          when:
-            - step|int == 0
-            - ceilometer_agent_central_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ceilometer agent central service
-          service: name=openstack-ceilometer-central state=stopped enabled=no
-          when:
-            - step|int == 2
-            - ceilometer_agent_central_enabled.rc == 0
-        - name: Set fact for removal of openstack-ceilometer-central package
-          when: step|int == 2
-          set_fact:
-            remove_ceilometer_central_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-ceilometer-central package if operator requests it
-          yum: name=openstack-ceilometer-central state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_ceilometer_central_package|bool
+          block:
+            - name: Check if ceilometer_agent_central is deployed
+              command: systemctl is-enabled --quiet openstack-ceilometer-central
+              ignore_errors: True
+              register: ceilometer_agent_central_enabled_result
+            - name: Set fact ceilometer_agent_central_enabled
+              set_fact:
+                ceilometer_agent_central_enabled: "{{ ceilometer_agent_central_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-central is running"
+              command: systemctl is-active --quiet openstack-ceilometer-central
+              when: ceilometer_agent_central_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ceilometer agent central service
+              service: name=openstack-ceilometer-central state=stopped enabled=no
+              when: ceilometer_agent_central_enabled|bool
+            - name: Set fact for removal of openstack-ceilometer-central package
+              set_fact:
+                remove_ceilometer_central_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-ceilometer-central package if operator requests it
+              yum: name=openstack-ceilometer-central state=removed
+              ignore_errors: True
+              when: remove_ceilometer_central_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-ceilometer-central is deployed
           command: systemctl is-enabled --quiet openstack-ceilometer-central

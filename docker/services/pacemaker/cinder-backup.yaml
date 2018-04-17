@@ -240,17 +240,39 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - name: Get docker Cinder-Backup image
-          set_fact:
-            cinder_backup_docker_image_latest: *cinder_backup_image_pcmklatest
-        - name: Check for Cinder-Backup Kolla configuration
-          command: grep '^backup_driver[ \t]*=' /var/lib/config-data/puppet-generated/cinder/etc/cinder/cinder.conf
-          changed_when: no
-          ignore_errors: true
-          register: cinder_backup_kolla_config
-        - name: Check if Cinder-Backup is already containerized
-          set_fact:
-            cinder_backup_containerized: "{{cinder_backup_kolla_config|succeeded}}"
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: Get docker Cinder-Backup image
+              set_fact:
+                cinder_backup_docker_image_latest: *cinder_backup_image_pcmklatest
+            - name: Check for Cinder-Backup Kolla configuration
+              command: grep '^backup_driver[ \t]*=' /var/lib/config-data/puppet-generated/cinder/etc/cinder/cinder.conf
+              changed_when: no
+              ignore_errors: true
+              register: cinder_backup_kolla_config
+            - name: Check if Cinder-Backup is already containerized
+              set_fact:
+                cinder_backup_containerized: "{{cinder_backup_kolla_config|succeeded}}"
+            - name: Prepare the switch to new cinder_backup container image name in pacemaker
+              when: cinder_backup_containerized|bool
+              block:
+                - name: Get cinder_backup image id currently used by pacemaker
+                  shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}' | uniq"
+                  register: cinder_backup_current_pcmklatest_id
+                - name: Temporarily tag the current cinder_backup image id with the upgraded image name
+                  shell: "docker tag {{cinder_backup_current_pcmklatest_id.stdout}} {{cinder_backup_docker_image_latest}}"
+                  when: cinder_backup_current_pcmklatest_id.stdout != ''
+            - name: Check openstack-cinder-backup cluster resource status
+              pacemaker_resource:
+                resource: openstack-cinder-backup
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: cinder_backup_pcs_res_result
+            - name: Set fact cinder_backup_pcs_res
+              set_fact:
+                cinder_backup_pcs_res: "{{cinder_backup_pcs_res_result|succeeded}}"
         - name: Cinder-Backup baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -290,30 +312,12 @@ outputs:
                   until: output.rc == 0
             - name: Disable cinder_backup service
               service: name=openstack-cinder-backup enabled=no
-        - name: Prepare the switch to new cinder_backup container image name in pacemaker
-          when:
-            - step|int == 0
-            - cinder_backup_containerized|bool
-          block:
-            - name: Get cinder_backup image id currently used by pacemaker
-              shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}' | uniq"
-              register: cinder_backup_current_pcmklatest_id
-            - name: Temporarily tag the current cinder_backup image id with the upgraded image name
-              shell: "docker tag {{cinder_backup_current_pcmklatest_id.stdout}} {{cinder_backup_docker_image_latest}}"
-              when: cinder_backup_current_pcmklatest_id.stdout != ''
-        - name: Check openstack-cinder-backup cluster resource status
-          pacemaker_resource:
-            resource: openstack-cinder-backup
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: cinder_backup_pcs_res
         - name: Update cinder_backup pcs resource bundle for new container image
           when:
             - step|int == 1
             - cinder_backup_containerized|bool
             - is_bootstrap_node
-            - cinder_backup_pcs_res|succeeded
+            - cinder_backup_pcs_res|bool
           block:
             - name: Disable the cinder_backup cluster resource before container upgrade
               pacemaker_resource:

@@ -482,60 +482,57 @@ outputs:
                 for_each:
                   DEVICE: {get_param: SwiftRawDisks}
       upgrade_tasks:
-        - name: Check if swift storage services are deployed
-          command: systemctl is-enabled --quiet "{{ item }}"
+        - when: step|int == 0
           tags: common
-          register: swift_services_enabled
-          ignore_errors: true
-          with_items:
-            - openstack-swift-account-auditor
-            - openstack-swift-account-reaper
-            - openstack-swift-account-replicator
-            - openstack-swift-account
-            - openstack-swift-container-auditor
-            - openstack-swift-container-replicator
-            - openstack-swift-container-updater
-            - openstack-swift-container
-            - openstack-swift-object-auditor
-            - openstack-swift-object-replicator
-            - openstack-swift-object-updater
-            - openstack-swift-object
-        - name: "PreUpgrade step0,validation: Check swift storage services are running"
-          command: systemctl is-active --quiet "{{ item.item }}"
-          tags: validation
-          with_items: "{{ swift_services_enabled.results }}"
-          when:
-            - step|int == 0
-            - item.rc == 0
-        - name: Stop and disable swift storage services
-          service: name={{ item.item }} state=stopped enabled=no
-          with_items: "{{ swift_services_enabled.results }}"
-          when:
-            - step|int == 2
-            - item.rc == 0
-        - name: Set fact for removal of openstack-swift-container,object,account package
-          when: step|int == 2
-          set_fact:
-            remove_swift_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-swift-container,object,account packages if operator requests it
-          yum: name={{ item }} state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_swift_package|bool
-          with_items:
-            - openstack-swift-container
-            - openstack-swift-object
-            - openstack-swift-account
-        - name: Remove rsync service from xinetd
-          file: state=absent path=/etc/xinetd.d/rsync
-          register: rsync_service_removed
-          when: step|int == 2
-        - name: Restart xinetd service after rsync removal
-          service: name=xinetd state=restarted
-          when:
-            - step|int == 2
-            - rsync_service_removed|changed
+          block:
+            - name: Check if swift storage services are deployed
+              command: systemctl is-enabled --quiet "{{ item }}"
+              register: swift_services_enabled_result
+              ignore_errors: true
+              with_items:
+                - openstack-swift-account-auditor
+                - openstack-swift-account-reaper
+                - openstack-swift-account-replicator
+                - openstack-swift-account
+                - openstack-swift-container-auditor
+                - openstack-swift-container-replicator
+                - openstack-swift-container-updater
+                - openstack-swift-container
+                - openstack-swift-object-auditor
+                - openstack-swift-object-replicator
+                - openstack-swift-object-updater
+                - openstack-swift-object
+            - name: Set fact swift_services_enabled
+              set_fact:
+                swift_services_enabled: "{{ swift_services_enabled_result }}"
+            - name: "PreUpgrade step0,validation: Check swift storage services are running"
+              command: systemctl is-active --quiet "{{ item.item }}"
+              tags: validation
+              with_items: "{{ swift_services_enabled.results }}"
+              when: item.rc == 0
+        - when: step|int == 2
+          block:
+            - name: Stop and disable swift storage services
+              service: name={{ item.item }} state=stopped enabled=no
+              with_items: "{{ swift_services_enabled.results }}"
+              when: item.rc == 0
+            - name: Set fact for removal of openstack-swift-container,object,account package
+              set_fact:
+                remove_swift_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-swift-container,object,account packages if operator requests it
+              yum: name={{ item }} state=removed
+              ignore_errors: True
+              when: remove_swift_package|bool
+              with_items:
+                - openstack-swift-container
+                - openstack-swift-object
+                - openstack-swift-account
+            - name: Remove rsync service from xinetd
+              file: state=absent path=/etc/xinetd.d/rsync
+              register: rsync_service_removed
+            - name: Restart xinetd service after rsync removal
+              service: name=xinetd state=restarted
+              when: rsync_service_removed|changed
       update_tasks:
         - name: Ensure rsyncd pid file is absent
           file:

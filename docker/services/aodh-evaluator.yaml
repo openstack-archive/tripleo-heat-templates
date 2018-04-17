@@ -123,32 +123,32 @@ outputs:
               /var/log/containers/aodh and /var/log/containers/httpd/aodh-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if aodh_evaluator is deployed
-          command: systemctl is-enabled --quiet openstack-aodh-evaluator
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: aodh_evaluator_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-aodh-evaluator is running"
-          command: systemctl is-active --quiet openstack-aodh-evaluator
-          when:
-            - step|int == 0
-            - aodh_evaluator_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable openstack-aodh-evaluator service
-          when:
-            - step|int == 2
-            - aodh_evaluator_enabled.rc == 0
-          service: name=openstack-aodh-evaluator.service state=stopped enabled=no
-        - name: Set fact for removal of openstack-aodh-evaluator package
-          when: step|int == 2
-          set_fact:
-            remove_aodh_evaluator_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-aodh-evaluator package if operator requests it
-          yum: name=openstack-aodh-evaluator state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_aodh_evaluator_package|bool
+          block:
+            - name: Check if aodh_evaluator is deployed
+              command: systemctl is-enabled --quiet openstack-aodh-evaluator
+              ignore_errors: True
+              register: aodh_evaluator_enabled_result
+            - name: Set fact aodh_evaluator_enabled
+              set_fact:
+                aodh_evaluator_enabled: "{{ aodh_evaluator_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-aodh-evaluator is running"
+              command: systemctl is-active --quiet openstack-aodh-evaluator
+              tags: validation
+              when: aodh_evaluator_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable openstack-aodh-evaluator service
+              when: aodh_evaluator_enabled|bool
+              service: name=openstack-aodh-evaluator.service state=stopped enabled=no
+            - name: Set fact for removal of openstack-aodh-evaluator package
+              set_fact:
+                remove_aodh_evaluator_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-aodh-evaluator package if operator requests it
+              yum: name=openstack-aodh-evaluator state=removed
+              ignore_errors: True
+              when: remove_aodh_evaluator_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-aodh-evaluator is deployed
           command: systemctl is-enabled --quiet openstack-aodh-evaluator

@@ -162,22 +162,25 @@ outputs:
               Logs from opendaylight container can be found by running "sudo docker logs opendaylight_api" and are also available in /var/log/containers/opendaylight/karaf.log
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if opendaylight is deployed
-          command: systemctl is-enabled --quiet opendaylight
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: opendaylight_enabled
-        - name: "PreUpgrade step0,validation: Check service opendaylight is running"
-          command: systemctl is-active --quiet opendaylight
-          when:
-            - step|int == 0
-            - opendaylight_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable opendaylight_api service
-          when:
-            - step|int == 2
-            - opendaylight_enabled.rc == 0
-          service: name=opendaylight state=stopped enabled=no
+          block:
+            - name: Check if opendaylight is deployed
+              command: systemctl is-enabled --quiet opendaylight
+              ignore_errors: True
+              register: opendaylight_enabled_result
+            - name: Set fact opendaylight_enabled
+              set_fact:
+                opendaylight_enabled: "{{ opendaylight_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service opendaylight is running"
+              command: systemctl is-active --quiet opendaylight
+              when: opendaylight_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable opendaylight_api service
+              when: opendaylight_enabled|bool
+              service: name=opendaylight state=stopped enabled=no
         # Containerized deployment upgrade steps
         - name: ODL container L2 update and upgrade tasks
           block: &odl_container_upgrade_tasks

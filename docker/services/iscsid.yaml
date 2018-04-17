@@ -112,35 +112,36 @@ outputs:
           service: name=iscsid.socket state=stopped enabled=no
           when: stat_iscsid_socket.stat.exists
       upgrade_tasks:
-        - name: Check if iscsid service is deployed
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          command: systemctl is-enabled --quiet iscsid
-          register: iscsid_enabled
-        - name: "PreUpgrade step0,validation: Check if iscsid is running"
-          command: systemctl is-active --quiet iscsid
-          when:
-            - step|int == 0
-            - iscsid_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable iscsid service
-          when:
-            - step|int == 2
-            - iscsid_enabled.rc == 0
-          service: name=iscsid state=stopped enabled=no
-        - name: Check if iscsid.socket service is deployed
-          tags: common
-          command: systemctl is-enabled --quiet iscsid.socket
-          ignore_errors: True
-          register: iscsid_socket_enabled
-        - name: "PreUpgrade step0,validation: Check if iscsid.socket is running"
-          command: systemctl is-active --quiet iscsid.socket
-          when:
-            - step|int == 0
-            - iscsid_socket_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable iscsid.socket service
-          when:
-            - step|int == 2
-            - iscsid_socket_enabled.rc == 0
-          service: name=iscsid.socket state=stopped enabled=no
+          block:
+            - name: Check if iscsid service is deployed
+              ignore_errors: True
+              command: systemctl is-enabled --quiet iscsid
+              register: iscsid_enabled_result
+            - name: Set fact iscsid_enabled
+              set_fact:
+                iscsid_enabled: "{{ iscsid_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if iscsid is running"
+              command: systemctl is-active --quiet iscsid
+              when: iscsid_enabled|bool
+              tags: validation
+            - name: Check if iscsid.socket service is deployed
+              command: systemctl is-enabled --quiet iscsid.socket
+              ignore_errors: True
+              register: iscsid_socket_enabled_result
+            - name: Set fact iscsid_socket_enabled
+              set_fact:
+                iscsid_socket_enabled: "{{ iscsid_socket_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if iscsid.socket is running"
+              command: systemctl is-active --quiet iscsid.socket
+              when: iscsid_socket_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable iscsid service
+              when: iscsid_enabled|bool
+              service: name=iscsid state=stopped enabled=no
+            - name: Stop and disable iscsid.socket service
+              when: iscsid_socket_enabled|bool
+              service: name=iscsid.socket state=stopped enabled=no

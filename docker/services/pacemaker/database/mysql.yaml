@@ -323,23 +323,43 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - name: Get docker Mysql image
-          set_fact:
-            mysql_docker_image_latest: *mysql_image_pcmklatest
-        - name: Check for Mysql Kolla configuration
-          stat:
-            path: /var/lib/config-data/puppet-generated/mysql
-          register: mysql_kolla_config
-        - name: Check if Mysql is already containerized
-          set_fact:
-            mysql_containerized: "{{mysql_kolla_config.stat.isdir | default(false)}}"
-        - name: get bootstrap nodeid
+        - when: step|int == 0
           tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+          block:
+            - name: Get docker Mysql image
+              set_fact:
+                mysql_docker_image_latest: *mysql_image_pcmklatest
+            - name: Check for Mysql Kolla configuration
+              stat:
+                path: /var/lib/config-data/puppet-generated/mysql
+              register: mysql_kolla_config
+            - name: Check if Mysql is already containerized
+              set_fact:
+                mysql_containerized: "{{mysql_kolla_config.stat.isdir | default(false)}}"
+            - name: get bootstrap nodeid
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Prepare the switch to new galera container image name in pacemaker
+              when: mysql_containerized|bool
+              block:
+                - name: Get galera image id currently used by pacemaker
+                  shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
+                  register: galera_current_pcmklatest_id
+                - name: Temporarily tag the current galera image id with the upgraded image name
+                  shell: "docker tag {{galera_current_pcmklatest_id.stdout}} {{mysql_docker_image_latest}}"
+                  when: galera_current_pcmklatest_id.stdout != ''
+            - name: Check galera cluster resource status
+              pacemaker_resource:
+                resource: galera
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: galera_pcs_res_result
+            - name: Set fact galera_pcs_res
+              set_fact:
+                galera_pcs_res: "{{galera_pcs_res_result|succeeded}}"
         - name: Mysql baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -376,30 +396,12 @@ outputs:
               file: state=absent path=/etc/xinetd.d/galera-monitor
             - name: Restart xinetd service after clustercheck removal
               service: name=xinetd state=restarted
-        - name: Prepare the switch to new galera container image name in pacemaker
-          when:
-            - step|int == 0
-            - mysql_containerized|bool
-          block:
-            - name: Get galera image id currently used by pacemaker
-              shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
-              register: galera_current_pcmklatest_id
-            - name: Temporarily tag the current galera image id with the upgraded image name
-              shell: "docker tag {{galera_current_pcmklatest_id.stdout}} {{mysql_docker_image_latest}}"
-              when: galera_current_pcmklatest_id.stdout != ''
-        - name: Check galera cluster resource status
-          pacemaker_resource:
-            resource: galera
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: galera_pcs_res
         - name: Update galera pcs resource bundle for new container image
           when:
             - step|int == 1
             - mysql_containerized|bool
             - is_bootstrap_node
-            - galera_pcs_res|succeeded
+            - galera_pcs_res|bool
           block:
             - name: Disable the galera cluster resource before container upgrade
               pacemaker_resource:

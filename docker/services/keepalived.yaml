@@ -114,19 +114,22 @@ outputs:
               /var/log/containers/keepalived.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if keepalived is deployed
-          command: systemctl is-enabled --quiet keepalived
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: keepalived_enabled
-        - name: "PreUpgrade step0,validation: Check service keepalived is running"
-          command: systemctl is-active --quiet keepalived
-          when:
-            - step|int == 0
-            - keepalived_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable keepalived service
-          when:
-            - step|int == 2
-            - keepalived_enabled.rc == 0
-          service: name=keepalived state=stopped enabled=no
+          block:
+            - name: Check if keepalived is deployed
+              command: systemctl is-enabled --quiet keepalived
+              ignore_errors: True
+              register: keepalived_enabled_result
+            - name: Set fact keepalived_enabled
+              set_fact:
+                keepalived_enabled: "{{ keepalived_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service keepalived is running"
+              command: systemctl is-active --quiet keepalived
+              when: keepalived_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable keepalived service
+              service: name=keepalived state=stopped enabled=no
+              when: keepalived_enabled|bool

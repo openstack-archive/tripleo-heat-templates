@@ -104,19 +104,22 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if ironic-neutron-agent is deployed
-          command: systemctl is-enabled --quiet ironic-neutron-agent
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ironic_neutron_agent_enabled
-        - name: "PreUpgrade step0,validation: Check service ironic-neutron-agent is running"
-          command: systemctl is-active --quiet ironic-neutron-agent
-          when:
-            - step|int == 0
-            - ironic_neutron_agent_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ironic-neutron-agent service
-          when:
-            - step|int == 2
-            - ironic_neutron_agent_enabled.rc == 0
-          service: name=ironic-neutron-agent state=stopped enabled=no
+          block:
+            - name: Check if ironic-neutron-agent is deployed
+              command: systemctl is-enabled --quiet ironic-neutron-agent
+              ignore_errors: True
+              register: ironic_neutron_agent_enabled_result
+            - name: Set fact ironic_neutron_agent_enabled
+              set_fact:
+                ironic_neutron_agent_enabled: "{{ ironic_neutron_agent_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service ironic-neutron-agent is running"
+              command: systemctl is-active --quiet ironic-neutron-agent
+              when: ironic_neutron_agent_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ironic-neutron-agent service
+              when: ironic_neutron_agent_enabled|bool
+              service: name=ironic-neutron-agent state=stopped enabled=no

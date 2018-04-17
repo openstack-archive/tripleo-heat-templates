@@ -250,39 +250,40 @@ outputs:
               file: path=/var/lib/nova/instanceha/enabled state=touch
               when: iha_nodes.stdout|lower | search('"'+ansible_hostname|lower+'"')
       upgrade_tasks:
-        - name: Check if nova_compute is deployed
-          command: systemctl is-enabled --quiet openstack-nova-compute
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_compute_enabled
-        - name: Set compute upgrade level to auto
-          when: step|int == 1
-          ini_file:
-            str_replace:
-              template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
-              params:
-                LEVEL: {get_param: UpgradeLevelNovaCompute}
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-compute is running"
-          command: systemctl is-active --quiet openstack-nova-compute
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_compute_enabled.rc == 0
-        - name: Stop and disable nova-compute service
-          when:
-            - step|int == 2
-            - nova_compute_enabled.rc == 0
-          service: name=openstack-nova-compute state=stopped enabled=no
-        - name: Set fact for removal of openstack-nova-compute package
-          when: step|int == 2
-          set_fact:
-            remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-nova-compute package if operator requests it
-          yum: name=openstack-nova-compute state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_nova_compute_package|bool
+          block:
+            - name: Check if nova_compute is deployed
+              command: systemctl is-enabled --quiet openstack-nova-compute
+              ignore_errors: True
+              register: nova_compute_enabled_result
+            - name: Set fact nova_compute_enabled
+              set_fact:
+                nova_compute_enabled: "{{ nova_compute_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-compute is running"
+              command: systemctl is-active --quiet openstack-nova-compute
+              tags: validation
+              when: nova_compute_enabled|bool
+        - when: step|int == 1
+          block:
+            - name: Set compute upgrade level to auto
+              ini_file:
+                str_replace:
+                  template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
+                  params:
+                    LEVEL: {get_param: UpgradeLevelNovaCompute}
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova-compute service
+              when: nova_compute_enabled|bool
+              service: name=openstack-nova-compute state=stopped enabled=no
+            - name: Set fact for removal of openstack-nova-compute package
+              set_fact:
+                remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-compute package if operator requests it
+              yum: name=openstack-nova-compute state=removed
+              ignore_errors: True
+              when: remove_nova_compute_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova-compute is deployed
           command:  systemctl is-enabled --quiet openstack-nova-compute
