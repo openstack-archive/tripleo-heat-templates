@@ -62,15 +62,23 @@ def parse_opts(argv):
                         action='store_true',
                         help=("""clean the templates dir by deleting """
                               """generated templates"""))
+    parser.add_argument('-d', '--dry-run',
+                        action='store_true',
+                        help=("""only output file names normally generated """
+                              """from j2 templates"""))
     opts = parser.parse_args(argv[1:])
 
     return opts
 
 
 def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
-                       overwrite=True):
+                       overwrite=True, dry_run=False):
     yaml_f = outfile_name or j2_template.replace('.j2.yaml', '.yaml')
-    print('rendering j2 template to file: %s' % outfile_name)
+    if dry_run:
+        amend = 'dry run processing'
+    else:
+        amend = 'rendering'
+    print('%s j2 template to file: %s' % (amend, outfile_name))
 
     if not overwrite and os.path.exists(outfile_name):
         print('ERROR: path already exists for file: %s' % outfile_name)
@@ -90,12 +98,12 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
                      % (yaml_f, six.text_type(ex)))
         print(error_msg)
         raise Exception(error_msg)
-    with open(outfile_name, 'w') as out_f:
-        out_f.write(r_template)
-
+    if not dry_run:
+        with open(outfile_name, 'w') as out_f:
+            out_f.write(r_template)
 
 def process_templates(template_path, role_data_path, output_dir,
-                      network_data_path, overwrite):
+                      network_data_path, overwrite, dry_run):
 
     with open(role_data_path) as role_data_file:
         role_data = yaml.safe_load(role_data_file)
@@ -196,7 +204,8 @@ def process_templates(template_path, role_data_path, output_dir,
                                     j2_data = {'role': r_map[role],
                                                'networks': network_data}
                                     _j2_render_to_file(template_data, j2_data,
-                                                       out_f_path, overwrite)
+                                                       out_f_path, overwrite,
+                                                       dry_run)
                                 else:
                                     # Backwards compatibility with templates
                                     # that specify {{role}} vs {{role.name}}
@@ -210,7 +219,7 @@ def process_templates(template_path, role_data_path, output_dir,
                                         j2_data['disable_constraints'] = True
                                     _j2_render_to_file(
                                         template_data, j2_data,
-                                        out_f_path, overwrite)
+                                        out_f_path, overwrite, dry_run)
 
                             else:
                                 print('skipping rendering of %s' % out_f_path)
@@ -234,7 +243,7 @@ def process_templates(template_path, role_data_path, output_dir,
                         out_f_path = os.path.join(out_dir, out_f)
                         if not (out_f_path in excl_templates):
                             _j2_render_to_file(template_data, j2_data,
-                                               out_f_path)
+                                               out_f_path, overwrite, dry_run)
                         else:
                             print('skipping rendering of %s' % out_f_path)
 
@@ -247,7 +256,7 @@ def process_templates(template_path, role_data_path, output_dir,
                         out_f = os.path.basename(f).replace('.j2.yaml', '.yaml')
                         out_f_path = os.path.join(out_dir, out_f)
                         _j2_render_to_file(template_data, j2_data, out_f_path,
-                                           overwrite)
+                                           overwrite, dry_run)
                 elif output_dir:
                     _shutil_copy_if_not_same(os.path.join(subdir, f), out_dir)
 
@@ -330,4 +339,4 @@ if opts.clean:
     clean_templates(opts.base_path, role_data_path, network_data_path)
 else:
     process_templates(opts.base_path, role_data_path, opts.output_dir,
-                      network_data_path, (not opts.safe))
+                      network_data_path, (not opts.safe), opts.dry_run)
