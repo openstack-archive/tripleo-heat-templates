@@ -33,8 +33,8 @@ Same as above except set the following value for the controller role:
 Configuration with System Management Network
 --------------------------------------------
 
-The Management network is included for upgrade compatibility with
-previous versions, but disabled. To enable the optional System
+The Management network is enabled for backwards-compatibility, but
+is not included in any roles by default. To enable the optional System
 Management network, create a Heat environment that looks something like
 this:
 
@@ -50,7 +50,6 @@ Or use this Heat environment file:
 
   environments/network-management.yaml
 
-Or, enable the Management network in network_data.yaml, and add the network
-to the list of networks used by each role in the role definition file
-(e.g. roles_data.yaml). Refer to installation documentation for procedure
-to generate a role file for custom roles.
+Or, add the network to the list of networks used by each role in the role
+definition file (e.g. roles_data.yaml). Refer to installation documentation
+for procedure to generate a role file for custom roles.
