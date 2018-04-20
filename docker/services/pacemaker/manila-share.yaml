@@ -233,36 +233,38 @@ outputs:
               register: manila_share_current_pcmklatest_id
             - name: Temporarily tag the current Manila-Share image id with the upgraded image name
               shell: "docker tag {{manila_share_current_pcmklatest_id.stdout}} {{manila_share_docker_image_latest}}"
-        - name: Disable the Manila-Share cluster resource before container upgrade
-          when:
-            - step|int == 1
-            - manila_share_containerized|bool
-            - is_bootstrap_node
+        - name: Check openstack-manila-share cluster resource status
           pacemaker_resource:
             resource: openstack-manila-share
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-        - name: Update the Manila-Share bundle to use the new container image name
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: manila_share_pcs_res
+        - name: Update openstack-manila-share pcs resource bundle for new container image
           when:
             - step|int == 1
             - manila_share_containerized|bool
             - is_bootstrap_node
-          command: "pcs resource bundle update openstack-manila-share container image={{manila_share_docker_image_latest}}"
-        - name: Enable the Manila-Share cluster resource
-          when:
-            - step|int == 1
-            - manila_share_containerized|bool
-            - is_bootstrap_node
-          pacemaker_resource:
-            resource: openstack-manila-share
-            state: enable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
+            - manila_share_pcs_res|succeeded
+          block:
+            - name: Disable the Manila-Share cluster resource before container upgrade
+              pacemaker_resource:
+                resource: openstack-manila-share
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Update the Manila-Share bundle to use the new container image name
+              command: "pcs resource bundle update openstack-manila-share container image={{manila_share_docker_image_latest}}"
+            - name: Enable the Manila-Share cluster resource
+              pacemaker_resource:
+                resource: openstack-manila-share
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3

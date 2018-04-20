@@ -385,54 +385,53 @@ outputs:
               register: galera_current_pcmklatest_id
             - name: Temporarily tag the current galera image id with the upgraded image name
               shell: "docker tag {{galera_current_pcmklatest_id.stdout}} {{mysql_docker_image_latest}}"
-        - name: Disable the galera cluster resource before container upgrade
-          when:
-            - step|int == 1
-            - mysql_containerized|bool
-            - is_bootstrap_node
+
+        - name: Check galera cluster resource status
           pacemaker_resource:
             resource: galera
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-        - name: Move Mysql logging to /var/log/containers
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: galera_pcs_res
+        - name: Update galera pcs resource bundle for new container image
           when:
             - step|int == 1
             - mysql_containerized|bool
             - is_bootstrap_node
+            - galera_pcs_res|succeeded
           block:
-            - name: Check Mysql logging configuration in pacemaker
-              command: cibadmin --query --xpath "//storage-mapping[@id='mysql-log']"
-              ignore_errors: true
-              register: mysql_logs_moved
-            - name: Change Mysql logging configuration in pacemaker
-              # rc == 6 means the configuration doesn't exist in the CIB
-              when: mysql_logs_moved.rc == 6
+            - name: Disable the galera cluster resource before container upgrade
+              pacemaker_resource:
+                resource: galera
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move Mysql logging to /var/log/containers
               block:
-                - name: Add a bind mount for logging in the galera bundle
-                  command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
-                - name: Reconfigure Mysql log file in the galera resource agent
-                  command: pcs resource update galera log=/var/log/mysql/mysqld.log
-        - name: Update the galera bundle to use the new container image name
-          when:
-            - step|int == 1
-            - mysql_containerized|bool
-            - is_bootstrap_node
-          command: "pcs resource bundle update galera-bundle container image={{mysql_docker_image_latest}}"
-        - name: Enable the galera cluster resource
-          when:
-            - step|int == 1
-            - mysql_containerized|bool
-            - is_bootstrap_node
-          pacemaker_resource:
-            resource: galera
-            state: enable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
+                - name: Check Mysql logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='mysql-log']"
+                  ignore_errors: true
+                  register: mysql_logs_moved
+                - name: Change Mysql logging configuration in pacemaker
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: mysql_logs_moved.rc == 6
+                  block:
+                    - name: Add a bind mount for logging in the galera bundle
+                      command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
+                    - name: Reconfigure Mysql log file in the galera resource agent
+                      command: pcs resource update galera log=/var/log/mysql/mysqld.log
+            - name: Update the galera bundle to use the new container image name
+              command: "pcs resource bundle update galera-bundle container image={{mysql_docker_image_latest}}"
+            - name: Enable the galera cluster resource
+              pacemaker_resource:
+                resource: galera
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
