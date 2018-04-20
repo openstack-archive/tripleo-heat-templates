@@ -140,6 +140,30 @@ outputs:
               OvsDpdkDriverType: {if: [driver_not_set, {get_param: NeutronDpdkDriverType}, {get_param: OvsDpdkDriverType}]}
               OvsPmdCoreList: {if: [pmd_cores_empty, {get_param: NeutronDpdkCoreList}, {get_param: OvsPmdCoreList}]}
 
+      update_tasks:
+        # Ovs uses openvswitch:hugetlbfs as user and group settings
+        # when updating to 2.8 onwards, but openvswitch user is not
+        # created during package update. This adds workaround to
+        # make sure openvswitch user exist before running package
+        # update. Details can be found at:
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1559374
+        # 42477 is the kolla hugetlbfs gid value.
+        - name: ensure hugetlbfs group is present
+          when: step == "2"
+          group:
+            name: hugetlbfs
+            gid: 42477
+
+        - name: ensure openvswitch user is present on the host
+          when: step == "2"
+          user:
+            name: openvswitch
+            home: /
+            system: yes
+            groups: hugetlbfs
+            shell: /sbin/nologin
+            comment: "OpenvSwitch Daemons"
+
       upgrade_tasks:
         - name: Check openvswitch version.
           tags: step2
