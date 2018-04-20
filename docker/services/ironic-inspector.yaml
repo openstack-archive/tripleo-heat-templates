@@ -40,6 +40,10 @@ parameters:
     type: boolean
     description: Flag to indicate undercloud upgrade process is being run.
     default: false
+  IPAImageURLs:
+    default: []
+    description: IPA image URLs, the format should be ["http://path/to/kernel", "http://path/to/ramdisk"]
+    type: json
 
 resources:
 
@@ -58,6 +62,9 @@ resources:
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
+
+conditions:
+  ipa_images: {not: {equals: [{get_param: IPAImageURLs}, []]}}
 
 outputs:
   role_data:
@@ -132,6 +139,31 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             command: "/usr/bin/bootstrap_host_exec ironic_inspector su ironic-inspector -s /bin/bash -c 'ironic-inspector-dbsync --config-file /etc/ironic-inspector/inspector.conf upgrade'"
+          ironic_inspector_get_ipa:
+            start_order: 2
+            image: *ironic_inspector_image
+            net: host
+            user: root
+            privileged: false
+            detach: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ironic_inspector.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/ironic:/var/lib/ironic
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            command:
+              if:
+               - ipa_images
+               - list_join:
+                   - " "
+                   - - "curl -g -o /var/lib/ironic/httpboot/agent.kernel"
+                     - {get_param: [IPAImageURLs, 0]}
+                     - "-o /var/lib/ironic/httpboot/agent.ramdisk"
+                     - {get_param: [IPAImageURLs, 1]}
+               - 'true'
         step_4:
           ironic_inspector:
             start_order: 92
