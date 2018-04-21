@@ -185,7 +185,7 @@ outputs:
                 docker_image: {get_param: DockerManilaShareImage}
                 docker_image_latest: *manila_share_image_pcmklatest
             - name: Get previous Manila-Share image id
-              shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}'"
+              shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
               register: manila_share_image_id
             - block:
                 - name: Get a list of container using Manila-Share image
@@ -208,7 +208,7 @@ outputs:
       upgrade_tasks:
         - name: Get docker Manila-Share image
           set_fact:
-            docker_image_latest: *manila_share_image_pcmklatest
+            manila_share_docker_image_latest: *manila_share_image_pcmklatest
         - name: Check for Manila-Share Kolla configuration
           stat:
             path: /var/lib/config-data/puppet-generated/manila
@@ -223,6 +223,46 @@ outputs:
           block:
             - name: Stop and disable manila_share service
               service: name=openstack-manila-share state=stopped enabled=no
+        - name: Prepare the switch to new Manila-Share container image name in pacemaker
+          when:
+            - step|int == 0
+            - manila_share_containerized|bool
+          block:
+            - name: Get Manila-Share image id currently used by pacemaker
+              shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
+              register: manila_share_current_pcmklatest_id
+            - name: Temporarily tag the current Manila-Share image id with the upgraded image name
+              shell: "docker tag {{manila_share_current_pcmklatest_id.stdout}} {{manila_share_docker_image_latest}}"
+        - name: Disable the Manila-Share cluster resource before container upgrade
+          when:
+            - step|int == 1
+            - manila_share_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: openstack-manila-share
+            state: disable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
+        - name: Update the Manila-Share bundle to use the new container image name
+          when:
+            - step|int == 1
+            - manila_share_containerized|bool
+            - is_bootstrap_node
+          command: "pcs resource bundle update openstack-manila-share container image={{manila_share_docker_image_latest}}"
+        - name: Enable the Manila-Share cluster resource
+          when:
+            - step|int == 1
+            - manila_share_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: openstack-manila-share
+            state: enable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
