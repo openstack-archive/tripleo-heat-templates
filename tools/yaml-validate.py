@@ -726,6 +726,10 @@ def validate_service_hiera_interpol(f, tpl):
                                      'ServiceNetMap',
                                      search_keynames, enter_lists)
         for path in values_found:
+            # Omit if external deploy tasks in the path
+            if 'external_deploy_tasks' in path:
+                continue
+
             # Omit if not a part of {get_param: [ServiceNetMap ...
             if not enter_lists and path[-1] != 'get_param':
                 continue
