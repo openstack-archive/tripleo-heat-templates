@@ -113,16 +113,9 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
     if openstack cron trigger show publish-ui-logs-hourly >/dev/null 2>&1; then
         openstack cron trigger delete publish-ui-logs-hourly
     fi
-    #TODO In the future we should be able to run something like
-    # openstack workflow list --filter=tag=tripleo-common-managed
-    # but right now this is broken in Mistral, so we'll fix later.
-    for workflow in $(openstack workflow list -c Name -c Tags | grep tripleo-common-managed); do
-        NAME=$(echo ${workflow} | awk '{print $2}')
-        TAG=$(echo ${workflow} | awk '{print $4}')
-        if echo $TAG | grep -q tripleo-common-managed; then
-            openstack workflow delete $NAME
-        fi
-    done
+
+    openstack workflow delete $(openstack workflow list -c Name -f value --filter tags=tripleo-common-managed)  || true;
+
     for workbook in $(ls /usr/share/openstack-tripleo-common/workbooks/*); do
         openstack workbook create $workbook
     done
