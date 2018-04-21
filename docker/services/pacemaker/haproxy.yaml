@@ -308,7 +308,7 @@ outputs:
                 docker_image: {get_param: DockerHAProxyImage}
                 docker_image_latest: *haproxy_image_pcmklatest
             - name: Get previous Haproxy image id
-              shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}'"
+              shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
               register: haproxy_image_id
             - block:
                 - name: Get a list of container using Haproxy image
@@ -331,7 +331,7 @@ outputs:
       upgrade_tasks:
         - name: Get docker haproxy image
           set_fact:
-            docker_image_latest: *haproxy_image_pcmklatest
+            haproxy_docker_image_latest: *haproxy_image_pcmklatest
         - name: Set HAProxy upgrade facts
           block: *haproxy_update_upgrade_facts
         - name: haproxy baremetal to container upgrade tasks
@@ -364,6 +364,28 @@ outputs:
                   register: output
                   retries: 5
                   until: output.rc == 0
+        - name: Prepare the switch to new haproxy container image name in pacemaker
+          when:
+            - step|int == 0
+            - haproxy_containerized|bool
+          block:
+            - name: Get haproxy image id currently used by pacemaker
+              shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
+              register: haproxy_current_pcmklatest_id
+            - name: Temporarily tag the current haproxy image id with the upgraded image name
+              shell: "docker tag {{haproxy_current_pcmklatest_id.stdout}} {{haproxy_docker_image_latest}}"
+        - name: Disable the haproxy cluster resource before container upgrade
+          when:
+            - step|int == 1
+            - haproxy_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: haproxy-bundle
+            state: disable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
           when:
             - step|int == 1
@@ -378,18 +400,9 @@ outputs:
               command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
               ignore_errors: true
               register: haproxy_cert_mounted
-            - name: Disable the haproxy cluster resource
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-              # rc == 6 means the configuration doesn't exist in the CIB
-              when: haproxy_stats_exposed.rc == 6 or haproxy_cert_mounted.rc == 6
             - name: Add a bind mount for stats socket in the haproxy bundle
               command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
+              # rc == 6 means the configuration doesn't exist in the CIB
               when: haproxy_stats_exposed.rc == 6
             - name: Set HAProxy public cert volume mount fact
               set_fact:
@@ -398,15 +411,24 @@ outputs:
             - name: Add a bind mount for public certificate in the haproxy bundle
               command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
               when: haproxy_cert_mounted.rc == 6 and haproxy_public_tls_enabled|bool
-            - name: Enable the haproxy cluster resource
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-              when: haproxy_stats_exposed.rc == 6 or haproxy_cert_mounted.rc == 6
+        - name: Update the haproxy bundle to use the new container image name
+          when:
+            - step|int == 1
+            - haproxy_containerized|bool
+            - is_bootstrap_node
+          command: "pcs resource bundle update haproxy-bundle container image={{haproxy_docker_image_latest}}"
+        - name: Enable the haproxy cluster resource
+          when:
+            - step|int == 1
+            - haproxy_containerized|bool
+            - is_bootstrap_node
+          pacemaker_resource:
+            resource: haproxy-bundle
+            state: enable
+            wait_for_resource: true
+          register: output
+          retries: 5
+          until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
