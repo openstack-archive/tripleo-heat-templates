@@ -859,7 +859,8 @@ def validate(filename, param_map):
                     )
                 )
                 return 1
-            if tpl_template_version != current_heat_template_version:
+            if tpl_template_version != current_heat_template_version \
+                    and args.quiet < 2:
                 print('Warning: heat_template_version in template %s '
                       'is outdated: %s (current %s)'
                     % (
@@ -979,7 +980,8 @@ def validate_upgrade_tasks(upgrade_tasks):
                         print('ERROR: \'step|int ==\' condition should be evaluated first in when conditions for task (%s)'  % (task))
                         return 1
             else:
-                if (' and ' in whenline) and (' or ' not in whenline):
+                if (' and ' in whenline) and (' or ' not in whenline) \
+                        and args.quiet < 2:
                     print("Warning: Consider specifying \'and\' conditions as a list to improve readability in task: \"%s\"" %  (task_name))
     return 0
 
