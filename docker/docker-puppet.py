@@ -198,6 +198,9 @@ for service in (json_data or []):
         if configs[config_volume][3] != config_image:
             log.warning("Config containers do not match even though"
                         " shared volumes are the same!")
+        if volumes:
+            configs[config_volume][4].extend(volumes)
+
     else:
         if not config_volume_only or (config_volume_only == config_volume):
             log.debug("Adding new service")
