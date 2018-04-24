@@ -16,7 +16,7 @@ Template Usage
 To use these templates pass the included environment file to the deployment
 command::
 
-    -e deployed-server/deployed-server-environment.yaml
+    -e environments/deployed-server-environment.yaml
 
 Deployed Server configuration
 -----------------------------
