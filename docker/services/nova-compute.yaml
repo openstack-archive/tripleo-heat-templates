@@ -73,6 +73,12 @@ parameters:
     default: []
     description: list of optional en
     type: comma_delimited_list
+  EnableInstanceHA:
+    default: false
+    description: Whether to enable an Instance Ha configurarion or not.
+                 This setup requires the Compute role to have the
+                 PacemakerRemote service added to it.
+    type: boolean
 
 resources:
 
@@ -97,6 +103,9 @@ resources:
     properties:
       DockerNovaImage: {get_param: DockerNovaComputeImage}
       NovaServiceName: 'compute'
+
+conditions:
+  enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
 
 outputs:
   role_data:
@@ -124,7 +133,10 @@ outputs:
           command:
             list_join:
             - ' '
-            - - /usr/bin/nova-compute
+            - - if:
+                - enable_instance_ha
+                - /var/lib/nova/instanceha/check-run-nova-compute
+                - /usr/bin/nova-compute
               - get_attr: [NovaLogging, cmd_extra_args]
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
@@ -202,6 +214,27 @@ outputs:
             file:
               path: /etc/ceph
               state: directory
+          - name: is Instance HA enabled
+            set_fact:
+              instance_ha_enabled: {get_param: EnableInstanceHA}
+          - name: install Instance HA recovery script
+            when: instance_ha_enabled|bool
+            block:
+            - name: prepare Instance HA script directory
+              file:
+                path: /var/lib/nova/instanceha
+                state: directory
+            - name: install Instance HA script that runs nova-compute
+              copy:
+                content: {get_file: ../../extraconfig/tasks/instanceha/check-run-nova-compute}
+                dest: /var/lib/nova/instanceha/check-run-nova-compute
+                mode: 0755
+            - name: Get list of instance HA compute nodes
+              command: hiera -c /etc/puppet/hiera.yaml compute_instanceha_short_node_names
+              register: iha_nodes
+            - name: If instance HA is enabled on the node activate the evacuation completed check
+              file: path=/var/lib/nova/instanceha/enabled state=touch
+              when: iha_nodes.stdout|lower | search('"'+ansible_hostname|lower+'"')
       upgrade_tasks:
         - name: Check if nova_compute is deployed
           command: systemctl is-enabled --quiet openstack-nova-compute
