@@ -133,5 +133,8 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
   if [ "$(hiera enable_validations)" = "true" ]; then
       echo Execute copy_ssh_key validations
       openstack workflow execution create tripleo.validations.v1.copy_ssh_key
+
+      echo Upload validations to Swift
+      openstack action execution run tripleo.validations.upload
   fi
 fi
