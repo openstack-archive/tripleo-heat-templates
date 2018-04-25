@@ -164,6 +164,73 @@ outputs:
             shell: /sbin/nologin
             comment: "OpenvSwitch Daemons"
 
+        - name: Check for openvswitch upgrade
+          when: step|int == 2
+          register: ovs_need_upgrade
+          ignore_errors: true
+          shell: |
+            yum check-upgrade openvswitch | awk '/openvswitch/{print}'
+
+        - block:
+            - name: update openvswitch for latest version
+              yum:
+                name: openvswitch
+                state: latest
+
+            - name: Check if ovs >= 2.8
+              shell: |
+                ovs_version=$(rpm -q --queryformat '%{VERSION}' openvswitch)
+                major_version=`echo $ovs_version | cut -d. -f1`
+                minor_version=`echo $ovs_version | cut -d. -f2`
+                echo $(($major_version*10+$minor_version))
+              register: ovs_version_number
+
+            - name: Replace correct settings for openvswitch if exist
+              lineinfile:
+                  path: /etc/sysconfig/openvswitch
+                  regexp: '^\#*OVS_USER_ID='
+                  line: 'OVS_USER_ID="openvswitch:hugetlbfs"'
+              when: ovs_version_number.stdout|default('')|int>=28
+
+            - name: Add correct settings for openvswitch if not exist
+              lineinfile:
+                  path: /etc/sysconfig/openvswitch
+                  line: 'OVS_USER_ID="openvswitch:hugetlbfs"'
+                  state: present
+              when: ovs_version_number.stdout|default('')|int>=28
+
+            - name: Check if we need to change permissions in ovs
+              shell: |
+                  find /etc/openvswitch /var/log/openvswitch ! -user openvswitch ! -group hugetlbfs
+              register: ovs_need_perm_change
+              when: ovs_version_number.stdout|default('')|int>=28
+
+            - name: Copy service to change ovs permissions
+              copy:
+                  dest: /etc/systemd/system/multi-user.target.wants/fix-ovs-permissions.service
+                  content: |
+                    [Unit]
+                    Description=One time service to fix permissions in OpenvSwitch
+                    Before=openvswitch.service
+
+                    [Service]
+                    Type=oneshot
+                    User=root
+                    ExecStart=/usr/bin/bash -c "/usr/bin/chown -R openvswitch:hugetlbfs /etc/openvswitch /var/log/openvswitch || true"
+                    ExecStartPost=/usr/bin/rm /etc/systemd/system/multi-user.target.wants/fix-ovs-permissions.service
+                    TimeoutStartSec=0
+                    RemainAfterExit=no
+
+                    [Install]
+                    WantedBy=default.target
+                  mode: 0775
+              when:
+                - ovs_version_number.stdout|default('')|int>=28
+                - ovs_need_perm_change.stdout|default('')
+          when:
+            - step|int == 2
+            - ovs_need_upgrade.stdout|default('')
+
       upgrade_tasks:
         - name: Check openvswitch version.
           tags: step2
