@@ -378,8 +378,14 @@ function special_case_ovs_upgrade_if_needed {
             yum update -y openvswitch
         fi
 
-        change_ovs_2_9_user
-        change_ovs_2_9_perms
+        local ovs_version=$(rpm -q --queryformat '%{VERSION}' openvswitch)
+        local major_version=`echo $ovs_version | cut -d. -f1`
+        local minor_version=`echo $ovs_version | cut -d. -f2`
+        local version_to_number=$(($major_version*10+$minor_version))
+        if (( $version_to_number >= 28 )); then
+            change_ovs_2_9_user
+            change_ovs_2_9_perms
+        fi
     fi
 }
 
