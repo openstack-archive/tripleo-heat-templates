@@ -1,0 +1,378 @@
+heat_template_version: queens
+
+description: >
+  OpenStack containerized Rabbitmq service
+
+parameters:
+  DockerRabbitmqImage:
+    description: image
+    type: string
+  DockerRabbitmqConfigImage:
+    description: The container image to use for the rabbitmq config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RabbitCookie:
+    type: string
+    default: ''
+    hidden: true
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  ConfigDebug:
+    default: false
+    description: Whether to run config management (e.g. Puppet) in debug mode.
+    type: boolean
+
+conditions:
+  puppet_debug_enabled: {get_param: ConfigDebug}
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  RabbitmqBase:
+    type: ../../../puppet/services/messaging/rpc-rabbitmq.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Rabbitmq API role.
+    value:
+      service_name: {get_attr: [RabbitmqBase, role_data, service_name]}
+      global_config_settings: {get_attr: [RabbitmqBase, role_data, global_config_settings]}
+      config_settings:
+        map_merge:
+          - {get_attr: [RabbitmqBase, role_data, config_settings]}
+          - rabbitmq::service_manage: false
+            tripleo::profile::pacemaker::rabbitmq_bundle::rabbitmq_docker_image: &rabbitmq_image_pcmklatest
+              list_join:
+                - ':'
+                - - yaql:
+                      data: {get_param: DockerRabbitmqImage}
+                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
+                  - 'pcmklatest'
+            tripleo::profile::pacemaker::rabbitmq_bundle::control_port: 3122
+            tripleo.oslo_messaging_rpc.firewall_rules:
+              '109 rabbitmq-bundle':
+                dport:
+                  - 3122
+                  - 4369
+                  - 5672
+                  - 25672
+      logging_source: {get_attr: [RabbitmqBase, role_data, logging_source]}
+      logging_groups: {get_attr: [RabbitmqBase, role_data, logging_groups]}
+      service_config_settings: {get_attr: [RabbitmqBase, role_data, service_config_settings]}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: rabbitmq
+        puppet_tags: file
+        step_config:
+          list_join:
+            - "\n"
+            - - "['Rabbitmq_policy', 'Rabbitmq_user'].each |String $val| { noop_resource($val) }"
+              - get_attr: [RabbitmqBase, role_data, step_config]
+        config_image: {get_param: DockerRabbitmqConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/rabbitmq.json:
+          command: /usr/sbin/pacemaker_remoted
+          config_files:
+          - dest: /etc/libqb/force-filesystem-sockets
+            source: /dev/null
+            owner: root
+            perm: '0644'
+          - source: "/var/lib/kolla/config_files/src/*"
+            dest: "/"
+            merge: true
+            preserve_properties: true
+          - source: "/var/lib/kolla/config_files/src-tls/*"
+            dest: "/"
+            merge: true
+            optional: true
+            preserve_properties: true
+          permissions:
+           - path: /var/lib/rabbitmq
+             owner: rabbitmq:rabbitmq
+             recurse: true
+           - path: /var/log/rabbitmq
+             owner: rabbitmq:rabbitmq
+             recurse: true
+           - path: /etc/pki/tls/certs/rabbitmq.crt
+             owner: rabbitmq:rabbitmq
+             perm: '0600'
+             optional: true
+           - path: /etc/pki/tls/private/rabbitmq.key
+             owner: rabbitmq:rabbitmq
+             perm: '0600'
+             optional: true
+      # When using pacemaker we don't launch the container, instead that is done by pacemaker
+      # itself.
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
+      docker_config:
+        step_1:
+          rabbitmq_bootstrap:
+            start_order: 0
+            image: {get_param: DockerRabbitmqImage}
+            net: host
+            privileged: false
+            volumes:
+              - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/puppet-generated/rabbitmq/:/var/lib/kolla/config_files/src:ro
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /var/lib/rabbitmq:/var/lib/rabbitmq
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - KOLLA_BOOTSTRAP=True
+              -
+                list_join:
+                  - '='
+                  - - 'RABBITMQ_CLUSTER_COOKIE'
+                    -
+                      yaql:
+                        expression: $.data.passwords.where($ != '').first()
+                        data:
+                          passwords:
+                            - {get_param: RabbitCookie}
+                            - {get_param: [DefaultPasswords, rabbit_cookie]}
+          rabbitmq_image_tag:
+            start_order: 1
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/bin/bash'
+              - '-c'
+              - str_replace:
+                  template:
+                    "/usr/bin/docker tag 'RABBITMQ_IMAGE' 'RABBITMQ_IMAGE_PCMKLATEST'"
+                  params:
+                    RABBITMQ_IMAGE: {get_param: DockerRabbitmqImage}
+                    RABBITMQ_IMAGE_PCMKLATEST: *rabbitmq_image_pcmklatest
+            image: {get_param: DockerRabbitmqImage}
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/shm:/dev/shm:rw
+              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
+              - /usr/bin:/usr/bin:ro
+              - /var/run/docker.sock:/var/run/docker.sock:rw
+        step_2:
+          rabbitmq_init_bundle:
+            start_order: 0
+            detach: false
+            net: host
+            user: root
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                - - '/docker_puppet_apply.sh'
+                  - '2'
+                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,rabbitmq_policy,rabbitmq_user,rabbitmq_ready'
+                  - 'include ::tripleo::profile::base::pacemaker;include ::tripleo::profile::pacemaker::rabbitmq_bundle'
+                - if:
+                  - puppet_debug_enabled
+                  - - '--debug'
+                  - - ''
+            image: {get_param: DockerRabbitmqImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /bin/true:/bin/epmd
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/lib/rabbitmq
+            - /var/log/containers/rabbitmq
+        - name: rabbitmq logs readme
+          copy:
+            dest: /var/log/rabbitmq/readme.txt
+            content: |
+              Log files from rabbitmq containers can be found under
+              /var/log/containers/rabbitmq.
+          ignore_errors: true
+        - name: stop the Erlang port mapper on the host and make sure it cannot bind to the port used by container
+          shell: |
+            echo 'export ERL_EPMD_ADDRESS=127.0.0.1' > /etc/rabbitmq/rabbitmq-env.conf
+            echo 'export ERL_EPMD_PORT=4370' >> /etc/rabbitmq/rabbitmq-env.conf
+            for pid in $(pgrep epmd --ns 1 --nslist pid); do kill $pid; done
+      metadata_settings:
+        get_attr: [RabbitmqBase, role_data, metadata_settings]
+      update_tasks:
+        - name: Rabbit fetch and retag container image for pacemaker
+          when: step|int == 2
+          block: &rabbitmq_fetch_retag_container_tasks
+            - name: Get docker Rabbitmq image
+              set_fact:
+                docker_image: {get_param: DockerRabbitmqImage}
+                docker_image_latest: *rabbitmq_image_pcmklatest
+            - name: Get previous Rabbitmq image id
+              shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
+              register: rabbitmq_image_id
+            - block:
+                - name: Get a list of container using Rabbitmq image
+                  shell: "docker ps -a -q -f 'ancestor={{rabbitmq_image_id.stdout}}'"
+                  register: rabbitmq_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same Rabbitmq image
+                  shell: "docker rm -fv {{item}}"
+                  with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous Rabbitmq images
+                  shell: "docker rmi -f {{rabbitmq_image_id.stdout}}"
+              when:
+                - rabbitmq_image_id.stdout != ''
+            - name: Pull latest Rabbitmq images
+              command: "docker pull {{docker_image}}"
+            - name: Retag pcmklatest to latest Rabbitmq image
+              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+            # Got to check that pacemaker_is_active is working fine with bundle.
+            # TODO: pacemaker_is_active resource doesn't support bundle.
+      upgrade_tasks:
+        - name: Get docker Rabbitmq image
+          set_fact:
+            docker_image_latest: *rabbitmq_image_pcmklatest
+        - name: Check for Rabbitmq Kolla configuration
+          stat:
+            path: /var/lib/config-data/puppet-generated/rabbitmq
+          register: rabbit_kolla_config
+        - name: Check if Rabbitmq is already containerized
+          set_fact:
+            rabbit_containerized: "{{rabbit_kolla_config.stat.isdir | default(false)}}"
+        - name: get bootstrap nodeid
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+        - name: Rabbitmq baremetal to container upgrade tasks
+          when:
+            - step|int == 1
+            - not rabbit_containerized|bool
+          block:
+            - name: Check cluster resource status of rabbitmq
+              pacemaker_resource:
+                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                check_mode: false
+                state: show
+              ignore_errors: true
+              register: rabbitmq_res
+            - when: (is_bootstrap_node) and (rabbitmq_res|succeeded)
+              block:
+                - name: Disable the rabbitmq cluster resource.
+                  pacemaker_resource:
+                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped rabbitmq cluster resource.
+                  pacemaker_resource:
+                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable rabbitmq service
+              service: name=rabbitmq-server enabled=no
+        - name: Move rabbitmq logging to /var/log/containers
+          when:
+            - step|int == 1
+            - rabbit_containerized|bool
+            - is_bootstrap_node
+          block:
+            - name: Check rabbitmq logging configuration in pacemaker
+              command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
+              ignore_errors: true
+              register: rabbitmq_logs_moved
+            - name: Change rabbitmq logging configuration in pacemaker
+              # rc == 6 means the configuration doesn't exist in the CIB
+              when: rabbitmq_logs_moved.rc == 6
+              block:
+                - name: Disable the rabbitmq cluster resource
+                  pacemaker_resource:
+                    resource: rabbitmq
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Add a bind mount for logging in the rabbitmq bundle
+                  command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
+                - name: Enable the rabbitmq cluster resource
+                  pacemaker_resource:
+                    resource: rabbitmq
+                    state: enable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+        - name: Retag the pacemaker image if containerized
+          when:
+            - step|int == 3
+            - rabbit_containerized|bool
+          block: *rabbitmq_fetch_retag_container_tasks
+      fast_forward_upgrade_tasks:
+        - name: Check cluster resource status of rabbitmq
+          pacemaker_resource:
+            resource: {get_attr: [RabbitmqBase, role_data, service_name]}
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: rabbitmq_res_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Set fact rabbitmq_res
+          set_fact:
+            rabbitmq_res: "{{ rabbitmq_res_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Disable the rabitmq cluster resource
+          pacemaker_resource:
+            resource:  {get_attr: [RabbitmqBase, role_data, service_name]}
+            state: disable
+            wait_for_resource: true
+          register: rabbitmq_output
+          retries: 5
+          until: rabbitmq_output.rc == 0
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+            - rabbitmq_res|bool
