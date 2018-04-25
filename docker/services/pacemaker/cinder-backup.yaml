@@ -300,36 +300,38 @@ outputs:
               register: cinder_backup_current_pcmklatest_id
             - name: Temporarily tag the current cinder_backup image id with the upgraded image name
               shell: "docker tag {{cinder_backup_current_pcmklatest_id.stdout}} {{cinder_backup_docker_image_latest}}"
-        - name: Disable the cinder_backup cluster resource before container upgrade
-          when:
-            - step|int == 1
-            - cinder_backup_containerized|bool
-            - is_bootstrap_node
+        - name: Check openstack-cinder-backup cluster resource status
           pacemaker_resource:
             resource: openstack-cinder-backup
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-        - name: Update the cinder_backup bundle to use the new container image name
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: cinder_backup_pcs_res
+        - name: Update cinder_backup pcs resource bundle for new container image
           when:
             - step|int == 1
             - cinder_backup_containerized|bool
             - is_bootstrap_node
-          command: "pcs resource bundle update openstack-cinder-backup container image={{cinder_backup_docker_image_latest}}"
-        - name: Enable the cinder_backup cluster resource
-          when:
-            - step|int == 1
-            - cinder_backup_containerized|bool
-            - is_bootstrap_node
-          pacemaker_resource:
-            resource: openstack-cinder-backup
-            state: enable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
+            - cinder_backup_pcs_res|succeeded
+          block:
+            - name: Disable the cinder_backup cluster resource before container upgrade
+              pacemaker_resource:
+                resource: openstack-cinder-backup
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Update the cinder_backup bundle to use the new container image name
+              command: "pcs resource bundle update openstack-cinder-backup container image={{cinder_backup_docker_image_latest}}"
+            - name: Enable the cinder_backup cluster resource
+              pacemaker_resource:
+                resource: openstack-cinder-backup
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3

@@ -374,61 +374,61 @@ outputs:
               register: haproxy_current_pcmklatest_id
             - name: Temporarily tag the current haproxy image id with the upgraded image name
               shell: "docker tag {{haproxy_current_pcmklatest_id.stdout}} {{haproxy_docker_image_latest}}"
-        - name: Disable the haproxy cluster resource before container upgrade
-          when:
-            - step|int == 1
-            - haproxy_containerized|bool
-            - is_bootstrap_node
+        - name: Check haproxy-bundle cluster resource status
           pacemaker_resource:
             resource: haproxy-bundle
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-        - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: haproxy_pcs_res
+        - name: Update haproxy pcs resource bundle for new container image
           when:
             - step|int == 1
             - haproxy_containerized|bool
             - is_bootstrap_node
+            - haproxy_pcs_res|succeeded
           block:
-            - name: Check haproxy stats socket configuration in pacemaker
-              command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
-              ignore_errors: true
-              register: haproxy_stats_exposed
-            - name: Check haproxy public certificate configuration in pacemaker
-              command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
-              ignore_errors: true
-              register: haproxy_cert_mounted
-            - name: Add a bind mount for stats socket in the haproxy bundle
-              command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
-              # rc == 6 means the configuration doesn't exist in the CIB
-              when: haproxy_stats_exposed.rc == 6
-            - name: Set HAProxy public cert volume mount fact
-              set_fact:
-                haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
-                haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
-            - name: Add a bind mount for public certificate in the haproxy bundle
-              command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
-              when: haproxy_cert_mounted.rc == 6 and haproxy_public_tls_enabled|bool
-        - name: Update the haproxy bundle to use the new container image name
-          when:
-            - step|int == 1
-            - haproxy_containerized|bool
-            - is_bootstrap_node
-          command: "pcs resource bundle update haproxy-bundle container image={{haproxy_docker_image_latest}}"
-        - name: Enable the haproxy cluster resource
-          when:
-            - step|int == 1
-            - haproxy_containerized|bool
-            - is_bootstrap_node
-          pacemaker_resource:
-            resource: haproxy-bundle
-            state: enable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
+            - name: Disable the haproxy cluster resource before container upgrade
+              pacemaker_resource:
+                resource: haproxy-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
+              block:
+                - name: Check haproxy stats socket configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
+                  ignore_errors: true
+                  register: haproxy_stats_exposed
+                - name: Check haproxy public certificate configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
+                  ignore_errors: true
+                  register: haproxy_cert_mounted
+                - name: Add a bind mount for stats socket in the haproxy bundle
+                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: haproxy_stats_exposed.rc == 6
+                - name: Set HAProxy public cert volume mount fact
+                  set_fact:
+                    haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
+                    haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
+                - name: Add a bind mount for public certificate in the haproxy bundle
+                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
+                  when:
+                    - haproxy_cert_mounted.rc == 6
+                    - haproxy_public_tls_enabled|bool
+            - name: Update the haproxy bundle to use the new container image name
+              command: "pcs resource bundle update haproxy-bundle container image={{haproxy_docker_image_latest}}"
+            - name: Enable the haproxy cluster resource
+              pacemaker_resource:
+                resource: haproxy-bundle
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
