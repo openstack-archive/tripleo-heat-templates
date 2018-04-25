@@ -187,6 +187,10 @@ DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::StructuredDeployment',
     'OS::TripleO::SoftwareDeployment'
 ]
+CONFIG_RESOURCE_TYPES = [
+    'OS::Heat::SoftwareConfig',
+    'OS::Heat::StructuredConfig'
+]
 
 VALID_ANSIBLE_UPGRADE_TAGS = [ 'common', 'validation', 'pre-upgrade' ]
 WORKFLOW_TASKS_EXCLUSIONS = [
@@ -988,12 +992,17 @@ def validate(filename, param_map):
         resources = tpl.get('resources')
         if resources:
             for resource, data in resources.items():
-                if data['type'] not in DEPLOYMENT_RESOURCE_TYPES:
-                    continue
-                if 'name' not in data['properties']:
-                    print('ERROR: resource %s from %s missing name property.'
-                            % (resource, filename))
-                    return 1
+                if data['type'] in DEPLOYMENT_RESOURCE_TYPES:
+                    if 'name' not in data['properties']:
+                        print('ERROR: resource %s from %s missing name property.'
+                                % (resource, filename))
+                        return 1
+
+                elif data['type'] in CONFIG_RESOURCE_TYPES:
+                    if 'outputs' in data['properties'] and args.quiet < 2:
+                        print('Warning: resource %s from %s uses Heat outputs '
+                              'which are not supported with config-download.'
+                              % (resource, filename))
 
     return retval
 
