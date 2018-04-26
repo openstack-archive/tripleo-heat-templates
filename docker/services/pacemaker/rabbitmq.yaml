@@ -316,50 +316,48 @@ outputs:
               register: rabbitmq_current_pcmklatest_id
             - name: Temporarily tag the current rabbitmq image id with the upgraded image name
               shell: "docker tag {{rabbitmq_current_pcmklatest_id.stdout}} {{rabbitmq_docker_image_latest}}"
-        - name: Disable the rabbitmq cluster resource before container upgrade
-          when:
-            - step|int == 1
-            - rabbit_containerized|bool
-            - is_bootstrap_node
+        - name: Check rabbitmq-bundle cluster resource status
           pacemaker_resource:
             resource: rabbitmq-bundle
-            state: disable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
-        - name: Move rabbitmq logging to /var/log/containers
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: rabbit_pcs_res
+        - name: Update rabbitmq-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
             - rabbit_containerized|bool
             - is_bootstrap_node
+            - rabbit_pcs_res|succeeded
           block:
-            - name: Check rabbitmq logging configuration in pacemaker
-              command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
-              ignore_errors: true
-              register: rabbitmq_logs_moved
-            - name: Add a bind mount for logging in the rabbitmq bundle
-              # rc == 6 means the configuration doesn't exist in the CIB
-              when: rabbitmq_logs_moved.rc == 6
-              command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
-        - name: Update the rabbitmq bundle to use the new container image name
-          when:
-            - step|int == 1
-            - rabbit_containerized|bool
-            - is_bootstrap_node
-          command: "pcs resource bundle update rabbitmq-bundle container image={{rabbitmq_docker_image_latest}}"
-        - name: Enable the rabbitmq cluster resource
-          when:
-            - step|int == 1
-            - rabbit_containerized|bool
-            - is_bootstrap_node
-          pacemaker_resource:
-            resource: rabbitmq-bundle
-            state: enable
-            wait_for_resource: true
-          register: output
-          retries: 5
-          until: output.rc == 0
+            - name: Disable the rabbitmq cluster resource before container upgrade
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move rabbitmq logging to /var/log/containers
+              block:
+                - name: Check rabbitmq logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
+                  ignore_errors: true
+                  register: rabbitmq_logs_moved
+                - name: Add a bind mount for logging in the rabbitmq bundle
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: rabbitmq_logs_moved.rc == 6
+                  command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
+            - name: Update the rabbitmq bundle to use the new container image name
+              command: "pcs resource bundle update rabbitmq-bundle container image={{rabbitmq_docker_image_latest}}"
+            - name: Enable the rabbitmq cluster resource
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
