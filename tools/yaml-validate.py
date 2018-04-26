@@ -245,6 +245,15 @@ def validate_endpoint_map(base_map, env_map):
     return sorted(base_map.keys()) == sorted(env_map.keys())
 
 
+def validate_role_name(filename):
+    role_data = yaml.load(open(filename).read())[0]
+    if role_data['name'] != os.path.basename(filename).split('.')[0]:
+            print('ERROR: role name should match file name for role : %s.'
+                  % filename)
+            return 1
+    return 0
+
+
 def validate_hci_compute_services_default(env_filename, env_tpl):
     env_services_list = env_tpl['parameter_defaults']['ComputeServices']
     env_services_list.remove('OS::TripleO::Services::CephOSD')
@@ -930,6 +939,9 @@ def validate(filename, param_map):
 
         if filename.endswith('hyperconverged-ceph.yaml'):
             retval |= validate_hci_compute_services_default(filename, tpl)
+
+        if filename.startswith('./roles/'):
+            retval = validate_role_name(filename)
 
         if filename.startswith('./roles/ComputeHCI.yaml'):
             retval |= validate_hci_computehci_role(filename, tpl)
