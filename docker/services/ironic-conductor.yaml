@@ -36,10 +36,18 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  IronicConfigureSwiftTempUrlKey:
+    default: true
+    description: Whether to configure Swift temporary URLs for use with
+                 the "direct" and "ansible" deploy interfaces.
+    type: boolean
   UndercloudUpgrade:
     type: boolean
     description: Flag to indicate undercloud upgrade process is being run.
     default: false
+
+conditions:
+  configure_swift_temp_url: {equals: [{get_param: IronicConfigureSwiftTempUrlKey}, true]}
 
 resources:
 
@@ -103,30 +111,68 @@ outputs:
             - path: /var/log/ironic
               owner: ironic:ironic
               recurse: true
+      docker_config_scripts:
+        create_swift_temp_url_key.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            export OS_PROJECT_DOMAIN_NAME=$(crudini --get /etc/ironic/ironic.conf swift project_domain_name)
+            export OS_USER_DOMAIN_NAME=$(crudini --get /etc/ironic/ironic.conf swift user_domain_name)
+            export OS_PROJECT_NAME=$(crudini --get /etc/ironic/ironic.conf swift project_name)
+            export OS_USERNAME=$(crudini --get /etc/ironic/ironic.conf swift username)
+            export OS_PASSWORD=$(crudini --get /etc/ironic/ironic.conf swift password)
+            export OS_AUTH_URL=$(crudini --get /etc/ironic/ironic.conf swift auth_url)
+            export OS_AUTH_TYPE=password
+            export OS_IDENTITY_API_VERSION=3
+
+            echo "Check if a temporary URL key already exists"
+            KEY_SET=$(openstack object store account show -c properties -f value 2>/dev/null | tr ',' '\n' | grep Temp-Url-Key || true)
+            if [ -z $KEY_SET ]; then
+                echo "Creating a new temporary URL for project $OS_PROJECT_NAME"
+                SWIFT_TEMP_URL_KEY=$(uuidgen | sha1sum | awk '{print $1}')
+                openstack object store account set --property "Temp-URL-Key=$SWIFT_TEMP_URL_KEY" || exit 1
+            fi
       docker_config:
         step_4:
-          ironic_conductor:
-            start_order: 80
-            image: {get_param: DockerIronicConductorImage}
-            net: host
-            privileged: true
-            restart: always
-            healthcheck:
-              test: /openstack/healthcheck
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/ironic/:/var/lib/kolla/config_files/src:ro
-                  - /lib/modules:/lib/modules:ro
-                  - /sys:/sys
-                  - /dev:/dev
-                  - /run:/run #shared?
-                  - /var/lib/ironic:/var/lib/ironic
-                  - /var/log/containers/ironic:/var/log/ironic
-            environment:
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          map_merge:
+            - if:
+              - configure_swift_temp_url
+              - create_swift_temp_url_key:
+                  start_order: 70
+                  image: &ironic_conductor_image {get_param: DockerIronicConductorImage}
+                  net: host
+                  detach: false
+                  volumes:
+                    list_concat:
+                      - {get_attr: [ContainersCommon, volumes]}
+                      -
+                        - /var/lib/config-data/puppet-generated/ironic/etc/ironic:/etc/ironic:ro
+                        - /var/lib/docker-config-scripts/create_swift_temp_url_key.sh:/create_swift_temp_url_key.sh:ro
+                  user: root
+                  command: "/usr/bin/bootstrap_host_exec ironic_conductor /create_swift_temp_url_key.sh"
+              - {}
+            - ironic_conductor:
+                start_order: 80
+                image: *ironic_conductor_image
+                net: host
+                privileged: true
+                restart: always
+                healthcheck:
+                  test: /openstack/healthcheck
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/ironic/:/var/lib/kolla/config_files/src:ro
+                      - /lib/modules:/lib/modules:ro
+                      - /sys:/sys
+                      - /dev:/dev
+                      - /run:/run #shared?
+                      - /var/lib/ironic:/var/lib/ironic
+                      - /var/log/containers/ironic:/var/log/ironic
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent directories
           file:
