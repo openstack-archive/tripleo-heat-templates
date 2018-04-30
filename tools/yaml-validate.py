@@ -59,6 +59,14 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'logging_source', 'logging_groups',
                             'external_deploy_tasks', 'external_post_deploy_tasks',
                             'docker_config_scripts', 'step_config']
+# ansible tasks cannot be an empty dict or ansible is unhappy
+ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
+                          'fast_forward_upgrade_tasks',
+                          'fast_forward_post_upgrade_tasks',
+                          'post_upgrade_tasks',  'update_tasks',
+                          'post_update_tasks', 'host_prep_tasks',
+                          'external_deploy_tasks',
+                          'external_post_deploy_tasks' ]
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
 OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
@@ -521,6 +529,14 @@ def validate_docker_service(filename, tpl):
                 continue
             else:
                 if section_name in OPTIONAL_DOCKER_SECTIONS:
+                    # check for LP##1768019
+                    if section_name in ANSIBLE_TASKS_SECTIONS and \
+                            role_data.get(section_name) == {}:
+                        print('ERROR: %s cannot be an empty dict. If not '
+                              'required please consider removing remove this '
+                              'option or setting it to [] or null' %
+                              section_name)
+                        return 1
                     continue
                 elif section_name in OPTIONAL_SECTIONS:
                     continue
