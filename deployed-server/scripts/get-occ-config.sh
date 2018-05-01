@@ -106,7 +106,7 @@ for role in $OVERCLOUD_ROLES; do
     stacks=$(with_backoff fail_if_empty openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
     rc=${?}
     while [ ${rc} -ne 0 ]; do
-        stacks=$(with_backoff fail_if_empty openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
+        stacks=$(with_backoff fail_if_empty openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name | tonumber) | .[] | .physical_resource_id")
     done
 
     i=0
