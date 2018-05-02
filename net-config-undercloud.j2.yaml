@@ -31,6 +31,16 @@ parameters:
     type: number
     constraints:
       - range: { min: 1000, max: 65536 }
+  UndercloudNetConfigOverride:
+    default: {}
+    description: Custom JSON data to be used to override the os-net-config data in this template. This is meant to be used by net_config_override parameter in tripleoclient to provide an easy means to pass in custom net configs for the Undercloud.
+    type: json
+
+conditions:
+  undercloud_net_config_override:
+    not:
+      equals: [{get_param: UndercloudNetConfigOverride}, {}]
+
 resources:
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
@@ -45,27 +55,30 @@ resources:
             get_file: network/scripts/run-os-net-config.sh
           params:
             $network_config:
-              network_config:
-              - type: ovs_bridge
-                name: br-ctlplane
-                use_dhcp: false
-                dns_servers:
-                  get_param: DnsServers
-                ovs_extra:
-                  - "br-set-external-id br-ctlplane bridge-id br-ctlplane"
-                addresses:
-                - ip_netmask:
-                    list_join:
-                    - /
-                    - - get_param: ControlPlaneIp
-                      - get_param: ControlPlaneSubnetCidr
-                routes: {get_param: ControlPlaneStaticRoutes}
-                members:
-                - type: interface
-                  name: interface_name
-                  # force the MAC address of the bridge to this interface
-                  primary: true
-                  mtu: {get_param: UndercloudLocalMtu}
+              if:
+              - undercloud_net_config_override
+              - {get_param: UndercloudNetConfigOverride}
+              - network_config:
+                - type: ovs_bridge
+                  name: br-ctlplane
+                  use_dhcp: false
+                  dns_servers:
+                    get_param: DnsServers
+                  ovs_extra:
+                    - "br-set-external-id br-ctlplane bridge-id br-ctlplane"
+                  addresses:
+                  - ip_netmask:
+                      list_join:
+                      - /
+                      - - get_param: ControlPlaneIp
+                        - get_param: ControlPlaneSubnetCidr
+                  routes: {get_param: ControlPlaneStaticRoutes}
+                  members:
+                  - type: interface
+                    name: interface_name
+                    # force the MAC address of the bridge to this interface
+                    primary: true
+                    mtu: {get_param: UndercloudLocalMtu}
 outputs:
   OS::stack_id:
     description: The OsNetConfigImpl resource.
