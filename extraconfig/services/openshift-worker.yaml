@@ -52,3 +52,43 @@ outputs:
             dport: '30000-32767'
       upgrade_tasks: []
       step_config: ''
+      external_deploy_tasks:
+        - name: openshift_worker step 1
+          when: step == '1'
+          block:
+            - name: create openshift temp dirs
+              file:
+                path: "{{item}}"
+                state: directory
+              with_items:
+                - "{{playbook_dir}}/openshift/inventory"
+
+            - name: generate openshift inventory for openshift_worker service
+              copy:
+                dest:
+                  str_replace:
+                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_worker.yml"
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                content:
+                  str_replace:
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                    template: |
+                      nodes:
+                        hosts:
+                          {% for host in groups['ROLENAME'] -%}
+                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                            ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                            ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                            ansible_become: true
+                            etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_public_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_public_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_schedulable: true
+                            openshift_node_labels:
+                              region: 'infra'
+                              zone: 'default'
+                          {% endfor %}

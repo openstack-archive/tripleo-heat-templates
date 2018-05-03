@@ -48,28 +48,6 @@ parameters:
     default: {}
     description: OpenShift node vars specific for the worker nodes
     type: json
-  OpenShiftGlusterDisks:
-    default:
-      - /dev/vdb
-      - /dev/vdc
-      - /dev/vdd
-    description: List of disks for openshift_glusterfs service to use
-    type: comma_delimited_list
-    tags:
-      - role_specific
-
-resources:
-  RoleParametersValue:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        map_replace:
-          - map_replace:
-            - OpenShiftGlusterDisks: OpenShiftGlusterDisks
-            - values: {get_param: [RoleParameters]}
-          - values:
-              OpenShiftGlusterDisks: {get_param: OpenShiftGlusterDisks}
 
 outputs:
   role_data:
@@ -97,83 +75,53 @@ outputs:
                 path: "{{item}}"
                 state: directory
               with_items:
-                - "{{playbook_dir}}/openshift"
+                - "{{playbook_dir}}/openshift/inventory"
 
             - name: set openshift global vars fact
               set_fact:
                 openshift_global_vars: {get_param: OpenShiftGlobalVariables}
                 openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
                 openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
-                openshift_gluster_disks: {get_attr: [RoleParametersValue, value, OpenShiftGlusterDisks]}
 
-            - name: generate openshift inventory
+            - name: generate openshift inventory for openshift_master service
               copy:
-                dest: "{{playbook_dir}}/openshift/inventory.yml"
-                content: |
-                  masters:
-                    hosts:
-                      {% for host in groups['openshift_master'] -%}
-                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
-                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                        ansible_become: true
-                        etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_public_ip: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
-                        openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_public_hostname: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
-                        {% if openshift_master_node_vars -%}
-                        {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
-                        {%- endif %}
+                dest:
+                  str_replace:
+                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_master.yml"
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                content:
+                  str_replace:
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                    template: |
+                      masters:
+                        hosts:
+                          {% for host in groups['ROLENAME'] -%}
+                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                            ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                            ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                            ansible_become: true
+                            etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_public_ip: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
+                            openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
+                            openshift_public_hostname: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
+                            {% if openshift_master_node_vars -%}
+                            {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
+                            {%- endif %}
 
-                      {% endfor %}
+                          {% endfor %}
 
-                  nodes:
-                    hosts:
-                      {% for host in groups['openshift_worker'] -%}
-                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
-                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                        ansible_become: true
-                        etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_public_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_public_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                        openshift_schedulable: true
-                        openshift_node_labels:
-                          region: 'infra'
-                          zone: 'default'
-                        {% if openshift_worker_node_vars -%}
-                        {{openshift_worker_node_vars | to_nice_yaml() | indent(6)}}
-                        {%- endif %}
+                      etcd:
+                        children:
+                          masters: {}
 
-                      {% endfor %}
-
-                  {% if groups['openshift_glusterfs'] | default([]) %}
-                  glusterfs:
-                    hosts:
-                      {% for host in groups['openshift_glusterfs'] | default([]) -%}
-                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                        glusterfs_ip: {{hostvars.raw_get(host)['storage_ip']}}
-                        glusterfs_devices:
-                          {{openshift_gluster_disks | to_nice_yaml() | indent(8) }}
-                        ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
-                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                        ansible_become: true
-                        openshift_schedulable: true
-                      {% endfor %}
-                  {% endif %}
-
-                  etcd:
-                    children:
-                      masters: {}
-
-                  OSEv3:
-                    children:
-                      masters: {}
-                      nodes: {}
-                      {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
+                      OSEv3:
+                        children:
+                          masters: {}
+                          nodes: {}
+                          {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
 
             - name: generate openshift global defaults
               copy:
@@ -248,7 +196,7 @@ outputs:
                   {%- else -%}
                   ANSIBLE_HOST_KEY_CHECKING=False
                   ansible-playbook
-                  -i '{{playbook_dir}}/openshift/inventory.yml'
+                  -i '{{playbook_dir}}/openshift/inventory'
                   --extra-vars '@{{playbook_dir}}/openshift/global_defaults.yml'
                   --extra-vars '@{{playbook_dir}}/openshift/global_vars.yml'
                   '{{playbook_dir}}/openshift/playbook.yml'

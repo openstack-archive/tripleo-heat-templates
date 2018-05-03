@@ -82,3 +82,59 @@ outputs:
           with_items: {get_attr: [RoleParametersValue, value, OpenShiftGlusterDisks]}
       upgrade_tasks: []
       step_config: ''
+      external_deploy_tasks:
+        - name: openshift_cns step 1 Generate Inventory
+          when: step == '1'
+          block:
+            - name: create openshift temp dirs
+              file:
+                path: "{{item}}"
+                state: directory
+              with_items:
+                - "{{playbook_dir}}/openshift/inventory"
+
+            - name: set openshift global vars fact
+              set_fact:
+                openshift_gluster_disks: {get_attr: [RoleParametersValue, value, OpenShiftGlusterDisks]}
+
+            - name: generate openshift inventory for openshift_glusterfs service
+              lineinfile:
+                path: "{{playbook_dir}}/openshift/inventory/openshift_glusterfs.ini"
+                create: true
+                line: "[openshift_glusterfs:children]"
+                insertbefore: BOF
+
+            - name: generate openshift inventory for openshift_glusterfs service
+              lineinfile:
+                path: "{{playbook_dir}}/openshift/inventory/openshift_glusterfs.ini"
+                insertafter: "[openshift_glusterfs:children]"
+                line:
+                  str_replace:
+                    template: ROLENAME
+                    params:
+                      ROLENAME: {get_param: RoleName}
+
+            - name: generate openshift inventory for Role
+              copy:
+                dest:
+                  str_replace:
+                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_glusterfs.yml"
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                content:
+                  str_replace:
+                    params:
+                      ROLENAME: {get_param: RoleName}
+                    template: |
+                      glusterfs:
+                        hosts:
+                          {% for host in groups['ROLENAME'] | default([]) -%}
+                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                            glusterfs_ip: {{hostvars.raw_get(host)['storage_ip']}}
+                            glusterfs_devices:
+                              {{openshift_gluster_disks | to_nice_yaml() | indent(8) }}
+                            ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
+                            ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
+                            ansible_become: true
+                            openshift_schedulable: true
+                          {% endfor %}
