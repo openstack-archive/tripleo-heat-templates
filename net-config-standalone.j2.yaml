@@ -1,0 +1,91 @@
+heat_template_version: rocky
+description: >
+  Software Config to drive os-net-config for a simple bridge configured with a
+  static IP address for the ctlplane network.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  {%- for network in networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+  {%- endfor %}
+  ControlPlaneSubnetCidr: # Override this via parameter_defaults
+    default: '24'
+    description: The subnet CIDR of the control plane network.
+    type: string
+  ControlPlaneStaticRoutes:
+    default: []
+    description: A list of static routes
+    type: json
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS servers (2 max for some implementations) that will be added to resolv.conf.
+    type: comma_delimited_list
+  InterfaceLocalMtu: # Override this via parameter_defaults
+    default: 1500
+    description: MTU to use for the local_interface.
+    type: number
+    constraints:
+      - range: { min: 1000, max: 65536 }
+  StandaloneNetConfigOverride:
+    default: {}
+    description: >
+        Custom JSON data to be used to override the os-net-config data in this
+        template. This is meant to be used by net_config_override parameter in
+        tripleoclient to provide an easy means to pass in custom net configs
+        for a standalone node.
+    type: json
+
+conditions:
+  standalone_net_config_override:
+    not:
+      equals: [{get_param: StandaloneNetConfigOverride}, {}]
+
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: disable_configure_safe_defaults
+          default: true
+      config:
+        str_replace:
+          template:
+            get_file: network/scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              if:
+              - standalone_net_config_override
+              - {get_param: StandaloneNetConfigOverride}
+              - network_config:
+                - type: ovs_bridge
+                  name: br-ctlplane
+                  use_dhcp: false
+                  dns_servers:
+                    get_param: DnsServers
+                  ovs_extra:
+                    - "br-set-external-id br-ctlplane bridge-id br-ctlplane"
+                  addresses:
+                  - ip_netmask:
+                      list_join:
+                      - /
+                      - - get_param: ControlPlaneIp
+                        - get_param: ControlPlaneSubnetCidr
+                  routes: {get_param: ControlPlaneStaticRoutes}
+                  members:
+                  - type: interface
+                    name: interface_name
+                    # force the MAC address of the bridge to this interface
+                    primary: true
+                    mtu: {get_param: InterfaceLocalMtu}
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
+
