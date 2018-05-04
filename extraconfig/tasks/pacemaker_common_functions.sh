@@ -359,6 +359,35 @@ EOL
     fi
 }
 
+function change_ovs_runtime_mode {
+    ovs_src_service_path="/usr/lib/systemd/system/ovs-vswitchd.service"
+    ovs_service_path="${ovs_src_service_path/usr\/lib/etc}"
+    ovs_db_src_service_path=/usr/lib/systemd/system/ovsdb-server.service
+    ovs_db_service_path="${ovs_db_src_service_path/usr\/lib/etc}"
+    ovs_src_ctl_path="/usr/share/openvswitch/scripts/ovs-ctl"
+    ovs_ctl_path="/usr/local/bin/ovs-ctl"
+    ovs_src_lib_path="/usr/share/openvswitch/scripts/ovs-lib"
+    ovs_lib_path="/usr/local/bin/ovs-lib"
+
+    ln -s $ovs_src_lib_path $ovs_lib_path
+    cp $ovs_src_ctl_path $ovs_ctl_path
+
+    if ! grep -q "umask 0002 \&\& start_daemon \"\$OVS_VSWITCHD_PRIORITY\"" $ovs_ctl_path; then
+        sed -i 's/start_daemon \"\$OVS_VSWITCHD_PRIORITY\"\(.*\)/umask 0002 \&\& start_daemon \"$OVS_VSWITCHD_PRIORITY\"\1/' $ovs_ctl_path
+    fi
+    sed 's#'$ovs_src_ctl_path'#'$ovs_ctl_path'#' $ovs_db_src_service_path > $ovs_db_service_path
+    sed 's#'$ovs_src_ctl_path'#'$ovs_ctl_path'#' $ovs_src_service_path > $ovs_service_path
+
+    if grep -q "RuntimeDirectoryMode=.*" $ovs_src_service_path; then
+        sed -i 's/RuntimeDirectoryMode=.*/RuntimeDirectoryMode=0775/' $ovs_src_service_path > $ovs_service_path
+    else
+        echo "RuntimeDirectoryMode=0775" >> $ovs_service_path
+    fi
+    if ! grep -Fxq "UMask=0002" $ovs_src_service_path; then
+        echo "UMask=0002" >> $ovs_service_path
+    fi
+}
+
 # Special-case OVS for https://bugs.launchpad.net/tripleo/+bug/1635205
 # Update condition and add --notriggerun for +bug/1669714
 function special_case_ovs_upgrade_if_needed {
@@ -407,6 +436,13 @@ function special_case_ovs_upgrade_if_needed {
         if (( $version_to_number >= 28 )); then
             change_ovs_2_9_user
             change_ovs_2_9_perms
+            # ensure that from this minor update onwards, we need the workarounds
+            touch /etc/systemd/system/apply-ovs-runtime-mode-workaround
+        fi
+        # If the apply-*-workaround file is present, ensure it is updated to the
+        # latest from the package with permissions modified.
+        if [ -f "/etc/systemd/system/apply-ovs-runtime-mode-workaround" ]; then
+            change_ovs_runtime_mode
         fi
     fi
 }
