@@ -1,0 +1,182 @@
+#!/bin/python -utt
+
+import os
+import sys
+import time
+import inspect
+import logging
+import argparse
+import oslo_config.cfg
+import requests.exceptions
+
+def is_forced_down(connection, hostname):
+    services = connection.services.list(host=hostname, binary="nova-compute")
+    for service in services:
+        if service.forced_down:
+            return True
+    return False
+
+def evacuations_done(connection, hostname):
+    # Get a list of migrations.
+    #  :param host: (optional) filter migrations by host name.
+    #  :param status: (optional) filter migrations by status.
+    #  :param cell_name: (optional) filter migrations for a cell.
+    #
+    migrations = connection.migrations.list(host=hostname)
+
+    print("Checking %d migrations" % len(migrations))
+    for migration in migrations:
+        # print migration.to_dict()
+        #
+        # {
+        # u'status': u'error',
+        # u'dest_host': None,
+        # u'new_instance_type_id': 2,
+        # u'old_instance_type_id': 2,
+        # u'updated_at': u'2018-04-22T20:55:29.000000',
+        # u'dest_compute':
+        #   u'overcloud-novacompute-2.localdomain',
+        # u'migration_type': u'live-migration',
+        # u'source_node':
+        #   u'overcloud-novacompute-0.localdomain',
+        # u'id': 8,
+        # u'created_at': u'2018-04-22T20:52:58.000000',
+        # u'instance_uuid':
+        #   u'd1c82ce8-3dc5-48db-b59f-854b3b984ef1',
+        # u'dest_node':
+        #   u'overcloud-novacompute-2.localdomain',
+        # u'source_compute':
+        #   u'overcloud-novacompute-0.localdomain'
+        # }
+        # Acceptable: done, completed, failed
+        if migration.status in ["running", "accepted", "pre-migrating"]:
+            return False
+    return True
+
+def safe_to_start(connection, hostname):
+    if is_forced_down(connection, hostname):
+        print("Waiting for fence-down flag to be cleared")
+        return False
+    if not evacuations_done(connection, hostname):
+        print("Waiting for evacuations to complete or fail")
+        return False
+    return True
+
+def create_nova_connection(options):
+    try:
+        from novaclient import client
+        from novaclient.exceptions import NotAcceptable
+    except ImportError:
+        print("Nova not found or not accessible")
+        sys.exit(1)
+
+    from keystoneauth1 import loading
+    from keystoneauth1 import session
+    from keystoneclient import discover
+
+    # Prefer the oldest and strip the leading 'v'
+    keystone_versions = discover.available_versions(options["auth_url"][0])
+    keystone_version = keystone_versions[0]['id'][1:]
+    kwargs = dict(
+        auth_url=options["auth_url"][0],
+        username=options["username"][0],
+        password=options["password"][0]
+        )
+
+    if discover.version_match("2", keystone_version):
+        kwargs["tenant_name"] = options["tenant_name"][0]
+
+    elif discover.version_match("3", keystone_version):
+        kwargs["project_name"] = options["project_name"][0]
+        kwargs["user_domain_name"] = options["user_domain_name"][0]
+        kwargs["project_domain_name"] = options["project_domain_name"][0]
+
+    loader = loading.get_plugin_loader('password')
+    keystone_auth = loader.load_from_options(**kwargs)
+    keystone_session = session.Session(auth=keystone_auth, verify=(not options["insecure"]))
+
+    nova_versions = [ "2.23", "2" ]
+    for version in nova_versions:
+        clientargs = inspect.getargspec(client.Client).varargs
+        # Some versions of Openstack prior to Ocata only
+        # supported positional arguments for username,
+        # password, and tenant.
+        #
+        # Versions since Ocata only support named arguments.
+        #
+        # So we need to use introspection to figure out how to
+        # create a Nova client.
+        #
+        # Happy days
+        #
+        if clientargs:
+            # OSP < Ocata
+            # ArgSpec(args=['version', 'username', 'password', 'project_id', 'auth_url'],
+            #         varargs=None,
+            #         keywords='kwargs', defaults=(None, None, None, None))
+            nova = client.Client(version,
+                                 None, # User
+                                 None, # Password
+                                 None, # Tenant
+                                 None, # Auth URL
+                                 insecure=options["insecure"],
+                                 region_name=options["os_region_name"][0],
+                                 session=keystone_session, auth=keystone_auth,
+                                 http_log_debug=options.has_key("verbose"))
+        else:
+            # OSP >= Ocata
+            # ArgSpec(args=['version'], varargs='args', keywords='kwargs', defaults=None)
+            nova = client.Client(version,
+                                 region_name=options["os_region_name"][0],
+                                 session=keystone_session, auth=keystone_auth,
+                                 http_log_debug=options.has_key("verbose"))
+
+        try:
+            nova.hypervisors.list()
+            return nova
+
+        except NotAcceptable as e:
+            logging.warning(e)
+
+        except Exception as e:
+            logging.warning("Nova connection failed. %s: %s" % (e.__class__.__name__, e))
+
+    print("Couldn't obtain a supported connection to nova, tried: %s\n" % repr(nova_versions))
+    return None
+
+
+parser = argparse.ArgumentParser(description='Process some integers.')
+parser.add_argument('--config-file', dest='nova_config', action='store',
+                    default="/etc/nova/nova.conf",
+                    help='path to nova configuration (default: /etc/nova/nova.conf)')
+parser.add_argument('--nova-binary', dest='nova_binary', action='store',
+                    default="/usr/bin/nova-compute",
+                    help='path to nova compute binary (default: /usr/bin/nova-compute)')
+parser.add_argument('--enable-file', dest='enable_file', action='store',
+                    default="/var/lib/nova/instanceha/enabled",
+                    help='file exists if instance HA is enabled on this host '\
+                    '(default: /var/lib/nova/instanceha/enabled)')
+
+
+sections = {}
+(args, remaining) = parser.parse_known_args(sys.argv)
+
+config = oslo_config.cfg.ConfigParser(args.nova_config, sections)
+config.parse()
+config.sections["placement"]["insecure"] = 0
+config.sections["placement"]["verbose"] = 1
+
+if os.path.isfile(args.enable_file):
+    connection = None
+    while not connection:
+        # Loop in case the control plane is recovering when we run
+        connection = create_nova_connection(config.sections["placement"])
+        if not connection:
+            time.sleep(10)
+
+    while not safe_to_start(connection, config.sections["DEFAULT"]["host"][0]):
+        time.sleep(10)
+
+real_args = [args.nova_binary, '--config-file', args.nova_config]
+real_args.extend(remaining[1:])
+os.execv(args.nova_binary, real_args)
