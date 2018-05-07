@@ -45,6 +45,14 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  deployment_source_hosts:
+    default: 'undercloud'
+    type: string
+    description: Host or hostgroup that runs the deployment
+  deployment_target_hosts:
+    default: 'overcloud'
+    type: string
+    description: Host or hostgroup that consists of the target systems for the deployment
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -382,16 +390,18 @@ outputs:
         str_replace:
           params:
             BOOTSTRAP_SERVER_ID: {get_attr: [BootstrapServerId, value]}
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
           template: |
-            - hosts: undercloud
-              name: Gather facts undercloud
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
               gather_facts: yes
               become: false
               tags:
                 - facts
 
-            - hosts: overcloud
-              name: Gather facts overcloud
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
               gather_facts: yes
               tags:
                 - facts
@@ -404,7 +414,7 @@ outputs:
               tags:
                 - always
 
-            - hosts: overcloud
+            - hosts: DEPLOY_TARGET_HOST
               name: Common roles for TripleO servers
               gather_facts: no
               any_errors_fatal: yes
@@ -414,7 +424,7 @@ outputs:
               tags:
                 - common_roles
 
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Overcloud deploy step tasks for step 0
               gather_facts: no
               any_errors_fatal: yes
@@ -429,7 +439,7 @@ outputs:
               tags:
                 - overcloud
                 - deploy_steps
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Server deployments
               gather_facts: no
               any_errors_fatal: yes
@@ -445,7 +455,7 @@ outputs:
                 - overcloud
                 - pre_deploy_steps
 
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Host prep steps
               gather_facts: no
               any_errors_fatal: yes
@@ -463,7 +473,7 @@ outputs:
 
 {%- for step in range(1,deploy_steps_max) %}
 
-            - hosts: undercloud
+            - hosts: DEPLOY_SOURCE_HOST
               name: External deployment step {{step}}
               gather_facts: no
               any_errors_fatal: yes
@@ -476,7 +486,7 @@ outputs:
                 - external
                 - external_deploy_steps
 
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Overcloud deploy step tasks for {{step}}
               gather_facts: no
               any_errors_fatal: yes
@@ -495,7 +505,7 @@ outputs:
                 - overcloud
                 - deploy_steps
 
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Overcloud common deploy step tasks {{step}}
               gather_facts: no
               any_errors_fatal: yes
@@ -509,7 +519,7 @@ outputs:
                 - deploy_steps
 
 {%- endfor %}
-            - hosts: {{primary_role_name}}:overcloud
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Server Post Deployments
               gather_facts: no
               any_errors_fatal: yes
@@ -525,7 +535,7 @@ outputs:
                 - overcloud
                 - post_deploy_steps
 
-            - hosts: undercloud
+            - hosts: DEPLOY_SOURCE_HOST
               name: External deployment Post Deploy tasks
               gather_facts: no
               any_errors_fatal: yes
@@ -543,101 +553,126 @@ outputs:
             - include: {{role.name}}/update_tasks.yaml
               when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
-      update_steps_playbook: |
-        - hosts: undercloud
-          name: Gather facts undercloud
-          gather_facts: yes
-          become: false
-        - hosts: overcloud
-          name: Gather facts overcloud
-          gather_facts: yes
-        - hosts: all
-          name: Load global variables
-          gather_facts: no
-          tasks:
-            - include_vars: global_vars.yaml
-        - hosts: overcloud
-          name: Run update
-          serial: 1
-          gather_facts: no
-          tasks:
-            - include: update_steps_tasks.yaml
-              with_sequence: start=0 end={{update_steps_max-1}}
-              loop_control:
-                loop_var: step
-            - include: common_deploy_steps_tasks.yaml
-              with_sequence: start=1 end={{deploy_steps_max-1}}
-              loop_control:
-                loop_var: step
+      update_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
+              gather_facts: yes
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
+            - hosts: DEPLOY_TARGET_HOST
+              name: Run update
+              serial: 1
+              gather_facts: no
+              tasks:
+                - include: update_steps_tasks.yaml
+                  with_sequence: start=0 end={{update_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+                - include: common_deploy_steps_tasks.yaml
+                  with_sequence: start=1 end={{deploy_steps_max-1}}
+                  loop_control:
+                    loop_var: step
       pre_upgrade_rolling_steps_tasks: |
 {%- for role in roles %}
             - include: {{role.name}}/pre_upgrade_rolling_tasks.yaml
               when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
-      pre_upgrade_rolling_steps_playbook: |
-        - hosts: undercloud
-          name: Gather facts undercloud
-          gather_facts: yes
-          become: false
-        - hosts: overcloud
-          name: Gather facts overcloud
-          gather_facts: yes
-        - hosts: all
-          name: Load global variables
-          gather_facts: no
-          tasks:
-            - include_vars: global_vars.yaml
-        - hosts: overcloud
-          name: Run pre-upgrade rolling tasks
-          serial: 1
-          gather_facts: no
-          tasks:
-            - include: pre_upgrade_rolling_steps_tasks.yaml
-              with_sequence: start=0 end={{pre_upgrade_rolling_steps_max-1}}
-              loop_control:
-                loop_var: step
+      pre_upgrade_rolling_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
+              gather_facts: yes
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
+            - hosts: DEPLOY_TARGET_HOST
+              name: Run pre-upgrade rolling tasks
+              serial: 1
+              gather_facts: no
+              tasks:
+                - include: pre_upgrade_rolling_steps_tasks.yaml
+                  with_sequence: start=0 end={{pre_upgrade_rolling_steps_max-1}}
+                  loop_control:
+                    loop_var: step
       upgrade_steps_tasks: |
 {%- for role in roles %}
             - include: {{role.name}}/upgrade_tasks.yaml
               when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
-      upgrade_steps_playbook: |
-        - hosts: overcloud
-          tasks:
-            - include: upgrade_steps_tasks.yaml
-              with_sequence: start=0 end={{upgrade_steps_max-1}}
-              loop_control:
-                loop_var: step
+      upgrade_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_TARGET_HOST
+              tasks:
+                - include: upgrade_steps_tasks.yaml
+                  with_sequence: start=0 end={{upgrade_steps_max-1}}
+                  loop_control:
+                    loop_var: step
       post_upgrade_steps_tasks: |
 {%- for role in roles %}
             - include: {{role.name}}/post_upgrade_tasks.yaml
               when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
-      post_upgrade_steps_playbook: |
-        - hosts: overcloud
-          tasks:
-            - include: post_upgrade_steps_tasks.yaml
-              with_sequence: start=0 end={{post_upgrade_steps_max-1}}
-              loop_control:
-                loop_var: step
+      post_upgrade_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_TARGET_HOST
+              tasks:
+                - include: post_upgrade_steps_tasks.yaml
+                  with_sequence: start=0 end={{post_upgrade_steps_max-1}}
+                  loop_control:
+                    loop_var: step
       fast_forward_upgrade_playbook:
-        - hosts: overcloud
-          become: true
-          tasks:
-            - set_fact:
-                releases: {get_param: [FastForwardUpgradeReleases]}
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_TARGET_HOST
+              become: true
+              tasks:
+                - set_fact:
+                    releases: {get_param: [FastForwardUpgradeReleases]}
 {% raw %}
-            - set_fact:
-                ffu_releases: "{{ releases | difference( releases | last )}}"
-            - include_tasks: fast_forward_upgrade_release_tasks.yaml
-              loop_control:
-                loop_var: release
-              with_items: '{{ ffu_releases }}'
-            - set_fact:
-                release: "{{ releases | last }}"
-                ffu_packages_apply: True
+                - set_fact:
+                    ffu_releases: "{{ releases | difference( releases | last )}}"
+                - include_tasks: fast_forward_upgrade_release_tasks.yaml
+                  loop_control:
+                    loop_var: release
+                  with_items: '{{ ffu_releases }}'
+                - set_fact:
+                    release: "{{ releases | last }}"
+                    ffu_packages_apply: True
 {% endraw %}
-            - include_tasks: fast_forward_upgrade_post_role_tasks.yaml
+                - include_tasks: fast_forward_upgrade_post_role_tasks.yaml
       fast_forward_upgrade_release_tasks: |
                 - include_tasks: fast_forward_upgrade_prep_tasks.yaml
                 - include_tasks: fast_forward_upgrade_bootstrap_tasks.yaml
@@ -707,11 +742,16 @@ outputs:
             - include: {{role.name}}/post_update_tasks.yaml
               when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
-      post_update_steps_playbook: |
-        - hosts: overcloud
-          tasks:
-            - include: post_update_steps_tasks.yaml
-              with_sequence: start=0 end={{post_update_steps_max-1}}
-              loop_control:
-                loop_var: step
+      post_update_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_TARGET_HOST
+              tasks:
+                - include: post_update_steps_tasks.yaml
+                  with_sequence: start=0 end={{post_update_steps_max-1}}
+                  loop_control:
+                    loop_var: step
       boot_param_tasks: {get_file: ../extraconfig/pre_network/boot_param_tasks.yaml}
