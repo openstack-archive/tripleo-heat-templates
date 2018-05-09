@@ -14,6 +14,15 @@ parameters:
     default: ['nofile=1024']
     description: ulimit for Neutron DHCP Agent Container
     type: comma_delimited_list
+  NeutronEnableDnsmasqDockerWrapper:
+    description: Generate a dnsmasq wrapper script so that neutron launches
+                 dnsmasq in a separate container.
+    type: boolean
+    default: true
+  NeutronEnableHaproxyDockerWrapper:
+    description: Generate a wrapper script so neutron launches haproxy in a separate container.
+    type: boolean
+    default: true
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -52,6 +61,8 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  dnsmasq_wrapper_enabled: {equals: [{get_param: NeutronEnableDnsmasqDockerWrapper}, true]}
+  haproxy_wrapper_enabled: {equals: [{get_param: NeutronEnableHaproxyDockerWrapper}, true]}
 
 resources:
 
@@ -86,6 +97,12 @@ outputs:
             - internal_tls_enabled
             - tripleo::certmonger::neutron::postsave_cmd: "true" # TODO: restart the container here
             - {}
+          - tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_dnsmasq_wrapper: {get_param: NeutronEnableDnsmasqDockerWrapper}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_process_wrapper: '/var/lib/neutron/dnsmasq_wrapper'
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_image: {get_param: DockerNeutronDHCPImage}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_haproxy_wrapper: {get_param: NeutronEnableHaproxyDockerWrapper}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/dhcp_haproxy_wrapper'
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_image: {get_param: DockerNeutronDHCPImage}
       logging_source: {get_attr: [NeutronBase, role_data, logging_source]}
       logging_groups: {get_attr: [NeutronBase, role_data, logging_groups]}
       service_config_settings: {get_attr: [NeutronBase, role_data, service_config_settings]}
@@ -124,7 +141,29 @@ outputs:
               owner: neutron:neutron
             - path: /etc/pki/tls/private/neutron.key
               owner: neutron:neutron
+      docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
+        step_2:
+          create_dnsmasq_wrapper:
+            start_order: 1
+            detach: false
+            net: host
+            pid: host
+            user: root
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                -
+                  - '/docker_puppet_apply.sh'
+                  - '4'
+                  - 'file'
+                  - 'include ::tripleo::profile::base::neutron::dhcp_agent_wrappers'
+            image: {get_param: DockerNeutronDHCPImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                -
+                  - /run/openvswitch:/run/openvswitch
+                  - /var/lib/neutron:/var/lib/neutron
         step_4:
           neutron_dhcp:
             start_order: 10
@@ -147,6 +186,17 @@ outputs:
                   - /run/openvswitch:/run/openvswitch
                   - /var/lib/neutron:/var/lib/neutron
                   - /run/netns:/run/netns:shared
+                  - /var/lib/openstack:/var/lib/openstack
+                -
+                  if:
+                    - dnsmasq_wrapper_enabled
+                    - - /var/lib/neutron/dnsmasq_wrapper:/usr/local/bin/dnsmasq:ro
+                    - null
+                -
+                  if:
+                    - haproxy_wrapper_enabled
+                    - - /var/lib/neutron/dhcp_haproxy_wrapper:/usr/local/bin/haproxy:ro
+                    - null
                 -
                   if:
                     - internal_tls_enabled
