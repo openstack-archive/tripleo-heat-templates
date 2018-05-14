@@ -19,7 +19,6 @@ import traceback
 import yaml
 
 from copy import copy
-from sets import Set
 
 # Only permit the template alias versions.
 # The current template version should be the last element.
@@ -746,7 +745,7 @@ def _rsearch_keys(d, pattern, search_keynames=False, enter_lists=False):
                 if re.search(pattern, target):
                     present = False
                     for entry in result:
-                        if Set(path).issubset(Set(entry)):
+                        if set(path).issubset(set(entry)):
                             present = True
                             break
                     if not present:
@@ -764,7 +763,7 @@ def _rsearch_keys(d, pattern, search_keynames=False, enter_lists=False):
                 if re.search(pattern, str(d[ind])):
                     present = False
                     for entry in result:
-                        if Set(path).issubset(Set(entry)):
+                        if set(path).issubset(set(entry)):
                             present = True
                             break
                     if not present:
