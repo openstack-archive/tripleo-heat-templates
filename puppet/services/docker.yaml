@@ -79,7 +79,7 @@ outputs:
       deploy_steps_tasks:
         - name: Install, Configure and Run Docker
           when: step|int == 1
-          vars:
+          vars: &docker_vars
             container_registry_debug:
               if:
                 - service_debug_unset
@@ -111,26 +111,8 @@ outputs:
       update_tasks:
         - name: Restart Docker when needed
           when: step|int == 2
+          vars: *docker_vars
           block:
-            # TODO(emilien)
-            # This block will move to ansible-role-container-registry
-            - name: Is docker going to be updated
-              shell: yum check-update docker
-              register: docker_check_update
-              failed_when: docker_check_update.rc not in [0, 100]
-              changed_when: docker_check_update.rc == 100
-            - name: Set docker_rpm_needs_update fact
-              set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
-            - name: Stop all containers
-              # xargs is preferable to docker stop $(docker ps -q) as that might generate a
-              # a too long command line
-              shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
-              when: docker_rpm_needs_update
-            - name: Stop docker
-              service:
-                name: docker
-                state: stopped
-              when: docker_rpm_needs_update
-            - name: Update the docker package
-              yum: name=docker state=latest update_cache=yes # cache for tripleo/+bug/1703830
-              when: docker_rpm_needs_update
+          - include_role:
+              name: container-registry
+              tasks_from: docker-update
