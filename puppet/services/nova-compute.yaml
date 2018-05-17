@@ -56,6 +56,18 @@ parameters:
     default: false
     description: Whether to enable or not the NFS backend for Cinder
     type: boolean
+  NovaNfsEnabled:
+    default: false
+    description: Whether to enable or not the NFS backend for Nova
+    type: boolean
+  NovaNfsShare:
+    default: ''
+    description: NFS share to mount for nova storage (when NovaNfsEnabled is true)
+    type: string
+  NovaNfsOptions:
+    default: 'context=system_u:object_r:nova_var_lib_t:s0'
+    description: NFS mount options for nova storage (when NovaNfsEnabled is true)
+    type: string
   CinderEnableRbdBackend:
     default: false
     description: Whether to enable or not the Rbd backend for Cinder
@@ -201,6 +213,7 @@ outputs:
               - - 'client'
                 - {get_param: CephClientUserName}
             tripleo::profile::base::nova::compute::cinder_nfs_backend: {get_param: CinderEnableNfsBackend}
+            tripleo::profile::base::nova::compute::nova_nfs_enabled: {get_param: NovaNfsEnabled}
             rbd_persistent_storage: {get_param: CinderEnableRbdBackend}
             nova::compute::rbd::libvirt_rbd_secret_key: {get_param: CephClientKey}
             nova::compute::rbd::libvirt_rbd_secret_uuid: {get_param: CephClusterFSID}
@@ -249,6 +262,14 @@ outputs:
           tripleo.collectd.plugins.nova_compute:
             - virt
           collectd::plugin::virt::connection: 'qemu:///system'
+      host_prep_tasks:
+        - name: Mount Nova NFS Share
+          vars:
+            nfs_backend_enable: {get_param: NovaNfsEnabled}
+            nfs_share: {get_param: NovaNfsShare}
+            nfs_options: {get_param: NovaNfsOptions}
+          mount: name=/var/lib/nova/instances src="{{nfs_share}}" fstype=nfs4 opts="_netdev,bg,{{nfs_options}},vers=4,nfsvers=4" state=mounted
+          when: nfs_backend_enable|bool
       upgrade_tasks:
         - name: Stop nova-compute service
           when: step|int == 1
