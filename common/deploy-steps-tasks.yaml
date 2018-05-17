@@ -221,6 +221,29 @@
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
 
+    # We wait up to a minute for all the containers to start and output any
+    # containers that are unheathy. NOTE: the docker ps call always has a
+    # header so we use tail to skip it.
+    - name: "Check for unhealthy containers after step {{step}}"
+      shell: |
+        counter=0
+        while [ $(docker ps -f health=starting -q | wc -l) -gt 0 ] && [ $count -lt 10 ]; do
+           sleep 6
+           count=$[count+1]
+        done
+        docker ps -f health=unhealthy | tail -n +2
+      changed_when: false
+      check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+      become: true
+
+    - name: "Debug output for task which failed: Check for unhealthy containers after step {{step}}"
+      debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
+      when: outputs.rc is defined
+      failed_when: outputs.rc != 0 or outputs.stdout_lines|default([]) != []
+
     ########################################################
     # Bootstrap tasks, only performed on bootstrap_server_id
     ########################################################
