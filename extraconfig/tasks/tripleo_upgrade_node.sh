@@ -63,7 +63,13 @@ for step in 1 2 3 4 5 6; do
     log_debug "Completed puppet step \$step"
 done
 
-log_debug "TripleO upgrade run completed."
+NODE_NAME=\$(cat /etc/hostname)
+
+log_debug "$UPGRADE_SCRIPT has completed on \${NODE_NAME}"
+
+echo "----------------------------------------------------
+The TripleO upgrade tasks has completed on \${NODE_NAME}
+----------------------------------------------------"
 
 ENDOFCAT
 
