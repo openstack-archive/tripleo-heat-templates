@@ -36,6 +36,10 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
 
 resources:
 
@@ -147,6 +151,16 @@ outputs:
             - step|int == 2
             - nova_ironic_enabled.rc == 0
           service: name=openstack-nova-compute state=stopped enabled=no
+        - name: Set fact for removal of openstack-nova-compute package
+          when: step|int == 3
+          set_fact:
+            remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
+        - name: Remove openstack-nova-compute package if operator requests it
+          yum: name=openstack-nova-compute state=removed
+          ignore_errors: True
+          when:
+            - step|int == 3
+            - remove_nova_compute_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova ironic is deployed
           command: systemctl is-enabled --quiet openstack-nova-compute
