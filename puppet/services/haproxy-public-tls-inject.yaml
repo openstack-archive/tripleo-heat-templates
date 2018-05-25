@@ -1,0 +1,190 @@
+heat_template_version: rocky
+
+description: >
+  HAProxy deployment with TLS enabled, with an injected certificate
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  # Can be overridden via parameter_defaults in the environment
+  SSLCertificate:
+    default: ''
+    description: >
+      The content of the SSL certificate (without Key) in PEM format.
+    type: string
+  SSLIntermediateCertificate:
+    default: ''
+    description: >
+      The content of an SSL intermediate CA certificate in PEM format.
+    type: string
+  # NOTE(jaosorior): Adding this default is only while we enable TLS by default
+  # for the overcloud. It'll be removed in a subsequent patch.
+  SSLKey:
+    default: ''
+    description: >
+      The content of the SSL Key in PEM format.
+    type: string
+    hidden: true
+  DeployedSSLCertificatePath:
+    default: '/etc/pki/tls/private/overcloud_endpoint.pem'
+    description: >
+        The filepath of the certificate as it will be stored in the controller.
+    type: string
+
+outputs:
+  role_data:
+    description: Role data for the HAProxy public TLS injection.
+    value:
+      service_name: haproxy_public_tls_inject
+      config_settings: {}
+      certificates_specs: {}
+      metadata_settings: null
+      host_prep_tasks:
+        - name: get parameters
+          set_fact:
+            cert_path: {get_param: DeployedSSLCertificatePath}
+            cert_content: {get_param: SSLCertificate}
+            chain_content: {get_param: SSLIntermediateCertificate}
+            key_content: {get_param: SSLKey}
+          no_log: true
+
+        # We want to ensure we run all this block IFF we have
+        # a certificate content.
+        - name: manage certificate
+          when:
+            - cert_content is defined
+            - cert_content != ''
+          block:
+            - name: get DeployedSSLCertificatePath attributes
+              register: attr_cert_path
+              stat:
+                path: "{{cert_path}}"
+
+            - name: Assign bootstrap node
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+
+            - name: get haproxy status
+              register: haproxy_state
+              systemd:
+                name: haproxy
+
+            - name: get pacemaker status
+              register: pacemaker_state
+              systemd:
+                name: pacemaker
+
+            - name: get docker status
+              register: docker_state
+              systemd:
+                name: docker
+
+            - name: get container_id
+              when:
+                - docker_state.status.ActiveState == 'active'
+                - attr_cert_path.stat.exists
+                - attr_cert_path.stat.isdir == False
+              command: docker ps -q -f name=haproxy
+              register: container_id
+
+            - name: get pcs resource name for haproxy container
+              when:
+                - bootstrap_node is defined
+                - is_bootstrap_node
+                - pacemaker_state.status.ActiveState == 'active'
+                - attr_cert_path.stat.exists
+                - attr_cert_path.stat.isdir
+              shell: |
+                pcs status resources | sed -n 's/^.*container.*: \(haproxy.*\) .*/\1/p'
+              register: pacemaker_resource
+
+            # It might happen docker has started priori the file creation - it will then create a
+            # directory. We have to drop that directory in order to push our file.
+            - name: remove DeployedSSLCertificatePath if is dir
+              when: attr_cert_path.stat.isdir is defined and attr_cert_path.stat.isdir
+              file:
+                path: "{{cert_path}}"
+                state: absent
+
+            # In containerized env, haproxy group does not exist.
+            # We hence need to do this file creation in two distinct steps
+            # and ignore failure on the ownership change.
+            - name: push certificate content
+              no_log: true
+              copy:
+                dest: "{{cert_path}}"
+                mode: 0440
+                owner: root
+                content: |
+                  {{cert_content}}
+                  {{chain_content}}
+                  {{key_content}}
+
+            # Set certificate group IFF we're not in container context
+            # Also, restart HAProxy service without more concern
+            - name: BM haproxy non-pacemaker context
+              when: haproxy_state.status.ActiveState == 'active'
+              block:
+                - name: set certificate ownership
+                  file:
+                    path: "{{cert_path}}"
+                    group: haproxy
+
+                - name: reload haproxy if enabled
+                  service:
+                    name: haproxy
+                    state: reloaded
+
+            - name: restart pacemaker resource for haproxy
+              when:
+                - pacemaker_resource is defined
+                - pacemaker_resource.stdout is defined
+                - pacemaker_resource.stdout != ''
+              command: pcs resource restart "{{pacemaker_resource.stdout}}"
+
+            # We can't use kolla for certificate updates, so we have to
+            # set its rights and restart the service.
+            - name: dedicated part for containers
+              when:
+                - container_id is defined
+                - container_id.stdout is defined
+                - container_id.stdout != ''
+              block:
+                - name: set kolla_dir fact
+                  set_fact: kolla_dir="/var/lib/kolla/config_files/src-tls"
+
+                - name: set certificate group on host via container
+                  command: docker exec {{container_id.stdout}} chgrp haproxy {{kolla_dir}}{{cert_path}}
+
+                - name: copy certificate from kolla directory to final location
+                  command: docker exec {{container_id.stdout}} cp {{kolla_dir}}{{cert_path}} {{cert_path}}
+
+                - name: send restart order to haproxy container
+                  command: docker kill --signal=HUP {{container_id.stdout}}
