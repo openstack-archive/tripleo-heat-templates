@@ -208,6 +208,8 @@ outputs:
                 - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
                   - /dev/shm:/dev/shm:rw
                   - /bin/true:/bin/epmd
+      metadata_settings:
+        get_attr: [RabbitmqBase, role_data, metadata_settings]
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -228,8 +230,6 @@ outputs:
             echo 'export ERL_EPMD_ADDRESS=127.0.0.1' > /etc/rabbitmq/rabbitmq-env.conf
             echo 'export ERL_EPMD_PORT=4370' >> /etc/rabbitmq/rabbitmq-env.conf
             for pid in $(pgrep epmd --ns 1 --nslist pid); do kill $pid; done
-      metadata_settings:
-        get_attr: [RabbitmqBase, role_data, metadata_settings]
       update_tasks:
         - name: Rabbit fetch and retag container image for pacemaker
           when: step|int == 2
@@ -239,7 +239,7 @@ outputs:
                 docker_image: {get_param: DockerRabbitmqImage}
                 docker_image_latest: *rabbitmq_image_pcmklatest
             - name: Get previous Rabbitmq image id
-              shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}'"
+              shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}' | uniq"
               register: rabbitmq_image_id
             - block:
                 - name: Get a list of container using Rabbitmq image
@@ -262,7 +262,7 @@ outputs:
       upgrade_tasks:
         - name: Get docker Rabbitmq image
           set_fact:
-            docker_image_latest: *rabbitmq_image_pcmklatest
+            rabbitmq_docker_image_latest: *rabbitmq_image_pcmklatest
         - name: Check for Rabbitmq Kolla configuration
           stat:
             path: /var/lib/config-data/puppet-generated/rabbitmq
@@ -307,38 +307,58 @@ outputs:
                   until: output.rc == 0
             - name: Disable rabbitmq service
               service: name=rabbitmq-server enabled=no
-        - name: Move rabbitmq logging to /var/log/containers
+        - name: Prepare the switch to new rabbitmq container image name in pacemaker
+          when:
+            - step|int == 0
+            - rabbit_containerized|bool
+          block:
+            - name: Get rabbitmq image id currently used by pacemaker
+              shell: "docker images | awk '/rabbitmq.* pcmklatest/{print $3}' | uniq"
+              register: rabbitmq_current_pcmklatest_id
+            - name: Temporarily tag the current rabbitmq image id with the upgraded image name
+              shell: "docker tag {{rabbitmq_current_pcmklatest_id.stdout}} {{rabbitmq_docker_image_latest}}"
+        - name: Check rabbitmq-bundle cluster resource status
+          pacemaker_resource:
+            resource: rabbitmq-bundle
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: rabbit_pcs_res
+        - name: Update rabbitmq-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
             - rabbit_containerized|bool
             - is_bootstrap_node
+            - rabbit_pcs_res|succeeded
           block:
-            - name: Check rabbitmq logging configuration in pacemaker
-              command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
-              ignore_errors: true
-              register: rabbitmq_logs_moved
-            - name: Change rabbitmq logging configuration in pacemaker
-              # rc == 6 means the configuration doesn't exist in the CIB
-              when: rabbitmq_logs_moved.rc == 6
+            - name: Disable the rabbitmq cluster resource before container upgrade
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move rabbitmq logging to /var/log/containers
               block:
-                - name: Disable the rabbitmq cluster resource
-                  pacemaker_resource:
-                    resource: rabbitmq
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
+                - name: Check rabbitmq logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
+                  ignore_errors: true
+                  register: rabbitmq_logs_moved
                 - name: Add a bind mount for logging in the rabbitmq bundle
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: rabbitmq_logs_moved.rc == 6
                   command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
-                - name: Enable the rabbitmq cluster resource
-                  pacemaker_resource:
-                    resource: rabbitmq
-                    state: enable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
+            - name: Update the rabbitmq bundle to use the new container image name
+              command: "pcs resource bundle update rabbitmq-bundle container image={{rabbitmq_docker_image_latest}}"
+            - name: Enable the rabbitmq cluster resource
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
