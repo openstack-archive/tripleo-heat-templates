@@ -265,9 +265,9 @@ outputs:
               set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check cluster resource status
               pacemaker_resource:
-              resource: {get_attr: [CinderBackupBase, role_data, service_name]}
-              state: started
-              check_mode: true
+                resource: openstack-cinder-backup
+                state: show
+                check_mode: false
               ignore_errors: true
               register: cinder_backup_res
             - when: (is_bootstrap_node) and (cinder_backup_res|succeeded)
@@ -337,3 +337,35 @@ outputs:
             - step|int == 3
             - cinder_backup_containerized|bool
           block: *cinder_backup_fetch_retag_container_tasks
+      fast_forward_upgrade_tasks:
+        - name: Check cluster resource status
+          pacemaker_resource:
+            resource: openstack-cinder-backup
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: cinder_backup_res_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Set fact cinder_backup_res
+          set_fact:
+            cinder_backup_res: "{{ cinder_backup_res_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Disable the openstack-cinder-backup cluster resource
+          pacemaker_resource:
+            resource: openstack-cinder-backup
+            state: disable
+            wait_for_resource: true
+          register: cinder_backup_output
+          retries: 5
+          until: cinder_backup_output.rc == 0
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+            - cinder_backup_res|bool
