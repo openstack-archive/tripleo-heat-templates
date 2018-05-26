@@ -19,7 +19,7 @@ function get_metadata_ip() {
   # Look for a variety of Heat transports
   # FIXME: Heat should provide a way to obtain this in a single place
   for URL in os-collect-config.cfn.metadata_url os-collect-config.heat.auth_url os-collect-config.request.metadata_url os-collect-config.zaqar.auth_url; do
-    METADATA_IP=$(os-apply-config --key $URL --key-default '' --type raw 2>/dev/null | sed -e 's|http.*://\([^:]*\).*|\1|')
+    METADATA_IP=$(os-apply-config --key $URL --key-default '' --type raw 2>/dev/null | sed -e 's|http.*://\[\?\([^]]*\)]\?:.*|\1|')
     [ -n "$METADATA_IP" ] && break
   done
 
@@ -43,8 +43,13 @@ function ping_metadata_ip() {
 
     echo -n "Trying to ping metadata IP ${METADATA_IP}..."
 
+    _ping=ping
+    if [[ "$METADATA_IP" =~ ":" ]] ; then
+        _ping=ping6
+    fi
+
     local COUNT=0
-    until ping -c 1 $METADATA_IP &> /dev/null; do
+    until $_ping -c 1 $METADATA_IP &> /dev/null; do
       COUNT=$(( $COUNT + 1 ))
       if [ $COUNT -eq 10 ]; then
         echo "FAILURE"
