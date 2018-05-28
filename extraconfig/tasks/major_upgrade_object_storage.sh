@@ -25,6 +25,9 @@ function systemctl_swift {
 
 $(declare -f update_os_net_config)
 $(declare -f special_case_iptables_services_upgrade_if_needed)
+$(declare -f change_ovs_2_9_user)
+$(declare -f change_ovs_2_9_perms)
+$(declare -f change_ovs_runtime_mode)
 $(declare -f special_case_ovs_upgrade_if_needed)
 $(declare -f update_network)
 update_network
