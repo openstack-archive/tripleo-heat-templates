@@ -417,7 +417,8 @@ function special_case_ovs_upgrade_if_needed {
             mkdir OVS_UPGRADE && pushd OVS_UPGRADE
             echo "Attempting to downloading latest openvswitch with yumdownloader"
             yumdownloader --resolve openvswitch
-            for pkg in $(ls -1 *.rpm);  do
+            ls -1 *.rpm | grep -v openvswitch && ls -1 *.rpm | grep -v openvswitch | xargs rpm -U
+            for pkg in $(ls -1 *openvswitch*.rpm);  do
                 echo "Updating $pkg with --nopostun --notriggerun"
                 rpm -U --replacepkgs --nopostun --notriggerun $pkg
                 break
