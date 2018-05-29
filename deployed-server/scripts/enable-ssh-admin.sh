@@ -81,7 +81,7 @@ echo  # newline after the previous dots
 
 for HOST in $OVERCLOUD_HOSTS; do
     echo "Removing TripleO short term key from $HOST"
-    ssh $SSH_TIMEOUT_OPTIONS $SSH_HOSTKEY_OPTIONS -l "$OVERCLOUD_SSH_USER" "$HOST" "sed -i -e '/$SHORT_TERM_KEY_COMMENT/d' \$HOME/.ssh/authorized_keys"
+    ssh $SSH_TIMEOUT_OPTIONS $SSH_HOSTKEY_OPTIONS -i "$OVERCLOUD_SSH_KEY" -l "$OVERCLOUD_SSH_USER" "$HOST" "sed -i -e '/$SHORT_TERM_KEY_COMMENT/d' \$HOME/.ssh/authorized_keys"
 done
 
 echo "Removing short term keys locally"
