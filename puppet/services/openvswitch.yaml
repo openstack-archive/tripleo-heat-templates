@@ -154,8 +154,13 @@ outputs:
         - name: Check openvswitch version.
           when: step|int == 2
           register: ovs_version
-          ignore_errors: true
           shell: rpm -qa | awk -F- '/^openvswitch-2/{print $2 "-" $3}'
+        - name: Check for openvswitch upgrade.
+          when: step|int == 2
+          register: ovs_need_upgrade
+          ignore_errors: true
+          shell: |
+            yum check-upgrade openvswitch | awk '/openvswitch/{print}'
         - name: Check openvswitch packaging.
           when: step|int == 2
           shell: rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep -q "systemctl.*try-restart"
@@ -182,8 +187,7 @@ outputs:
               register: ovs_list_of_rpms
             - name: Manual upgrade of OVS
               shell: |
-                rpm -U --test {{item}} 2>&1 | grep "already installed" || \
-                rpm -U --replacepkgs --notriggerun --nopostun {{item}};
+                rpm -U --replacepkgs --notriggerun --nopostun {{item}}
               args:
                 chdir: /root/OVS_UPGRADE
               with_items:
@@ -192,3 +196,4 @@ outputs:
             - step|int == 2
             - "'2.5.0-14' in ovs_version.stdout|default('') or
               ovs_packaging_issue|default(false)|succeeded"
+            - ovs_need_upgrade.stdout|default('')
