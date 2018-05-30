@@ -137,6 +137,21 @@ parameters:
       List of enabled Image Import Methods. Valid values in the list are
       'glance-direct' and 'web-download'
     type: comma_delimited_list
+  GlanceStagingNfsShare:
+    default: ''
+    description: >
+      NFS share to mount for image import staging
+    type: string
+  GlanceNodeStagingUri:
+    default: 'file:///var/lib/glance/staging'
+    description: >
+      URI that specifies the staging location to use when importing images
+    type: string
+  GlanceStagingNfsOptions:
+    default: '_netdev,bg,intr,context=system_u:object_r:glance_var_lib_t:s0'
+    description: >
+      NFS mount options for NFS image import staging
+    type: string
   RabbitPassword:
     description: The password for RabbitMQ
     type: string
@@ -244,7 +259,8 @@ outputs:
             glance::api::os_region_name: {get_param: KeystoneRegion}
             glance::api::image_member_quota: {get_param: GlanceImageMemberQuota}
             glance::api::enabled_import_methods: {get_param: GlanceEnabledImportMethods}
-            # NOTE: bind IP is found in Heat replacing the network name with the
+            glance::api::node_staging_uri: {get_param: GlanceNodeStagingUri}
+            # NOTE: bind IP is found in hiera replacing the network name with the
             # local node IP for the given network; replacement examples
             # (eg. for internal_api):
             # internal_api -> IP
@@ -347,6 +363,14 @@ outputs:
                 - NETAPP_SHARE: {get_param: NetappShareLocation}
                   NFS_OPTIONS: {get_param: GlanceNfsOptions}
           when: netapp_nfs_backend_enable
+        - name: Mount Node Staging Location
+          vars:
+            glance_node_staging_uri: {get_param: GlanceNodeStagingUri}
+            glance_staging_nfs_share: {get_param: GlanceStagingNfsShare}
+            glance_nfs_options: {get_param: GlanceStagingNfsOptions}
+          # Gleaning mount point by stripping "file://" prefix from staging uri
+          mount: name="{{glance_node_staging_uri[7:]}}" src="{{glance_staging_nfs_share}}" fstype=nfs opts="{{glance_nfs_options}}" state=mounted
+          when: glance_staging_nfs_share
 
       upgrade_tasks:
         - name: Check if glance_api is deployed
