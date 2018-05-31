@@ -64,7 +64,7 @@ for role in $OVERCLOUD_ROLES; do
         rg_stack=$(openstack stack resource show $STACK_NAME $role -c physical_resource_id -f value)
     done
 
-    stacks=$(openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name) | .[] | .physical_resource_id")
+    stacks=$(openstack stack resource list $rg_stack -c resource_name -c physical_resource_id -f json | jq -r "sort_by(.resource_name | tonumber) | .[] | .physical_resource_id")
 
     i=0
 
