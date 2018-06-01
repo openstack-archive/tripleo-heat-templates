@@ -126,33 +126,39 @@ outputs:
         with_items:
           - /var/log/containers/httpd/tripleo-ui
       upgrade_tasks:
-        - name: Check for tripleo-ui service running under apache
+        - when: step|int == 0
           tags: common
-          shell: "httpd -t -D DUMP_VHOSTS | grep -q tripleo-ui"
-          ignore_errors: True
-          register: httpd_enabled
-        - name: Check if httpd is running
-          tags: common
-          command: systemctl is-active --quiet httpd
-          ignore_errors: True
-          register: httpd_running
-        - name: "PreUpgrade step0,validation: Check if tripleo-ui is running"
-          shell: systemctl status 'httpd' | grep -q tripleo-ui
-          tags: validation
-          when:
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-        - name: Stop and disable tripleo-ui service (running under httpd)
-          when:
-            - step|int == 2
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-          service: name=httpd state=stopped enabled=no
-        - name: Remove openstack-tripleo-ui package if operator requests it
-          yum: name=openstack-tripleo-ui state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - {get_param: UpgradeRemoveUnusedPackages}
+          block:
+            - name: Check for tripleo-ui service running under apache
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q tripleo-ui"
+              ignore_errors: True
+              register: tripleo_ui_httpd_enabled_result
+            - set_fact:
+                tripleo_ui_httpd_enabled: "{{ tripleo_ui_httpd_enabled_result.rc == 0 }}"
+            - name: Check if httpd is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: "PreUpgrade step0,validation: Check if tripleo-ui is running"
+              shell: systemctl status 'httpd' | grep -q tripleo-ui
+              tags: validation
+              when:
+                - tripleo_ui_httpd_enabled|bool
+                - httpd_running|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable tripleo-ui service (running under httpd)
+              when:
+                - tripleo_ui_httpd_enabled|bool
+                - httpd_running|bool
+              service: name=httpd state=stopped enabled=no
+            - name: Remove openstack-tripleo-ui package if operator requests it
+              yum: name=openstack-tripleo-ui state=removed
+              ignore_errors: True
+              when: {get_param: UpgradeRemoveUnusedPackages}
       metadata_settings:
         get_attr: [TripleoUIPuppetBase, role_data, metadata_settings]

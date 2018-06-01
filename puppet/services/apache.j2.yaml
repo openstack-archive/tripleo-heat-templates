@@ -132,17 +132,23 @@ outputs:
                 $NETWORK: {get_attr: [ApacheNetworks, value]}
           - null
       upgrade_tasks:
-        - name: Check if httpd is deployed
-          command: systemctl is-enabled httpd
+{% raw %}
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check service httpd is running"
-          shell: /usr/bin/systemctl show 'httpd' --property ActiveState | grep '\bactive\b'
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-          tags: validation
-        - name: Ensure mod_ssl package is installed
-          when: step|int == 3
-          yum: name=mod_ssl state=latest
+          block:
+            - name: Check if httpd is deployed
+              command: systemctl is-enabled httpd
+              ignore_errors: True
+              register: httpd_enabled_result
+            - name: Set fact httpd_enabled
+              set_fact:
+                httpd_enabled: "{{ httpd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service httpd is running"
+              shell: /usr/bin/systemctl show 'httpd' --property ActiveState | grep '\bactive\b'
+              when: httpd_enabled|bool
+              tags: validation
+        - when: step|int == 3
+          block:
+            - name: Ensure mod_ssl package is installed
+              yum: name=mod_ssl state=latest
+{% endraw %}

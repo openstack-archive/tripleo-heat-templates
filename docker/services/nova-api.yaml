@@ -327,62 +327,63 @@ outputs:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if nova_api is deployed
-          command: systemctl is-enabled --quiet openstack-nova-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_api_enabled
-        - name: Check for nova-api running under apache
-          tags: common
-          shell: httpd -t -D DUMP_VHOSTS | grep -q 'nova'
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
-          command: systemctl is-active --quiet openstack-nova-api
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-        - name: Stop and disable nova_api service
-          when:
-            - step|int == 2
-            - nova_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-          service: name=openstack-nova-api state=stopped enabled=no
-        - name: Check if httpd service is running
-          command: systemctl is-active --quiet httpd
-          tags: common
-          ignore_errors: True
-          register: httpd_running
-        - name: "PreUpgrade step0,validation: Check if nova_wsgi is running"
-          tags: validation
-          shell: systemctl status 'httpd' | grep -q 'nova'
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-        - name: Stop nova_api service (running under httpd)
-          when:
-            - step|int == 2
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-          service: name=httpd state=stopped
-        - name: Set fact for removal of openstack-nova-api package
-          when: step|int == 2
-          set_fact:
-            remove_nova_api_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-nova-api package if operator requests it
-          yum: name=openstack-nova-api state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_nova_api_package|bool
-        - name: remove old nova cron jobs
-          when: step|int == 2
-          file:
-            path: /var/spool/cron/nova
-            state: absent
+          block:
+            - name: Check if nova_api is deployed
+              command: systemctl is-enabled --quiet openstack-nova-api
+              ignore_errors: True
+              register: nova_api_enabled_result
+            - set_fact:
+                nova_api_enabled: "{{ nova_api_enabled_result.rc == 0 }}"
+            - name: Check for nova-api running under apache
+              shell: httpd -t -D DUMP_VHOSTS | grep -q 'nova'
+              ignore_errors: True
+              register: nova_api_httpd_enabled_result
+            - set_fact:
+                nova_api_httpd_enabled: "{{ nova_api_httpd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
+              command: systemctl is-active --quiet openstack-nova-api
+              tags: validation
+              when:
+                - nova_api_enabled|bool
+            - name: Check if httpd service is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: "PreUpgrade step0,validation: Check if nova_wsgi is running"
+              tags: validation
+              shell: systemctl status 'httpd' | grep -q 'nova'
+              when:
+                - nova_api_httpd_enabled|bool
+                - httpd_running|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova_api service
+              when:
+                - nova_api_enabled|bool
+              service: name=openstack-nova-api state=stopped enabled=no
+            - name: Stop nova_api service (running under httpd)
+              when:
+                - nova_api_httpd_enabled|bool
+                - httpd_running|bool
+              service: name=httpd state=stopped
+            - name: Set fact for removal of openstack-nova-api package
+              set_fact:
+                remove_nova_api_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-api package if operator requests it
+              yum: name=openstack-nova-api state=removed
+              ignore_errors: True
+              when:
+                - remove_nova_api_package|bool
+            - name: remove old nova cron jobs
+              file:
+                path: /var/spool/cron/nova
+                state: absent
       fast_forward_upgrade_tasks:
         - name: Check if nova-api is deployed
           command: systemctl is-enabled --quiet openstack-nova-api
