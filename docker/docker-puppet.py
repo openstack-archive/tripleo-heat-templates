@@ -211,6 +211,64 @@ for service in (json_data or []):
 
 log.info('Service compilation completed.')
 
+sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
+with open(sh_script, 'w') as script_file:
+    os.chmod(script_file.name, 0755)
+    script_file.write("""#!/bin/bash
+    set -ex
+    mkdir -p /etc/puppet
+    cp -a /tmp/puppet-etc/* /etc/puppet
+    rm -Rf /etc/puppet/ssl # not in use and causes permission errors
+    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
+    TAGS=""
+    if [ -n "$PUPPET_TAGS" ]; then
+        TAGS="--tags \"$PUPPET_TAGS\""
+    fi
+
+    # Create a reference timestamp to easily find all files touched by
+    # puppet. The sync ensures we get all the files we want due to
+    # different timestamp.
+    origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
+    touch $origin_of_time
+    sync
+
+    set +e
+    FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --summarize \
+    --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
+    rc=$?
+    set -e
+    if [ $rc -ne 2 -a $rc -ne 0 ]; then
+        exit $rc
+    fi
+
+    # Disables archiving
+    if [ -z "$NO_ARCHIVE" ]; then
+        archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
+        rsync_srcs=""
+        for d in "${archivedirs[@]}"; do
+            if [ -d "$d" ]; then
+                rsync_srcs+=" $d"
+            fi
+        done
+        rsync -a -R --delay-updates --delete-after $rsync_srcs /var/lib/config-data/${NAME}
+
+
+        # Also make a copy of files modified during puppet run
+        # This is useful for debugging
+        echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
+        mkdir -p /var/lib/config-data/puppet-generated/${NAME}
+        rsync -a -R -0 --delay-updates --delete-after \
+                      --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
+                      / /var/lib/config-data/puppet-generated/${NAME}
+
+        # Write a checksum of the config-data dir, this is used as a
+        # salt to trigger container restart when the config changes
+        tar -c -f - /var/lib/config-data/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+        tar -c -f - /var/lib/config-data/puppet-generated/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
+    fi
+    """)
+
+
 
 def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
     log = get_logger()
@@ -221,64 +279,6 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
     log.debug('manifest %s' % manifest)
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
-    sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
-
-    with open(sh_script, 'w') as script_file:
-        os.chmod(script_file.name, 0755)
-        script_file.write("""#!/bin/bash
-        set -ex
-        mkdir -p /etc/puppet
-        cp -a /tmp/puppet-etc/* /etc/puppet
-        rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-        echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
-        TAGS=""
-        if [ -n "$PUPPET_TAGS" ]; then
-            TAGS="--tags \"$PUPPET_TAGS\""
-        fi
-
-        # Create a reference timestamp to easily find all files touched by
-        # puppet. The sync ensures we get all the files we want due to
-        # different timestamp.
-        origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
-        touch $origin_of_time
-        sync
-
-        set +e
-        FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --summarize \
-        --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
-        rc=$?
-        set -e
-        if [ $rc -ne 2 -a $rc -ne 0 ]; then
-            exit $rc
-        fi
-
-        # Disables archiving
-        if [ -z "$NO_ARCHIVE" ]; then
-            archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
-            rsync_srcs=""
-            for d in "${archivedirs[@]}"; do
-                if [ -d "$d" ]; then
-                    rsync_srcs+=" $d"
-                fi
-            done
-            rsync -a -R --delay-updates --delete-after $rsync_srcs /var/lib/config-data/${NAME}
-
-
-            # Also make a copy of files modified during puppet run
-            # This is useful for debugging
-            echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
-            mkdir -p /var/lib/config-data/puppet-generated/${NAME}
-            rsync -a -R -0 --delay-updates --delete-after \
-                          --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
-                          / /var/lib/config-data/puppet-generated/${NAME}
-
-            # Write a checksum of the config-data dir, this is used as a
-            # salt to trigger container restart when the config changes
-            tar -c -f - /var/lib/config-data/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
-            tar -c -f - /var/lib/config-data/puppet-generated/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
-        fi
-        """)
-
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
             man_file.write('include ::tripleo::packages\n')
