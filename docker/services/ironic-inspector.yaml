@@ -86,6 +86,7 @@ outputs:
         config_image: {get_param: DockerIronicInspectorConfigImage}
         volumes:
           - /var/lib/ironic:/var/lib/ironic
+          - /var/lib/ironic-inspector/dhcp-hostsdir:/var/lib/ironic-inspector/dhcp-hostsdir
       kolla_config:
         /var/lib/kolla/config_files/ironic_inspector.json:
           command: /usr/bin/ironic-inspector --config-file /etc/ironic-inspector/inspector-dist.conf --config-file /etc/ironic-inspector/inspector.conf
@@ -100,6 +101,8 @@ outputs:
               recurse: true
             - path: /var/lib/ironic
               owner: ironic:ironic
+            - path: /var/lib/ironic-inspector/dhcp-hostsdir
+              owner: ironic-inspector:ironic-inspector
               recurse: true
         /var/lib/kolla/config_files/ironic_inspector_dnsmasq.json:
           config_files:
@@ -118,8 +121,16 @@ outputs:
             volumes:
               - /var/log/containers/ironic-inspector:/var/log/ironic-inspector
             command: ['/bin/bash', '-c', 'chown -R ironic-inspector:ironic-inspector /var/log/ironic-inspector']
-          ironic_inspector_db_sync:
+
+          ironic_inspector_init_dnsmasq_dhcp_hostsdir:
             start_order: 1
+            image: *ironic_inspector_image
+            user: root
+            volumes:
+            - /var/lib/ironic-inspector/dhcp-hostsdir:/var/lib/ironic-inspector/dhcp-hostsdir
+            command: ['/bin/bash', '-c', 'chown -R ironic-inspector:ironic-inspector /var/lib/ironic-inspector/dhcp-hostsdir']
+          ironic_inspector_db_sync:
+            start_order: 2
             image: *ironic_inspector_image
             net: host
             user: root
@@ -175,6 +186,7 @@ outputs:
                   - /var/lib/config-data/puppet-generated/ironic_inspector/:/var/lib/kolla/config_files/src:ro
                   - /var/lib/ironic:/var/lib/ironic
                   - /var/log/containers/ironic-inspector:/var/log/ironic-inspector
+                  - /var/lib/ironic-inspector/dhcp-hostsdir:/var/lib/ironic-inspector/dhcp-hostsdir
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           ironic_inspector_dnsmasq:
@@ -191,6 +203,7 @@ outputs:
                   - /var/lib/kolla/config_files/ironic_inspector_dnsmasq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic_inspector/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/ironic-inspector:/var/log/ironic-inspector
+                  - /var/lib/ironic-inspector/dhcp-hostsdir:/var/lib/ironic-inspector/dhcp-hostsdir
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
@@ -205,6 +218,10 @@ outputs:
               Log files from ironic-inspector container can be found under
               /var/log/containers/ironic-inspector.
           ignore_errors: true
+        - name: create persistent ironic-inspector dnsmasq dhcp hostsdir
+          file:
+            path: /var/lib/ironic-inspector/dhcp-hostsdir
+            state: directory
       upgrade_tasks:
         - when: step|int == 2
           block:
