@@ -53,7 +53,8 @@ OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
                             'kolla_config', 'global_config_settings',
                             'logging_source', 'logging_groups',
                             'external_deploy_tasks', 'external_post_deploy_tasks',
-                            'docker_config_scripts', 'step_config']
+                            'docker_config_scripts', 'step_config',
+                            'monitoring_subscription']
 # ansible tasks cannot be an empty dict or ansible is unhappy
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
                           'fast_forward_upgrade_tasks',
@@ -155,6 +156,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
 PREFERRED_CAMEL_CASE = {
     'ec2api': 'Ec2Api',
     'haproxy': 'HAProxy',
+    'metrics-qdr': 'MetricsQdr'
 }
 
 # Overrides for docker/puppet validation
