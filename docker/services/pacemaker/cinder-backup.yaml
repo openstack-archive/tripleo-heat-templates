@@ -52,6 +52,11 @@ parameters:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
     type: boolean
+  PcmkConfigRestartTimeout:
+    default: 600
+    description: Time in seconds to wait for a pcmk resource to restart when
+                 a config change is detected and the resource is being restarted
+    type: number
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
@@ -170,6 +175,28 @@ outputs:
               - /var/log/containers/cinder:/var/log/cinder
             command: ['/bin/bash', '-c', 'chown -R cinder:cinder /var/log/cinder']
         step_5:
+          cinder_backup_restart_bundle:
+            start_order: 0
+            config_volume: cinder
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/usr/bin/bootstrap_host_exec'
+              - 'cinder_backup'
+              - str_replace:
+                  template:
+                    'if /usr/sbin/pcs resource show openstack-cinder-backup; then /usr/sbin/pcs resource restart --wait=PCMKTIMEOUT openstack-cinder-backup; echo "openstack-cinder-backup restart invoked"; fi'
+                  params:
+                    PCMKTIMEOUT: {get_param: PcmkConfigRestartTimeout}
+            image: {get_param: DockerCinderBackupImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /var/lib/config-data/puppet-generated/cinder/:/var/lib/kolla/config_files/src:ro
           cinder_backup_init_bundle:
             start_order: 1
             detach: false
