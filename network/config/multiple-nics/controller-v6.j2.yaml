@@ -38,7 +38,15 @@ parameters:
     description: default route for the {{network.name_lower}} network
     type: string
 {%- endif %}
-{% endfor %}
+  {{network.name}}InterfaceRoutes:
+    default: []
+    description: >
+      Routes for the {{network.name_lower}} network traffic.
+      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
+      Unless the default is changed, the parameter is automatically resolved
+      from the subnet host_routes attribute.
+    type: json
+{%- endfor %}
   DnsServers: # Override this via parameter_defaults
     default: []
     description: >
@@ -79,7 +87,7 @@ resources:
                   next_hop:
                     get_param: EC2MetadataIp
                 # IPv4 Default Route
-                - default: true
+                - default: true  # NOTE(hjensas): This is the IPv4 default route
                   next_hop:
                     get_param: ControlPlaneDefaultRoute
               - type: interface
@@ -88,24 +96,32 @@ resources:
                 addresses:
                 - ip_netmask:
                     get_param: StorageIpSubnet
+                routes:
+                  get_param: StorageInterfaceRoutes
               - type: interface
                 name: nic3
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
                     get_param: StorageMgmtIpSubnet
+                routes:
+                  get_param: StorageMgmtInterfaceRoutes
               - type: interface
                 name: nic4
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
                     get_param: InternalApiIpSubnet
+                routes:
+                  get_param: InternalApiInterfaceRoutes
               - type: ovs_bridge
                 name: br-tenant
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
                     get_param: TenantIpSubnet
+                routes:
+                  get_param: TenantInterfaceRoutes
                 members:
                 - type: interface
                   name: nic5
@@ -120,9 +136,11 @@ resources:
                 - ip_netmask:
                     get_param: ExternalIpSubnet
                 routes:
-                - default: true
-                  next_hop:
-                    get_param: ExternalInterfaceDefaultRoute
+                  list_concat_unique:
+                    - get_param: ExternalInterfaceRoutes
+                    - - default: true  # NOTE(hjensas): This is the IPv6 default route
+                        next_hop:
+                          get_param: ExternalInterfaceDefaultRoute
                 members:
                 - type: interface
                   name: nic6
@@ -131,17 +149,18 @@ resources:
             # If setting default route on the Management interface, comment
             # out the default route on the External interface. This will
             # make the External API unreachable from remote subnets.
-            #-
-            #  type: interface
+            #- type: interface
             #  name: nic7
             #  use_dhcp: false
             #  addresses:
-            #    -
-            #      ip_netmask: {get_param: ManagementIpSubnet}
+            #  - ip_netmask:
+            #      get_param: ManagementIpSubnet
             #  routes:
-            #    -
-            #      default: true
-            #      next_hop: {get_param: ManagementInterfaceDefaultRoute}
+            #    list_concat_unique:
+            #      - get_param: ManagementInterfaceRoutes
+            #      - - default: true
+            #          next_hop:
+            #            get_param: ManagementInterfaceDefaultRoute
 outputs:
   OS::stack_id:
     description: The OsNetConfigImpl resource.
