@@ -48,6 +48,11 @@ parameters:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
     type: boolean
+  PcmkConfigRestartTimeout:
+    default: 600
+    description: Time in seconds to wait for a pcmk resource to restart when
+                 a config change is detected and the resource is being restarted
+    type: number
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
@@ -105,6 +110,28 @@ outputs:
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
         step_3:
+          ovn_dbs_restart_bundle:
+            start_order: 0
+            config_volume: ovn_dbs
+            detach: false
+            net: host
+            user: root
+            command:
+              - '/usr/bin/bootstrap_host_exec'
+              - 'ovn_dbs'
+              - str_replace:
+                  template:
+                    'if /usr/sbin/pcs resource show ovn-dbs-bundle; then /usr/sbin/pcs resource restart --wait=PCMKTIMEOUT ovn-dbs-bundle; echo "ovn-dbs-bundle restart invoked"; fi'
+                  params:
+                    PCMKTIMEOUT: {get_param: PcmkConfigRestartTimeout}
+            image: {get_param: DockerOvnDbsConfigImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /var/lib/config-data/puppet-generated/ovn_dbs/:/var/lib/kolla/config_files/src:ro
           ovn_dbs_init_bundle:
             start_order: 1
             detach: false
