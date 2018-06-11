@@ -29,6 +29,12 @@ export OS_PROJECT_DOMAIN_NAME='Default'
 export OS_USER_DOMAIN_NAME='Default'
 EOF_CAT
 
+if [ -n "$internal_tls_ca_file" ]; then
+    cat >> $HOMEDIR/stackrc <<-EOF_CAT
+export OS_CACERT="$internal_tls_ca_file"
+EOF_CAT
+fi
+
 cat >> $HOMEDIR/stackrc <<-"EOF_CAT"
 # Add OS_CLOUDNAME to PS1
 if [ -z "${CLOUDPROMPT_ENABLED:-}" ]; then
