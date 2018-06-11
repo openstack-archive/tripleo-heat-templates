@@ -57,6 +57,10 @@ parameters:
     default: true
     description: 'Use a local directory for Swift storage services when building rings'
     type: boolean
+  SwiftContainerSharderEnabled:
+    description: Set to True to enable Swift container sharder service
+    default: false
+    type: boolean
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -64,6 +68,7 @@ parameters:
 
 conditions:
   single_replica_mode: {equals: [{get_param: SwiftReplicas}, 1]}
+  swift_container_sharder_enabled: {equals : [{get_param: SwiftContainerSharderEnabled}, true]}
 
 resources:
 
@@ -154,6 +159,13 @@ outputs:
               preserve_properties: true
         /var/lib/kolla/config_files/swift_container_server.json:
           command: /usr/bin/swift-container-server /etc/swift/container-server.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+        /var/lib/kolla/config_files/swift_container_sharder.json:
+          command: /usr/bin/swift-container-sharder /etc/swift/container-server.conf
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -292,6 +304,7 @@ outputs:
                         - /dev:/dev
                         - /var/cache/swift:/var/cache/swift
                   environment: *kolla_env
+
                 swift_object_auditor:
                   image: &swift_object_image {get_param: DockerSwiftObjectImage}
                   net: host
@@ -450,6 +463,24 @@ outputs:
                       - /dev:/dev
                       # /var/cache/swift not needed in this container
                 environment: *kolla_env
+            - if:
+              - swift_container_sharder_enabled
+              -
+                swift_container_sharder:
+                  image: *swift_container_image
+                  net: host
+                  user: swift
+                  restart: always
+                  volumes:
+                    list_concat:
+                      - {get_attr: [ContainersCommon, volumes]}
+                      -
+                        - /var/lib/kolla/config_files/swift_container_sharder.json:/var/lib/kolla/config_files/config.json:ro
+                        - /var/lib/config-data/puppet-generated/swift/:/var/lib/kolla/config_files/src:ro
+                        - /srv/node:/srv/node
+                        - /dev:/dev
+                        - /var/cache/swift:/var/cache/swift
+              - {}
 
       host_prep_tasks:
         - name: create persistent directories
