@@ -313,6 +313,57 @@ parameters:
     description: Create the _member_ role, useful for undercloud deployment.
     type: boolean
     default: False
+  KeystoneFederationEnable:
+    type: boolean
+    default: false
+    description: Enable support for federated authentication.
+  KeystoneTrustedDashboards:
+    type: comma_delimited_list
+    default: []
+    description: A list of dashboard URLs trusted for single sign-on.
+  KeystoneAuthMethods:
+    type: comma_delimited_list
+    default: []
+    description: >-
+      A list of methods used for authentication.
+  KeystoneOpenIdcEnable:
+    type: boolean
+    default: false
+    description: Enable support for OpenIDC federation.
+  KeystoneOpenIdcIdpName:
+    type: string
+    default: ''
+    description: The name associated with the IdP in Keystone.
+  KeystoneOpenIdcProviderMetadataUrl:
+    type: string
+    default: ''
+    description: The url that points to your OpenID Connect provider metadata
+  KeystoneOpenIdcClientId:
+    type: string
+    default: ''
+    description: >-
+      The client ID to use when handshaking with your OpenID Connect provider
+  KeystoneOpenIdcClientSecret:
+    type: string
+    default: ''
+    description: >-
+      The client secret to use when handshaking with your OpenID
+      Connect provider
+  KeystoneOpenIdcCryptoPassphrase:
+    type: string
+    default: 'openstack'
+    description: >-
+      Passphrase to use when encrypting data for OpenID Connect handshake.
+  KeystoneOpenIdcResponseType:
+    type: string
+    default: 'id_token'
+    description: Response type to be expected from the OpenID Connect provider.
+  KeystoneOpenIdcRemoteIdAttribute:
+    type: string
+    default: 'HTTP_OIDC_ISS'
+    description: >-
+      Attribute to be used to obtain the entity ID of the Identity Provider
+      from the environment.
 
 parameter_groups:
 - label: deprecated
@@ -342,6 +393,8 @@ resources:
 conditions:
   keystone_fernet_tokens: {equals: [{get_param: KeystoneTokenProvider}, "fernet"]}
   keystone_ldap_domain_enabled: {equals: [{get_param: KeystoneLDAPDomainEnable}, True]}
+  keystone_federation_enabled: {equals: [{get_param: KeystoneFederationEnable}, True]}
+  keystone_openidc_enabled: {equals: [{get_param: KeystoneOpenIdcEnable}, True]}
   service_debug_unset: {equals : [{get_param: KeystoneDebug}, '']}
 
   # Security compliance
@@ -497,6 +550,40 @@ outputs:
             keystone::cron::token_flush::maxdelay: {get_param: KeystoneCronTokenFlushMaxDelay}
             keystone::cron::token_flush::destination: {get_param: KeystoneCronTokenFlushDestination}
             keystone::cron::token_flush::user: {get_param: KeystoneCronTokenFlushUser}
+          -
+            if:
+            - keystone_federation_enabled
+            -
+              keystone_federation_enabled: True
+              keystone::federation::trusted_dashboards:
+                get_param: KeystoneTrustedDashboards
+            - {}
+          -
+            if:
+            - keystone_openidc_enabled
+            -
+              keystone_openidc_enabled: True
+              keystone::federation::openidc::methods:
+                get_param: KeystoneAuthMethods
+              keystone::federation::openidc::keystone_public_url:
+                get_param: [EndpointMap, KeystonePublic, uri_no_suffix]
+              keystone::federation::openidc::keystone_admin_url:
+                get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]
+              keystone::federation::openidc::idp_name:
+                get_param: KeystoneOpenIdcIdpName
+              keystone::federation::openidc::openidc_provider_metadata_url:
+                get_param: KeystoneOpenIdcProviderMetadataUrl
+              keystone::federation::openidc::openidc_client_id:
+                get_param: KeystoneOpenIdcClientId
+              keystone::federation::openidc::openidc_client_secret:
+                get_param: KeystoneOpenIdcClientSecret
+              keystone::federation::openidc::openidc_crypto_passphrase:
+                get_param: KeystoneOpenIdcCryptoPassphrase
+              keystone::federation::openidc::openidc_response_type:
+                get_param: KeystoneOpenIdcResponseType
+              keystone::federation::openidc::remote_id_attribute:
+                get_param: KeystoneOpenIdcRemoteIdAttribute
+            - {}
           -
             if:
             - keystone_ldap_domain_enabled
