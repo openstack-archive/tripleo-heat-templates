@@ -130,32 +130,32 @@ outputs:
               /var/log/containers/ceilometer.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if ceilometer-agent-ipmi is deployed
-          command: systemctl is-enabled --quiet openstack-ceilometer-ipmi
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ceilometer_ipmi_enabled
-        - name: "PreUpgrade step0,validation: Check if openstack-ceilometer-ipmi is running"
-          command: systemctl is-active --quiet openstack-ceilometer-ipmi
-          when:
-            - step|int == 0
-            - ceilometer_ipmi_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ceilometer agent ipmi service
-          service: name=openstack-ceilometer-agent-ipmi state=stopped enabled=no
-          when:
-            - step|int == 2
-            - ceilometer_ipmi_enabled.rc == 0
-        - name: Set fact for removal of openstack-ceilometer-ipmi package
-          when: step|int == 2
-          set_fact:
-            remove_ceilometer_ipmi_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-ceilometer-ipmi package if operator requests it
-          yum: name=openstack-ceilometer-ipmi state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_ceilometer_ipmi_package|bool
+          block:
+            - name: Check if ceilometer-agent-ipmi is deployed
+              command: systemctl is-enabled --quiet openstack-ceilometer-ipmi
+              ignore_errors: True
+              register: ceilometer_ipmi_enabled_result
+            - name: Set fact ceilometer_ipmi_enabled
+              set_fact:
+                ceilometer_ipmi_enabled: "{{ ceilometer_ipmi_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if openstack-ceilometer-ipmi is running"
+              command: systemctl is-active --quiet openstack-ceilometer-ipmi
+              when: ceilometer_ipmi_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ceilometer agent ipmi service
+              service: name=openstack-ceilometer-agent-ipmi state=stopped enabled=no
+              when: ceilometer_ipmi_enabled|bool
+            - name: Set fact for removal of openstack-ceilometer-ipmi package
+              set_fact:
+                remove_ceilometer_ipmi_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-ceilometer-ipmi package if operator requests it
+              yum: name=openstack-ceilometer-ipmi state=removed
+              ignore_errors: True
+              when: remove_ceilometer_ipmi_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-ceilometer-ipmi is enabled
           command: systemctl is-enabled openstack-ceilometer-ipmi

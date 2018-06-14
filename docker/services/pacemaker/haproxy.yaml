@@ -377,11 +377,32 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - name: Get docker haproxy image
-          set_fact:
-            haproxy_docker_image_latest: *haproxy_image_pcmklatest
-        - name: Set HAProxy upgrade facts
-          block: *haproxy_update_upgrade_facts
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: Get docker haproxy image
+              set_fact:
+                haproxy_docker_image_latest: *haproxy_image_pcmklatest
+            - name: Set HAProxy upgrade facts
+              block: *haproxy_update_upgrade_facts
+            - name: Prepare the switch to new haproxy container image name in pacemaker
+              when: haproxy_containerized|bool
+              block:
+                - name: Get haproxy image id currently used by pacemaker
+                  shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
+                  register: haproxy_current_pcmklatest_id
+                - name: Temporarily tag the current haproxy image id with the upgraded image name
+                  shell: "docker tag {{haproxy_current_pcmklatest_id.stdout}} {{haproxy_docker_image_latest}}"
+                  when: haproxy_current_pcmklatest_id.stdout != ''
+            - name: Check haproxy-bundle cluster resource status
+              pacemaker_resource:
+                resource: haproxy-bundle
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: haproxy_pcs_res_result
+            - name: Set fact haproxy_pcs_res
+              set_fact: "{{haproxy_pcs_res_result|succeeded}}"
         - name: haproxy baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -412,30 +433,12 @@ outputs:
                   register: output
                   retries: 5
                   until: output.rc == 0
-        - name: Prepare the switch to new haproxy container image name in pacemaker
-          when:
-            - step|int == 0
-            - haproxy_containerized|bool
-          block:
-            - name: Get haproxy image id currently used by pacemaker
-              shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
-              register: haproxy_current_pcmklatest_id
-            - name: Temporarily tag the current haproxy image id with the upgraded image name
-              shell: "docker tag {{haproxy_current_pcmklatest_id.stdout}} {{haproxy_docker_image_latest}}"
-              when: haproxy_current_pcmklatest_id.stdout != ''
-        - name: Check haproxy-bundle cluster resource status
-          pacemaker_resource:
-            resource: haproxy-bundle
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: haproxy_pcs_res
         - name: Update haproxy pcs resource bundle for new container image
           when:
             - step|int == 1
             - haproxy_containerized|bool
             - is_bootstrap_node
-            - haproxy_pcs_res|succeeded
+            - haproxy_pcs_res|bool
           block:
             - name: Disable the haproxy cluster resource before container upgrade
               pacemaker_resource:

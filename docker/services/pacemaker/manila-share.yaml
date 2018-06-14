@@ -246,16 +246,37 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - name: Get docker Manila-Share image
-          set_fact:
-            manila_share_docker_image_latest: *manila_share_image_pcmklatest
-        - name: Check for Manila-Share Kolla configuration
-          stat:
-            path: /var/lib/config-data/puppet-generated/manila
-          register: manila_share_kolla_config
-        - name: Check if Manila-Share is already containerized
-          set_fact:
-            manila_share_containerized: "{{manila_share_kolla_config.stat.isdir | default(false)}}"
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: Get docker Manila-Share image
+              set_fact:
+                manila_share_docker_image_latest: *manila_share_image_pcmklatest
+            - name: Check for Manila-Share Kolla configuration
+              stat:
+                path: /var/lib/config-data/puppet-generated/manila
+              register: manila_share_kolla_config
+            - name: Check if Manila-Share is already containerized
+              set_fact:
+                manila_share_containerized: "{{manila_share_kolla_config.stat.isdir | default(false)}}"
+            - name: Prepare the switch to new Manila-Share container image name in pacemaker
+              when: manila_share_containerized|bool
+              block:
+                - name: Get Manila-Share image id currently used by pacemaker
+                  shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
+                  register: manila_share_current_pcmklatest_id
+                - name: Temporarily tag the current Manila-Share image id with the upgraded image name
+                  shell: "docker tag {{manila_share_current_pcmklatest_id.stdout}} {{manila_share_docker_image_latest}}"
+                  when: manila_share_current_pcmklatest_id.stdout != ''
+            - name: Check openstack-manila-share cluster resource status
+              pacemaker_resource:
+                resource: openstack-manila-share
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: manila_share_pcs_res_result
+            - name: Set fact manila_share_pcs_res
+              set_fact: "{{manila_share_pcs_res_result|succeeded}}"
         - name: Manila-Share baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -263,30 +284,12 @@ outputs:
           block:
             - name: Stop and disable manila_share service
               service: name=openstack-manila-share state=stopped enabled=no
-        - name: Prepare the switch to new Manila-Share container image name in pacemaker
-          when:
-            - step|int == 0
-            - manila_share_containerized|bool
-          block:
-            - name: Get Manila-Share image id currently used by pacemaker
-              shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
-              register: manila_share_current_pcmklatest_id
-            - name: Temporarily tag the current Manila-Share image id with the upgraded image name
-              shell: "docker tag {{manila_share_current_pcmklatest_id.stdout}} {{manila_share_docker_image_latest}}"
-              when: manila_share_current_pcmklatest_id.stdout != ''
-        - name: Check openstack-manila-share cluster resource status
-          pacemaker_resource:
-            resource: openstack-manila-share
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: manila_share_pcs_res
         - name: Update openstack-manila-share pcs resource bundle for new container image
           when:
             - step|int == 1
             - manila_share_containerized|bool
             - is_bootstrap_node
-            - manila_share_pcs_res|succeeded
+            - manila_share_pcs_res|bool
           block:
             - name: Disable the Manila-Share cluster resource before container upgrade
               pacemaker_resource:

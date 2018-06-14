@@ -223,32 +223,32 @@ outputs:
             creates: /dev/loop2
           when: cinder_enable_iscsi_backend
       upgrade_tasks:
-        - name: Check if cinder_volume is deployed
-          command: systemctl is-enabled openstack-cinder-volume
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: cinder_volume_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-cinder-volume is running"
-          shell: systemctl is-active --quiet openstack-cinder-volume
-          when:
-            - step|int == 0
-            - cinder_volume_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable cinder_volume service
-          when:
-            - step|int == 2
-            - cinder_volume_enabled.rc == 0
-          service: name=openstack-cinder-volume state=stopped enabled=no
-        - name: Set fact for removal of openstack-cinder package
-          when: step|int == 2
-          set_fact:
-            remove_cinder_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-cinder package if operator requests it
-          yum: name=openstack-cinder state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_cinder_package|bool
+          block:
+            - name: Check if cinder_volume is deployed
+              command: systemctl is-enabled openstack-cinder-volume
+              ignore_errors: True
+              register: cinder_volume_enabled_result
+            - name: Set fact cinder_volume_enabled
+              set_fact:
+                cinder_volume_enabled: "{{ cinder_volume_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-cinder-volume is running"
+              shell: systemctl is-active --quiet openstack-cinder-volume
+              when: cinder_volume_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable cinder_volume service
+              when: cinder_volume_enabled|bool
+              service: name=openstack-cinder-volume state=stopped enabled=no
+            - name: Set fact for removal of openstack-cinder package
+              set_fact:
+                remove_cinder_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-cinder package if operator requests it
+              yum: name=openstack-cinder state=removed
+              ignore_errors: True
+              when: remove_cinder_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if cinder_volume is deployed
           command: systemctl is-enabled --quiet openstack-cinder-volume

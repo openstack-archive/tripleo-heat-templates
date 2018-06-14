@@ -154,22 +154,25 @@ outputs:
             path: /etc/ceph
             state: directory
       upgrade_tasks:
-        - name: Check if gnocchi_metricd is deployed
-          command: systemctl is-enabled --quiet openstack-gnocchi-metricd
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: gnocchi_metricd_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-gnocchi-metricd is running"
-          command: systemctl is-active --quiet openstack-gnocchi-metricd
-          when:
-            - step|int == 0
-            - gnocchi_metricd_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable openstack-gnocchi-metricd service
-          when:
-            - step|int == 2
-            - gnocchi_metricd_enabled.rc == 0
-          service: name=openstack-gnocchi-metricd.service state=stopped enabled=no
+          block:
+            - name: Check if gnocchi_metricd is deployed
+              command: systemctl is-enabled --quiet openstack-gnocchi-metricd
+              ignore_errors: True
+              register: gnocchi_metricd_enabled_result
+            - name: Set fact gnocchi_metricd_enabled
+              set_fact:
+                gnocchi_metricd_enabled: "{{ gnocchi_metricd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-gnocchi-metricd is running"
+              command: systemctl is-active --quiet openstack-gnocchi-metricd
+              when: gnocchi_metricd_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable openstack-gnocchi-metricd service
+              when: gnocchi_metricd_enabled|bool
+              service: name=openstack-gnocchi-metricd.service state=stopped enabled=no
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-gnocchi-metricd is deployed
           command: systemctl is-enabled --quiet openstack-gnocchi-metricd

@@ -123,32 +123,32 @@ outputs:
               /var/log/containers/aodh and /var/log/containers/httpd/aodh-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if aodh_listener is deployed
-          command: systemctl is-enabled --quiet openstack-aodh-listener
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: aodh_listener_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-aodh-listener is running"
-          command: systemctl is-active --quiet openstack-aodh-listener
-          when:
-            - step|int == 0
-            - aodh_listener_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable openstack-aodh-listener service
-          when:
-            - step|int == 2
-            - aodh_listener_enabled.rc == 0
-          service: name=openstack-aodh-listener.service state=stopped enabled=no
-        - name: Set fact for removal of openstack-aodh-listener package
-          when: step|int == 2
-          set_fact:
-            remove_aodh_listener_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-aodh-listener package if operator requests it
-          yum: name=openstack-aodh-listener state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_aodh_listener_package|bool
+          block:
+            - name: Check if aodh_listener is deployed
+              command: systemctl is-enabled --quiet openstack-aodh-listener
+              ignore_errors: True
+              register: aodh_listener_enabled_result
+            - name: Set fact aodh_listener_enabled
+              set_fact:
+                aodh_listener_enabled: "{{ aodh_listener_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-aodh-listener is running"
+              command: systemctl is-active --quiet openstack-aodh-listener
+              when: aodh_listener_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable openstack-aodh-listener service
+              when: aodh_listener_enabled|bool
+              service: name=openstack-aodh-listener.service state=stopped enabled=no
+            - name: Set fact for removal of openstack-aodh-listener package
+              set_fact:
+                remove_aodh_listener_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-aodh-listener package if operator requests it
+              yum: name=openstack-aodh-listener state=removed
+              ignore_errors: True
+              when: remove_aodh_listener_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-aodh-listener is deployed
           command: systemctl is-enabled --quiet openstack-aodh-listener

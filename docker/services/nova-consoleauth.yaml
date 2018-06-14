@@ -135,32 +135,32 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if nova_consoleauth is deployed
-          command: systemctl is-enabled --quiet openstack-nova-consoleauth
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_consoleauth_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-consoleauth is running"
-          command: systemctl is-active --quiet openstack-nova-consoleauth
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_consoleauth_enabled.rc == 0
-        - name: Stop and disable nova_consoleauth service
-          when:
-            - step|int == 2
-            - nova_consoleauth_enabled.rc == 0
-          service: name=openstack-nova-consoleauth state=stopped enabled=no
-        - name: Set fact for removal of openstack-nova-console package
-          when: step|int == 2
-          set_fact:
-            remove_nova_console_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-nova-console package if operator requests it
-          yum: name=openstack-nova-console state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_nova_console_package|bool
+          block:
+            - name: Check if nova_consoleauth is deployed
+              command: systemctl is-enabled --quiet openstack-nova-consoleauth
+              ignore_errors: True
+              register: nova_consoleauth_enabled_result
+            - name: Set fact nova_consoleauth_enabled
+              set_fact:
+                nova_consoleauth_enabled: "{{ nova_consoleauth_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-consoleauth is running"
+              command: systemctl is-active --quiet openstack-nova-consoleauth
+              tags: validation
+              when: nova_consoleauth_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova_consoleauth service
+              when: nova_consoleauth_enabled|bool
+              service: name=openstack-nova-consoleauth state=stopped enabled=no
+            - name: Set fact for removal of openstack-nova-console package
+              set_fact:
+                remove_nova_console_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-console package if operator requests it
+              yum: name=openstack-nova-console state=removed
+              ignore_errors: True
+              when: remove_nova_console_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova_consoleauth is deployed
           command: systemctl is-active --quiet openstack-nova-consoleauth
