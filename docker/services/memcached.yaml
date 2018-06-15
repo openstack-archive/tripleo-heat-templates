@@ -71,19 +71,9 @@ outputs:
       kolla_config: {}
       docker_config:
         step_1:
-          memcached_init_logs:
-            start_order: 0
-            detach: false
-            image: &memcached_image {get_param: DockerMemcachedImage}
-            privileged: false
-            user: root
-            volumes:
-               - /var/lib/config-data/memcached/etc/sysconfig/memcached:/etc/sysconfig/memcached:ro
-               - /var/log/containers/memcached:/var/log/
-            command: ['/bin/bash', '-c', 'source /etc/sysconfig/memcached; touch /var/log/memcached.log && chown ${USER} /var/log/memcached.log']
           memcached:
-            start_order: 1
-            image: *memcached_image
+            start_order: 0
+            image: {get_param: DockerMemcachedImage}
             net: host
             privileged: false
             restart: always
@@ -94,27 +84,13 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/config-data/memcached/etc/sysconfig/memcached:/etc/sysconfig/memcached:ro
-                  - /var/log/containers/memcached:/var/log/
-            # NOTE: We're adding the log redirection here, even though should
-            # already be part of the options. This is because the redirection
-            # via the options is not working and ends up being passed as a
-            # parameter to the memcached command (which it silently ignores).
-            # Thus the need for the explicit redirection here. The redirection
-            # will be removed from the $OPTIONS, which is done via the puppet
-            # module, but we'll only be able to do this once the following pull
-            # request merges: https://github.com/saz/puppet-memcached/pull/88
-            command: ['/bin/bash', '-c', 'source /etc/sysconfig/memcached; /usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} -X $OPTIONS >> /var/log/memcached.log 2>&1']
+            command: ['/bin/bash', '-c', 'source /etc/sysconfig/memcached; /usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS']
       host_prep_tasks:
-        - name: create persistent logs directory
-          file:
-            path: /var/log/containers/memcached
-            state: directory
         - name: memcached logs readme
           copy:
             dest: /var/log/memcached-readme.txt
             content: |
-              Log files from memcached containers can be found under
-              /var/log/containers/memcached.
+              Memcached container logs to stdout/stderr only.
           ignore_errors: true
       upgrade_tasks:
         - when: step|int == 0
