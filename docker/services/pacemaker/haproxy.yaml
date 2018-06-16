@@ -71,6 +71,11 @@ parameters:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
     type: boolean
+  PcmkConfigRestartTimeout:
+    default: 600
+    description: Time in seconds to wait for a pcmk resource to restart when
+                 a config change is detected and the resource is being restarted
+    type: number
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
@@ -208,6 +213,28 @@ outputs:
               - /var/run/docker.sock:/var/run/docker.sock:rw
             image: {get_param: DockerHAProxyImage}
         step_2:
+          haproxy_restart_bundle:
+            start_order: 2
+            detach: false
+            net: host
+            user: root
+            config_volume: haproxy
+            command:
+              - '/usr/bin/bootstrap_host_exec'
+              - 'haproxy'
+              - str_replace:
+                  template:
+                    'if /usr/sbin/pcs resource show haproxy-bundle; then /usr/sbin/pcs resource restart --wait=PCMKTIMEOUT haproxy-bundle; echo "haproxy-bundle restart invoked"; fi'
+                  params:
+                    PCMKTIMEOUT: {get_param: PcmkConfigRestartTimeout}
+            image: {get_param: DockerHAProxyImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - /dev/shm:/dev/shm:rw
+                  - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
           haproxy_init_bundle:
             start_order: 3
             detach: false
