@@ -96,7 +96,11 @@ def pull_image(name):
 def match_config_volumes(prefix, config):
     # Match the mounted config volumes - we can't just use the
     # key as e.g "novacomute" consumes config-data/nova
-    volumes = config.get('volumes', [])
+    try:
+        volumes = config.get('volumes', [])
+    except AttributeError:
+        log.error('Error fetching volumes. Prefix: %s - Config: %s' % (prefix, config))
+        raise
     return sorted([os.path.dirname(v.split(":")[0]) for v in volumes if
                    v.startswith(prefix)])
 
