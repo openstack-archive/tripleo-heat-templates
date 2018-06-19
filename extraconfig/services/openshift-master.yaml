@@ -59,6 +59,24 @@ parameters:
     default: {}
     description: OpenShift node vars specific for the worker nodes
     type: json
+  DockerInsecureRegistryAddress:
+    description: Optional. The IP Address and Port of an insecure docker
+                 namespace that will be configured in /etc/sysconfig/docker.
+                 The value can be multiple addresses separated by commas.
+    type: comma_delimited_list
+    default: []
+  DockerOpenShiftBaseImage:
+    description: Base container image for openshift.
+    type: string
+  DockerOpenShiftCockpitImage:
+    description: Cockpit container image for openshift
+    type: string
+  DockerOpenShiftNodeImage:
+    description: Node container image for openshift
+    type: string
+  DockerOpenShiftEtcdImage:
+    description: etcd container image for openshift
+    type: string
 
 outputs:
   role_data:
@@ -94,7 +112,12 @@ outputs:
                   map_merge:
                   - openshift_release: '3.9'
                     openshift_version: '3.9.0'
-                    openshift_image_tag: 'v3.9.0'
+                    openshift_image_tag:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[1]
+                        data:
+                          image: {get_param: DockerOpenShiftBaseImage}
                     openshift_enable_excluders: false
                     openshift_deployment_type: origin
                     openshift_use_external_openvswitch: true
@@ -109,6 +132,53 @@ outputs:
                     openshift_master_cluster_method: native
                     openshift_master_cluster_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
                     openshift_master_cluster_public_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
+                    # Local Registry
+                    openshift_examples_modify_imagestreams: true
+                    oreg_url:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1).join("-${component}:")
+                        data:
+                          image: {get_param: DockerOpenShiftBaseImage}
+                    etcd_image: {get_param: DockerOpenShiftEtcdImage}
+                    osm_etcd_image: {get_param: DockerOpenShiftEtcdImage}
+                    osm_image:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[0]
+                        data:
+                          image: {get_param: DockerOpenShiftBaseImage}
+                    osn_image:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[0]
+                        data:
+                          image: {get_param: DockerOpenShiftNodeImage}
+                    openshift_cockpit_deployer_prefix:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit("/", 1)[0] + "/"
+                        data:
+                          image: {get_param: DockerOpenShiftCockpitImage}
+                    openshift_cockpit_deployer_basename:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[0].rightSplit("/", 1)[1]
+                        data:
+                          image: {get_param: DockerOpenShiftCockpitImage}
+                    openshift_cockpit_deployer_version:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[1]
+                        data:
+                          image: {get_param: DockerOpenShiftCockpitImage}
+                    openshift_web_console_prefix:
+                      yaql:
+                        expression:
+                          $.data.image.rightSplit(":", 1)[0] + "-"
+                        data:
+                          image: {get_param: DockerOpenShiftBaseImage}
+                    openshift_docker_additional_registries: {get_param: DockerInsecureRegistryAddress}
                   - {get_param: OpenShiftGlobalVariables}
                 tripleo_role_name: {get_param: RoleName}
                 tripleo_stack_action: {get_param: StackAction}
