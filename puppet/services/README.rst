@@ -188,7 +188,7 @@ list of ansible tasks to be performed during the upgrade process.
 
 Similar to the `update_tasks`, we allow a series of steps for the
 per-service upgrade sequence, defined as ansible tasks with a "when:
-step|int == 1" for for the first step, "== 2" for the second, etc.
+step|int == 1" for the first step, "== 2" for the second, etc.
 
    Steps correlate to the following:
 
