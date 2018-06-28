@@ -96,48 +96,57 @@ outputs:
                     # Fatal and Errors only
                     debug_level: 0
                   - {get_param: OpenShiftGlobalVariables}
+                tripleo_role_name: {get_param: RoleName}
                 openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
                 openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
 
+              # NOTE(flaper87): Create all the nodes objects
+              # now, as yaml dicts, instead of formatting
+              # everything as part of a template.
+              # We consider new_node all the nodes that
+              # exited with 1 in the previous task.
+              #
+              # Future Improvement: Use hostvars[] syntax
+              # instead of raw_get to reduce verbosity.
+            - set_fact:
+                nodes:
+                    hostname: "{{item}}"
+                    ansible_user: "{{ hostvars.raw_get(item)['ansible_user'] | default(hostvars.raw_get(item)['ansible_ssh_user']) | default('root') }}"
+                    ansible_host: "{{ hostvars.raw_get(item)['ansible_host'] | default(item) }}"
+                    ansible_become: true
+                    etcd_ip: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_ip: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_public_ip: "{{hostvars.raw_get(item)['external_ip'] | default(hostvars.raw_get(item)['ctlplane_ip'])}}"
+                    openshift_hostname: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_public_hostname: "{{hostvars.raw_get(item)['external_ip'] | default(hostvars.raw_get(item)['ctlplane_ip'])}}"
+              register: all_master_nodes
+              with_items: "{{groups[tripleo_role_name] | default([]) }}"
+
+            - set_fact:
+                master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+
             - name: generate openshift inventory for openshift_master service
               copy:
-                dest:
-                  str_replace:
-                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_master.yml"
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                content:
-                  str_replace:
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                    template: |
-                      masters:
-                        hosts:
-                          {% for host in groups['ROLENAME'] | default([]) -%}
-                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                            ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
-                            ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                            ansible_become: true
-                            etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_public_ip: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
-                            openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_public_hostname: {{hostvars.raw_get(host)['external_ip'] | default(hostvars.raw_get(host)['ctlplane_ip'])}}
-                            {% if openshift_master_node_vars -%}
-                            {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
-                            {%- endif %}
+                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
+                content: |
+                  {% if master_nodes | count > 0%}
+                  masters:
+                    hosts:
+                    {% for host in master_nodes %}
+                    {{host.hostname}}:
+                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
+                    {% endfor %}
+                  {% endif %}
 
-                          {% endfor %}
+                  etcd:
+                    children:
+                      masters: {}
 
-                      etcd:
-                        children:
-                          masters: {}
-
-                      OSEv3:
-                        children:
-                          masters: {}
-                          nodes: {}
-                          {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
+                  OSEv3:
+                    children:
+                      masters: {}
+                      nodes: {}
+                      {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
 
             - name: generate openshift global defaults
               copy:
