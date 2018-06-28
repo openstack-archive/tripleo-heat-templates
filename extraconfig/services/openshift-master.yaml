@@ -3,6 +3,13 @@ heat_template_version: rocky
 description: External tasks definition for OpenShift
 
 parameters:
+  StackAction:
+    type: string
+    description: >
+      Heat action on performed top-level stack.  Note StackUpdateType is
+      set to UPGRADE when a major-version upgrade is in progress.
+    constraints:
+    - allowed_values: ['CREATE', 'UPDATE']
   RoleNetIpMap:
     default: {}
     type: json
@@ -38,6 +45,10 @@ parameters:
     type: json
   OpenShiftAnsiblePlaybook:
     default: '/usr/share/ansible/openshift-ansible/playbooks/deploy_cluster.yml'
+    description: Path to OpenShift-Ansible playbook.
+    type: string
+  OpenShiftMasterScaleupPlaybook:
+    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-master/scaleup.yml'
     description: Path to OpenShift-Ansible playbook.
     type: string
   OpenShiftMasterNodeVars:
@@ -97,8 +108,26 @@ outputs:
                     debug_level: 0
                   - {get_param: OpenShiftGlobalVariables}
                 tripleo_role_name: {get_param: RoleName}
+                tripleo_stack_action: {get_param: StackAction}
                 openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
                 openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
+
+            # NOTE(flaper87): Check if origin-node is running
+            # in the openshift nodes so we can flag the node
+            # as new later on.
+            # This task ignores errors because docker inspect
+            # exits with 1 if origin-node doesn't exist. Perhaps
+            # we could use failed_when instead of ignoring the
+            # errors. Future improvement.
+            - name: Check if origin-node is running
+              become: true
+              shell: >
+                docker inspect atomic-enterprise-master-api > /dev/null 2>&1
+                || docker inspect origin-master-api > /dev/null 2>&1
+                || echo "false"
+              register: origin_nodes
+              delegate_to: "{{item}}"
+              with_items: "{{ groups[tripleo_role_name] | default([]) }}"
 
               # NOTE(flaper87): Create all the nodes objects
               # now, as yaml dicts, instead of formatting
@@ -110,6 +139,7 @@ outputs:
               # instead of raw_get to reduce verbosity.
             - set_fact:
                 nodes:
+                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
                     hostname: "{{item}}"
                     ansible_user: "{{ hostvars.raw_get(item)['ansible_user'] | default(hostvars.raw_get(item)['ansible_ssh_user']) | default('root') }}"
                     ansible_host: "{{ hostvars.raw_get(item)['ansible_host'] | default(item) }}"
@@ -124,7 +154,13 @@ outputs:
 
             - set_fact:
                 master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                new_masters: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
 
+            # NOTE(flaper87): Every master node will be in the masters group
+            # but only new master nodes will be in the new_masters section, which
+            # will be created only if there are nodes to add. We'll add `new_masters`
+            # to the OSEv3 group regardless to simplify the implementation. Ansible
+            # will ignore the section if it doesn't exist or if it's empty
             - name: generate openshift inventory for openshift_master service
               copy:
                 dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
@@ -138,6 +174,19 @@ outputs:
                     {% endfor %}
                   {% endif %}
 
+                  {% if new_masters | count > 0 %}
+                  new_masters:
+                    hosts:
+                    {% for host in new_masters %}
+                    {{host.hostname}}:
+                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
+                    {% endfor %}
+
+                  new_etcd:
+                    children:
+                      new_masters: {}
+                  {% endif %}
+
                   etcd:
                     children:
                       masters: {}
@@ -146,6 +195,8 @@ outputs:
                     children:
                       masters: {}
                       nodes: {}
+                      new_masters: {}
+                      new_nodes: {}
                       {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
 
             - name: generate openshift global defaults
@@ -162,10 +213,14 @@ outputs:
                 dest: "{{playbook_dir}}/openshift/global_vars.yml"
                 content: "{{openshift_global_vars|to_nice_yaml}}"
 
-            - name: set openshift ansible playbook path
+            - name: set openshift ansible playbook paths
               set_fact:
                 openshift_ansible_playbook_path: {get_param: OpenShiftAnsiblePlaybook}
+                openshift_master_scaleup_playbook_path: {get_param: OpenShiftMasterScaleupPlaybook}
 
+            # NOTE(flaper87): We'll use openshift_ansible_scaleup_playbook_path
+            # if there are new master or new worker nodes and we are doing an
+            # UPDATE. For all the other cases, we shall use the deploy playbook.
             - name: generate openshift playbook
               copy:
                 dest: "{{playbook_dir}}/openshift/playbook.yml"
@@ -208,7 +263,17 @@ outputs:
                           state: restarted
                           enabled: yes
 
+                  {% if tripleo_stack_action == 'UPDATE' and new_masters | count > 0 %}
+                  - include: "{{openshift_master_scaleup_playbook_path}}"
+                  {% endif %}
+
+                  {% if tripleo_stack_action == 'UPDATE' and new_nodes | count > 0 %}
+                  - include: "{{openshift_worker_scaleup_playbook_path}}"
+                  {% endif %}
+
+                  {% if tripleo_stack_action == 'CREATE' or (tripleo_stack_action == 'UPDATE' and (new_masters + new_nodes) | count == 0) %}
                   - include: "{{openshift_ansible_playbook_path}}"
+                  {% endif %}
             - name: set openshift command
               set_fact:
                 openshift_command: >-
