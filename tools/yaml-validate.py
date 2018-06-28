@@ -284,6 +284,14 @@ ANSIBLE_TASKS_YAMLS = [
     './extraconfig/pre_network/boot_param_tasks.yaml'
 ]
 
+HEAT_OUTPUTS_EXCLUSIONS = [
+    './puppet/extraconfig/tls/ca-inject.yaml',
+    './puppet/extraconfig/tls/tls-cert-inject.yaml',
+    './deployed-server/deployed-server.yaml',
+    './extraconfig/tasks/ssh/host_public_key.yaml',
+    './extraconfig/pre_network/host_config_and_reboot.yaml'
+]
+
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
@@ -1106,10 +1114,19 @@ def validate(filename, param_map):
                         return 1
 
                 elif data['type'] in CONFIG_RESOURCE_TYPES:
-                    if 'outputs' in data['properties'] and args.quiet < 2:
-                        print('Warning: resource %s from %s uses Heat outputs '
-                              'which are not supported with config-download.'
-                              % (resource, filename))
+                    if 'outputs' in data['properties']:
+                        if filename in HEAT_OUTPUTS_EXCLUSIONS \
+                                and args.quiet < 2:
+                            print('Warning: resource %s from %s uses Heat '
+                                  'outputs which are not supported with '
+                                  'config-download.'
+                                  % (resource, filename))
+                        else:
+                            print('ERROR: resource %s from %s uses Heat '
+                                  'outputs which are not supported with '
+                                  'config-download.'
+                                  % (resource, filename))
+                            return 1
 
     return retval
 
