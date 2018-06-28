@@ -17,7 +17,7 @@ Heat templates to deploy OpenStack using OpenStack.
 * Documentation: https://docs.openstack.org/tripleo-docs/latest/
 * Source: http://git.openstack.org/cgit/openstack/tripleo-heat-templates
 * Bugs: https://bugs.launchpad.net/tripleo
-
+* Release notes: https://docs.openstack.org/releasenotes/tripleo-heat-templates/
 Features
 --------
 
