@@ -51,31 +51,6 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['swift', 'file', 'rbd', 'cinder']
-  GlanceNfsEnabled:
-    default: false
-    description: >
-      When using GlanceBackend 'file', mount NFS share for image storage.
-    type: boolean
-  GlanceNfsShare:
-    default: ''
-    description: >
-      NFS share to mount for image storage (when GlanceNfsEnabled is true)
-    type: string
-  GlanceNfsOptions:
-    default: '_netdev,bg,intr,context=system_u:object_r:glance_var_lib_t:s0'
-    description: >
-      NFS mount options for image storage (when GlanceNfsEnabled is true)
-    type: string
-  GlanceNetappNfsEnabled:
-    default: false
-    description: >
-      When using GlanceBackend 'file', Netapp mount NFS share for image storage.
-    type: boolean
-  NetappShareLocation:
-    default: ''
-    description: >
-      Netapp share to mount for image storage (when GlanceNetappNfsEnabled is true)
-    type: string
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -100,8 +75,6 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  nfs_backend_enabled: {equals: [{get_param: GlanceNfsEnabled}, true]}
-  netapp_nfs_backend_enabled: {equals: [{get_param: GlanceNetappNfsEnabled}, true]}
   cinder_backend_enabled: {equals: [{get_param: GlanceBackend}, cinder]}
 
 
@@ -136,7 +109,6 @@ outputs:
           - get_attr: [GlanceApiPuppetBase, role_data, config_settings]
           - get_attr: [GlanceLogging, config_settings]
           - glance::api::sync_db: false
-          - tripleo::glance::nfs_mount::edit_fstab: false
       logging_source: {get_attr: [GlanceApiPuppetBase, role_data, logging_source]}
       logging_groups: {get_attr: [GlanceApiPuppetBase, role_data, logging_groups]}
       service_config_settings:
@@ -254,16 +226,7 @@ outputs:
         list_concat:
         - {get_attr: [GlanceLogging, host_prep_tasks]}
         - {get_attr: [GlanceApiPuppetBase, role_data, host_prep_tasks]}
-        - - name: Mount NFS on host
-            vars:
-              nfs_backend_enable: {get_param: GlanceNfsEnabled}
-            mount: name=/var/lib/glance/images src="{{item.NFS_SHARE}}" fstype=nfs4 opts="{{item.NFS_OPTIONS}}" state=mounted
-            with_items:
-              - NFS_SHARE: {get_param: GlanceNfsShare}
-                NFS_OPTIONS: {get_param: GlanceNfsOptions}
-            when:
-              - nfs_backend_enable
-          - name: ensure ceph configurations exist
+        - - name: ensure ceph configurations exist
             file:
               path: /etc/ceph
               state: directory
