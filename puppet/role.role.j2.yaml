@@ -255,6 +255,11 @@ parameters:
     description: The default route of the control plane network. (The parameter
       is automatically resolved from the ctlplane subnet's gateway_ip attribute.)
     type: string
+  EC2MetadataIp:
+    default: ''
+    description: The IP address of the EC2 metadata server. (The parameter
+      is automatically resolved from the ctlplane subnet's host_routes attribute.)
+    type: string
 
   ServerDeletionPolicy:
     description: Whether to retain or delete servers on deletion of the stack
@@ -332,6 +337,9 @@ conditions:
   ctlplane_default_route_set:
     not:
       equals: [{get_param: ControlPlaneDefaultRoute}, '']
+  ec2metadaip_set:
+    not:
+      equals: [{get_param: EC2MetadataIp}, '']
 
 resources:
   {{server_resource_name}}:
@@ -462,6 +470,16 @@ resources:
           - ctlplane_default_route_set
           - {get_param: ControlPlaneDefaultRoute}
           - {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, gateway_ip]}
+      EC2MetadataIp:
+        if:
+          - ec2metadaip_set
+          - {get_param: EC2MetadataIp}
+          - yaql:
+              # NOTE(hjensas): DeployedServer sets the EC2MetadataIp in DeployedServerEnvironment.
+              # Return an empty string if there are no host_routes in the subnet. (Standalone and Container Undercloud)
+              expression: switch($.data = null => '', $.data != null => $.data.where($.destination = "169.254.169.254/32").nexthop.first())
+              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, host_routes]}
+
   {%- for network in networks %}
       {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
   {%- endfor %}
