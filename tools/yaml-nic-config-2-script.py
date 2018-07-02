@@ -32,6 +32,11 @@ def parse_opts(argv):
                         default="network/scripts/run-os-net-config.sh")
     parser.add_argument('files', nargs="+", metavar='<file>',
                         help='List of one or more NIC config files to convert')
+    parser.add_argument('--yes',
+                        action='store_true',
+                        help=("Use --yes to skip the confirmation "
+                               "to overwrite the original config file "),
+                        )
     opts = parser.parse_args(argv[1:])
 
     return opts
@@ -240,7 +245,7 @@ for base_path in opts.files:
 
             print('The yaml file will be overwritten and the original saved as %s'
                   % backup_filename)
-            if not raw_input("Overwrite %s? [y/n] " % base_path).lower() == 'y':
+            if not (opts.yes or raw_input("Overwrite %s? [y/n] " % base_path).lower() == 'y'):
                 print("Skipping file %s" % base_path)
                 continue
 
