@@ -63,33 +63,40 @@ outputs:
               with_items:
                 - "{{playbook_dir}}/openshift/inventory"
 
-            - name: generate openshift inventory for openshift_worker service
-              copy:
-                dest:
-                  str_replace:
-                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_worker.yml"
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                content:
-                  str_replace:
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                    template: |
-                      nodes:
-                        hosts:
-                          {% for host in groups['ROLENAME'] | default([]) -%}
-                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                            ansible_user: {{ hostvars.raw_get(host)['ansible_user'] | default(hostvars.raw_get(host)['ansible_ssh_user']) | default('root') }}
-                            ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                            ansible_become: true
-                            etcd_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_public_ip: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_public_hostname: {{hostvars.raw_get(host)['ctlplane_ip']}}
-                            openshift_schedulable: true
-                            openshift_node_labels:
-                              region: 'infra'
-                              zone: 'default'
-                              node-role.kubernetes.io/compute: true
-                          {% endfor %}
+            - name: set global vars facts
+              set_fact:
+                tripleo_role_name: {get_param: RoleName}
+
+            - set_fact:
+                nodes:
+                    hostname: "{{item}}"
+                    ansible_user: "{{ hostvars.raw_get(item)['ansible_user'] | default(hostvars.raw_get(item)['ansible_ssh_user']) | default('root') }}"
+                    ansible_host: "{{ hostvars.raw_get(item)['ansible_host'] | default(item) }}"
+                    ansible_become: true
+                    etcd_ip: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_ip: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_public_ip: "{{hostvars.raw_get(item)['external_ip'] | default(hostvars.raw_get(item)['ctlplane_ip'])}}"
+                    openshift_hostname: "{{hostvars.raw_get(item)['ctlplane_ip']}}"
+                    openshift_public_hostname: "{{hostvars.raw_get(item)['external_ip'] | default(hostvars.raw_get(item)['ctlplane_ip'])}}"
+                    openshift_schedulable: true
+                    openshift_node_labels:
+                      region: 'infra'
+                      zone: 'default'
+                      node-role.kubernetes.io/compute: true
+              register: all_worker_nodes
+              with_items: "{{groups[tripleo_role_name] | default([]) }}"
+
+            - set_fact:
+                worker_nodes: "{{all_worker_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+
+            - copy:
+                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_worker.yml"
+                content: |
+                  {% if worker_nodes | count > 0%}
+                  nodes:
+                    hosts:
+                    {% for host in worker_nodes %}
+                    {{host.hostname}}:
+                        {{host | to_nice_yaml() | indent(6)}}
+                    {% endfor %}
+                  {% endif %}
