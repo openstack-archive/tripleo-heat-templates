@@ -325,9 +325,10 @@ def clean_templates(base_path, role_data_path, network_data_path):
             delete(os.path.join(
                     nic_config_dir, sample_nic_config_dir,
                     '%s.yaml' % role['name'].lower()))
-            delete(os.path.join(
-                    nic_config_dir, sample_nic_config_dir,
-                    role['deprecated_nic_config_name']))
+            if 'deprecated_nic_config_name' in role:
+                delete(os.path.join(
+                        nic_config_dir, sample_nic_config_dir,
+                        role['deprecated_nic_config_name']))
 
 
 opts = parse_opts(sys.argv)
