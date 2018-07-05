@@ -390,20 +390,44 @@ outputs:
               copy:
                 dest: "{{playbook_dir}}/ceph-ansible/extra_vars.yml"
                 content: "{{ceph_ansible_extra_vars|to_nice_yaml}}"
-            # TODO(gfidente): match the nodes machine uuids with
-            # hostnames and paste node specific configs into host vars
-            - name: generate collect nodes uuid playbook
+            - name: generate nodes-uuid data file
+              copy:
+                dest: "{{playbook_dir}}/ceph-ansible/nodes_uuid_data.json"
+                content: {get_param: NodeDataLookup}
+            - name: generate nodes-uuid playbook
               copy:
                 dest: "{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml"
                 content: |
-                  - hosts: mgrs:mons:osds:mdss:rgws:nfss:rbdmirrors:clients
+                  - hosts: all
                     gather_facts: no
                     tasks:
-                      - name: collect machine id
+                      - name: set nodes data
+                        set_fact:
+                          nodes_data: "{% raw %}{{ lookup('file','./nodes_uuid_data.json') | from_json  }}{% endraw %}"
+                      - name: register machine id
                         command: dmidecode -s system-uuid
+                        register: machine_uuid
+                      - name: generate host vars from nodes data
+                        local_action:
+                          module: copy
+                          content: "{% raw %}{{nodes_data[machine_uuid.stdout]|default({})|to_nice_yaml}}{% endraw %}"
+                          dest: "{{playbook_dir}}/ceph-ansible/host_vars/{% raw %}{{inventory_hostname}}{% endraw %}.yml"
         - name: ceph_base_external_deploy_task
           when: step == '2'
           block:
+            - name: run nodes-uuid
+              shell:
+                list_join:
+                - ' '
+                - - ANSIBLE_LOG_PATH="{{playbook_dir}}/ceph-ansible/nodes_uuid_command.log"
+                  - ANSIBLE_SSH_RETRIES=3
+                  - ANSIBLE_HOST_KEY_CHECKING=False
+                  - DEFAULT_FORKS=25
+                  - ansible-playbook
+                  - '{% if ansible_ssh_private_key_file is defined %}--private-key {{ansible_ssh_private_key_file}}{% endif %}'
+                  - '-i'
+                  - '{{playbook_dir}}/ceph-ansible/inventory.yml'
+                  - '{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml'
             - name: set ceph-ansible verbosity
               set_fact:
                 ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
