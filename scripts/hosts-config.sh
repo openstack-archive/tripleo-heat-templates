@@ -24,6 +24,11 @@ write_entries() {
         diff "$file" "$temp" || true
         cat "$temp" > "$file"
     else
+        # NOTE(aschultz): we purge any entries in the hosts file that match
+        # the existing short hostname on initial installation only. This
+        # prevents existing data from coming through and causing deployment
+        # issues when services (I'm looking at you rabbitmq) start up.
+        sed -i "/$(hostname -s)/d" "$file"
         echo -ne "\n# HEAT_HOSTS_START - Do not edit manually within this section!\n" >> "$file"
         echo "$entries" >> "$file"
         echo -ne "# HEAT_HOSTS_END\n\n" >> "$file"
