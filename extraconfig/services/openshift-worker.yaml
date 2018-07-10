@@ -32,6 +32,10 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  OpenShiftWorkerScaleupPlaybook:
+    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
+    description: Path to OpenShift-Ansible playbook.
+    type: string
 
 outputs:
   role_data:
@@ -66,9 +70,21 @@ outputs:
             - name: set global vars facts
               set_fact:
                 tripleo_role_name: {get_param: RoleName}
+                openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
+
+            - name: Check if origin-node is running
+              become: true
+              shell: >
+                docker inspect atomic-enterprise-node > /dev/null 2>&1
+                || docker inspect origin-node > /dev/null 2>&1
+                || echo "false"
+              register: origin_nodes
+              delegate_to: "{{item}}"
+              with_items: "{{ groups[tripleo_role_name] | default([])  }}"
 
             - set_fact:
                 nodes:
+                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
                     hostname: "{{item}}"
                     ansible_user: "{{ hostvars.raw_get(item)['ansible_user'] | default(hostvars.raw_get(item)['ansible_ssh_user']) | default('root') }}"
                     ansible_host: "{{ hostvars.raw_get(item)['ansible_host'] | default(item) }}"
@@ -88,14 +104,24 @@ outputs:
 
             - set_fact:
                 worker_nodes: "{{all_worker_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                new_nodes: "{{all_worker_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
 
             - copy:
                 dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_worker.yml"
                 content: |
-                  {% if worker_nodes | count > 0%}
+                  {% if worker_nodes | count > 0 %}
                   nodes:
                     hosts:
                     {% for host in worker_nodes %}
+                    {{host.hostname}}:
+                        {{host | to_nice_yaml() | indent(6)}}
+                    {% endfor %}
+                  {% endif %}
+
+                  {% if new_nodes | count > 0 %}
+                  new_nodes:
+                    hosts:
+                    {% for host in new_nodes %}
                     {{host.hostname}}:
                         {{host | to_nice_yaml() | indent(6)}}
                     {% endfor %}
