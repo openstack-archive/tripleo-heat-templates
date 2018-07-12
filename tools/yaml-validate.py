@@ -478,7 +478,7 @@ def validate_multiarch_compute_roles(role_filename, role_tpl):
     errors = 0
     roles_dir = os.path.dirname(role_filename)
     compute_services = set(role_tpl[0].get('ServicesDefault', []))
-    compute_networks = set(role_tpl[0].get('networks', []))
+    compute_networks = role_tpl[0].get('networks', [])
 
     for arch in ['ppc64le']:
         arch_filename = os.path.join(roles_dir,
@@ -493,7 +493,7 @@ def validate_multiarch_compute_roles(role_filename, role_tpl):
             print('ERROR problems with: %s' % (','.join(compute_services.symmetric_difference(arch_services))))
             errors = 1
 
-        arch_networks = set(arch_tpl[0].get('networks', []))
+        arch_networks = arch_tpl[0].get('networks', [])
         if compute_networks != arch_networks:
             print('ERROR networks in %s and %s do not match' %
                   (role_filename, arch_filename))

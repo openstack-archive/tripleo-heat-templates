@@ -95,6 +95,26 @@ parameters:
                  via parameter_defaults in the resource registry.
     type: json
 
+  ControlPlaneSubnet:
+    description: The name of the undercloud Neutron control plane subnet
+    default: ctlplane-subnet
+    type: string
+
+  VipSubnetMap:
+    description: Map of (network_name or service_name) -> subnet_name that
+                 defines which subnet to host the VIP.
+    default: {}
+    type: json
+
+  VipSubnetMapDefaults:
+    default:
+      ctlplane: ctlplane-subnet
+{%- for network in networks if network.vip|default(false) %}
+      {{network.name}}: {{network.name_lower}}_subnet
+{%- endfor %}
+      redis: internal_api_subnet
+    type: json
+
   # We define mappings to work around names that break when doing the
   # CamelCase to snake_case conversion to align with service_names
   ServiceNetMapDeprecatedMapping:
@@ -141,6 +161,19 @@ resources:
              - {get_param: ServiceNetMap}
              - keys: {get_param: ServiceNetMapDeprecatedMapping}
 
+  VipSubnetMapValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+          # (hjensas): We need to map_replace the ctlplane-subnet to support
+          # legacy parameter ControlPlaneSubnet.
+          - map_replace:
+            - {get_param: VipSubnetMapDefaults}
+            - values:
+                ctlplane-subnet: {get_param: ControlPlaneSubnet}
+          - {get_param: VipSubnetMap}
 
 outputs:
   service_net_map:
@@ -155,3 +188,6 @@ outputs:
         expression: dict($.data.map.items().select([ regex(`([a-z0-9])([A-Z])`).replace($[0], '\\1_\\2').toLower(), $[1]]))
         data:
           map: {get_attr: [ServiceNetMapValue, value]}
+
+  vip_subnet_map:
+    value: {get_attr: [VipSubnetMapValue, value]}

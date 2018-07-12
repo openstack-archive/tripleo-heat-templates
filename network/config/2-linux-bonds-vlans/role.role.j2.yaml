@@ -1,3 +1,14 @@
+{#- Convert net map or net list to internal list of networks #}
+{#- NOTE(hjensas): For backward compatibility support role data with both #}
+{#-                networks map (new schema) and network list (old schema). #}
+{%- set _role_networks = [] %}
+{%- if role.networks is mapping %}
+{%-     for key,val in role.networks.items() %}
+{%-         set _role_networks = _role_networks.append(key) %}
+{%-     endfor %}
+{%- else %}
+{%-     set _role_networks = role.networks %}
+{%- endif %}
 heat_template_version: rocky
 description: >
   Software Config to drive os-net-config with 2 Linux bonds. One bond is on a
@@ -32,7 +43,7 @@ parameters:
       guaranteed to pass through the data path of the segments in the network.
       (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
     type: number
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+{%- for network in networks if network.enabled|default(true) and network.name in _role_networks %}
 
   {{network.name}}IpSubnet:
     default: ''
@@ -110,7 +121,7 @@ resources:
           expression: $.data.max()
           data:
             - {get_param: ControlPlaneMtu}
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks and not network.name.startswith('Tenant') %}
+{%- for network in networks if network.enabled|default(true) and network.name in _role_networks and not network.name.startswith('Tenant') %}
             - {get_param: {{network.name}}Mtu}
 {%- endfor %}
 
@@ -127,7 +138,7 @@ resources:
           expression: $.data.max()
           data:
             - {get_param: ControlPlaneMtu}
-{%- for network in networks if network.name.startswith('Tenant') and network.enabled|default(true) and network.name in role.networks %}
+{%- for network in networks if network.name.startswith('Tenant') and network.enabled|default(true) and network.name in _role_networks %}
             - {get_param: {{network.name}}Mtu}
 {%- endfor %}
 
@@ -183,7 +194,7 @@ resources:
                     name: nic3
                     mtu:
                       get_attr: [MinViableMtuBondApi, value]
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks and not network.name.startswith('Tenant') %}
+{%- for network in networks if network.enabled|default(true) and network.name in _role_networks and not network.name.startswith('Tenant') %}
               - type: vlan
                 device: bond_api
                 mtu:
@@ -224,7 +235,7 @@ resources:
                     name: nic5
                     mtu:
                       get_attr: [MinViableMtuBondData, value]
-  {%- for network in networks if network.name.startswith('Tenant') and network.name in role.networks and network.enabled|default(true) %}
+  {%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
               - type: vlan
                 device: bond-data
                 mtu:
@@ -247,7 +258,7 @@ resources:
               - type: ovs_user_bridge
                 name: br-dpdk0
                 use_dhcp: false
-  {%- for network in networks if network.name.startswith('Tenant') and network.name in role.networks and network.enabled|default(true) %}
+  {%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
                 ovs_extra:
                   - str_replace:
                       template: set port br-dpdk0 tag=_VLAN_TAG_
