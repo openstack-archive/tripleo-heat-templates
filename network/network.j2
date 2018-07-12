@@ -85,6 +85,48 @@ parameters:
       guaranteed to pass through the data path of the segments in the
       {{network.name}} network.
     type: number
+{%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
+  {{network.name}}SubnetCidr_{{subnet}}:
+{%-     if network.ipv6 or ipv6_override %}
+    default: "{{network.subnets[subnet]['ipv6_subnet']|default(network.subnets[subnet]['ip_subnet']|default(""))}}"
+{%-     else %}
+    default: "{{network.subnets[subnet]['ip_subnet']|default("")}}"
+{%-     endif %}
+    description: |
+      Cidr for the {{network.name_lower}} network's {{subnet}} subnet.
+    type: string
+  {{network.name}}AllocationPools_{{subnet}}:
+{%-     if ":" in network.subnets[subnet]['ip_subnet'] or network.ipv6 or ipv6_override %}
+    default: {{network.subnets[subnet]['ipv6_allocation_pools']|default(network.subnets[subnet]['allocation_pools']|default([]))}}
+{%-     else %}
+    default: {{network.subnets[subnet]['allocation_pools']|default([])}}
+{%-     endif %}
+    description: |
+      Ip allocation pool range for the {{network.name_lower}} network's {{subnet}} subnet.
+    type: json
+  {{network.name}}InterfaceDefaultRoute_{{subnet}}:
+{%-     if ":" in network.subnets[subnet]['ip_subnet'] or network.ipv6 or ipv6_override %}
+    default: "{{network.subnets[subnet]['gateway_ipv6']|default(network.subnets[subnet]['gateway_ip']|default([]))}}"
+{%-     else %}
+    default: "{{network.subnets[subnet]['gateway_ip']|default([])}}"
+{%-     endif %}
+    description: |
+       default route for the {{network.name_lower}} network's {{subnet}} subnet.
+    type: string
+  {{network.name}}NetworkVlanID_{{subnet}}:
+    default: {{network.subnets[subnet]['vlan']|default('')}}
+    description: |
+      Vlan ID for the {{network.name_lower}} network's {{subnet}} subnet.
+    type: string
+  {{network.name}}Routes_{{subnet}}:
+    default: {{network.subnets[subnet]['routes']|default([])}}
+    description: >
+      Routes for the {{subnet}} subnet on {{network.name_lower}} network
+      traffic. JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
+      Routes are added to the host_routes property on the subnet in neutron
+      when the subnet is created.
+    type: json
+{%- endfor %}
 
 resources:
   {{network.name}}Network:
@@ -114,10 +156,54 @@ resources:
       allocation_pools: {get_param: {{network.name}}AllocationPools}
       gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute}
       host_routes: {get_param: {{network.name}}Routes}
+{%- if network.subnets|default({}) %}
+      # All networks have an implicit network segment when created, map this subnet to that segment.
+      segment: {get_attr: [{{network.name}}Network, segments, 0, id]}
+{%- endif %}
+{% for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
+  {{network.name}}Segment_{{subnet}}:
+    type: OS::Neutron::Segment
+    # NOTE(hjensas): Depends-On here to ensure we always create the base subnet
+    #   first. We can only set the segment for existing subnet if there is only
+    #   one segment and only one existing subnet on the network.
+    depends_on: {{network.name}}Subnet
+    properties:
+      name: {{network.name_lower}}_{{subnet}}
+      network: {get_resource: {{network.name}}Network}
+      network_type: flat
+      physical_network: {{network.name_lower}}_{{subnet}}
+  {{network.name}}Subnet_{{subnet}}:
+    type: OS::Neutron::Subnet
+    properties:
+{%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
+      ip_version: 6
+      ipv6_address_mode: {get_param: IPv6AddressMode}
+      ipv6_ra_mode: {get_param: IPv6RAMode}
+{%- else %}
+      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
+{%- endif %}
+      cidr: {get_param: {{network.name}}SubnetCidr_{{subnet}}}
+      name: {{subnet}}
+      network: {get_resource: {{network.name}}Network}
+      allocation_pools: {get_param: {{network.name}}AllocationPools_{{subnet}}}
+      gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute_{{subnet}}}
+      host_routes: {get_param: {{network.name}}Routes_{{subnet}}}
+      segment: {get_resource: {{network.name}}Segment_{{subnet}}}
+{% endfor %}
 
 outputs:
   OS::stack_id:
     description: {{network.name_lower}} network
     value: {get_resource: {{network.name}}Network}
   subnet_cidr:
+    description: The {{network.name}} networks base subnet in CIDR notation.
     value: {get_attr: [{{network.name}}Subnet, cidr]}
+  subnet_cidrs:
+    description: List of {{network.name}} network's subnets in CIDR notation.
+    value:
+      list_concat:
+      - - {get_attr: [{{network.name}}Subnet, cidr]}
+      -
+{%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
+        - {get_attr: [{{network.name}}Subnet_{{subnet}}, cidr]}
+{%- endfor %}
