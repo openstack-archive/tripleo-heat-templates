@@ -49,6 +49,9 @@ def to_commented_yaml(filename):
     with open(filename, 'r') as f:
         comment_count = 0
         for line in f:
+            # skip blank line
+            if line.isspace():
+                continue;
             char_count = 0
             spaces = ''
             for char in line:
