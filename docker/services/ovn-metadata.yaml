@@ -15,6 +15,10 @@ parameters:
     default:
       tag: openstack.neutron.agent.ovn-metadata
       path: /var/log/containers/neutron/networking-ovn-metadata-agent.log
+  OVNEnableHaproxyDockerWrapper:
+    description: Generate a wrapper script so that haproxy is launched in a separate container.
+    type: boolean
+    default: true
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -41,6 +45,9 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+
+conditions:
+    haproxy_wrapper_enabled: {equals: [{get_param: OVNEnableHaproxyDockerWrapper}, true]}
 
 resources:
 
@@ -71,6 +78,9 @@ outputs:
         map_merge:
           - get_attr: [OVNMetadataBase, role_data, config_settings]
           - get_attr: [NeutronLogging, config_settings]
+          - tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::enable_haproxy_wrapper: {get_param: OVNEnableHaproxyDockerWrapper}
+            tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/ovn_metadata_haproxy_wrapper'
+            tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::haproxy_image: {get_param: DockerOvnMetadataImage}
       logging_source: {get_attr: [OVNMetadataBase, role_data, logging_source]}
       logging_groups: {get_attr: [OVNMetadataBase, role_data, logging_groups]}
       puppet_config:
@@ -103,6 +113,27 @@ outputs:
               recurse: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
+        step_2:
+          create_haproxy_wrapper:
+            start_order: 1
+            detach: false
+            net: host
+            pid: host
+            user: root
+            command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                -
+                  - '/docker_puppet_apply.sh'
+                  - '4'
+                  - 'file'
+                  - 'include ::tripleo::profile::base::neutron::ovn_metadata_agent_wrappers'
+            image: {get_param: DockerOvnMetadataImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
+                -
+                  - /run/openvswitch:/run/openvswitch
+                  - /var/lib/neutron:/var/lib/neutron
         step_4:
           setup_ovs_manager:
             start_order: 0
@@ -126,6 +157,7 @@ outputs:
             start_order: 1
             image: {get_param: DockerOvnMetadataImage}
             net: host
+            pid: host
             privileged: true
             restart: always
             healthcheck:
@@ -141,6 +173,12 @@ outputs:
                   - /run/openvswitch:/run/openvswitch
                   - /var/lib/neutron:/var/lib/neutron
                   - /run/netns:/run/netns:shared
+                  - /var/lib/openstack:/var/lib/openstack
+                -
+                  if:
+                    - haproxy_wrapper_enabled
+                    - - /var/lib/neutron/ovn_metadata_haproxy_wrapper:/usr/local/bin/haproxy:ro
+                    - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
