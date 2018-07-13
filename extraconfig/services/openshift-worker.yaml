@@ -32,10 +32,29 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  OpenShiftNodeGroupName:
+    default: node-config-compute
+    description: The group the nodes belong to.
+    type: string
+    tags:
+      - role_specific
   OpenShiftWorkerScaleupPlaybook:
     default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
     description: Path to OpenShift-Ansible playbook.
     type: string
+
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - OpenShiftNodeGroupName: OpenShiftNodeGroupName
+            - values: {get_param: [RoleParameters]}
+          - values:
+              OpenShiftNodeGroupName: {get_param: OpenShiftNodeGroupName}
 
 outputs:
   role_data:
@@ -71,6 +90,7 @@ outputs:
             - name: set global vars facts
               set_fact:
                 tripleo_role_name: {get_param: RoleName}
+                tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
                 openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
                 openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
 
@@ -82,7 +102,7 @@ outputs:
                 || echo "false"
               register: origin_nodes
               delegate_to: "{{item}}"
-              with_items: "{{ groups[tripleo_role_name] | default([])  }}"
+              with_items: "{{ groups[tripleo_role_name] | default([]) }}"
 
             - set_fact:
                 nodes:
@@ -91,16 +111,14 @@ outputs:
                     ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
                     ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
                     ansible_become: true
+                    containerized: true
+                    openshift_node_group_name: '{{tripleo_node_group_name }}'
                     etcd_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
                     openshift_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
                     openshift_public_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
                     openshift_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
                     openshift_public_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_schedulable: true
-                    openshift_node_labels:
-                      region: 'infra'
-                      zone: 'default'
-                      node-role.kubernetes.io/compute: true
+                    openshift_schedulable: '{{tripleo_node_group_name != "node-config-infra"}}'
               register: all_worker_nodes
               with_items: "{{groups[tripleo_role_name] | default([]) }}"
 
