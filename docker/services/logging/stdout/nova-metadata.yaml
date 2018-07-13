@@ -1,0 +1,60 @@
+heat_template_version: rocky
+
+description: >
+  Template for nova-metadata's logging to stdout
+
+parameters:
+  DockerNovaMetadataImage:
+    description: image
+    type: string
+
+outputs:
+  config_settings:
+    description: Extra hieradata needed to log to stdout.
+    value:
+      nova::wsgi::apache_metadata::access_log_file: /var/log/httpd/access.log
+      nova::wsgi::apache_metadata::error_log_file: /var/log/httpd/error_log
+  volumes:
+    description: The volumes needed to log to stdout or a sidecar container.
+    value:
+      - NovaMetadataLogs:/var/log/
+  docker_config:
+    description: Extra containers needed for logging to stdout or a sidecar container.
+    value:
+      step_2:
+        nova_metadata_apache_error_logs:
+          start_order: 1
+          image: {get_param: DockerNovaMetadataImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/error_log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/error_log && mkfifo /var/log/httpd/error_log && while true; do cat /var/log/httpd/error_log; done']
+          volumes:
+            - NovaMetadataLogs:/var/log/
+        nova_metadata_apache_access_logs:
+          start_order: 1
+          image: {get_param: DockerNovaMetadataImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/access.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/access.log && mkfifo /var/log/httpd/access.log && while true; do cat /var/log/httpd/access.log; done']
+          volumes:
+            - NovaMetadataLogs:/var/log/
+        nova_metadata_logs:
+          start_order: 2
+          image: {get_param: DockerNovaMetadataImage}
+          user: nova
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/nova/nova-metadata-api.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/nova && rm -f /var/log/nova/nova-metadata-api.log && mkfifo /var/log/nova/nova-metadata-api.log && while true; do cat /var/log/nova/nova-metadata-api.log; done']
+          volumes:
+            - NovaMetadataLogs:/var/log/
+  host_prep_tasks:
+    description: Extra ansible tasks needed for logging to files in the host.
+    value: null
