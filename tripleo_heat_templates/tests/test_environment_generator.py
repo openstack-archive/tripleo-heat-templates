@@ -700,6 +700,25 @@ parameter_defaults:
     # *********************
 ''',
           }),
+        ('no-files',
+         {'template': basic_template,
+          'exception': None,
+          'nested_output': '',
+          'input_file': '''environments:
+  -
+    name: basic
+    title: Basic Environment
+    description: Basic description
+    resource_registry:
+      foo: bar
+''',
+          'expected_output': '''# title: Basic Environment
+# description: |
+#   Basic description
+resource_registry:
+  foo: bar
+''',
+          }),
         ]
 
     @classmethod
@@ -715,6 +734,9 @@ parameter_defaults:
         with mock.patch('tripleo_heat_templates.environment_generator.open',
                         create=True) as mock_open:
             mock_se = [fake_input, fake_template, fake_output]
+            if 'files:' not in self.input_file:
+                # No files were specified so that open call won't happen
+                mock_se.remove(fake_template)
             if self.nested_output:
                 _, fake_nested_output_path = tempfile.mkstemp()
                 fake_nested_output = open(fake_nested_output_path, 'w')
