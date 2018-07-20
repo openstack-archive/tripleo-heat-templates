@@ -61,6 +61,10 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  AllNodesExtraMapData:
+    type: json
+    default: {}
+    description: Map of extra data (hieradata) to set on each node.
 
 {%- for network in networks %}
   {{network.name}}NetName:
@@ -71,6 +75,79 @@ parameters:
 
 resources:
 
+  allNodesConfigValue:
+    type: OS::Heat::Value
+    properties:
+      value:
+        yaql:
+          expression: $.data.all_nodes_extra_map_data.mergeWith($.data.all_nodes)
+          data:
+            all_nodes_extra_map_data: {get_param: AllNodesExtraMapData}
+            all_nodes:
+              map_merge:
+                - enabled_services:
+                    yaql:
+                      expression: $.data.distinct()
+                      data: {get_param: enabled_services}
+                # This writes out a mapping of service_name_enabled: 'true'
+                # For any services not enabled, hiera foo_enabled will
+                # return nil, as it's undefined
+                - map_merge:
+                    repeat:
+                      template:
+                        # Note this must be string 'true' due to
+                        # https://bugs.launchpad.net/heat/+bug/1617203
+                        SERVICE_enabled: 'true'
+                      for_each:
+                        SERVICE: {get_param: enabled_services}
+                # Dynamically generate per-service network data
+                # This works as follows (outer->inner functions)
+                # yaql - filters services where no mapping exists in ServiceNetMap
+                #   map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
+                #     map_merge/repeat: generate a per-service mapping
+                - yaql:
+                    # This filters any entries where the value hasn't been substituted for
+                    # a list, e.g it's still $service_network.  This happens when there is
+                    # no network defined for the service in the ServiceNetMap, which is OK
+                    # as not all services have to be bound to a network, so we filter them
+                    expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
+                    data:
+                      map:
+                        map_replace:
+                          - map_merge:
+                              repeat:
+                                template:
+                                  SERVICE_network: SERVICE_network
+                                for_each:
+                                  SERVICE: {get_param: enabled_services}
+                          - values: {get_param: ServiceNetMap}
+                # Keystone doesn't provide separate entries for the public
+                # and admin endpoints, so we need to add them here manually
+                # like we do in the vip-config below
+                - keystone_admin_api_network: {get_param: [ServiceNetMap, keystone_admin_api_network]}
+                  keystone_public_api_network: {get_param: [ServiceNetMap, keystone_public_api_network]}
+                # provides a mapping of service_name_ips to a list of IPs
+                - {get_param: service_ips}
+                - {get_param: service_node_names}
+                - {get_param: short_service_node_names}
+                - {get_param: short_service_bootstrap_node}
+                - controller_node_ips:
+                    list_join:
+                    - ','
+                    - {get_param: controller_ips}
+                  controller_node_names:
+                    list_join:
+                    - ','
+                    - {get_param: controller_names}
+                - cellv2_discovery_hosts:
+                    list_join:
+                    - ','
+                    - {get_param: cellv2_discovery_hosts}
+                  deploy_identifier: {get_param: DeployIdentifier}
+                  update_identifier: {get_param: UpdateIdentifier}
+                  stack_action: {get_param: StackAction}
+                  stack_update_type: {get_param: StackUpdateType}
+
   allNodesConfigImpl:
     type: OS::Heat::StructuredConfig
     properties:
@@ -80,70 +157,7 @@ resources:
           bootstrap_node:
             bootstrap_nodeid: {get_input: bootstrap_nodeid}
             bootstrap_nodeid_ip: {get_input: bootstrap_nodeid_ip}
-          all_nodes:
-           map_merge:
-              - enabled_services:
-                  yaql:
-                    expression: $.data.distinct()
-                    data: {get_param: enabled_services}
-              # This writes out a mapping of service_name_enabled: 'true'
-              # For any services not enabled, hiera foo_enabled will
-              # return nil, as it's undefined
-              - map_merge:
-                  repeat:
-                    template:
-                      # Note this must be string 'true' due to
-                      # https://bugs.launchpad.net/heat/+bug/1617203
-                      SERVICE_enabled: 'true'
-                    for_each:
-                      SERVICE: {get_param: enabled_services}
-              # Dynamically generate per-service network data
-              # This works as follows (outer->inner functions)
-              # yaql - filters services where no mapping exists in ServiceNetMap
-              #   map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
-              #     map_merge/repeat: generate a per-service mapping
-              - yaql:
-                  # This filters any entries where the value hasn't been substituted for
-                  # a list, e.g it's still $service_network.  This happens when there is
-                  # no network defined for the service in the ServiceNetMap, which is OK
-                  # as not all services have to be bound to a network, so we filter them
-                  expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
-                  data:
-                    map:
-                      map_replace:
-                        - map_merge:
-                            repeat:
-                              template:
-                                SERVICE_network: SERVICE_network
-                              for_each:
-                                SERVICE: {get_param: enabled_services}
-                        - values: {get_param: ServiceNetMap}
-              # Keystone doesn't provide separate entries for the public
-              # and admin endpoints, so we need to add them here manually
-              # like we do in the vip-config below
-              - keystone_admin_api_network: {get_param: [ServiceNetMap, keystone_admin_api_network]}
-                keystone_public_api_network: {get_param: [ServiceNetMap, keystone_public_api_network]}
-              # provides a mapping of service_name_ips to a list of IPs
-              - {get_param: service_ips}
-              - {get_param: service_node_names}
-              - {get_param: short_service_node_names}
-              - {get_param: short_service_bootstrap_node}
-              - controller_node_ips:
-                  list_join:
-                  - ','
-                  - {get_param: controller_ips}
-                controller_node_names:
-                  list_join:
-                  - ','
-                  - {get_param: controller_names}
-              - cellv2_discovery_hosts:
-                  list_join:
-                  - ','
-                  - {get_param: cellv2_discovery_hosts}
-                deploy_identifier: {get_param: DeployIdentifier}
-                update_identifier: {get_param: UpdateIdentifier}
-                stack_action: {get_param: StackAction}
-                stack_update_type: {get_param: StackUpdateType}
+          all_nodes: {get_attr: [allNodesConfigValue, value]}
           vip_data:
             map_merge:
               # Dynamically generate per-service VIP data based on enabled_services
@@ -211,3 +225,6 @@ outputs:
     description: The ID of the allNodesConfigImpl resource.
     value:
       {get_resource: allNodesConfigImpl}
+  all_nodes_config:
+    description: The all_nodes hieradata config
+    value: {get_attr: [allNodesConfigValue, value]}
