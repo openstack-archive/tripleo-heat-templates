@@ -98,6 +98,12 @@ parameters:
     description: The name of the undercloud Neutron control plane subnet
     default: ctlplane-subnet
     type: string
+  ControlPlaneSubnetCidr:
+    default: ''
+    description: >
+      The subnet CIDR of the control plane network. (The parameter is
+      automatically resolved from the ctlplane subnet's cidr attribute.)
+    type: string
   ControlFixedIPs:
     default: []
     description: >
@@ -260,6 +266,9 @@ parameter_groups:
 conditions:
   add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
   control_fixed_ip_not_set: {equals : [{get_param: ControlFixedIPs}, []]}
+  ctlplane_subnet_cidr_set:
+    not:
+      equals: [{get_param: ControlPlaneSubnetCidr}, '']
 
 resources:
 
@@ -777,6 +786,11 @@ resources:
     type: OS::TripleO::Network::Ports::RedisVipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: redis_virtual_ip
       NetworkName: {get_attr: [ServiceNetMap, service_net_map, RedisNetwork]}
@@ -791,6 +805,11 @@ resources:
     type: OS::TripleO::Network::Ports::ExternalVipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: public_virtual_ip
       FixedIPs: {get_param: PublicVirtualFixedIPs}
@@ -800,6 +819,11 @@ resources:
     type: OS::TripleO::Network::Ports::{{network.name}}VipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       PortName: {{network.name_lower}}_virtual_ip
       FixedIPs: {get_param: {{network.name}}VirtualFixedIPs}
 {%- endif %}
@@ -809,6 +833,11 @@ resources:
     type: OS::TripleO::Network::Ports::NetVipMap
     properties:
       ControlPlaneIp: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
 {%- for network in networks if network.vip|default(false) %}
 {%- if network.name == 'External' %}
       ExternalIp: {get_attr: [PublicVirtualIP, ip_address]}

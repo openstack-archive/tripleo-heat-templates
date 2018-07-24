@@ -244,6 +244,12 @@ parameters:
   {{role.name}}MaxFailPercentage:
     default: 15
     type: number
+  ControlPlaneSubnetCidr:
+    default: ''
+    description: >
+      The subnet CIDR of the control plane network. (The parameter is
+      automatically resolved from the ctlplane subnet's cidr attribute.)
+    type: string
 
   ServerDeletionPolicy:
     description: Whether to retain or delete servers on deletion of the stack
@@ -315,6 +321,9 @@ conditions:
         - {get_param: [{{role.name}}IPs, '{{network.name_lower}}', {get_param: NodeIndex}]}
         - ''
 {%- endfor %}
+  ctlplane_subnet_cidr_set:
+    not:
+      equals: [{get_param: ControlPlaneSubnetCidr}, '']
 
 resources:
   {{server_resource_name}}:
@@ -424,6 +433,11 @@ resources:
           - {{role.name}}_{{network.name}}_fixed_ip_set
           - [{ip_address: {get_param: [{{role.name}}IPs, '{{network.name_lower}}', {get_param: NodeIndex}]}}]
           - []
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}, 1]}
       IPPool:
         map_merge:
 {%- if role.deprecated_param_ips is defined %}
@@ -437,6 +451,11 @@ resources:
     type: OS::TripleO::{{role.name}}::Net::SoftwareConfig
     properties:
       ControlPlaneIp: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}, 1]}
   {%- for network in networks %}
       {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
   {%- endfor %}
@@ -445,6 +464,11 @@ resources:
     type: OS::TripleO::Network::Ports::NetIpMap
     properties:
       ControlPlaneIp: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}, 1]}
   {%- for network in networks %}
       {{network.name}}Ip: {get_attr: [{{network.name}}Port, ip_address]}
       {{network.name}}IpSubnet: {get_attr: [{{network.name}}Port, ip_subnet]}
@@ -753,6 +777,8 @@ outputs:
         - hostname:
             fixed_ips:
               - ip_address: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
+            subnets:
+              - cidr: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
         - keys:
             hostname:
               list_join:
