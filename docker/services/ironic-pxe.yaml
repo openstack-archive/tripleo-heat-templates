@@ -36,6 +36,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
 
 resources:
 
@@ -83,6 +87,29 @@ outputs:
             - path: /var/lib/ironic
               owner: ironic:ironic
               recurse: true
+      upgrade_tasks:
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: drop tftp from xinetd supervision
+              file:
+                path: /etc/xinetd.d/tftp
+                state: absent
+            - name: restart xinetd in order to free tftp port
+              service:
+                name: xinetd
+                state: restarted
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of tftp-server package
+              set_fact:
+                remove_tftp_server: {get_param: UpgradeRemoveUnusedPackages}
+            - name: remove tftp-server if requested
+              ignore_errors: True
+              when: remove_tftp_server|bool
+              package:
+                name: tftp-server
+                state: removed
       docker_config:
         step_4:
           ironic_pxe_tftp:
