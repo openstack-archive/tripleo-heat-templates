@@ -187,21 +187,24 @@ outputs:
               /var/log/containers/horizon and /var/log/containers/httpd/horizon.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check for horizon running under apache
+        - when: step|int == 0
           tags: common
-          shell: "httpd -t -D DUMP_VHOSTS | grep -q horizon_vhost"
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check if horizon is running"
-          shell: systemctl is-active --quiet httpd
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-          tags: validation
+          block:
+            - name: Check for horizon running under apache
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q horizon_vhost"
+              ignore_errors: True
+              register: horizon_httpd_enabled_result
+            - set_fact:
+                horizon_httpd_enabled: "{{ horizon_httpd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check if horizon is running"
+              shell: systemctl is-active --quiet httpd
+              when:
+                - horizon_httpd_enabled|bool
+              tags: validation
         - name: Stop and disable horizon service (running under httpd)
           when:
             - step|int == 2
-            - httpd_enabled.rc == 0
+            - horizon_httpd_enabled|bool
           service: name=httpd state=stopped enabled=no
       metadata_settings:
         get_attr: [HorizonBase, role_data, metadata_settings]

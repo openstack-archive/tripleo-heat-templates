@@ -195,28 +195,34 @@ outputs:
               /var/log/containers/zaqar and /var/log/containers/httpd/zaqar.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check for zaqar running under apache
+        - when: step|int == 0
           tags: common
-          shell: "httpd -t -D DUMP_VHOSTS | grep -q zaqar_wsgi"
-          ignore_errors: True
-          register: httpd_enabled
-        - name: Check if httpd is running
-          tags: common
-          command: systemctl is-active --quiet httpd
-          ignore_errors: True
-          register: httpd_running
-        - name: "PreUpgrade step0,validation: Check if zaqar_wsgi is running"
-          shell: systemctl status 'httpd' | grep -q zaqar_wsgi
-          tags: validation
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
+          block:
+            - name: Check for zaqar running under apache
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q zaqar_wsgi"
+              ignore_errors: True
+              register: zaqar_httpd_enabled_result
+            - set_fact:
+                zaqar_httpd_enabled: "{{ zaqar_httpd_enabled_result.rc == 0 }}"
+            - name: Check if httpd is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: "PreUpgrade step0,validation: Check if zaqar_wsgi is running"
+              shell: systemctl status 'httpd' | grep -q zaqar_wsgi
+              tags: validation
+              when:
+                - zaqar_httpd_enabled|bool
+                - httpd_running|bool
         - name: Stop and disable zaqar service
           when:
             - step|int == 2
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
+            - zaqar_httpd_enabled|bool
+            - httpd_running|bool
           service: name=httpd state=stopped enabled=no
       metadata_settings:
         get_attr: [ZaqarBase, role_data, metadata_settings]

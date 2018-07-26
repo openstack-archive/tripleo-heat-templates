@@ -185,44 +185,49 @@ outputs:
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if octavia_api is deployed
-          command: systemctl is-enabled --quiet openstack-octavia-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: octavia_api_enabled
-        - name: Check for octavia-api running under apache
-          tags: common
-          shell: httpd -t -D DUMP_VHOSTS | grep -q 'octavia'
-          ignore_errors: True
-          register: httpd_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-octavia-api is running"
-          command: systemctl is-active --quiet openstack-octavia-api
-          tags: validation
-          when:
-            - step|int == 0
-            - octavia_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-        - name: Stop and disable octavia_api service
-          service: name=openstack-octavia-api state=stopped enabled=no
-          when:
-            - step|int == 2
-            - octavia_api_enabled.rc == 0
-            - httpd_enabled.rc != 0
-        - name: Check if httpd service is running
-          command: systemctl is-active --quiet httpd
-          tags: common
-          ignore_errors: True
-          register: httpd_running
-        - name: "PreUpgrade step0,validation: Check if octavia_api_cfn_wsgi is running"
-          tags: validation
-          when:
-            - step|int == 0
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-          shell: systemctl status 'httpd' | grep -q 'octavia'
-        - name: Stop octavia_api service (running under httpd)
-          when:
-            - step|int == 2
-            - httpd_enabled.rc == 0
-            - httpd_running.rc == 0
-          service: name=httpd state=stopped
+          block:
+            - name: Check if octavia_api is deployed
+              command: systemctl is-enabled --quiet openstack-octavia-api
+              ignore_errors: True
+              register: octavia_api_enabled_result
+            - name: Set fact octavia_api_enabled
+              set_fact:
+                octavia_api_enabled: "{{ octavia_api_enabled_result.rc == 0 }}"
+            - name: Check for octavia-api running under apache
+              shell: httpd -t -D DUMP_VHOSTS | grep -q 'octavia'
+              ignore_errors: True
+              register: octavia_api_httpd_enabled_result
+            - name: Set fact octavia_api_httpd_enabled
+              set_fact:
+                octavia_api_httpd_enabled: "{{ octavia_api_httpd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-octavia-api is running"
+              command: systemctl is-active --quiet openstack-octavia-api
+              tags: validation
+              when: octavia_api_enabled|bool
+            - name: Check if httpd service is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - name: Set fact httpd_running
+              set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: "PreUpgrade step0,validation: Check if octavia_api_cfn_wsgi is running"
+              tags: validation
+              when:
+                - octavia_api_httpd_enabled|bool
+                - httpd_running|bool
+              shell: systemctl status 'httpd' | grep -q 'octavia'
+        - when: step|int == 2
+          block:
+            - name: Stop and disable octavia_api service
+              service: name=openstack-octavia-api state=stopped enabled=no
+              when: octavia_api_enabled|bool
+            - name: Stop octavia_api service (running under httpd)
+              when:
+                - octavia_api_httpd_enabled|bool
+                - httpd_running|bool
+              service: name=httpd state=stopped
