@@ -810,7 +810,7 @@ def _rsearch_keys(d, pattern, search_keynames=False, enter_lists=False):
             path = []
         # recursively walk through the dict, optionally entering lists
         if isinstance(d, dict):
-            for k, v in d.iteritems():
+            for k, v in d.items():
                 path.append(k)
                 if (isinstance(v, dict) or enter_lists and
                     isinstance(v, list)):
