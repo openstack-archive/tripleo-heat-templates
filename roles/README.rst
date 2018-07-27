@@ -171,12 +171,12 @@ Example
    * OS::TripleO::Services::NovaCompute
    * OS::TripleO::Services::NovaLibvirt
    * OS::TripleO::Services::NovaMigrationTarget
-   * OS::TripleO::Services::Ntp
    * OS::TripleO::Services::OpenDaylightOvs
    * OS::TripleO::Services::Securetty
    * OS::TripleO::Services::SensuClient
    * OS::TripleO::Services::Snmp
    * OS::TripleO::Services::Sshd
+   * OS::TripleO::Services::Timesync
    * OS::TripleO::Services::Timezone
    * OS::TripleO::Services::TripleoFirewall
    * OS::TripleO::Services::TripleoPackages
