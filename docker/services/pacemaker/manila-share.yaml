@@ -225,6 +225,10 @@ outputs:
               Log files from manila containers can be found under
               /var/log/containers/manila and /var/log/containers/httpd/manila-api.
           ignore_errors: true
+        - name: ensure ceph configurations exist
+          file:
+            path: /etc/ceph
+            state: directory
       update_tasks:
         - name: Manila-Share fetch and retag container image for pacemaker
           when: step|int == 2
@@ -259,19 +263,52 @@ outputs:
           set_fact:
             manila_share_docker_image_latest: *manila_share_image_pcmklatest
         - name: Check for Manila-Share Kolla configuration
-          stat:
-            path: /var/lib/config-data/puppet-generated/manila
+          command: grep '^share_driver[ \t]*=' /var/lib/config-data/puppet-generated/manila/etc/manila/manila.conf
+          changed_when: no
+          ignore_errors: true
           register: manila_share_kolla_config
         - name: Check if Manila-Share is already containerized
           set_fact:
-            manila_share_containerized: "{{manila_share_kolla_config.stat.isdir | default(false)}}"
+            manila_share_containerized: "{{manila_share_kolla_config|succeeded}}"
         - name: Manila-Share baremetal to container upgrade tasks
           when:
             - step|int == 1
             - not manila_share_containerized|bool
           block:
-            - name: Stop and disable manila_share service
-              service: name=openstack-manila-share state=stopped enabled=no
+            - name: get bootstrap nodeid
+              tags: common
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              tags: common
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Check cluster resource status
+              pacemaker_resource:
+                resource: openstack-manila-share
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: manila_share_res
+            - when: (is_bootstrap_node) and (manila_share_res|succeeded)
+              block:
+                - name: Disable the openstack-manila-share cluster resource
+                  pacemaker_resource:
+                    resource: openstack-manila-share
+                    state: disable
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+                - name: Delete the stopped openstack-manila-share cluster resource.
+                  pacemaker_resource:
+                    resource: openstack-manila-share
+                    state: delete
+                    wait_for_resource: true
+                  register: output
+                  retries: 5
+                  until: output.rc == 0
+            - name: Disable manila_share service from boot
+              service: name=openstack-manila-share enabled=no
         - name: Prepare the switch to new Manila-Share container image name in pacemaker
           when:
             - step|int == 0
@@ -308,6 +345,7 @@ outputs:
             - name: Update the Manila-Share bundle to use the new container image name
               command: "pcs resource bundle update openstack-manila-share container image={{manila_share_docker_image_latest}}"
             - name: Enable the Manila-Share cluster resource
+              when:
               pacemaker_resource:
                 resource: openstack-manila-share
                 state: enable
@@ -320,3 +358,35 @@ outputs:
             - step|int == 3
             - manila_share_containerized|bool
           block: *manila_share_fetch_retag_container_tasks
+      fast_forward_upgrade_tasks:
+        - name: Check cluster resource status
+          pacemaker_resource:
+            resource: openstack-manila-share
+            state: show
+            check_mode: false
+          ignore_errors: true
+          register: manila_share_res_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Set fact manila_share_res
+          set_fact:
+            manila_share_res: "{{ manila_share_res_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+        - name: Disable the openstack-manila-share cluster resource
+          pacemaker_resource:
+            resource: openstack-manila-share
+            state: disable
+            wait_for_resource: true
+          register: manila_share_output
+          retries: 5
+          until: manila_share_output.rc == 0
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - is_bootstrap_node|bool
+            - manila_share_res|bool

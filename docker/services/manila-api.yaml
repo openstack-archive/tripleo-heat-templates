@@ -154,3 +154,35 @@ outputs:
             - step|int == 2
             - manila_api_enabled.rc == 0
           service: name=openstack-manila-api state=stopped enabled=no
+      fast_forward_upgrade_tasks:
+        - name: Check if manila_api is deployed
+          command: systemctl is-enabled --quiet openstack-manila-api
+          ignore_errors: True
+          register: manila_api_enabled_result
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Set fact manila_api_enabled
+          set_fact:
+            manila_api_enabled: "{{ manila_api_enabled_result.rc == 0 }}"
+          when:
+            - step|int == 0
+            - release == 'ocata'
+        - name: Stop openstack-manila-api
+          service: name=openstack-manila-api state=stopped
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - manila_api_enabled|bool
+        - name: manila package update
+          package:
+            name: 'openstack-manila*'
+            state: latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: Manila db sync
+          command: manila-manage db sync
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool
