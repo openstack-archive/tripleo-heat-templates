@@ -881,11 +881,9 @@ for base_path in path_args:
             for f in files:
                 file_path = os.path.join(subdir, f)
                 if 'environments/services-docker' in file_path:
-                    print("ERROR: environments/services-docker should not be used "
+                    print("WARNING: environments/services-docker should not be used "
                           "any more, use environments/services instead: %s " %
                           file_path)
-                    failed_files.append(file_path)
-                    exit_val |= 1
 
                 if f.endswith('.yaml') and not f.endswith('.j2.yaml'):
                     failed = validate(file_path, param_map)
