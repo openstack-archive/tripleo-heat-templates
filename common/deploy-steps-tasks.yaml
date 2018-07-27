@@ -221,6 +221,59 @@
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
 
+    ##############################
+    # Check containers are healthy
+    ##############################
+    # Wait up to 5 minutes for all containers to start and become healthy.
+    # Allows for restart while dependant services start.
+    # If health=starting it implies we haven't run a healthcheck yet, so
+    # the containers are logged but we do not fail.
+    - name: "Check for unhealthy containers after step {{step}}"
+      shell: |
+        attempts=50
+        count=0
+        failing=0
+        starting=0
+        restarting=0
+
+        while [ $count -lt $attempts ]; do
+           failing=$(docker ps -f status=running -f health=unhealthy -f label="managed_by=paunch" -q | wc -l)
+           restarting=$(docker ps -f status=restarting -f label="managed_by=paunch" -q | wc -l)
+           if [ $(expr $failing + $restarting) -gt 0 ]; then
+             sleep 6
+             count=$[count+1]
+           else
+             break
+           fi
+        done
+
+        starting=$(docker ps -f status=running -f health=starting -f label="managed_by=paunch" -q | wc -l)
+
+        rc=0
+        if [ $starting -gt 0 ]; then
+          docker ps -f health=starting -f label="managed_by=paunch" | tail -n +2
+        fi
+        if [ $restarting -gt 0 ]; then
+          docker ps -f status=restarting -f label="managed_by=paunch" | tail -n +2
+          rc=1
+        fi
+        if [ $failing -gt 0 ]; then
+          docker ps -f health=unhealthy -f label="managed_by=paunch" | tail -n +2
+          rc=1
+        fi
+        exit $rc
+      changed_when: false
+      check_mode: no
+      register: outputs
+      failed_when: false
+      no_log: true
+      become: true
+
+    - name: "Debug output for task which failed: Check for unhealthy containers after step {{step}}"
+      debug: var=outputs.stdout_lines|default([])|union(outputs.stderr_lines|default([]))
+      when: outputs.rc is defined
+      failed_when: outputs.rc != 0
+
     ########################################################
     # Bootstrap tasks, only performed on bootstrap_server_id
     ########################################################
