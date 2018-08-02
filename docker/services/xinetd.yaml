@@ -1,0 +1,66 @@
+heat_template_version: rocky
+
+description: >
+  Drop xinetd if operator requests it.
+
+parameters:
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  UpgradeRemoveUnusedPackages:
+    default: false
+    type: boolean
+    description: Remove package if the service is being disabled during upgrade
+
+outputs:
+  role_data:
+    description: Remove xinetd since it is not used anymore in containerized environment
+    value:
+      service_name: xinetd
+      docker_config: {}
+      puppet_config:
+        config_volume: ''
+        step_config: ''
+        config_image: ''
+      config_settings: {}
+      upgrade_tasks:
+        - when: step|int == 2
+          block:
+            - name: stop and deactivate xinetd service
+              service:
+                name: xinetd
+                state: stopped
+                enabled: no
+        - when: step|int == 3
+          block:
+            - name: set remove_xinetd_pkg fact
+              set_fact:
+                remove_xinetd_pkg: {get_param: UpgradeRemoveUnusedPackages}
+            - name: remove xinetd package
+              package:
+                name: xinetd
+                state: removed
+              when: remove_xinetd_pkg|bool
