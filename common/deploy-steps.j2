@@ -16,8 +16,10 @@
 # primary role is: {{primary_role_name}}
 {% set deploy_steps_max = 6 -%}
 {% set update_steps_max = 6 -%}
+{% set external_update_steps_max = 1 -%}
 {% set pre_upgrade_rolling_steps_max = 1 -%}
 {% set upgrade_steps_max = 6 -%}
+{% set external_upgrade_steps_max = 1 -%}
 {% set post_upgrade_steps_max = 4 -%}
 {% set fast_forward_upgrade_steps_max = 9 -%}
 {% set fast_forward_upgrade_prep_steps_max = 3 -%}
@@ -168,6 +170,32 @@ resources:
           data:
           {%- for role in enabled_roles %}
             - get_param: [role_data, {{role.name}}, external_post_deploy_tasks]
+          {%- endfor %}
+
+  ExternalUpdateTasks:
+    type: OS::Heat::Value
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          # processing from per-role unique tasks into globally unique tasks
+          expression: coalesce($.data, []).flatten().distinct()
+          data:
+          {%- for role in enabled_roles %}
+            - get_param: [role_data, {{role.name}}, external_update_tasks]
+          {%- endfor %}
+
+  ExternalUpgradeTasks:
+    type: OS::Heat::Value
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          # processing from per-role unique tasks into globally unique tasks
+          expression: coalesce($.data, []).flatten().distinct()
+          data:
+          {%- for role in enabled_roles %}
+            - get_param: [role_data, {{role.name}}, external_upgrade_tasks]
           {%- endfor %}
 
 {%- for step in range(1, deploy_steps_max) %}
@@ -590,6 +618,58 @@ outputs:
                   with_sequence: start=0 end={{post_update_steps_max-1}}
                   loop_control:
                     loop_var: step
+      external_update_steps_tasks: {get_attr: [ExternalUpdateTasks, value]}
+      external_update_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+              tags:
+                - always
+                - facts
+            # facts from overcloud may be needed for external installer inventory
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
+              gather_facts: yes
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
+            - hosts: DEPLOY_SOURCE_HOST
+              name: External update steps
+              gather_facts: no
+              any_errors_fatal: yes
+              become: false
+              tasks:
+                - include: external_update_steps_tasks.yaml
+                  with_sequence: start=0 end={{external_update_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+              tags:
+                - external
+                - external_update_steps
+            # putting both update and deploy tasks in the same
+            # playbook allows influencing the deploy tasks by
+            # variables "exported" from update tasks
+            - hosts: DEPLOY_SOURCE_HOST
+              name: External deploy steps
+              gather_facts: no
+              any_errors_fatal: yes
+              become: false
+              tasks:
+                - include: external_deploy_steps_tasks.yaml
+                  with_sequence: start=1 end={{deploy_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+              tags:
+                - external
+                - external_deploy_steps
       pre_upgrade_rolling_steps_tasks: |
 {%- for role in roles %}
             - import_tasks: {{role.name}}/pre_upgrade_rolling_tasks.yaml
@@ -656,6 +736,58 @@ outputs:
                   with_sequence: start=0 end={{post_upgrade_steps_max-1}}
                   loop_control:
                     loop_var: step
+      external_upgrade_steps_tasks: {get_attr: [ExternalUpgradeTasks, value]}
+      external_upgrade_steps_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+          template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+              tags:
+                - always
+                - facts
+            # facts from overcloud may be needed for external installer inventory
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
+              gather_facts: yes
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
+            - hosts: DEPLOY_SOURCE_HOST
+              name: External upgrade
+              gather_facts: no
+              any_errors_fatal: yes
+              become: false
+              tasks:
+                - include: external_upgrade_steps_tasks.yaml
+                  with_sequence: start=0 end={{external_upgrade_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+              tags:
+                - external
+                - external_upgrade_steps
+            # putting both upgrade and deploy tasks in the same
+            # playbook allows influencing the deploy tasks by
+            # variables "exported" from upgrade tasks
+            - hosts: DEPLOY_SOURCE_HOST
+              name: External deploy steps
+              gather_facts: no
+              any_errors_fatal: yes
+              become: false
+              tasks:
+                - include: external_deploy_steps_tasks.yaml
+                  with_sequence: start=1 end={{deploy_steps_max-1}}
+                  loop_control:
+                    loop_var: step
+              tags:
+                - external
+                - external_deploy_steps
       fast_forward_upgrade_playbook:
         str_replace:
           params:
