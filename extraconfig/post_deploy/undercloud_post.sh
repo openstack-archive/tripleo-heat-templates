@@ -136,7 +136,7 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
       openstack workflow env create $TMP_MISTRAL_ENV
   fi
 
-  if [ "$(hiera enable_validations)" = "true" ]; then
+  if [ "$(hiera tripleo_validations_enabled)" = "true" ]; then
       echo Execute copy_ssh_key validations
       openstack workflow execution create tripleo.validations.v1.copy_ssh_key
 
