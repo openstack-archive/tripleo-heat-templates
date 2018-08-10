@@ -1,0 +1,70 @@
+heat_template_version: rocky
+
+description: >
+  Configures docker-registry on a host.
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  LocalContainerRegistry:
+    default: ''
+    description: The IP address used to bind the local container registry
+    type: string
+
+conditions:
+  local_container_registry_is_empty: {equals : [{get_param: LocalContainerRegistry}, '']}
+
+outputs:
+  role_data:
+    description: Role data for the docker registry service
+    value:
+      service_name: docker_registry
+      config_settings:
+        tripleo.docker_registry.firewall_rules:
+          '155 docker-registry':
+            dport:
+              - 8787
+              - 13787
+      step_config: ''
+      host_prep_tasks:
+        - name: Install, Configure and Run Docker Distribution
+          block:
+          # NOTE(bogdando): w/a https://github.com/ansible/ansible/issues/42621
+          - set_fact:
+              container_registry_host:
+                if:
+                - local_container_registry_is_empty
+                - {get_param: [EndpointMap, DockerRegistryInternal, host]}
+                - {get_param: LocalContainerRegistry}
+              container_registry_port: {get_param: [EndpointMap, DockerRegistryInternal, port]}
+          - include_role:
+              name: container-registry
+              tasks_from: docker-distribution
+      upgrade_tasks:
+        - name: Install docker packages on upgrade if missing
+          when: step|int == 3
+          package: name=docker-distribution state=latest
