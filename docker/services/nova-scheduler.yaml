@@ -124,32 +124,32 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if nova_scheduler is deployed
-          command: systemctl is-enabled --quiet openstack-nova-scheduler
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_scheduler_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-scheduler is running"
-          command: systemctl is-active --quiet openstack-nova-scheduler
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_scheduler_enabled.rc == 0
-        - name: Stop and disable nova_scheduler service
-          when:
-            - step|int == 2
-            - nova_scheduler_enabled.rc == 0
-          service: name=openstack-nova-scheduler state=stopped enabled=no
-        - name: Set fact for removal of openstack-nova-scheduler package
-          when: step|int == 2
-          set_fact:
-            remove_nova_scheduler_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-nova-scheduler package if operator requests it
-          yum: name=openstack-nova-scheduler state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_nova_scheduler_package|bool
+          block:
+            - name: Check if nova_scheduler is deployed
+              command: systemctl is-enabled --quiet openstack-nova-scheduler
+              ignore_errors: True
+              register: nova_scheduler_enabled_result
+            - name: Set fact nova_scheduler_enabled
+              set_fact:
+                nova_scheduler_enabled: "{{ nova_scheduler_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-scheduler is running"
+              command: systemctl is-active --quiet openstack-nova-scheduler
+              tags: validation
+              when: nova_scheduler_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova_scheduler service
+              when: nova_scheduler_enabled|bool
+              service: name=openstack-nova-scheduler state=stopped enabled=no
+            - name: Set fact for removal of openstack-nova-scheduler package
+              set_fact:
+                remove_nova_scheduler_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-scheduler package if operator requests it
+              yum: name=openstack-nova-scheduler state=removed
+              ignore_errors: True
+              when: remove_nova_scheduler_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova_scheduler is deployed
           command: systemctl is-enabled --quiet openstack-nova-scheduler

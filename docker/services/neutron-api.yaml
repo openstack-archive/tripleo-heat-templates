@@ -189,32 +189,32 @@ outputs:
                 - {}
       host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if neutron_server is deployed
-          command: systemctl is-enabled --quiet neutron-server
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: neutron_server_enabled
-        - name: "PreUpgrade step0,validation: Check service neutron-server is running"
-          command: systemctl is-active --quiet neutron-server
-          when:
-            - step|int == 0
-            - neutron_server_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable neutron_api service
-          when:
-            - step|int == 2
-            - neutron_server_enabled.rc == 0
-          service: name=neutron-server state=stopped enabled=no
-        - name: Set fact for removal of openstack-neutron package
-          when: step|int == 2
-          set_fact:
-            remove_neutron_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-neutron package if operator requests it
-          yum: name=openstack-neutron state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_neutron_package|bool
+          block:
+            - name: Check if neutron_server is deployed
+              command: systemctl is-enabled --quiet neutron-server
+              ignore_errors: True
+              register: neutron_server_enabled_result
+            - name: Set fact neutron_server_enabled
+              set_fact:
+                neutron_server_enabled: "{{ neutron_server_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service neutron-server is running"
+              command: systemctl is-active --quiet neutron-server
+              when: neutron_server_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable neutron_api service
+              when: neutron_server_enabled|bool
+              service: name=neutron-server state=stopped enabled=no
+            - name: Set fact for removal of openstack-neutron package
+              set_fact:
+                remove_neutron_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-neutron package if operator requests it
+              yum: name=openstack-neutron state=removed
+              ignore_errors: True
+              when: remove_neutron_package|bool
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]
       fast_forward_upgrade_tasks:

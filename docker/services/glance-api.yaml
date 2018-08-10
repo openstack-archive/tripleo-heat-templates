@@ -251,32 +251,32 @@ outputs:
               path: /etc/ceph
               state: directory
       upgrade_tasks:
-        - name: Check if glance_api is deployed
-          command: systemctl is-enabled --quiet openstack-glance-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: glance_api_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-glance-api is running"
-          command: systemctl is-active --quiet openstack-glance-api
-          tags: validation
-          when:
-            - step|int == 0
-            - glance_api_enabled.rc == 0
-        - name: Stop and disable glance_api service
-          when:
-            - step|int == 2
-            - glance_api_enabled.rc == 0
-          service: name=openstack-glance-api state=stopped enabled=no
-        - name: Set fact for removal of openstack-glance package
-          when: step|int == 2
-          set_fact:
-            remove_glance_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-glance package if operator requests it
-          yum: name=openstack-glance state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_glance_package|bool
+          block:
+            - name: Check if glance_api is deployed
+              command: systemctl is-enabled --quiet openstack-glance-api
+              ignore_errors: True
+              register: glance_api_enabled_result
+            - name: Set fact glance_api_enabled
+              set_fact:
+                glance_api_enabled: "{{ glance_api_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-glance-api is running"
+              command: systemctl is-active --quiet openstack-glance-api
+              tags: validation
+              when: glance_api_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable glance_api service
+              when: glance_api_enabled|bool
+              service: name=openstack-glance-api state=stopped enabled=no
+            - name: Set fact for removal of openstack-glance package
+              set_fact:
+                remove_glance_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-glance package if operator requests it
+              yum: name=openstack-glance state=removed
+              ignore_errors: True
+              when: remove_glance_package|bool
       metadata_settings:
         get_attr: [GlanceApiPuppetBase, role_data, metadata_settings]
       fast_forward_upgrade_tasks:

@@ -203,47 +203,43 @@ outputs:
               /var/log/containers/cinder and /var/log/containers/httpd/cinder-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check is cinder_api is deployed
-          command: systemctl is-enabled openstack-cinder-api
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: cinder_api_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-cinder-api is running"
-          shell: systemctl is-active --quiet openstack-cinder-api
-          when:
-            - step|int == 0
-            - cinder_api_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable cinder_api service (pre-upgrade not under httpd)
-          service: name=openstack-cinder-api state=stopped enabled=no
-          when:
-            - step|int == 2
-            - cinder_api_enabled.rc == 0
-        - name: check for cinder_api running under apache (post upgrade)
-          shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
-          register: cinder_api_apache
-          ignore_errors: true
-          when: step|int == 2
-        - name: Stop and disable cinder_api service
-          service: name=httpd state=stopped enabled=no
-          when:
-            - step|int == 2
-            - cinder_api_apache.rc == 0
-        - name: remove old cinder cron jobs
-          when: step|int == 2
-          file:
-            path: /var/spool/cron/cinder
-            state: absent
-        - name: Set fact for removal of httpd package
-          when: step|int == 2
-          set_fact:
-            remove_httpd_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove httpd package if operator requests it
-          yum: name=httpd state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_httpd_package|bool
+          block:
+            - name: Check is cinder_api is deployed
+              command: systemctl is-enabled openstack-cinder-api
+              ignore_errors: True
+              register: cinder_api_enabled_result
+            - name: Set fact cinder_api_enabled
+              set_fact:
+                cinder_api_enabled: "{{ cinder_api_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-cinder-api is running"
+              shell: systemctl is-active --quiet openstack-cinder-api
+              when: cinder_api_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable cinder_api service (pre-upgrade not under httpd)
+              service: name=openstack-cinder-api state=stopped enabled=no
+              when: cinder_api_enabled|bool
+            - name: check for cinder_api running under apache (post upgrade)
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
+              register: cinder_api_apache
+              ignore_errors: true
+            - name: Stop and disable cinder_api service
+              service: name=httpd state=stopped enabled=no
+              when: cinder_api_apache.rc == 0
+            - name: remove old cinder cron jobs
+              file:
+                path: /var/spool/cron/cinder
+                state: absent
+            - name: Set fact for removal of httpd package
+              set_fact:
+                remove_httpd_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove httpd package if operator requests it
+              yum: name=httpd state=removed
+              ignore_errors: True
+              when: remove_httpd_package|bool
       fast_forward_upgrade_tasks:
         - name: Check is cinder_api is deployed
           command: systemctl is-enabled --quiet openstack-cinder-api

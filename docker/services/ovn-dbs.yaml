@@ -205,19 +205,22 @@ outputs:
               /var/log/containers/openvswitch.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if ovn_northd is deployed
-          command: systemctl is-enabled --quiet ovn-northd
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ovn_northd_enabled
-        - name: "PreUpgrade step0,validation: Check service ovn_northd is running"
-          command: systemctl is-active --quiet ovn-northd
-          when:
-            - step|int == 0
-            - ovn_northd_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ovn-northd service
-          when:
-            - step|int == 2
-            - ovn_northd_enabled.rc == 0
-          service: name=ovn-northd state=stopped enabled=no
+          block:
+            - name: Check if ovn_northd is deployed
+              command: systemctl is-enabled --quiet ovn-northd
+              ignore_errors: True
+              register: ovn_northd_enabled_result
+            - name: Set fact ovn_northd_enabled
+              set_fact:
+                ovn_northd_enabled: "{{ ovn_northd_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service ovn_northd is running"
+              command: systemctl is-active --quiet ovn-northd
+              when: ovn_northd_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ovn-northd service
+              when: ovn_northd_enabled|bool
+              service: name=ovn-northd state=stopped enabled=no

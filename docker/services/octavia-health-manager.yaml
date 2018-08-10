@@ -125,29 +125,29 @@ outputs:
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if octavia_health_manager is deployed
-          common: systemctl is-enabled --quiet openstack-octavia-health-manager
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: octavia_health_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-octavia-health-manager is running"
-          command: systemctl is-active --quiet openstack-octavia-health-manager
-          tags: validation
-          when:
-            - step|int == 0
-            - octavia_health_enabled.rc == 0
-        - name: Stop and disable octavia_health_manager service
-          when:
-            - step|int == 2
-            - octavia_health_enabled.rc == 0
-          service: name=openstack-octavia-health-manager state=stopped enabled=no
-        - name: Set fact for removal of openstack-octavia-health-manager package
-          when: step|int == 2
-          set_fact:
-            remove_octavia_health_manager_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-octavia-health-manager package if operator requests it
-          yum: name=openstack-octavia-health-manager state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_octavia_health_manager_package|bool
+          block:
+            - name: Check if octavia_health_manager is deployed
+              common: systemctl is-enabled --quiet openstack-octavia-health-manager
+              ignore_errors: True
+              register: octavia_health_enabled_result
+            - name: Set fact octavia_health_enabled
+              set_fact:
+                octavia_health_enabled: "{{ octavia_health_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-octavia-health-manager is running"
+              command: systemctl is-active --quiet openstack-octavia-health-manager
+              tags: validation
+              when: octavia_health_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable octavia_health_manager service
+              when: octavia_health_enabled|bool
+              service: name=openstack-octavia-health-manager state=stopped enabled=no
+            - name: Set fact for removal of openstack-octavia-health-manager package
+              set_fact:
+                remove_octavia_health_manager_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-octavia-health-manager package if operator requests it
+              yum: name=openstack-octavia-health-manager state=removed
+              ignore_errors: True
+              when: remove_octavia_health_manager_package|bool

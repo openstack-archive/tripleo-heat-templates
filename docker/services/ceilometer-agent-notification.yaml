@@ -128,32 +128,32 @@ outputs:
               /var/log/containers/ceilometer.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if ceilometer_agent_notification is deployed
-          command: systemctl is-enabled --quiet openstack-ceilometer-notification
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: ceilometer_agent_notification_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-notification is running"
-          command: systemctl is-active --quiet openstack-ceilometer-notification
-          when:
-            - step|int == 0
-            - ceilometer_agent_notification_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable ceilometer agent notification service
-          service: name=openstack-ceilometer-notification state=stopped enabled=no
-          when:
-            - step|int == 2
-            - ceilometer_agent_notification_enabled.rc == 0
-        - name: Set fact for removal of openstack-ceilometer-notification package
-          when: step|int == 2
-          set_fact:
-            remove_ceilometer_notification_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-ceilometer-notification package if operator requests it
-          yum: name=openstack-ceilometer-notification state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_ceilometer_notification_package|bool
+          block:
+            - name: Check if ceilometer_agent_notification is deployed
+              command: systemctl is-enabled --quiet openstack-ceilometer-notification
+              ignore_errors: True
+              register: ceilometer_agent_notification_enabled_result
+            - name: Set fact ceilometer_agent_notification_enabled
+              set_fact:
+                ceilometer_agent_notification_enabled: "{{ ceilometer_agent_notification_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-ceilometer-notification is running"
+              command: systemctl is-active --quiet openstack-ceilometer-notification
+              when: ceilometer_agent_notification_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable ceilometer agent notification service
+              service: name=openstack-ceilometer-notification state=stopped enabled=no
+              when: ceilometer_agent_notification_enabled|bool
+            - name: Set fact for removal of openstack-ceilometer-notification package
+              set_fact:
+                remove_ceilometer_notification_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-ceilometer-notification package if operator requests it
+              yum: name=openstack-ceilometer-notification state=removed
+              ignore_errors: True
+              when: remove_ceilometer_notification_package|bool
       fast_forward_upgrade_tasks:
         - name: FFU check if openstack-ceilometer-notification is deployed
           command: systemctl is-enabled openstack-ceilometer-notification

@@ -326,23 +326,42 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - name: Get docker redis image
-          set_fact:
-            redis_docker_image_latest: *redis_image_pcmklatest
-        - name: Check for redis Kolla configuration
-          stat:
-            path: /var/lib/config-data/puppet-generated/redis
-          register: redis_kolla_config
-        - name: Check if redis is already containerized
-          set_fact:
-            redis_containerized: "{{redis_kolla_config.stat.isdir | default(false)}}"
-        - name: get bootstrap nodeid
+        - when: step|int == 0
           tags: common
-          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
-          register: bootstrap_node
-        - name: set is_bootstrap_node fact
-          tags: common
-          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+          block:
+            - name: Get docker redis image
+              set_fact:
+                redis_docker_image_latest: *redis_image_pcmklatest
+            - name: Check for redis Kolla configuration
+              stat:
+                path: /var/lib/config-data/puppet-generated/redis
+              register: redis_kolla_config
+            - name: Check if redis is already containerized
+              set_fact:
+                redis_containerized: "{{redis_kolla_config.stat.isdir | default(false)}}"
+            - name: get bootstrap nodeid
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+            - name: Prepare the switch to new redis container image name in pacemaker
+              when: redis_containerized|bool
+              block:
+                - name: Get redis image id currently used by pacemaker
+                  shell: "docker images | awk '/redis.* pcmklatest/{print $3}' | uniq"
+                  register: redis_current_pcmklatest_id
+                - name: Temporarily tag the current redis image id with the upgraded image name
+                  shell: "docker tag {{redis_current_pcmklatest_id.stdout}} {{redis_docker_image_latest}}"
+                  when: redis_current_pcmklatest_id.stdout != ''
+            - name: Check redis-bundle cluster resource status
+              pacemaker_resource:
+                resource: redis-bundle
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: redis_pcs_res_result
+            - name: Set fact redis_pcs_res
+              set_fact: "{{redis_pcs_res_result|succeeded}}"
         - name: redis baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -375,30 +394,12 @@ outputs:
                   until: output.rc == 0
             - name: Disable redis service
               service: name=redis enabled=no
-        - name: Prepare the switch to new redis container image name in pacemaker
-          when:
-            - step|int == 0
-            - redis_containerized|bool
-          block:
-            - name: Get redis image id currently used by pacemaker
-              shell: "docker images | awk '/redis.* pcmklatest/{print $3}' | uniq"
-              register: redis_current_pcmklatest_id
-            - name: Temporarily tag the current redis image id with the upgraded image name
-              shell: "docker tag {{redis_current_pcmklatest_id.stdout}} {{redis_docker_image_latest}}"
-              when: redis_current_pcmklatest_id.stdout != ''
-        - name: Check redis-bundle cluster resource status
-          pacemaker_resource:
-            resource: redis-bundle
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: redis_pcs_res
         - name: Update redis-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
             - redis_containerized|bool
             - is_bootstrap_node
-            - redis_pcs_res|succeeded
+            - redis_pcs_res|bool
           block:
             - name: Disable the redis cluster resource before container upgrade
               pacemaker_resource:

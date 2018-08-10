@@ -128,39 +128,40 @@ outputs:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
-        - name: Check if nova_conductor is deployed
-          command: systemctl is-enabled --quiet openstack-nova-conductor
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_conductor_enabled
-        - name: Set compute upgrade level to auto
-          when: step|int == 1
-          ini_file:
-            str_replace:
-              template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
-              params:
-                LEVEL: {get_param: UpgradeLevelNovaCompute}
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-conductor is running"
-          command: systemctl is-active --quiet openstack-nova-conductor
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_conductor_enabled.rc == 0
-        - name: Stop and disable nova_conductor service
-          when:
-            - step|int == 2
-            - nova_conductor_enabled.rc == 0
-          service: name=openstack-nova-conductor state=stopped enabled=no
-        - name: Set fact for removal of openstack-nova-conductor package
-          when: step|int == 2
-          set_fact:
-            remove_nova_conductor_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-nova-conductor package if operator requests it
-          yum: name=openstack-nova-conductor state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_nova_conductor_package|bool
+          block:
+            - name: Check if nova_conductor is deployed
+              command: systemctl is-enabled --quiet openstack-nova-conductor
+              ignore_errors: True
+              register: nova_conductor_enabled_result
+            - name: Set fact nova_conductor_enabled
+              set_fact:
+                nova_conductor_enabled: "{{ nova_conductor_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-conductor is running"
+              command: systemctl is-active --quiet openstack-nova-conductor
+              tags: validation
+              when: nova_conductor_enabled|bool
+        - when: step|int == 1
+          block:
+            - name: Set compute upgrade level to auto
+              ini_file:
+                str_replace:
+                  template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
+                  params:
+                    LEVEL: {get_param: UpgradeLevelNovaCompute}
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova_conductor service
+              when: nova_conductor_enabled|bool
+              service: name=openstack-nova-conductor state=stopped enabled=no
+            - name: Set fact for removal of openstack-nova-conductor package
+              set_fact:
+                remove_nova_conductor_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-conductor package if operator requests it
+              yum: name=openstack-nova-conductor state=removed
+              ignore_errors: True
+              when: remove_nova_conductor_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova_conductor is deployed
           command: systemctl is-enabled --quiet openstack-nova-conductor

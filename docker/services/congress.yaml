@@ -148,29 +148,29 @@ outputs:
               /var/log/containers/congress.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if congress is deployed
-          command: systemctl is-enabled --quiet openstack-congress-server
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: congress_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-congress-server is running"
-          command: systemctl is-active --quiet openstack-congress-server
-          when:
-            - step|int == 0
-            - congress_enabled.rc == 0
-          tags: validation
-        - name: Stop and disable congress_api service
-          when:
-            - step|int == 2
-            - congress_enabled.rc == 0
-          service: name=openstack-congress-server state=stopped enabled=no
-        - name: Set fact for removal of openstack-congress package
-          when: step|int == 2
-          set_fact:
-            remove_congress_package: {get_param: UpgradeRemoveUnusedPackages}
-        - name: Remove openstack-congress package if operator requests it
-          yum: name=openstack-congress state=removed
-          ignore_errors: True
-          when:
-            - step|int == 2
-            - remove_congress_package|bool
+          block:
+            - name: Check if congress is deployed
+              command: systemctl is-enabled --quiet openstack-congress-server
+              ignore_errors: True
+              register: congress_enabled_result
+            - name: Set fact congress_enabled
+              set_fact:
+                congress_enabled: "{{ congress_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-congress-server is running"
+              command: systemctl is-active --quiet openstack-congress-server
+              when: congress_enabled|bool
+              tags: validation
+        - when: step|int == 2
+          block:
+            - name: Stop and disable congress_api service
+              when: congress_enabled|bool
+              service: name=openstack-congress-server state=stopped enabled=no
+            - name: Set fact for removal of openstack-congress package
+              set_fact:
+                remove_congress_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-congress package if operator requests it
+              yum: name=openstack-congress state=removed
+              ignore_errors: True
+              when: remove_congress_package|bool

@@ -149,27 +149,34 @@ outputs:
               /var/log/containers/nova and /var/log/containers/httpd/nova-*.
           ignore_errors: true
       upgrade_tasks:
-        - name: Check if nova ironic is deployed
-          command: systemctl is-enabled --quiet openstack-nova-compute
+        - when: step|int == 0
           tags: common
-          ignore_errors: True
-          register: nova_ironic_enabled
-        - name: "PreUpgrade step0,validation: Check service openstack-nova-compute is running"
-          command: systemctl is-active --quiet openstack-nova-compute
-          tags: validation
-          when:
-            - step|int == 0
-            - nova_ironic_enabled.rc == 0
-        - name: Stop and disable nova-compute service
-          when:
-            - step|int == 2
-            - nova_ironic_enabled.rc == 0
-          service: name=openstack-nova-compute state=stopped enabled=no
-        - name: Set upgrade marker in nova statedir
-          when:
-            - step|int == 2
-            - nova_ironic_enabled|bool
-          file: path=/var/lib/nova/upgrade_marker state=touch owner=nova group=nova
+          block:
+            - name: Check if nova ironic is deployed
+              command: systemctl is-enabled --quiet openstack-nova-compute
+              ignore_errors: True
+              register: nova_ironic_enabled_result
+            - name: Set fact nova_ironic_enabled
+              set_fact:
+                nova_ironic_enabled: "{{ nova_ironic_enabled_result.rc == 0 }}"
+            - name: "PreUpgrade step0,validation: Check service openstack-nova-compute is running"
+              command: systemctl is-active --quiet openstack-nova-compute
+              tags: validation
+              when: nova_ironic_enabled|bool
+        - when: step|int == 2
+          block:
+            - name: Stop and disable nova-compute service
+              when: nova_ironic_enabled|bool
+              service: name=openstack-nova-compute state=stopped enabled=no
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-nova-compute package
+              set_fact:
+                remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-compute package if operator requests it
+              yum: name=openstack-nova-compute state=removed
+              ignore_errors: True
+              when: remove_nova_compute_package|bool
       fast_forward_upgrade_tasks:
         - name: Check if nova ironic is deployed
           command: systemctl is-enabled --quiet openstack-nova-compute
