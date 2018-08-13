@@ -92,7 +92,19 @@ outputs:
             - step|int == 3
             - os_net_config_need_upgrade.stdout
             - os_net_config_has_config.rc == 0
-        - name: Update all packages
+        - name: Check if node is hosting a Ceph OSD
+          when: step|int == 3
+          # NOTE(gfidente): like we already do in
+          # https://github.com/openstack/tripleo-heat-templates/blob/stable/queens/extraconfig/tasks/pacemaker_common_functions.sh#L416-L419
+          command: pgrep -x ceph-osd
+          register: is_hosting_ceph_osd
+          ignore_errors: True
+        - name: Remove ceph-osd when possible
+          yum: name=ceph-osd state=absent
+          when:
+            - step|int == 3
+            - is_hosting_ceph_osd.rc != 0
+        - name: Update all but Ceph packages
           when: step|int == 3
           yum: name=* state=latest exclude=ceph*,librados*,librbd*,libcephfs*,librgw*,python-rados*,python-rbd*,python-cephfs*,python-rgw*,rbd-mirror
       update_tasks:
@@ -103,8 +115,20 @@ outputs:
         - name: Exit if existing yum process
           fail: msg="ERROR existing yum.pid detected - can't continue! Please ensure there is no other package update process for the duration of the minor update worfklow. Exiting."
           when: (step|int == 0 or step|int == 3) and yum_pid_file.stat.exists
+        - name: Check if node is hosting a Ceph OSD
+          when: step|int == 3
+          # NOTE(gfidente): like we already do in
+          # https://github.com/openstack/tripleo-heat-templates/blob/stable/queens/extraconfig/tasks/pacemaker_common_functions.sh#L416-L419
+          command: pgrep -x ceph-osd
+          register: is_hosting_ceph_osd
+          ignore_errors: True
+        - name: Remove ceph-osd when possible
+          yum: name=ceph-osd state=absent
+          when:
+            - step|int == 3
+            - is_hosting_ceph_osd.rc != 0
         - name: Update all packages
-          yum: name=* state=latest update_cache=yes exclude=ceph*,librados*,librbd*,libcephfs*,librgw*,python-rados*,python-rbd*,python-cephfs*,python-rgw*,rbd-mirror # cache for tripleo/+bug/1703830
+          yum: name=* state=latest update_cache=yes
           when: step == "3"
       fast_forward_upgrade_tasks:
         - name: Register repo type and args
