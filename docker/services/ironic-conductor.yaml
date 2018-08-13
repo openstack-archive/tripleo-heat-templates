@@ -126,12 +126,25 @@ outputs:
             export OS_IDENTITY_API_VERSION=3
 
             echo "Check if a temporary URL key already exists"
-            KEY_SET=$(openstack object store account show -c properties -f value 2>/dev/null | tr ',' '\n' | grep Temp-Url-Key || true)
-            if [ -z $KEY_SET ]; then
-                echo "Creating a new temporary URL for project $OS_PROJECT_NAME"
-                SWIFT_TEMP_URL_KEY=$(uuidgen | sha1sum | awk '{print $1}')
-                openstack object store account set --property "Temp-URL-Key=$SWIFT_TEMP_URL_KEY" || exit 1
-            fi
+            RETVAL=-1
+            RETRIES=5
+            while [ ${RETVAL} -ne 0 ] && [ ${RETRIES} -gt 0 ]; do
+              RETRIES=$[$RETRIES-1]
+              CMD_OUT=$(openstack object store account show -f value)
+              RETVAL=$?
+              if [ ${RETVAL} -ne 0 ]; then
+                  echo Retrying...
+                  sleep 5
+                  continue
+              fi
+              if [[ ! ${CMD_OUT} =~ "Temp-Url-Key" ]] ; then
+                  echo "Creating a new temporary URL for project $OS_PROJECT_NAME"
+                  SWIFT_TEMP_URL_KEY=$(uuidgen | sha1sum | awk '{print $1}')
+                  openstack object store account set --property "Temp-URL-Key=$SWIFT_TEMP_URL_KEY"
+                  RETVAL=$?
+              fi
+            done
+
       docker_config:
         step_4:
           map_merge:
