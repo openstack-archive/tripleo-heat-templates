@@ -37,7 +37,15 @@ parameters:
     description: default route for the {{network.name_lower}} network
     type: string
 {%- endif %}
-{% endfor %}
+  {{network.name}}InterfaceRoutes:
+    default: []
+    description: >
+      Routes for the {{network.name_lower}} network traffic.
+      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
+      Unless the default is changed, the parameter is automatically resolved
+      from the subnet host_routes attribute.
+    type: json
+{%- endfor %}
   DnsServers: # Override this via parameter_defaults
     default: []
     description: >
@@ -84,13 +92,15 @@ resources:
                     - - get_param: ControlPlaneIp
                       - get_param: ControlPlaneSubnetCidr
                 routes:
-                - ip_netmask: 169.254.169.254/32
-                  next_hop:
-                    get_param: EC2MetadataIp
+                  list_concat_unique:
+                    - get_param: ControlPlaneRoutes
+                    - - ip_netmask: 169.254.169.254/32
+                        next_hop:
+                          get_param: EC2MetadataIp
 {%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
-                - default: true
-                  next_hop:
-                    get_param: ControlPlaneDefaultRoute
+                      - default: true
+                        next_hop:
+                          get_param: ControlPlaneDefaultRoute
 {%- endif %}
 {%- if not role.name.startswith('ComputeOvsDpdk') %}
               - type: ovs_bridge
@@ -98,7 +108,7 @@ resources:
                 name: br-bond
 {%- else %}
                 name: bridge_name
-{% endif %}
+{%- endif %}
                 dns_servers:
                   get_param: DnsServers
                 members:
@@ -119,11 +129,13 @@ resources:
                   addresses:
                   - ip_netmask:
                       get_param: {{network.name}}IpSubnet
-{%- if network.name in role.default_route_networks %}
                   routes:
-                  - default: true
-                    next_hop:
-                      get_param: {{network.name}}InterfaceDefaultRoute
+                    list_concat_unique:
+                      - - get_param: {{network.name}}InterfaceRoutes
+{%- if network.name in role.default_route_networks %}
+                        - default: true
+                          next_hop:
+                            get_param: {{network.name}}InterfaceDefaultRoute
 {%- endif %}
 {%- endfor %}
 {%- else %}
@@ -149,11 +161,13 @@ resources:
                 addresses:
                 - ip_netmask:
                     get_param: {{network.name}}IpSubnet
-{%- if network.name in role.default_route_networks %}
                   routes:
-                  - default: true
-                    next_hop:
-                      get_param: {{network.name}}InterfaceDefaultRoute
+                    list_concat_unique:
+                      - get_param: {{network.name}}InterfaceRoutes
+{%- if network.name in role.default_route_networks %}
+                      - - default: true
+                          next_hop:
+                            get_param: {{network.name}}InterfaceDefaultRoute
 {%- endif %}
 {%- endfor %}
               # Used as a provider network with external DHCP
