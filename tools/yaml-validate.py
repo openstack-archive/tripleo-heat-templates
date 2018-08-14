@@ -1109,7 +1109,11 @@ def validate(filename, param_map):
         if filename == './roles/Compute.yaml':
             retval |= validate_multiarch_compute_roles(filename, tpl)
 
-        if filename.startswith('./network_data_'):
+        # NOTE(hjensas): The routed network data example is very different ...
+        # We need to develop a more advanced validator, probably using a schema
+        # definition instead.
+        if (filename.startswith('./network_data_') and
+                not filename.endswith('routed.yaml')):
             result = validate_network_data_file(filename)
             retval |= result
         else:
