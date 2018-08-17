@@ -13,6 +13,7 @@
 #   - UsingNovajoin: If unset, we pre-provision the service principals
 #                    needed for the overcloud deploy. If set, we skip this,
 #                    since novajoin will do it.
+#   - FreeIPAExtraArgs: Additional parameters to be passed to FreeIPA script
 #
 set -eux
 
@@ -30,6 +31,7 @@ export UndercloudFQDN=${UndercloudFQDN:-""}
 export HostsSecret=${HostsSecret:-""}
 export ProvisioningCIDR=${ProvisioningCIDR:-""}
 export UsingNovajoin=${UsingNovajoin:-""}
+export FreeIPAExtraArgs=${FreeIPAExtraArgs:-""}
 
 if [ -n "$ProvisioningCIDR" ]; then
     # Add address to provisioning network interface
@@ -96,7 +98,7 @@ ipa-server-install -U -r `hostname -d|tr "[a-z]" "[A-Z]"` \
                    -p $DirectoryManagerPassword -a $AdminPassword \
                    --hostname `hostname -f` \
                    --ip-address=$FreeIPAIP \
-                   --setup-dns --auto-forwarders --auto-reverse
+                   --setup-dns --auto-forwarders --auto-reverse $FreeIPAExtraArgs
 
 # Authenticate
 echo $AdminPassword | kinit admin
