@@ -225,55 +225,28 @@ outputs:
         list_concat:
           - get_attr: [Ovs, role_data, upgrade_tasks]
           -
-            - name: Check if openvswitch is deployed
-              command: systemctl is-enabled openvswitch
-              tags: common
-              ignore_errors: True
-              register: openvswitch_enabled
-            - name: "PreUpgrade step0,validation: Check service openvswitch is running"
-              command: systemctl is-active --quiet openvswitch
-              when:
-                - step|int == 0
-                - openvswitch_enabled.rc == 0
-              tags: validation
-            - name: Stop openvswitch service
-              when:
-                - step|int == 1
-                - openvswitch_enabled.rc == 0
-              service: name=openvswitch state=stopped
-              # Container upgrade steps.
             - name: ODL container L2 update and upgrade tasks
               block: &odl_container_upgrade_tasks
-              - name: Block connections to ODL. #This rule will be inserted at the top.
-                iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP
-                when: step|int == 0
-                with_items:
-                  - 6640
-                  - 6653
-                  - 6633
-      post_upgrade_tasks: &odl_container_post_upgrade_tasks
-        - name: Check service openvswitch is running
-          command: systemctl is-active --quiet openvswitch
-          tags: common
-          register: openvswitch_running
-        - name: Delete OVS groups and ports
-          shell: "sudo ovs-ofctl -O Openflow13 del-groups br-int; \
-                  for tun_port in $(ovs-vsctl list-ports br-int | grep 'tun'); \
-                  do; ovs-vsctl del-port br-int $(tun_port); done;"
-          when: (step|int == 0) and (openvswitch_running.rc == 0)
-        - name: Stop openvswitch service
-          when: (step|int == 1) and (openvswitch_running.rc == 0)
-          service: name=openvswitch state=stopped
-        - name: Unblock OVS port per compute node. #Delete previously added rule
-          iptables: chain=OUTPUT action=insert protocol=tcp destination_port={{ item }} jump=DROP state=absent
-          when: step|int == 2
-          with_items:
-            - 6640
-            - 6653
-            - 6633
-        - name: start openvswitch service
-          when: step|int == 3
-          service : name=openvswitch state=started
+              - name: Check if openvswitch is deployed
+                command: systemctl is-enabled openvswitch
+                tags: common
+                ignore_errors: True
+                register: openvswitch_enabled
+              - name: "PreUpgrade step0,validation: Check service openvswitch is running"
+                command: systemctl is-active --quiet openvswitch
+                when:
+                  - step|int == 0
+                  - openvswitch_enabled.rc == 0
+                tags: validation
+              # Container upgrade steps.
+              - name: Delete OVS groups and ports
+                shell: >
+                  sudo ovs-ofctl -O Openflow13 del-groups br-int;
+                  for tun_port in $(sudo ovs-vsctl list-ports br-int | grep tun);
+                  do sudo ovs-vsctl del-port br-int $tun_port; done
+                when:
+                  - step|int == 0
+                  - openvswitch_enabled.rc == 0
       update_tasks:
         - name: Get ODL update level
           block: &get_odl_update_level
@@ -283,11 +256,6 @@ outputs:
         - name: Run L2 update tasks that are similar to upgrade_tasks when update level is 2
           block: *odl_container_upgrade_tasks
           when: odl_update_level == 2
-      post_update_tasks:
-        - block: *get_odl_update_level
-        - block: *odl_container_post_upgrade_tasks
-          when: odl_update_level == 2
-
       metadata_settings:
         if:
           - internal_tls_enabled
