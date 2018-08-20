@@ -1153,12 +1153,13 @@ def validate(filename, param_map):
 
                 elif data['type'] in CONFIG_RESOURCE_TYPES:
                     if 'outputs' in data['properties']:
-                        if filename in HEAT_OUTPUTS_EXCLUSIONS \
-                                and args.quiet < 2:
-                            print('Warning: resource %s from %s uses Heat '
-                                  'outputs which are not supported with '
-                                  'config-download.'
-                                  % (resource, filename))
+                        if filename in HEAT_OUTPUTS_EXCLUSIONS:
+                            if args.quiet < 1:
+                                print('Resource %s from %s uses Heat '
+                                      'outputs which are not supported with '
+                                      'config-download (ignored due to '
+                                      'exclusions).'
+                                      % (resource, filename))
                         else:
                             print('ERROR: resource %s from %s uses Heat '
                                   'outputs which are not supported with '
