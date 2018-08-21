@@ -253,18 +253,24 @@ outputs:
             src: /var/log/swift
             dest: /var/log/containers/swift
             state: link
-        - name: Forward logging to swift.log file
-          copy:
-            content: |
-              # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
-              local2.*                 /var/log/swift/swift.log
-              &                        stop
-            dest: /etc/rsyslog.d/openstack-swift.conf
-          register: logconfig
-        - name: Restart rsyslogd service after logging conf change
-          service: name=rsyslog state=restarted
-          when:
-            - logconfig|changed
+        - name: Check if rsyslog exists
+          stat:
+            path: /etc/rsyslog.d
+          register: rsyslog_config
+        - block:
+            - name: Forward logging to swift.log file
+              copy:
+                content: |
+                  # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
+                  local2.*                 /var/log/swift/swift.log
+                  &                        stop
+                dest: /etc/rsyslog.d/openstack-swift.conf
+              register: logconfig
+            - name: Restart rsyslogd service after logging conf change
+              service: name=rsyslog state=restarted
+              when:
+                - logconfig|changed
+          when: rsyslog_config.stat.exists
       upgrade_tasks:
         - when: step|int == 0
           tags: common
