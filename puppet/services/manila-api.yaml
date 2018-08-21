@@ -41,8 +41,30 @@ parameters:
   MonitoringSubscriptionManilaApi:
     default: 'overcloud-manila-api'
     type: string
+  ManilaWorkers:
+    type: string
+    description: Set the number of workers for manila::wsgi::apache
+    default: '%{::os_workers}'
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  manila_workers_zero: {equals : [{get_param: ManilaWorkers}, 0]}
 
 resources:
+
+  ApacheServiceBase:
+    type: ./apache.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
   ManilaBase:
     type: ./manila-base.yaml
     properties:
@@ -62,6 +84,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [ManilaBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - manila::keystone::authtoken::password: {get_param: ManilaPassword}
             manila::keystone::authtoken::auth_uri: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             manila::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
@@ -87,6 +110,28 @@ outputs:
                   $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
             manila::api::enable_proxy_headers_parsing: true
             manila::api::default_share_type: 'default'
+
+            manila::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            manila::api::service_name: 'httpd'
+            manila::wsgi::apache::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
+          -
+            manila::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
+          -
+            if:
+            - manila_workers_zero
+            - {}
+            - manila::wsgi::apache::workers: {get_param: ManilaWorkers}
+
       step_config: |
         include ::tripleo::profile::base::manila::api
       service_config_settings:
@@ -102,3 +147,5 @@ outputs:
               manila::keystone::auth::admin_url_v2: {get_param: [EndpointMap, ManilaAdmin, uri]}
               manila::keystone::auth::password: {get_param: ManilaPassword}
               manila::keystone::auth::region: {get_param: KeystoneRegion}
+      metadata_settings:
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
