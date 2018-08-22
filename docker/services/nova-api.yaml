@@ -387,19 +387,17 @@ outputs:
                 path: /var/spool/cron/nova
                 state: absent
       fast_forward_upgrade_tasks:
-        - name: Check if nova-api is deployed
-          command: systemctl is-enabled --quiet openstack-nova-api
-          ignore_errors: True
-          register: nova_api_enabled_result
-          when:
+        - when:
             - step|int == 0
             - release == 'ocata'
-        - name: Set fact nova_api_enabled
-          set_fact:
-            nova_api_enabled: "{{ nova_api_enabled_result.rc == 0 }}"
-          when:
-            - step|int == 0
-            - release == 'ocata'
+          block:
+            - name: Check if nova-api is deployed
+              command: systemctl is-enabled --quiet openstack-nova-api
+              ignore_errors: True
+              register: nova_api_enabled_result
+            - name: Set fact nova_api_enabled
+              set_fact:
+                nova_api_enabled: "{{ nova_api_enabled_result.rc == 0 }}"
         - name: Stop openstack-nova-api service
           service: name=openstack-nova-api state=stopped
           when:
@@ -477,21 +475,17 @@ outputs:
               command: nova-manage cell_v2 discover_hosts --cell_uuid {{nova_api_cell_uuid.stdout}} --verbose
             - name: Setup cell_v2 (migrate instances)
               command: nova-manage cell_v2 map_instances --cell_uuid {{nova_api_cell_uuid.stdout}}
-        - name: Sync nova/cell DB
-          command: nova-manage db sync
-          async: {get_param: NovaDbSyncTimeout}
-          poll: 10
-          when:
+        - when:
             - step|int == 8
             - is_bootstrap_node|bool
-            - release == 'pike'
-        - name: Sync nova_api DB
-          command: nova-manage api_db sync
-          when:
-            - step|int == 8
-            - is_bootstrap_node|bool
-        - name: Online data migration for nova
-          command: nova-manage db online_data_migrations
-          when:
-            - step|int == 8
-            - is_bootstrap_node|bool
+          block:
+            - name: Sync nova/cell DB
+              command: nova-manage db sync
+              async: {get_param: NovaDbSyncTimeout}
+              poll: 10
+              when:
+                - release == 'pike'
+            - name: Sync nova_api DB
+              command: nova-manage api_db sync
+            - name: Online data migration for nova
+              command: nova-manage db online_data_migrations
