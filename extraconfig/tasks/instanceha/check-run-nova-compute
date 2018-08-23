@@ -95,6 +95,22 @@ def create_nova_connection(options):
     keystone_auth = loader.load_from_options(**kwargs)
     keystone_session = session.Session(auth=keystone_auth, verify=(not options["insecure"]))
 
+    nova_endpoint_type = 'internalURL'
+    # We default to internalURL but we allow this to be overridden via
+    # the [placement]/os_interface key.
+    if 'os_interface' in options and len(options["os_interface"]) == 1:
+        nova_endpoint_type = options["os_interface"][0]
+    # Via https://review.openstack.org/#/c/492247/ os_interface has been deprecatd in queens
+    # and we need to use 'valid_interfaces' which is a:
+    # "List of interfaces, in order of preference, for endpoint URL. (list value)"
+    # Since it is not explicitely set in nova.conf we still keep the check for os_interface
+    elif 'valid_interfaces' in options and len(options["valid_interfaces"]) >= 1:
+        nova_endpoint_type = options["valid_interfaces"][0]
+
+    # This mimicks the code in novaclient/shell.py
+    if nova_endpoint_type in ['internal', 'public', 'admin']:
+        nova_endpoint_type += 'URL'
+
     nova_versions = [ "2.23", "2" ]
     for version in nova_versions:
         clientargs = inspect.getargspec(client.Client).varargs
@@ -122,14 +138,16 @@ def create_nova_connection(options):
                                  insecure=options["insecure"],
                                  region_name=options["os_region_name"][0],
                                  session=keystone_session, auth=keystone_auth,
-                                 http_log_debug=options.has_key("verbose"))
+                                 http_log_debug=options.has_key("verbose"),
+                                 endpoint_type=nova_endpoint_type)
         else:
             # OSP >= Ocata
             # ArgSpec(args=['version'], varargs='args', keywords='kwargs', defaults=None)
             nova = client.Client(version,
                                  region_name=options["os_region_name"][0],
                                  session=keystone_session, auth=keystone_auth,
-                                 http_log_debug=options.has_key("verbose"))
+                                 http_log_debug=options.has_key("verbose"),
+                                 endpoint_type=nova_endpoint_type)
 
         try:
             nova.hypervisors.list()
