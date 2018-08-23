@@ -120,7 +120,9 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
         openstack cron trigger delete publish-ui-logs-hourly
     fi
 
-    openstack workflow delete $(openstack workflow list -c Name -f value --filter tags=tripleo-common-managed)  || true;
+    for workflow in $(openstack workflow list -c Name -f value --filter tags=tripleo-common-managed); do
+        openstack workflow delete $workflow
+    done
 
     for workbook in $(ls /usr/share/openstack-tripleo-common/workbooks/*); do
         openstack workbook create $workbook
