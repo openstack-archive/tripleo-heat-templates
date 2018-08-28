@@ -36,15 +36,6 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  # custom parameters for the Cinder volume role
-  CinderEnableIscsiBackend:
-    default: true
-    description: Whether to enable or not the Iscsi backend for Cinder
-    type: boolean
-  CinderLVMLoopDeviceSize:
-    default: 10280
-    description: The size of the loopback file used by the cinder LVM driver.
-    type: number
   ConfigDebug:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
@@ -225,56 +216,7 @@ outputs:
                   - ''
                   - - 'TRIPLEO_DEPLOY_IDENTIFIER='
                     - {get_param: DeployIdentifier}
-      host_prep_tasks:
-        - name: create persistent directories
-          file:
-            path: "{{ item }}"
-            state: directory
-          with_items:
-            - /var/log/containers/cinder
-            - /var/lib/cinder
-        - name: cinder logs readme
-          copy:
-            dest: /var/log/cinder/readme.txt
-            content: |
-              Log files from cinder containers can be found under
-              /var/log/containers/cinder and /var/log/containers/httpd/cinder-api.
-          ignore_errors: true
-        - name: ensure ceph configurations exist
-          file:
-            path: /etc/ceph
-            state: directory
-        - name: cinder_enable_iscsi_backend fact
-          set_fact:
-            cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
-        - name: cinder create LVM volume group dd
-          command:
-            list_join:
-            - ''
-            - - 'dd if=/dev/zero of=/var/lib/cinder/cinder-volumes bs=1 count=0 seek='
-              - str_replace:
-                  template: VALUE
-                  params:
-                    VALUE: {get_param: CinderLVMLoopDeviceSize}
-              - 'M'
-          args:
-            creates: /var/lib/cinder/cinder-volumes
-          when: cinder_enable_iscsi_backend
-        - name: cinder create LVM volume group
-          shell: |
-            if ! losetup /dev/loop2; then
-              losetup /dev/loop2 /var/lib/cinder/cinder-volumes
-            fi
-            if ! pvdisplay | grep cinder-volumes; then
-              pvcreate /dev/loop2
-            fi
-            if ! vgdisplay | grep cinder-volumes; then
-              vgcreate cinder-volumes /dev/loop2
-            fi
-          args:
-            executable: /bin/bash
-            creates: /dev/loop2
-          when: cinder_enable_iscsi_backend
+      host_prep_tasks: {get_attr: [CinderCommon, cinder_volume_host_prep_tasks]}
       update_tasks:
         - name: Cinder-Volume fetch and retag container image for pacemaker
           when: step|int == 2
