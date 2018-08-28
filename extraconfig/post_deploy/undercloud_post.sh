@@ -21,9 +21,6 @@ export COMPUTE_API_VERSION=1.1
 export NOVA_VERSION=1.1
 export OS_NO_CACHE=True
 export OS_CLOUDNAME=undercloud
-# 1.34 is the latest API version in Ironic Pike supported by ironicclient
-export IRONIC_API_VERSION=1.34
-export OS_BAREMETAL_API_VERSION=\$IRONIC_API_VERSION
 export OS_IDENTITY_API_VERSION='3'
 export OS_PROJECT_DOMAIN_NAME='Default'
 export OS_USER_DOMAIN_NAME='Default'
