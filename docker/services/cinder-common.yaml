@@ -40,6 +40,14 @@ parameters:
     default: []
     description: list of optional environment variables
     type: comma_delimited_list
+  CinderEnableIscsiBackend:
+    default: true
+    description: Whether to enable or not the Iscsi backend for Cinder
+    type: boolean
+  CinderLVMLoopDeviceSize:
+    default: 10280
+    description: The size of the loopback file used by the cinder LVM driver.
+    type: number
 
 resources:
 
@@ -47,6 +55,81 @@ resources:
     type: ./containers-common.yaml
 
 outputs:
+  cinder_volume_host_prep_tasks:
+    description: Host prep tasks for the cinder-volume service (HA or non-HA)
+    value:
+      - name: create persistent directories
+        file:
+          path: "{{ item.path }}"
+          state: directory
+          setype: "{{ item.setype }}"
+        with_items:
+          - { 'path': /var/log/containers/cinder, 'setype': svirt_sandbox_file_t }
+          - { 'path': /var/lib/cinder, 'setype': svirt_sandbox_file_t }
+      - name: cinder logs readme
+        copy:
+          dest: /var/log/cinder/readme.txt
+          content: |
+            Log files from cinder containers can be found under
+            /var/log/containers/cinder and /var/log/containers/httpd/cinder-api.
+        ignore_errors: true
+      - name: ensure ceph configurations exist
+        file:
+          path: /etc/ceph
+          state: directory
+      - name: cinder_enable_iscsi_backend fact
+        set_fact:
+          cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
+      - when: cinder_enable_iscsi_backend
+        block:
+          - name: cinder create LVM volume group dd
+            command:
+              list_join:
+              - ''
+              - - 'dd if=/dev/zero of=/var/lib/cinder/cinder-volumes bs=1 count=0 seek='
+                - str_replace:
+                    template: VALUE
+                    params:
+                      VALUE: {get_param: CinderLVMLoopDeviceSize}
+                - 'M'
+            args:
+              creates: /var/lib/cinder/cinder-volumes
+          - name: cinder create LVM volume group
+            shell: |
+              if ! losetup /dev/loop2; then
+                losetup /dev/loop2 /var/lib/cinder/cinder-volumes
+              fi
+              if ! pvdisplay | grep cinder-volumes; then
+                pvcreate /dev/loop2
+              fi
+              if ! vgdisplay | grep cinder-volumes; then
+                vgcreate cinder-volumes /dev/loop2
+              fi
+            args:
+              executable: /bin/bash
+              creates: /dev/loop2
+          - name: cinder create service to run losetup for LVM on startup
+            copy:
+              dest: /etc/systemd/system/cinder-lvm-losetup.service
+              content: |
+                [Unit]
+                Description=Cinder LVM losetup
+                After=syslog.target
+
+                [Service]
+                Type=oneshot
+                ExecStart=/bin/bash -c '/sbin/losetup /dev/loop2 || /sbin/losetup /dev/loop2 /var/lib/cinder/cinder-volumes'
+                ExecStop=/bin/bash -c '/sbin/losetup -d /dev/loop2'
+                RemainAfterExit=yes
+
+                [Install]
+                WantedBy=multi-user.target
+          - name: cinder enable the LVM losetup service
+            systemd:
+              name: cinder-lvm-losetup
+              enabled: yes
+              daemon_reload: yes
+
   cinder_volume_volumes:
     description: Volumes for the cinder-volume container (HA or non-HA)
     value:
