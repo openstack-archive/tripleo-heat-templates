@@ -49,8 +49,12 @@ parameters:
       List of server hostnames to blacklist from any triggered deployments.
   CephAnsiblePlaybook:
     type: comma_delimited_list
-    description: List of paths to the ceph-ansible playbooks to execute
-    default: ['/usr/share/ceph-ansible/site-docker.yml.sample']
+    description: >
+      List of paths to the ceph-ansible playbooks to execute. If not
+      specified, the playbook will be determined automatically
+      depending on type of operation being performed
+      (deploy/update/upgrade).
+    default: ['default']
   CephAnsibleExtraConfig:
     type: json
     description: Extra vars for the ceph-ansible playbook
@@ -427,9 +431,18 @@ outputs:
                   - '-i'
                   - '{{playbook_dir}}/ceph-ansible/inventory.yml'
                   - '{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml'
-            - name: set ceph-ansible verbosity
+            - name: set ceph-ansible params from Heat
               set_fact:
                 ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
+                ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
+            - name: set ceph-ansible playbooks
+              set_fact:
+                ceph_ansible_playbooks: >
+                  {%- if ceph_ansible_playbooks_param != ['default'] -%}
+                    {{ ceph_ansible_playbooks_param }}
+                  {%- else -%}
+                    {{ ceph_ansible_playbooks_default|default(['/usr/share/ceph-ansible/site-docker.yml.sample']) }}
+                  {%- endif -%}
             - name: set ceph-ansible command
               set_fact:
                 ceph_ansible_command:
@@ -461,5 +474,13 @@ outputs:
                     - '--extra-vars'
                     - '@{{playbook_dir}}/ceph-ansible/extra_vars.yml'
             - name: run ceph-ansible
-              with_items: {get_param: CephAnsiblePlaybook}
+              with_items: "{{ceph_ansible_playbooks}}"
               shell: "{{ceph_ansible_command}} {{item}}"
+      external_update_tasks:
+        - name: set ceph_ansible_playbooks_default
+          set_fact:
+            ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml"]
+      external_upgrade_tasks:
+        - name: set ceph_ansible_playbooks_default
+          set_fact:
+            ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml"]
