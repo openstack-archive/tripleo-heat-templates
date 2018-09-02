@@ -55,7 +55,7 @@ def short_hostname():
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
-    return cmd_stdout.rstrip()
+    return cmd_stdout.decode('utf-8').rstrip()
 
 
 def pull_image(name):
@@ -217,7 +217,7 @@ log.info('Service compilation completed.')
 
 sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
 with open(sh_script, 'w') as script_file:
-    os.chmod(script_file.name, 0755)
+    os.chmod(script_file.name, 0o755)
     script_file.write("""#!/bin/bash
     set -ex
     mkdir -p /etc/puppet
@@ -274,7 +274,8 @@ with open(sh_script, 'w') as script_file:
 
 
 
-def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
+def mp_puppet_config(*args):
+    (config_volume,puppet_tags,manifest,config_image,volumes) = args[0]
     log = get_logger()
     log.info('Starting configuration of %s using image %s' % (config_volume,
              config_image))
@@ -404,7 +405,7 @@ for infile in infiles:
     with open(infile) as f:
         infile_data = json.load(f)
 
-    for k, v in infile_data.iteritems():
+    for k, v in iter(infile_data.items()):
         config_volumes = match_config_volumes(config_volume_prefix, v)
         config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
         config_hashes = filter(None, config_hashes)
@@ -417,7 +418,7 @@ for infile in infiles:
 
     outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
     with open(outfile, 'w') as out_f:
-        os.chmod(out_f.name, 0600)
+        os.chmod(out_f.name, 0o600)
         json.dump(infile_data, out_f, indent=2)
 
 if not success:
