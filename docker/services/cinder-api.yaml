@@ -168,6 +168,26 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_5:
+          cinder_api_online_migrations:
+            start_order: 2
+            image: *cinder_api_image
+            net: host
+            privileged: false
+            detach: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/cinder/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+                  - /var/log/containers/cinder:/var/log/cinder
+                  - /var/log/containers/httpd/cinder-api:/var/log/httpd
+            command:
+              - '/usr/bin/bootstrap_host_exec'
+              - 'cinder_api'
+              - "su cinder -s /bin/bash -c 'cinder-manage db online_data_migrations'"
           cinder_api_cron:
             image: *cinder_api_image
             net: host
@@ -206,6 +226,11 @@ outputs:
         - when: step|int == 0
           tags: common
           block:
+            - name: get bootstrap nodeid
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check is cinder_api is deployed
               command: systemctl is-enabled openstack-cinder-api
               ignore_errors: True
@@ -217,6 +242,18 @@ outputs:
               shell: systemctl is-active --quiet openstack-cinder-api
               when: cinder_api_enabled|bool
               tags: validation
+            # NOTE: In puppet service variant, we ran release N online
+            # migrations before upgrade to release N+1. In docker
+            # service variant, we run release N online migrations
+            # after upgrade to release N. This means that during
+            # switch from non-containerized to containerized, we need
+            # to run both of these.
+            - name: Online data migration for Cinder before switching to containers
+              tags: pre-upgrade
+              when:
+                - is_bootstrap_node|bool
+                - cinder_api_enabled|bool
+              command: cinder-manage db online_data_migrations
         - when: step|int == 2
           block:
             - name: Stop and disable cinder_api service (pre-upgrade not under httpd)

@@ -116,7 +116,7 @@ Steps correlate to the following:
      a) step 4 baremetal
      b) step 4 containers
      c) Keystone containers post initialization (tenant,service,endpoint creation)
-   5) Service activation (Pacemaker)
+   5) Service activation (Pacemaker), online data migration
      a) step 5 baremetal
      b) step 5 containers
 
