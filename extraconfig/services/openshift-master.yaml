@@ -39,10 +39,6 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  OpenShiftGlobalVariables:
-    default: {}
-    description: Global Ansible variables for OpenShift-Ansible installer.
-    type: json
   OpenShiftAnsiblePlaybook:
     default: '/usr/share/ansible/openshift-ansible/playbooks/deploy_cluster.yml'
     description: Path to OpenShift-Ansible playbook.
@@ -51,17 +47,22 @@ parameters:
     default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-master/scaleup.yml'
     description: Path to OpenShift-Ansible playbook.
     type: string
+  OpenShiftWorkerScaleupPlaybook:
+    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
+    description: Path to OpenShift-Ansible playbook.
+    type: string
   OpenShiftUpgradePlaybook:
     default: '/usr/share/ansible/openshift-ansible/playbooks/byo/openshift-cluster/upgrades/v3_9/upgrade.yml'
     description: Path to OpenShift-Ansible Upgrade playbook.
     type: string
+  OpenShiftGlobalVariables:
+    default: {}
+    description: Global Ansible variables for OpenShift-Ansible installer.
+    type: json
+  # TODO(mandre) Add as a inventory group var
   OpenShiftMasterNodeVars:
     default: {}
     description: OpenShift node vars specific for the master nodes
-    type: json
-  OpenShiftWorkerNodeVars:
-    default: {}
-    description: OpenShift node vars specific for the worker nodes
     type: json
   DockerInsecureRegistryAddress:
     description: Optional. The IP Address and Port of an insecure docker
@@ -82,362 +83,353 @@ parameters:
     description: etcd container image for openshift
     type: string
 
+resources:
+
+  OpenShiftNode:
+      type: ./openshift-node.yaml
+      properties:
+        EndpointMap: {get_param: EndpointMap}
+        ServiceNetMap: {get_param: ServiceNetMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+        RoleName: {get_param: RoleName}
+        RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
     description: Role data for the Openshift Service
     value:
       service_name: openshift_master
       config_settings:
-        tripleo.openshift_master.firewall_rules:
-          '200 openshift-master api':
-            dport: 6443
-            proto: tcp
-          '200 openshift-master etcd':
-            dport:
-              - 2379
-              - 2380
-            proto: tcp
+        map_merge:
+          - get_attr: [OpenShiftNode, role_data, config_settings]
+          - tripleo.openshift_master.firewall_rules:
+              '200 openshift-master api':
+                dport: 6443
+                proto: tcp
+              '200 openshift-master etcd':
+                dport:
+                  - 2379
+                  - 2380
+                proto: tcp
       upgrade_tasks: []
       step_config: ''
       external_deploy_tasks:
-        - name: openshift_master step 2
-          when: step == '2'
-          tags: openshift
-          block:
-            - name: create openshift temp dirs
-              file:
-                path: "{{item}}"
-                state: directory
-              with_items:
-                - "{{playbook_dir}}/openshift/inventory"
+        list_concat:
+          - get_attr: [OpenShiftNode, role_data, external_deploy_tasks]
+          - - name: openshift_master step 2
+              when: step == '2'
+              tags: openshift
+              block:
+                - name: set openshift global vars fact
+                  set_fact:
+                    openshift_global_vars:
+                      map_merge:
+                      - openshift_release: '3.10'
+                        openshift_version: '3.10'
+                        openshift_image_tag:
+                          yaql:
+                            expression:
+                              $.data.image.rightSplit(":", 1)[1]
+                            data:
+                              image: {get_param: DockerOpenShiftBaseImage}
+                        openshift_enable_excluders: false
+                        openshift_deployment_type: origin
+                        openshift_use_external_openvswitch: true
+                        openshift_docker_selinux_enabled: false
+                        # Disable services we're not using for now
+                        openshift_enable_service_catalog: false
+                        template_service_broker_install: false
+                        # Needed for containerized deployment
+                        skip_version: true
+                        # Fatal and Errors only
+                        debug_level: 0
+                        openshift_master_cluster_method: native
+                        openshift_master_cluster_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
+                        openshift_master_cluster_public_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
+                        # Local Registry
+                        openshift_examples_modify_imagestreams: true
+                        oreg_url:
+                          yaql:
+                            expression:
+                              $.data.image.rightSplit(":", 1).join("-${component}:")
+                            data:
+                              image: {get_param: DockerOpenShiftBaseImage}
+                        etcd_image: {get_param: DockerOpenShiftEtcdImage}
+                        osm_etcd_image: {get_param: DockerOpenShiftEtcdImage}
+                        osm_image: {get_param: DockerOpenShiftBaseImage}
+                        osn_image: {get_param: DockerOpenShiftNodeImage}
+                        openshift_cockpit_deployer_image: {get_param: DockerOpenShiftCockpitImage}
+                        openshift_docker_additional_registries: {get_param: DockerInsecureRegistryAddress}
+                        openshift_master_bootstrap_auto_approve: true
+                        osm_controller_args: {"experimental-cluster-signing-duration": ["20m"]}
+                      - {get_param: OpenShiftGlobalVariables}
+                    tripleo_stack_action: {get_param: StackAction}
+                    openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
 
-            - name: set openshift global vars fact
-              set_fact:
-                openshift_global_vars:
-                  map_merge:
-                  - openshift_release: '3.10'
-                    openshift_version: '3.10'
-                    openshift_image_tag:
-                      yaql:
-                        expression:
-                          $.data.image.rightSplit(":", 1)[1]
-                        data:
-                          image: {get_param: DockerOpenShiftBaseImage}
-                    openshift_enable_excluders: false
-                    openshift_deployment_type: origin
-                    openshift_use_external_openvswitch: true
-                    openshift_docker_selinux_enabled: false
-                    # Disable services we're not using for now
-                    openshift_enable_service_catalog: false
-                    template_service_broker_install: false
-                    # Needed for containerized deployment
-                    skip_version: true
-                    # Fatal and Errors only
-                    debug_level: 0
-                    openshift_master_cluster_method: native
-                    openshift_master_cluster_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
-                    openshift_master_cluster_public_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
-                    # Local Registry
-                    openshift_examples_modify_imagestreams: true
-                    oreg_url:
-                      yaql:
-                        expression:
-                          $.data.image.rightSplit(":", 1).join("-${component}:")
-                        data:
-                          image: {get_param: DockerOpenShiftBaseImage}
-                    etcd_image: {get_param: DockerOpenShiftEtcdImage}
-                    osm_etcd_image: {get_param: DockerOpenShiftEtcdImage}
-                    osm_image: {get_param: DockerOpenShiftBaseImage}
-                    osn_image: {get_param: DockerOpenShiftNodeImage}
-                    openshift_cockpit_deployer_image: {get_param: DockerOpenShiftCockpitImage}
-                    openshift_web_console_prefix:
-                      yaql:
-                        expression:
-                          $.data.image.rightSplit(":", 1)[0] + "-"
-                        data:
-                          image: {get_param: DockerOpenShiftBaseImage}
-                    openshift_docker_additional_registries: {get_param: DockerInsecureRegistryAddress}
-                    openshift_master_bootstrap_auto_approve: true
-                    osm_controller_args: {"experimental-cluster-signing-duration": ["20m"]}
-                  - {get_param: OpenShiftGlobalVariables}
-                tripleo_role_name: {get_param: RoleName}
-                tripleo_stack_action: {get_param: StackAction}
-                openshift_master_node_vars: {get_param: OpenShiftMasterNodeVars}
-                openshift_worker_node_vars: {get_param: OpenShiftWorkerNodeVars}
-                openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
+                - name: set role facts for generating inventory
+                  set_fact:
+                    tripleo_role_name: {get_param: RoleName}
 
-            # NOTE(flaper87): Check if origin-node is running
-            # in the openshift nodes so we can flag the node
-            # as new later on.
-            # This task ignores errors because docker inspect
-            # exits with 1 if origin-node doesn't exist. Perhaps
-            # we could use failed_when instead of ignoring the
-            # errors. Future improvement.
-            - name: Check if origin-node is running
-              become: true
-              shell: >
-                docker inspect atomic-enterprise-master-api > /dev/null 2>&1
-                || docker inspect origin-master-api > /dev/null 2>&1
-                || echo "false"
-              register: origin_nodes
-              delegate_to: "{{item}}"
-              with_items: "{{ groups[tripleo_role_name] | default([]) }}"
+                # FIXME(mandre) This task always fails:
+                # - become:true doesn't work in that context (containerized undercloud issue?)
+                # - there is no origin-master-api docker container
+                # We should be checking for systemd service status instead.
+                # NOTE(flaper87): Check if origin-node is running in the openshift
+                # nodes so we can flag the node as new later on.
+                #
+                # This task ignores errors because docker inspect exits with 1 if
+                # origin-node doesn't exist. Perhaps we could use failed_when
+                # instead of ignoring the errors. Future improvement.
+                - name: Check if origin-node is running
+                  become: true
+                  shell: >
+                    docker inspect atomic-enterprise-master-api > /dev/null 2>&1
+                    || docker inspect origin-master-api > /dev/null 2>&1
+                    || echo "false"
+                  register: origin_nodes
+                  delegate_to: "{{item}}"
+                  with_items: "{{ groups[tripleo_role_name] | default([]) }}"
 
-              # NOTE(flaper87): Create all the nodes objects
-              # now, as yaml dicts, instead of formatting
-              # everything as part of a template.
-              # We consider new_node all the nodes that
-              # exited with 1 in the previous task.
-              #
-              # Future Improvement: Use hostvars[] syntax
-              # instead of raw_get to reduce verbosity.
-            - set_fact:
-                nodes:
-                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
-                    hostname: "{{item}}"
-                    ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
-                    ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
-                    ansible_become: true
-                    containerized: true
-                    openshift_node_group_name: 'node-config-master-infra'
-                    etcd_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_master_bind_addr: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_public_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_public_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                - set_fact:
+                    nodes:
+                      - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
+                        hostname: "{{item}}"
+                  register: all_master_nodes
+                  with_items: "{{groups[tripleo_role_name] | default([]) }}"
 
-              register: all_master_nodes
-              with_items: "{{groups[tripleo_role_name] | default([]) }}"
+                - set_fact:
+                    master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                    new_master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
 
-            - set_fact:
-                master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
-                new_masters: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
+                # NOTE(flaper87): Every master node will be in the masters group
+                # but only new master nodes will be in the new_masters section, which
+                # will be created only if there are nodes to add. We'll add `new_masters`
+                # to the OSEv3 group regardless to simplify the implementation. Ansible
+                # will ignore the section if it doesn't exist or if it's empty
+                - name: generate openshift inventory for openshift_master service
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
+                    content: |
+                      {% if master_nodes | count > 0%}
+                      all:
+                        children:
+                          masters:
+                            hosts:
+                              {% for host in master_nodes -%}
+                              {{host.hostname}}:
+                              {% endfor %}
 
-            # NOTE(flaper87): Every master node will be in the masters group
-            # but only new master nodes will be in the new_masters section, which
-            # will be created only if there are nodes to add. We'll add `new_masters`
-            # to the OSEv3 group regardless to simplify the implementation. Ansible
-            # will ignore the section if it doesn't exist or if it's empty
-            - name: generate openshift inventory for openshift_master service
-              copy:
-                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
-                content: |
-                  {% if master_nodes | count > 0%}
-                  masters:
-                    hosts:
-                    {% for host in master_nodes %}
-                    {{host.hostname}}:
-                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
+                            vars:
+                              {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
 
-                  nodes:
-                    hosts:
-                    {% for host in master_nodes %}
-                    {{host.hostname}}:
-                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
-                  {% endif %}
+                          {% if new_master_nodes | count > 0 -%}
+                          new_masters:
+                            hosts:
+                              # FIXME(mandre)
+                              # patterns do not work in inventory files, so we
+                              # can't write something like
+                              #   hosts:
+                              #     new_nodes:&masters: {}
+                              #
+                              # Also impossible to register var with templated
+                              # name, we can't re-use the all_role_nodes var
+                              # for the master role in openshift-node.yaml
+                              {% for host in new_master_nodes -%}
+                              {{host.hostname}}:
+                              {% endfor %}
+                          {% endif %}
+                      {% endif %}
 
-                  {% if new_masters | count > 0 %}
-                  new_masters:
-                    hosts:
-                    {% for host in new_masters %}
-                    {{host.hostname}}:
-                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
+                - name: generate openshift inventory for groups
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/inventory/groups.yml"
+                    content: |
+                      all:
+                        children:
+                          etcd:
+                            children:
+                              masters: {}
 
-                  new_nodes:
-                    hosts:
-                    {% for host in master_nodes %}
-                    {{host.hostname}}:
-                        {{host | combine(openshift_master_node_vars) | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
+                          new_etcd:
+                            children:
+                              new_masters: {}
 
-                  new_etcd:
-                    children:
-                      new_masters: {}
-                  {% endif %}
+                          OSEv3:
+                            children:
+                              masters: {}
+                              nodes: {}
+                              new_masters: {}
+                              new_nodes: {}
+                              {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
 
-                  etcd:
-                    children:
-                      masters: {}
+                - name: generate openshift global defaults
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/global_defaults.yml"
+                    content: |
+                      containerized: true
+                      openshift_master_cluster_method: native
+                      openshift_use_dnsmasq: true
+                      openshift_use_external_openvswitch: true
 
-                  OSEv3:
-                    children:
-                      masters: {}
-                      nodes: {}
-                      new_masters: {}
-                      new_nodes: {}
-                      {% if groups['openshift_glusterfs'] | default([]) %}glusterfs: {}{% endif %}
+                - name: generate openshift global vars
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/global_vars.yml"
+                    content: "{{openshift_global_vars|to_nice_yaml}}"
 
-            - name: generate openshift global defaults
-              copy:
-                dest: "{{playbook_dir}}/openshift/global_defaults.yml"
-                content: |
-                  containerized: true
-                  openshift_master_cluster_method: native
-                  openshift_use_dnsmasq: true
-                  openshift_use_external_openvswitch: true
+                - name: set openshift ansible playbook paths
+                  set_fact:
+                    openshift_ansible_playbook_path: {get_param: OpenShiftAnsiblePlaybook}
+                    openshift_master_scaleup_playbook_path: {get_param: OpenShiftMasterScaleupPlaybook}
+                    openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
+                    openshift_upgrade_playbook_path: {get_param: OpenShiftUpgradePlaybook}
 
-            - name: generate openshift global vars
-              copy:
-                dest: "{{playbook_dir}}/openshift/global_vars.yml"
-                content: "{{openshift_global_vars|to_nice_yaml}}"
+                # NOTE(flaper87): We'll use openshift_ansible_scaleup_playbook_path
+                # if there are new master or new worker nodes and we are doing an
+                # UPDATE. For all the other cases, we shall use the deploy playbook.
+                - name: generate openshift playbook
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/playbook.yml"
+                    content: |
+                      # NOTE(flaper87): The NetworkManager setup has been moved
+                      # into openshift-ansible but it's not been released yet.
+                      # This code will go away as soon as an rpm with the required
+                      # roles hits the repo.
+                      - name: OpenShift networking preparation
+                        hosts: all
 
-            - name: set openshift ansible playbook paths
-              set_fact:
-                openshift_ansible_playbook_path: {get_param: OpenShiftAnsiblePlaybook}
-                openshift_master_scaleup_playbook_path: {get_param: OpenShiftMasterScaleupPlaybook}
-                openshift_upgrade_playbook_path: {get_param: OpenShiftUpgradePlaybook}
+                        tasks:
+                          - name: install NetworkManager
+                            package:
+                              name: NetworkManager
+                              state: present
 
-            # NOTE(flaper87): We'll use openshift_ansible_scaleup_playbook_path
-            # if there are new master or new worker nodes and we are doing an
-            # UPDATE. For all the other cases, we shall use the deploy playbook.
-            - name: generate openshift playbook
-              copy:
-                dest: "{{playbook_dir}}/openshift/playbook.yml"
-                content: |
-                  # NOTE(flaper87): The NetworkManager setup has been moved
-                  # into openshift-ansible but it's not been released yet.
-                  # This code will go away as soon as an rpm with the required
-                  # roles hits the repo.
-                  - name: OpenShift networking preparation
-                    hosts: all
+                          - name: generate nm dispatcher script
+                            copy:
+                              dest: "/etc/NetworkManager/dispatcher.d/99-os-net-config-origin-dns.sh"
+                              owner: root
+                              mode: 0755
+                              content: >-
+                                #!/bin/bash -x
 
-                    tasks:
-                      - name: install NetworkManager
-                        package:
-                          name: NetworkManager
-                          state: present
+                                DEVS=$(nmcli device | grep unmanaged | awk '{print $1}')
 
-                      - name: generate nm dispatcher script
-                        copy:
-                          dest: "/etc/NetworkManager/dispatcher.d/99-os-net-config-origin-dns.sh"
-                          owner: root
-                          mode: 0755
-                          content: >-
-                            #!/bin/bash -x
+                                for dev in $DEVS;
+                                do
+                                  temp="${dev%\"}"
+                                  temp="${temp#\"}"
+                                  export DEVICE_IFACE=$temp
 
-                            DEVS=$(nmcli device | grep unmanaged | awk '{print $1}')
+                                  /etc/NetworkManager/dispatcher.d/99-origin-dns.sh $DEVICE_IFACE up
+                                done
 
-                            for dev in $DEVS;
-                            do
-                              temp="${dev%\"}"
-                              temp="${temp#\"}"
-                              export DEVICE_IFACE=$temp
-
-                              /etc/NetworkManager/dispatcher.d/99-origin-dns.sh $DEVICE_IFACE up
-                            done
-
-                      - name: Enable NetworkManager
-                        service:
-                          name: NetworkManager
-                          state: restarted
-                          enabled: yes
+                          - name: Enable NetworkManager
+                            service:
+                              name: NetworkManager
+                              state: restarted
+                              enabled: yes
 
 
-                  - include: "/usr/share/ansible/openshift-ansible/playbooks/prerequisites.yml"
-                  {% if tripleo_stack_action == 'UPDATE' and new_masters | count > 0 %}
-                  - include: "{{openshift_master_scaleup_playbook_path}}"
-                  {% endif %}
+                      - include: "/usr/share/ansible/openshift-ansible/playbooks/prerequisites.yml"
+                      {% if tripleo_stack_action == 'UPDATE' and new_masters | count > 0 %}
+                      - include: "{{openshift_master_scaleup_playbook_path}}"
+                      {% endif %}
 
-                  {% if tripleo_stack_action == 'UPDATE' and new_nodes | count > 0 %}
-                  - include: "{{openshift_worker_scaleup_playbook_path}}"
-                  {% endif %}
+                      {% if tripleo_stack_action == 'UPDATE' and new_nodes | count > 0 %}
+                      - include: "{{openshift_worker_scaleup_playbook_path}}"
+                      {% endif %}
 
-                  {% if tripleo_stack_action == 'UPDATE' and openshift_upgrade %}
-                  - include: "{{openshift_upgrade_playbook_path}}"
-                  {% endif %}
+                      {% if tripleo_stack_action == 'UPDATE' and openshift_upgrade %}
+                      - include: "{{openshift_upgrade_playbook_path}}"
+                      {% endif %}
 
-                  {% if tripleo_stack_action == 'CREATE' or (tripleo_stack_action == 'UPDATE' and (new_masters + new_nodes) | count == 0) %}
-                  - include: "{{openshift_ansible_playbook_path}}"
-                  {% endif %}
+                      {% if tripleo_stack_action == 'CREATE' or (tripleo_stack_action == 'UPDATE' and (new_masters + new_nodes) | count == 0) %}
+                      - include: "{{openshift_ansible_playbook_path}}"
+                      {% endif %}
 
-                  - name: Simple validation OpenShift is actually deployed
-                    hosts: masters
+                      - name: Simple validation OpenShift is actually deployed
+                        hosts: masters
 
-                    tasks:
-                      - name: Check oc status
-                        command: oc status --suggest
-                        register: oc_status
-                        become: true
+                        tasks:
+                          - name: Check oc status
+                            command: oc status --suggest
+                            register: oc_status
+                            become: true
 
-                      - name: Register failure if oc status fails
-                        command: echo true
-                        register: oc_status_failed
-                        when: '"fail" in oc_status.stdout'
+                          - name: Register failure if oc status fails
+                            command: echo true
+                            register: oc_status_failed
+                            when: '"fail" in oc_status.stdout'
 
-                      - debug:
-                          var: oc_status.stdout_lines
+                          - debug:
+                              var: oc_status.stdout_lines
 
-                      - name: Check oc get dc/router
-                        command: "oc get dc/router -o jsonpath='{.status.readyReplicas}'"
-                        register: oc_get_router
-                        become: true
+                          - name: Check oc get dc/router
+                            command: "oc get dc/router -o jsonpath='{.status.readyReplicas}'"
+                            register: oc_get_router
+                            become: true
 
-                      - name: Register failure if oc get dc/router fails
-                        command: echo true
-                        register: oc_get_router_failed
-                        when: 'oc_get_router.stdout|int < 1'
+                          - name: Register failure if oc get dc/router fails
+                            command: echo true
+                            register: oc_get_router_failed
+                            when: 'oc_get_router.stdout|int < 1'
 
-                      - debug:
-                          var: oc_get_router.stdout
+                          - debug:
+                              var: oc_get_router.stdout
 
-                      - name: Check oc get dc/docker-registry
-                        command: "oc get dc/docker-registry -o jsonpath='{.status.readyReplicas}'"
-                        register: oc_get_registry
-                        become: true
+                          - name: Check oc get dc/docker-registry
+                            command: "oc get dc/docker-registry -o jsonpath='{.status.readyReplicas}'"
+                            register: oc_get_registry
+                            become: true
 
-                      - name: Register failure if oc get dc/docker-registry fails
-                        command: echo true
-                        register: oc_get_registry_failed
-                        when: 'oc_get_registry.stdout|int < 1'
+                          - name: Register failure if oc get dc/docker-registry fails
+                            command: echo true
+                            register: oc_get_registry_failed
+                            when: 'oc_get_registry.stdout|int < 1'
 
-                      - debug:
-                          var: oc_get_registry.stdout
+                          - debug:
+                              var: oc_get_registry.stdout
 
-                      - name: Check oc get nodes
-                        command: oc get nodes --all-namespaces
-                        register: oc_get_nodes
-                        become: true
+                          - name: Check oc get nodes
+                            command: oc get nodes --all-namespaces
+                            register: oc_get_nodes
+                            become: true
 
-                      - name: Register failure if oc get nodes fails
-                        command: echo true
-                        register: oc_get_nodes_failed
-                        when: '"NotReady" in oc_get_nodes.stdout'
+                          - name: Register failure if oc get nodes fails
+                            command: echo true
+                            register: oc_get_nodes_failed
+                            when: '"NotReady" in oc_get_nodes.stdout'
 
-                      - debug:
-                          var: oc_get_nodes.stdout_lines
+                          - debug:
+                              var: oc_get_nodes.stdout_lines
 
-                      - name: Fail the playbook if any validations failed
-                        fail:
-                        when: >
-                          oc_status_failed.changed or
-                          oc_get_nodes_failed.changed or
-                          oc_get_router_failed.changed or
-                          oc_get_registry_failed.changed
+                          - name: Fail the playbook if any validations failed
+                            fail:
+                            when: >
+                              oc_status_failed.changed or
+                              oc_get_nodes_failed.changed or
+                              oc_get_router_failed.changed or
+                              oc_get_registry_failed.changed
 
-            - name: set openshift command
-              set_fact:
-                openshift_command: >-
-                  {%- if openshift_command is defined -%}
-                  {{openshift_command}}
-                  {%- else -%}
-                  ANSIBLE_HOST_KEY_CHECKING=False
-                  ansible-playbook
-                  -i '{{playbook_dir}}/openshift/inventory'
-                  --extra-vars '@{{playbook_dir}}/openshift/global_defaults.yml'
-                  --extra-vars '@{{playbook_dir}}/openshift/global_vars.yml'
-                  '{{playbook_dir}}/openshift/playbook.yml'
-                  {%- endif -%}
-            - name: print openshift command
-              debug:
-                var: openshift_command
-            - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook.log)
-              shell: |
-                {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook.log
-                exit ${PIPESTATUS[0]}
+                - name: set openshift command
+                  set_fact:
+                    openshift_command: >-
+                      {%- if openshift_command is defined -%}
+                      {{openshift_command}}
+                      {%- else -%}
+                      ANSIBLE_HOST_KEY_CHECKING=False
+                      ansible-playbook
+                      -i '{{playbook_dir}}/openshift/inventory'
+                      --extra-vars '@{{playbook_dir}}/openshift/global_defaults.yml'
+                      --extra-vars '@{{playbook_dir}}/openshift/global_vars.yml'
+                      '{{playbook_dir}}/openshift/playbook.yml'
+                      {%- endif -%}
+                - name: print openshift command
+                  debug:
+                    var: openshift_command
+                - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook.log)
+                  shell: |
+                    {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook.log
+                    exit ${PIPESTATUS[0]}
 
       external_upgrade_tasks:
         - name: set OpenShift upgrade facts
