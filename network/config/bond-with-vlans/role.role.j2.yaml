@@ -25,6 +25,12 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
+  ControlPlaneMtu:
+    default: 1500
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the network.
+      (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
+    type: number
 {% for network in networks if network.enabled|default(true) and network.name in role.networks %}
   {{network.name}}IpSubnet:
     default: ''
@@ -34,17 +40,23 @@ parameters:
     default: {{network.vlan}}
     description: Vlan ID for the {{network.name_lower}} network traffic.
     type: number
-{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}Mtu:
+    default: {{network.mtu}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
+    type: number
+{%-     if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
     default: '{{network.gateway_ipv6}}'
     description: default route for the {{network.name_lower}} network
     type: string
-{%- elif network.gateway_ip|default(false) %}
+{%-     elif network.gateway_ip|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
     default: '{{network.gateway_ip}}'
     description: default route for the {{network.name_lower}} network
     type: string
-{%- endif %}
+{%-     endif %}
   {{network.name}}InterfaceRoutes:
     default: []
     description: >
@@ -79,6 +91,24 @@ parameters:
     type: number
 {%- endif %}
 resources:
+
+  MinViableMtu:
+    # This resource resolves the minimum viable MTU for interfaces, bonds and
+    # bridges that carry multiple VLANs. Each VLAN may have different MTU. The
+    # bridge, bond or interface must have an MTU to allow the VLAN with the
+    # largest MTU.
+    type: OS::Heat::Value
+    properties:
+      type: number
+      value:
+        yaql:
+          expression: $.data.max()
+          data:
+            - {get_param: ControlPlaneMtu}
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+            - {get_param: {{network.name}}Mtu}
+{%- endfor %}
+
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -92,6 +122,8 @@ resources:
               network_config:
               - type: interface
                 name: nic1
+                mtu:
+                  get_param: ControlPlaneMtu
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
@@ -112,26 +144,34 @@ resources:
 {%- endif %}
 {%- if not role.name.startswith('ComputeOvsDpdk') %}
               - type: ovs_bridge
-{%- if role.name.startswith('CephStorage') or role.name.startswith('ObjectStorage') or role.name.startswith('BlockStorage') %}
+{%-     if role.name.startswith('CephStorage') or role.name.startswith('ObjectStorage') or role.name.startswith('BlockStorage') %}
                 name: br-bond
-{%- else %}
+{%-     else %}
                 name: bridge_name
-{%- endif %}
+{%-     endif %}
                 dns_servers:
                   get_param: DnsServers
                 members:
                 - type: ovs_bond
                   name: bond1
+                  mtu:
+                    get_attr: [MinViableMtu, value]
                   ovs_options:
                     get_param: BondInterfaceOvsOptions
                   members:
                   - type: interface
                     name: nic2
+                    mtu:
+                      get_attr: [MinViableMtu, value]
                     primary: true
                   - type: interface
                     name: nic3
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+                    mtu:
+                      get_attr: [MinViableMtu, value]
+{%-     for network in networks if network.enabled|default(true) and network.name in role.networks %}
                 - type: vlan
+                  mtu:
+                    get_param: {{network.name}}Mtu
                   vlan_id:
                     get_param: {{network.name}}NetworkVlanID
                   addresses:
@@ -140,16 +180,18 @@ resources:
                   routes:
                     list_concat_unique:
                       - get_param: {{network.name}}InterfaceRoutes
-{%- if network.name in role.default_route_networks %}
+{%-         if network.name in role.default_route_networks %}
                       - - default: true
                           next_hop:
                             get_param: {{network.name}}InterfaceDefaultRoute
-{%- endif %}
-{%- endfor %}
+{%-         endif %}
+{%-     endfor %}
 {%- else %}
               # Linux bond for non-DPDK traffic required when using DPDK
               - type: linux_bond
                 name: bond_api
+                mtu:
+                  get_attr: [MinViableMtu, value]
                 bonding_options:
                   get_param: BondInterfaceOvsOptions
                 use_dhcp: false
@@ -158,12 +200,18 @@ resources:
                 members:
                 - type: interface
                   name: nic2
+                  mtu:
+                    get_attr: [MinViableMtu, value]
                   primary: true
                 - type: interface
                   name: nic3
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+                  mtu:
+                    get_attr: [MinViableMtu, value]
+{%-     for network in networks if network.enabled|default(true) and network.name in role.networks %}
               - type: vlan
                 device: bond_api
+                mtu:
+                  get_param: {{network.name}}Mtu
                 vlan_id:
                   get_param: {{network.name}}NetworkVlanID
                 addresses:
@@ -172,12 +220,12 @@ resources:
                   routes:
                     list_concat_unique:
                       - get_param: {{network.name}}InterfaceRoutes
-{%- if network.name in role.default_route_networks %}
+{%-         if network.name in role.default_route_networks %}
                       - - default: true
                           next_hop:
                             get_param: {{network.name}}InterfaceDefaultRoute
-{%- endif %}
-{%- endfor %}
+{%-         endif %}
+{%-     endfor %}
               # Used as a provider network with external DHCP
               - type: ovs_user_bridge
                 name: br-dpdk0

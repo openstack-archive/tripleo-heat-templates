@@ -27,6 +27,12 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
+  ControlPlaneMtu:
+    default: 1500
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the network.
+      (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
+    type: number
 {% for network in networks %}
   {{network.name}}IpSubnet:
     default: ''
@@ -35,6 +41,12 @@ parameters:
   {{network.name}}NetworkVlanID:
     default: {{network.vlan}}
     description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {{network.name}}Mtu:
+    default: {{network.mtu}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
     type: number
 {%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
@@ -75,6 +87,24 @@ parameters:
       for OVS bonds or like mode=4 for Linux bonds using this option.'
     type: string
 resources:
+
+  MinViableMtu:
+    # This resource resolves the minimum viable MTU for interfaces, bonds and
+    # bridges that carry multiple VLANs. Each VLAN may have different MTU. The
+    # bridge, bond or interface must have an MTU to allow the VLAN with the
+    # largest MTU.
+    type: OS::Heat::Value
+    properties:
+      type: number
+      value:
+        yaql:
+          expression: $.data.max()
+          data:
+            - {get_param: ControlPlaneMtu}
+{%- for network in networks if network.enabled|default(true) %}
+            - {get_param: {{network.name}}Mtu}
+{%- endfor %}
+
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -88,6 +118,8 @@ resources:
               network_config:
               - type: interface
                 name: nic1
+                mtu:
+                  get_param: ControlPlaneMtu
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
@@ -106,20 +138,30 @@ resources:
                         get_param: ControlPlaneDefaultRoute
               - type: ovs_bridge
                 name: bridge_name
+                mtu:
+                  get_attr: [MinViableMtu, value]
                 dns_servers:
                   get_param: DnsServers
                 members:
                 - type: ovs_bond
                   name: bond1
+                  mtu:
+                    get_attr: [MinViableMtu, value]
                   ovs_options:
                     get_param: BondInterfaceOvsOptions
                   members:
                   - type: interface
                     name: nic2
+                    mtu:
+                      get_attr: [MinViableMtu, value]
                     primary: true
                   - type: interface
                     name: nic3
+                    mtu:
+                      get_attr: [MinViableMtu, value]
                 - type: vlan
+                  mtu:
+                    get_attr: [ExternalMtu, value]
                   vlan_id:
                     get_param: ExternalNetworkVlanID
                   addresses:
@@ -132,6 +174,8 @@ resources:
                           next_hop:
                             get_param: ExternalInterfaceDefaultRoute
                 - type: vlan
+                  mtu:
+                    get_attr: [InternalApiMtu, value]
                   vlan_id:
                     get_param: InternalApiNetworkVlanID
                   addresses:
@@ -140,6 +184,8 @@ resources:
                   routes:
                     get_param: InternalApiInterfaceRoutes
                 - type: vlan
+                  mtu:
+                    get_attr: [StorageMtu, value]
                   vlan_id:
                     get_param: StorageNetworkVlanID
                   addresses:
@@ -148,6 +194,8 @@ resources:
                   routes:
                     get_param: StorageInterfaceRoutes
                 - type: vlan
+                  mtu:
+                    get_attr: [StorageMgmtMtu, value]
                   vlan_id:
                     get_param: StorageMgmtNetworkVlanID
                   addresses:
@@ -156,6 +204,8 @@ resources:
                   routes:
                     get_param: StorageMgmtInterfaceRoutes
                 - type: vlan
+                  mtu:
+                    get_attr: [TenantMtu, value]
                   vlan_id:
                     get_param: TenantNetworkVlanID
                   addresses:
@@ -168,6 +218,8 @@ resources:
                 # out the default route on the External interface. This will
                 # make the External API unreachable from remote subnets.
                 #- type: vlan
+                #  mtu:
+                #    get_attr: [ManagementMtu, value]
                 #  vlan_id:
                 #    get_param: ManagementNetworkVlanID
                 #  addresses:

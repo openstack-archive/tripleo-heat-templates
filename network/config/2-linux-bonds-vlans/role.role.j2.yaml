@@ -26,7 +26,13 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
-{%- for network in networks %}
+  ControlPlaneMtu:
+    default: 1500
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the network.
+      (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
+    type: number
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
 
   {{network.name}}IpSubnet:
     default: ''
@@ -35,6 +41,12 @@ parameters:
   {{network.name}}NetworkVlanID:
     default: {{network.vlan}}
     description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {{network.name}}Mtu:
+    default: {{network.mtu}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
     type: number
 {%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
@@ -84,6 +96,41 @@ parameters:
 
 
 resources:
+
+  MinViableMtuBondApi:
+    # This resource resolves the minimum viable MTU for interfaces, bonds and
+    # bridges that carry multiple VLANs. Each VLAN may have different MTU. The
+    # bridge, bond or interface must have an MTU to allow the VLAN with the
+    # largest MTU.
+    type: OS::Heat::Value
+    properties:
+      type: number
+      value:
+        yaql:
+          expression: $.data.max()
+          data:
+            - {get_param: ControlPlaneMtu}
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks and not network.name.startswith('Tenant') %}
+            - {get_param: {{network.name}}Mtu}
+{%- endfor %}
+
+  MinViableMtuBondData:
+    # This resource resolves the minimum viable MTU for interfaces, bonds and
+    # bridges that carry multiple VLANs. Each VLAN may have different MTU. The
+    # bridge, bond or interface must have an MTU to allow the VLAN with the
+    # largest MTU.
+    type: OS::Heat::Value
+    properties:
+      type: number
+      value:
+        yaql:
+          expression: $.data.max()
+          data:
+            - {get_param: ControlPlaneMtu}
+{%- for network in networks if network.name.startswith('Tenant') and network.enabled|default(true) and network.name in role.networks %}
+            - {get_param: {{network.name}}Mtu}
+{%- endfor %}
+
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -97,6 +144,8 @@ resources:
               network_config:
               - type: interface
                 name: nic1
+                mtu:
+                  get_param: ControlPlaneMtu
                 use_dhcp: false
                 addresses:
                 - ip_netmask:
@@ -117,6 +166,8 @@ resources:
 {%- endif %}
               - type: linux_bond
                 name: bond_api
+                mtu:
+                  get_attr: [MinViableMtuBondApi, value]
                 use_dhcp: false
                 bonding_options:
                   get_param: BondInterfaceOvsOptions
@@ -125,12 +176,18 @@ resources:
                 members:
                   - type: interface
                     name: nic2
+                    mtu:
+                      get_attr: [MinViableMtuBondApi, value]
                     primary: true
                   - type: interface
                     name: nic3
+                    mtu:
+                      get_attr: [MinViableMtuBondApi, value]
 {%- for network in networks if network.enabled|default(true) and network.name in role.networks and not network.name.startswith('Tenant') %}
               - type: vlan
                 device: bond_api
+                mtu:
+                  get_param: {{network.name}}Mtu
                 vlan_id:
                   get_param: {{network.name}}NetworkVlanID
                 addresses:
@@ -153,17 +210,25 @@ resources:
                 members:
                 - type: linux_bond
                   name: bond-data
+                  mtu:
+                    get_attr: [MinViableMtuBondData, value]
                   bonding_options:
                     get_param: BondInterfaceOvsOptions
                   members:
                   - type: interface
                     name: nic4
+                    mtu:
+                      get_attr: [MinViableMtuBondData, value]
                     primary: true
                   - type: interface
                     name: nic5
+                    mtu:
+                      get_attr: [MinViableMtuBondData, value]
   {%- for network in networks if network.name.startswith('Tenant') and network.name in role.networks and network.enabled|default(true) %}
               - type: vlan
                 device: bond-data
+                mtu:
+                  get_param: {{network.name}}Mtu
                 vlan_id:
                   get_param: {{network.name}}NetworkVlanID
                 addresses:
