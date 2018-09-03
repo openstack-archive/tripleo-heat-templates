@@ -32,117 +32,40 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  OpenShiftNodeGroupName:
-    default: node-config-compute
-    description: The group the nodes belong to.
-    type: string
-    tags:
-      - role_specific
-  OpenShiftWorkerScaleupPlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
-    description: Path to OpenShift-Ansible playbook.
-    type: string
+  # TODO(mandre) This is unused. Remove it or make it OpenShiftNodeVars
+  OpenShiftWorkerNodeVars:
+    default: {}
+    description: OpenShift node vars specific for the worker nodes
+    type: json
 
 resources:
-  RoleParametersValue:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        map_replace:
-          - map_replace:
-            - OpenShiftNodeGroupName: OpenShiftNodeGroupName
-            - values: {get_param: [RoleParameters]}
-          - values:
-              OpenShiftNodeGroupName: {get_param: OpenShiftNodeGroupName}
+
+  OpenShiftNode:
+      type: ./openshift-node.yaml
+      properties:
+        EndpointMap: {get_param: EndpointMap}
+        ServiceNetMap: {get_param: ServiceNetMap}
+        DefaultPasswords: {get_param: DefaultPasswords}
+        RoleName: {get_param: RoleName}
+        RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Openshift Service
     value:
-      # This service template essentially tags the nodes that we want
-      # as workers. The actual installation is performed in
-      # openshift-master service template.
       service_name: openshift_worker
       config_settings:
-        tripleo.openshift_worker.firewall_rules:
-          '200 openshift-worker kubelet':
-            dport:
-              - 10250
-              - 10255
-            proto: tcp
-          '200 openshift-worker external services':
-            dport: '30000-32767'
+        map_merge:
+          - get_attr: [OpenShiftNode, role_data, config_settings]
+          - tripleo.openshift_worker.firewall_rules:
+              '200 openshift-worker kubelet':
+                dport:
+                  - 10250
+                  - 10255
+                proto: tcp
+              '200 openshift-worker external services':
+                dport: '30000-32767'
       upgrade_tasks: []
       step_config: ''
       external_deploy_tasks:
-        - name: openshift_worker step 1
-          when: step == '1'
-          tags: openshift
-          block:
-            - name: create openshift temp dirs
-              file:
-                path: "{{item}}"
-                state: directory
-              with_items:
-                - "{{playbook_dir}}/openshift/inventory"
-
-            - name: set global vars facts
-              set_fact:
-                tripleo_role_name: {get_param: RoleName}
-                tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
-                openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
-                openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
-
-            - name: Check if origin-node is running
-              become: true
-              shell: >
-                docker inspect atomic-enterprise-node > /dev/null 2>&1
-                || docker inspect origin-node > /dev/null 2>&1
-                || echo "false"
-              register: origin_nodes
-              delegate_to: "{{item}}"
-              with_items: "{{ groups[tripleo_role_name] | default([]) }}"
-
-            - set_fact:
-                nodes:
-                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
-                    hostname: "{{item}}"
-                    ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
-                    ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
-                    ansible_become: true
-                    containerized: true
-                    openshift_node_group_name: '{{tripleo_node_group_name }}'
-                    etcd_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_public_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_public_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
-                    openshift_schedulable: '{{tripleo_node_group_name != "node-config-infra"}}'
-              register: all_worker_nodes
-              with_items: "{{groups[tripleo_role_name] | default([]) }}"
-
-            - set_fact:
-                worker_nodes: "{{all_worker_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
-                new_nodes: "{{all_worker_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
-
-            - copy:
-                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_worker.yml"
-                content: |
-                  {% if worker_nodes | count > 0 %}
-                  nodes:
-                    hosts:
-                    {% for host in worker_nodes %}
-                    {{host.hostname}}:
-                        {{host | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
-                  {% endif %}
-
-                  {% if new_nodes | count > 0 %}
-                  new_nodes:
-                    hosts:
-                    {% for host in new_nodes %}
-                    {{host.hostname}}:
-                        {{host | to_nice_yaml() | indent(6)}}
-                    {% endfor %}
-                  {% endif %}
+        - get_attr: [OpenShiftNode, role_data, external_deploy_tasks]
