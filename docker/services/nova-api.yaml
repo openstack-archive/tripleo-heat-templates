@@ -311,6 +311,14 @@ outputs:
                   - ''
                   - - 'TRIPLEO_DEPLOY_IDENTIFIER='
                     - {get_param: DeployIdentifier}
+          nova_online_migrations:
+            start_order: 2
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: *nova_api_bootstrap_volumes
+            user: root
+            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
       metadata_settings:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks:
@@ -329,6 +337,13 @@ outputs:
               /var/log/containers/nova and /var/log/containers/httpd/nova-*.
           ignore_errors: true
       upgrade_tasks:
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
         - name: Check if nova_api is deployed
           command: systemctl is-enabled --quiet openstack-nova-api
           tags: common
@@ -356,6 +371,12 @@ outputs:
           tags: step0,validation
           shell: systemctl status 'httpd' | grep -q 'nova'
           when: httpd_enabled.rc == 0 and httpd_running.rc == 0
+        - name: Nova online data migrations before upgrading to containers
+          tags: step0,pre-upgrade
+          when:
+            - is_bootstrap_node|bool
+            - (httpd_enabled.rc == 0 and httpd_running.rc == 0) or nova_api_enabled.rc == 0
+          command: nova-manage db online_data_migrations
         - name: Stop nova_api service (running under httpd)
           tags: step2
           when: httpd_enabled.rc == 0 and httpd_running.rc == 0
