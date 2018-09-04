@@ -253,8 +253,17 @@ with open(sh_script, 'w') as script_file:
 
         # Write a checksum of the config-data dir, this is used as a
         # salt to trigger container restart when the config changes
-        tar -c -f - /var/lib/config-data/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
-        tar -c -f - /var/lib/config-data/puppet-generated/${NAME} --mtime='1970-01-01' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
+        # We need to exclude the swift rings and their backup as those change over time and
+        # containers do not need to restart if they change
+        EXCLUDE=--exclude='*/etc/swift/backups/*'\ --exclude='*/etc/swift/*.ring.gz'\ --exclude='*/etc/swift/*.builder'\ --exclude='*/etc/libvirt/passwd.db'
+        # We need to repipe the tar command through 'tar xO' to force text
+        # output because otherwise the sed command cannot work. The sed is
+        # needed because puppet puts timestamps as comments in cron and
+        # parsedfile resources, hence triggering a change at every redeploy
+        tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/${NAME} | tar xO | \
+                sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+        tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/puppet-generated/${NAME} --mtime='1970-01-01' | tar xO \
+                | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
     fi
     """)
 
