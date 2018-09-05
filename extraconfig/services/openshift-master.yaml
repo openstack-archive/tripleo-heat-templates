@@ -170,29 +170,18 @@ outputs:
                   set_fact:
                     tripleo_role_name: {get_param: RoleName}
 
-                # FIXME(mandre) This task always fails:
-                # - become:true doesn't work in that context (containerized undercloud issue?)
-                # - there is no origin-master-api docker container
-                # We should be checking for systemd service status instead.
                 # NOTE(flaper87): Check if origin-node is running in the openshift
                 # nodes so we can flag the node as new later on.
-                #
-                # This task ignores errors because docker inspect exits with 1 if
-                # origin-node doesn't exist. Perhaps we could use failed_when
-                # instead of ignoring the errors. Future improvement.
                 - name: Check if origin-node is running
-                  become: true
-                  shell: >
-                    docker inspect atomic-enterprise-master-api > /dev/null 2>&1
-                    || docker inspect origin-master-api > /dev/null 2>&1
-                    || echo "false"
+                  command: systemctl is-active --quiet origin-node
                   register: origin_nodes
                   delegate_to: "{{item}}"
                   with_items: "{{ groups[tripleo_role_name] | default([]) }}"
+                  failed_when: false
 
                 - set_fact:
                     nodes:
-                      - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
+                      - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0}}"
                         hostname: "{{item}}"
                   register: all_master_nodes
                   with_items: "{{groups[tripleo_role_name] | default([]) }}"
