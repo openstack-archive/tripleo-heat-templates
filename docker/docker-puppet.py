@@ -66,7 +66,8 @@ if container_cli == 'docker':
 elif container_cli == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
-    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
+    cli_dcmd = ['--security-opt', 'label=disable',
+                '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
     # podman need to find dependent binaries that are in environment
     env = {'PATH': os.environ['PATH']}
 else:
@@ -196,6 +197,7 @@ for service in (json_data or []):
             service.get('step_config'),
             service.get('config_image'),
             service.get('volumes', []),
+            service.get('prigileged', False),
         ]
 
     config_volume = service[0] or ''
@@ -203,6 +205,7 @@ for service in (json_data or []):
     manifest = service[2] or ''
     config_image = service[3] or ''
     volumes = service[4] if len(service) > 4 else []
+    privileged = service[5] if len(service) > 5 else False
 
     if not manifest or not config_image:
         continue
@@ -212,6 +215,7 @@ for service in (json_data or []):
     log.debug('manifest %s' % manifest)
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
+    log.debug('privileged %s' % privileged)
     # We key off of config volume for all configs.
     if config_volume in configs:
         # Append puppet tags and manifest.
@@ -243,7 +247,7 @@ with open(sh_script, 'w') as script_file:
     script_file.write("""#!/bin/bash
     set -ex
     mkdir -p /etc/puppet
-    cp -a /tmp/puppet-etc/* /etc/puppet
+    cp -dR /tmp/puppet-etc/* /etc/puppet
     rm -Rf /etc/puppet/ssl # not in use and causes permission errors
     echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
     TAGS=""
@@ -317,7 +321,7 @@ with open(sh_script, 'w') as script_file:
 
 
 def mp_puppet_config(*args):
-    (config_volume,puppet_tags,manifest,config_image,volumes) = args[0]
+    (config_volume,puppet_tags,manifest,config_image,volumes,privileged) = args[0]
     log = get_logger()
     log.info('Starting configuration of %s using image %s' % (config_volume,
              config_image))
@@ -326,6 +330,7 @@ def mp_puppet_config(*args):
     log.debug('manifest %s' % manifest)
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
+    log.debug('privileged %s' % privileged)
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
             man_file.write('include ::tripleo::packages\n')
@@ -351,11 +356,13 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
-                '--volume', '%s:/var/lib/config-data/:z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
+                '--volume', '%s:/var/lib/config-data/:rw,z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
                 # Syslog socket for puppet logs
-                '--volume', '/dev/log:/dev/log',
+                '--volume', '/dev/log:/dev/log:rw',
                 # script injection
-                '--volume', '%s:%s:z' % (sh_script, sh_script) ]
+                '--volume', '%s:%s:rw,z' % (sh_script, sh_script) ]
+        if privileged:
+            common_dcmd.push('--privileged')
 
 
         dcmd = common_dcmd + cli_dcmd
@@ -414,13 +421,14 @@ for config_volume in configs:
     manifest = service[2] or ''
     config_image = service[3] or ''
     volumes = service[4] if len(service) > 4 else []
+    privileged = service[5] if len(service) > 5 else False
 
     if puppet_tags:
         puppet_tags = "file,file_line,concat,augeas,cron,%s" % puppet_tags
     else:
         puppet_tags = "file,file_line,concat,augeas,cron"
 
-    process_map.append([config_volume, puppet_tags, manifest, config_image, volumes])
+    process_map.append([config_volume, puppet_tags, manifest, config_image, volumes, privileged])
 
 for p in process_map:
     log.debug('- %s' % p)
