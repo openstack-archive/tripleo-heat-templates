@@ -229,6 +229,13 @@ with open(sh_script, 'w') as script_file:
         TAGS="--tags \"$PUPPET_TAGS\""
     fi
 
+    CHECK_MODE=""
+    if [ -d "/tmp/puppet-check-mode" ]; then
+        mkdir -p /etc/puppet/check-mode
+        cp -a /tmp/puppet-check-mode/* /etc/puppet/check-mode
+        CHECK_MODE="--hiera_config /etc/puppet/check-mode/hiera.yaml"
+    fi
+
     # Create a reference timestamp to easily find all files touched by
     # puppet. The sync ensures we get all the files we want due to
     # different timestamp.
@@ -240,7 +247,7 @@ with open(sh_script, 'w') as script_file:
     # $::deployment_type in puppet-tripleo
     export FACTER_deployment_type=containers
     FACTER_hostname=$HOSTNAME /usr/bin/puppet apply --summarize \
-    --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
+    --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS $CHECK_MODE /etc/config.pp
     rc=$?
     set -e
     if [ $rc -ne 2 -a $rc -ne 0 ]; then
@@ -285,7 +292,8 @@ with open(sh_script, 'w') as script_file:
 
 
 
-def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volumes)):
+def mp_puppet_config(*args):
+    (config_volume,puppet_tags,manifest,config_image,volumes,check_mode) = args[0]
     log = get_logger()
     log.info('Starting configuration of %s using image %s' % (config_volume,
              config_image))
@@ -294,6 +302,8 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
     log.debug('manifest %s' % manifest)
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
+    log.debug('check_mode %s' % check_mode)
+
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
             man_file.write('include ::tripleo::packages\n')
@@ -325,6 +335,11 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
                 # script injection
                 '--volume', '%s:%s:z' % (sh_script, sh_script) ]
+
+        if check_mode:
+            dcmd.extend([
+                '--volume',
+                '/etc/puppet/check-mode:/tmp/puppet-check-mode:ro'])
 
         for volume in volumes:
             if volume:
@@ -373,6 +388,9 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
 # to consume.
 process_map = []
 
+check_mode = int(os.environ.get('CHECK_MODE', 0))
+log.debug('CHECK_MODE: %s' % check_mode)
+
 for config_volume in configs:
 
     service = configs[config_volume]
@@ -386,7 +404,8 @@ for config_volume in configs:
     else:
         puppet_tags = "file,file_line,concat,augeas,cron"
 
-    process_map.append([config_volume, puppet_tags, manifest, config_image, volumes])
+    process_map.append([config_volume, puppet_tags, manifest, config_image,
+                        volumes, check_mode])
 
 for p in process_map:
     log.debug('- %s' % p)
@@ -410,7 +429,7 @@ config_volume_prefix = os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-d
 log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
 startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
 log.debug('STARTUP_CONFIG_PATTERN: %s' % startup_configs)
-infiles = glob.glob('/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
+infiles = glob.glob(startup_configs)
 for infile in infiles:
     with open(infile) as f:
         infile_data = json.load(f)
