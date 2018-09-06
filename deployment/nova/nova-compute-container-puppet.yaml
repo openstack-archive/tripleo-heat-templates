@@ -248,6 +248,10 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  NovaAdditionalCell:
+    default: false
+    description: Whether this is an cell additional to the default cell.
+    type: boolean
 
 resources:
 
@@ -330,6 +334,8 @@ conditions:
       or:
       -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
       -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
+
+  is_not_additional_cell: {equals: [{get_param: NovaAdditionalCell}, false]}
 
 outputs:
   role_data:
@@ -550,21 +556,23 @@ outputs:
                 -
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
-          nova_cellv2_discover_hosts:
-            start_order: 0
-            image: *nova_compute_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/nova_libvirt/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                  - /var/lib/config-data/nova_libvirt/etc/nova/:/etc/nova/:ro
-                  - /var/log/containers/nova:/var/log/nova
-                  - /var/lib/docker-config-scripts/:/docker-config-scripts/
-            user: root
-            command: "/docker-config-scripts/pyshim.sh /docker-config-scripts/nova_cell_v2_discover_host.py"
+          if:
+            - is_not_additional_cell
+            - nova_cellv2_discover_hosts:
+                start_order: 0
+                image: *nova_compute_image
+                net: host
+                detach: false
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/nova_libvirt/etc/nova/:/etc/nova/:ro
+                      - /var/log/containers/nova:/var/log/nova
+                      - /var/lib/docker-config-scripts/:/docker-config-scripts/
+                user: root
+                command: "/docker-config-scripts/pyshim.sh /docker-config-scripts/nova_cell_v2_discover_host.py"
+            - {}
       host_prep_tasks:
         list_concat:
         - {get_attr: [NovaLogging, host_prep_tasks]}
