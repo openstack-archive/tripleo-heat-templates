@@ -97,6 +97,7 @@
             selevel: s0
           tags:
             - container_config
+            - container_config_tasks
 
         - name: Delete existing /var/lib/docker-puppet/check-mode for check mode
           file:
@@ -277,7 +278,7 @@
 
         - name: Write docker-puppet-tasks json files
           copy:
-            content: "{{item[1]|to_json}}"
+            content: "{{item[1]|to_nice_json}}"
             dest: /var/lib/docker-puppet/docker-puppet-tasks{{item[0].replace("step_", "")}}.json
             force: yes
             mode: '0600'
@@ -410,8 +411,9 @@
         - container_config
 
     - name: Diff docker-puppet.py puppet-generated changes for check mode
-      command:
-        diff -ruN /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
+      shell: |
+        diff -ruN --no-dereference -q /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
+        diff -ruN --no-dereference /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
       register: diff_results
       tags:
         - container_config
@@ -469,7 +471,7 @@
 
     - name: Check if /var/lib/docker-puppet/docker-puppet-tasks{{ step }}.json exists
       stat:
-        path: /var/lib/docker-puppet/docker-puppet-tasks{{ step }}.json
+        path: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet-tasks{{ step }}.json
       register: docker_puppet_tasks_json
       tags:
         - container_config_tasks
@@ -477,7 +479,8 @@
     - name: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}
       shell: python /var/lib/docker-puppet/docker-puppet.py
       environment:
-        CONFIG: /var/lib/docker-puppet/docker-puppet-tasks{{ step }}.json
+        CONFIG: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet-tasks{{ step }}.json
+        CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | ternary("/check-mode", "") }}'
         NET_HOST: "true"
         NO_ARCHIVE: "true"
         STEP: "{{ step }}"
@@ -486,7 +489,6 @@
         - deploy_server_id == bootstrap_server_id
         - docker_puppet_tasks_json.stat.exists
       changed_when: false
-      check_mode: no
       register: outputs
       failed_when: false
       no_log: true
