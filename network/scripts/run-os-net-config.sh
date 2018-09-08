@@ -38,6 +38,7 @@ function is_local_ip() {
 
 function ping_metadata_ip() {
   local METADATA_IP=$(get_metadata_ip)
+  local METADATA_IP_PING_TIMEOUT=60
 
   if [ -n "$METADATA_IP" ] && ! is_local_ip $METADATA_IP; then
 
@@ -51,7 +52,8 @@ function ping_metadata_ip() {
     local COUNT=0
     until $_ping -c 1 $METADATA_IP &> /dev/null; do
       COUNT=$(( $COUNT + 1 ))
-      if [ $COUNT -eq 10 ]; then
+      sleep 1
+      if [ $COUNT -eq $METADATA_IP_PING_TIMEOUT ]; then
         echo "FAILURE"
         echo "$METADATA_IP is not pingable." >&2
         exit 1
