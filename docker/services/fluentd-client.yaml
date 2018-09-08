@@ -36,6 +36,15 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  FluentdNonContainerizedLogs:
+    default: [ '/var/log/cinder/cinder-api.log',
+       '/var/log/cinder/scheduler.log',
+       '/var/log/cinder/volume.log',
+       '/var/log/neutron/neutron-server.log',
+       '/var/log/pacemaker.log',
+       '/var/log/cluster/corosync.log']
+    description: Logs that are not containerized
+    type: comma_delimited_list
 
 resources:
 
@@ -51,7 +60,6 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
-
 outputs:
   role_data:
     description: Role data for the fluentd role.
@@ -63,6 +71,8 @@ outputs:
           - tripleo::profile::base::logging::fluentd::fluentd_path_transform:
               - /var/log/
               - /var/log/containers/
+              - /var/log/containers/host/
+          - tripleo::profile::base::logging::fluentd::non_containerized_logs: {get_param: FluentdNonContainerizedLogs}
       step_config: &step_config
         get_attr: [FluentdClientBase, role_data, step_config]
       # BEGIN DOCKER SETTINGS
@@ -103,12 +113,17 @@ outputs:
                   - /var/lib/config-data/puppet-generated/fluentd/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers:/var/log/containers:ro
                   - /var/log/containers/fluentd:/var/log/fluentd:rw
+                  - /var/log:/var/log/containers/host:ro
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent logs directory for fluentd
           file:
             path: /var/log/containers/fluentd
+            state: directory
+        - name: create logs directory for non-containerized services
+          file:
+            path: /var/log/containers/host
             state: directory
         - name: fluentd logs readme
           copy:
