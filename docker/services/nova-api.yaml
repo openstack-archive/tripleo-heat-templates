@@ -323,6 +323,14 @@ outputs:
                   - ''
                   - - 'TRIPLEO_DEPLOY_IDENTIFIER='
                     - {get_param: DeployIdentifier}
+          nova_online_migrations:
+            start_order: 2
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes: *nova_api_bootstrap_volumes
+            user: root
+            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
       metadata_settings:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
@@ -330,6 +338,11 @@ outputs:
         - when: step|int == 0
           tags: common
           block:
+            - name: get bootstrap nodeid
+              command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+              register: bootstrap_node
+            - name: set is_bootstrap_node fact
+              set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
             - name: Check if nova_api is deployed
               command: systemctl is-enabled --quiet openstack-nova-api
               ignore_errors: True
@@ -361,6 +374,18 @@ outputs:
               when:
                 - nova_api_httpd_enabled|bool
                 - httpd_running|bool
+            # NOTE: In puppet service variant, we ran release N online
+            # migrations before upgrade to release N+1. In docker
+            # service variant, we run release N online migrations
+            # after upgrade to release N. This means that during
+            # switch from non-containerized to containerized, we need
+            # to run both of these.
+            - name: Online data migration for Nova before switching to containers
+              tags: pre-upgrade
+              when:
+                - is_bootstrap_node|bool
+                - (nova_api_httpd_enabled|bool and httpd_running|bool) or nova_api_enabled|bool
+              command: nova-manage db online_data_migrations
         - when: step|int == 2
           block:
             - name: Stop and disable nova_api service
