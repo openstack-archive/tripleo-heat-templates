@@ -12,7 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# Shell script tool to run puppet inside of the given docker container image.
+# Shell script tool to run puppet inside of the given container image.
 # Uses the config file at /var/lib/docker-puppet/docker-puppet.json as a source for a JSON
 # array of [config_volume, puppet_tags, manifest, config_image, [volumes]] settings
 # that can be used to generate config files or run ad-hoc puppet modules
@@ -29,6 +29,9 @@ import time
 import multiprocessing
 
 logger = None
+sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
+container_cli = os.environ.get('CONTAINER_CLI', 'docker')
+cli_cmd = '/usr/bin/' + container_cli
 
 
 def get_logger():
@@ -49,6 +52,28 @@ def get_logger():
     return logger
 
 
+log = get_logger()
+log.info('Running docker-puppet')
+
+config_volume_prefix = os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data')
+log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
+if not os.path.exists(config_volume_prefix):
+    os.makedirs(config_volume_prefix)
+
+if container_cli == 'docker':
+    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z']
+    env = {}
+elif container_cli == 'podman':
+    # podman doesn't allow relabeling content in /usr and
+    # doesn't support named volumes
+    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
+    # podman need to find dependent binaries that are in environment
+    env = {'PATH': os.environ['PATH']}
+else:
+    log.error('Invalid container_cli: %s' % container_cli)
+    sys.exit(1)
+
+
 # this is to match what we do in deployed-server
 def short_hostname():
     subproc = subprocess.Popen(['hostname', '-s'],
@@ -60,7 +85,7 @@ def short_hostname():
 
 def pull_image(name):
 
-    subproc = subprocess.Popen(['/usr/bin/docker', 'inspect', name],
+    subproc = subprocess.Popen([cli_cmd, 'inspect', name],
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
@@ -74,7 +99,7 @@ def pull_image(name):
     log.info('Pulling image: %s' % name)
     while retval != 0:
         count += 1
-        subproc = subprocess.Popen(['/usr/bin/docker', 'pull', name],
+        subproc = subprocess.Popen([cli_cmd, 'pull', name],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
 
@@ -82,7 +107,7 @@ def pull_image(name):
         retval = subproc.returncode
         if retval != 0:
             time.sleep(3)
-            log.warning('docker pull failed: %s' % cmd_stderr)
+            log.warning('%s pull failed: %s' % (container_cli, cmd_stderr))
             log.warning('retrying pulling image: %s' % name)
         if count >= 5:
             log.error('Failed to pull image: %s' % name)
@@ -119,7 +144,7 @@ def get_config_hash(config_volume):
 def rm_container(name):
     if os.environ.get('SHOW_DIFF', None):
         log.info('Diffing container: %s' % name)
-        subproc = subprocess.Popen(['/usr/bin/docker', 'diff', name],
+        subproc = subprocess.Popen([cli_cmd, 'diff', name],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
         cmd_stdout, cmd_stderr = subproc.communicate()
@@ -129,7 +154,7 @@ def rm_container(name):
             log.debug(cmd_stderr)
 
     log.info('Removing container: %s' % name)
-    subproc = subprocess.Popen(['/usr/bin/docker', 'rm', name],
+    subproc = subprocess.Popen([cli_cmd, 'rm', name],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
     cmd_stdout, cmd_stderr = subproc.communicate()
@@ -142,8 +167,6 @@ def rm_container(name):
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
-log = get_logger()
-log.info('Running docker-puppet')
 config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
 # If specified, only this config_volume will be used
 config_volume_only = os.environ.get('CONFIG_VOLUME', None)
@@ -215,7 +238,6 @@ for service in (json_data or []):
 
 log.info('Service compilation completed.')
 
-sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
 with open(sh_script, 'w') as script_file:
     os.chmod(script_file.name, 0o755)
     script_file.write("""#!/bin/bash
@@ -236,9 +258,20 @@ with open(sh_script, 'w') as script_file:
     touch $origin_of_time
     sync
 
+    export NET_HOST="${NET_HOST:-false}"
     set +e
-    FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --summarize \
-    --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
+    if [ "$NET_HOST" == "false" ]; then
+        export FACTER_hostname=$HOSTNAME
+    fi
+    export FACTER_uuid=docker
+    /usr/bin/puppet apply --summarize \
+            --detailed-exitcodes \
+            --color=false \
+            --logdest syslog \
+            --logdest console \
+            --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
+            $TAGS \
+            /etc/config.pp
     rc=$?
     set -e
     if [ $rc -ne 2 -a $rc -ne 0 ]; then
@@ -301,7 +334,7 @@ def mp_puppet_config(*args):
         rm_container('docker-puppet-%s' % config_volume)
         pull_image(config_image)
 
-        dcmd = ['/usr/bin/docker', 'run',
+        common_dcmd = [cli_cmd, 'run',
                 '--user', 'root',
                 '--name', 'docker-puppet-%s' % config_volume,
                 '--env', 'PUPPET_TAGS=%s' % puppet_tags,
@@ -309,21 +342,23 @@ def mp_puppet_config(*args):
                 '--env', 'HOSTNAME=%s' % short_hostname(),
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
+                '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
                 '--volume', '/etc/localtime:/etc/localtime:ro',
                 '--volume', '%s:/etc/config.pp:ro,z' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro,z',
-                '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z',
-                '--volume', '%s:/var/lib/config-data/:z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
-                '--volume', 'tripleo_logs:/var/log/tripleo/',
-                # Syslog socket for puppet logs
-                '--volume', '/dev/log:/dev/log',
                 # OpenSSL trusted CA injection
                 '--volume', '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
+                '--volume', '%s:/var/lib/config-data/:z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
+                # Syslog socket for puppet logs
+                '--volume', '/dev/log:/dev/log',
                 # script injection
                 '--volume', '%s:%s:z' % (sh_script, sh_script) ]
+
+
+        dcmd = common_dcmd + cli_dcmd
 
         for volume in volumes:
             if volume:
@@ -331,18 +366,18 @@ def mp_puppet_config(*args):
 
         dcmd.extend(['--entrypoint', sh_script])
 
-        env = {}
-        # NOTE(flaper87): Always copy the DOCKER_* environment variables as
-        # they contain the access data for the docker daemon.
-        for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
-            env[k] = os.environ.get(k)
+        if container_cli == 'docker':
+            # NOTE(flaper87): Always copy the DOCKER_* environment variables as
+            # they contain the access data for the docker daemon.
+            for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
+                env[k] = os.environ.get(k)
 
         if os.environ.get('NET_HOST', 'false') == 'true':
             log.debug('NET_HOST enabled')
             dcmd.extend(['--net', 'host', '--volume',
                          '/etc/hosts:/etc/hosts:ro'])
         dcmd.append(config_image)
-        log.debug('Running docker command: %s' % ' '.join(dcmd))
+        log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
 
         subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env)
@@ -405,8 +440,6 @@ for returncode, config_volume in zip(returncodes, config_volumes):
 
 
 # Update the startup configs with the config hash we generated above
-config_volume_prefix = os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data')
-log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
 startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
 log.debug('STARTUP_CONFIG_PATTERN: %s' % startup_configs)
 infiles = glob.glob('/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
@@ -432,3 +465,4 @@ for infile in infiles:
 
 if not success:
     sys.exit(1)
+
