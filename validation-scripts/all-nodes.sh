@@ -110,8 +110,8 @@ function ntp_check() {
   fi
 }
 
-ping_controller_ips "$ping_test_ips"
 ping_default_gateways
+ping_controller_ips "$ping_test_ips"
 if [[ $validate_fqdn == "True" ]];then
   fqdn_check
 fi
