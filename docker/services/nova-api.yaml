@@ -39,6 +39,10 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  EnableOnlineDataMigrations:
+    type: boolean
+    description: Enable post-upgrade online data migrations.
+    default: true
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -53,6 +57,7 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  online_data_migrations_enabled: {equals: [{get_param: EnableOnlineDataMigrations}, true]}
 
 resources:
 
@@ -71,6 +76,16 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+  OnlineDataMigrationsCommand:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        if:
+          - online_data_migrations_enabled
+          - "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
+          - "/usr/bin/echo Online data migrations disabled via EnableOnlineDataMigrations parameter"
 
 outputs:
   role_data:
@@ -318,7 +333,7 @@ outputs:
             detach: false
             volumes: *nova_api_bootstrap_volumes
             user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
+            command: {get_attr: [OnlineDataMigrationsCommand, value]}
       metadata_settings:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks:
