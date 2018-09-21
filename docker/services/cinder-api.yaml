@@ -39,6 +39,10 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  EnableOnlineDataMigrations:
+    type: boolean
+    description: Enable post-upgrade online data migrations.
+    default: true
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -47,6 +51,7 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  online_data_migrations_enabled: {equals: [{get_param: EnableOnlineDataMigrations}, true]}
 
 resources:
 
@@ -65,6 +70,16 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+  OnlineDataMigrationsCommand:
+    type: OS::Heat::Value
+    properties:
+      type: string
+      value:
+        if:
+          - online_data_migrations_enabled
+          - "/usr/bin/bootstrap_host_exec cinder_api su cinder -s /bin/bash -c 'cinder-manage db online_data_migrations'"
+          - "/usr/bin/echo Online data migrations disabled via EnableOnlineDataMigrations parameter"
 
 outputs:
   role_data:
@@ -184,10 +199,7 @@ outputs:
                   - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
                   - /var/log/containers/cinder:/var/log/cinder
                   - /var/log/containers/httpd/cinder-api:/var/log/httpd
-            command:
-              - '/usr/bin/bootstrap_host_exec'
-              - 'cinder_api'
-              - "su cinder -s /bin/bash -c 'cinder-manage db online_data_migrations'"
+            command: {get_attr: [OnlineDataMigrationsCommand, value]}
           cinder_api_cron:
             image: *cinder_api_image
             net: host
