@@ -12,6 +12,9 @@ touch $HOMEDIR/stackrc
 chmod 0600 $HOMEDIR/stackrc
 
 cat > $HOMEDIR/stackrc <<-EOF_CAT
+# Clear any old environment that may conflict.
+for key in \$( set | awk -F= '/^OS_/ {print \$1}' ); do unset "\${key}" ; done
+
 export OS_AUTH_TYPE=password
 export OS_PASSWORD=$admin_password
 export OS_AUTH_URL=$auth_url
