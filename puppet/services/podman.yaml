@@ -1,0 +1,74 @@
+heat_template_version: rocky
+
+description: >
+  Configures podman on the host
+
+parameters:
+  DockerInsecureRegistryAddress:
+    description: Optional. The IP Address and Port of an insecure docker
+                 namespace that will be configured in /etc/sysconfig/docker.
+                 The value can be multiple addresses separated by commas.
+    type: comma_delimited_list
+    default: []
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+
+conditions:
+  insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
+
+outputs:
+  role_data:
+    description: Role data for the podman service
+    value:
+      service_name: podman
+      config_settings: {}
+      step_config: ''
+      host_prep_tasks:
+        - name: Install and configure Podman
+          block:
+          - set_fact:
+              container_registry_insecure_registries:
+                if:
+                  - insecure_registry_is_empty
+                  - []
+                  - {get_param: DockerInsecureRegistryAddress}
+          - name: ensure podman and deps are installed
+            package:
+              name: podman
+              state: latest
+          - name: configure insecure registries /etc/containers/registries.conf
+            ini_file:
+              path: /etc/containers/registries.conf
+              section: 'registries.insecure'
+              option: registries
+              value: "{{ container_registry_insecure_registries }}"
+            when: container_registry_insecure_registries | length > 0
+      service_config_settings: {}
+      upgrade_tasks:
+        - name: Install podman packages on upgrade if missing
+          when: step|int == 3
+          package: name=podman state=latest
