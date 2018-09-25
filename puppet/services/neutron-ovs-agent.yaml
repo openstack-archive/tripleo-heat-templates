@@ -113,13 +113,6 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  Ovs:
-    type: ./openvswitch.yaml
-    properties:
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
-
   # Merging role-specific parameters (RoleParameters) with the default parameters.
   # RoleParameters will have the precedence over the default parameters.
   RoleParametersValue:
@@ -143,7 +136,6 @@ outputs:
     description: Role data for the Neutron OVS agent service.
     value:
       service_name: neutron_ovs_agent
-      ovs_upgrade_tasks: {get_attr: [Ovs, role_data, upgrade_tasks]}
       monitoring_subscription: {get_param: MonitoringSubscriptionNeutronOvs}
       config_settings:
         map_merge:
@@ -187,24 +179,21 @@ outputs:
       step_config: |
         include ::tripleo::profile::base::neutron::ovs
       upgrade_tasks:
-        list_concat:
-          - get_attr: [Ovs, role_data, upgrade_tasks]
-          -
-            - name: Check if neutron_ovs_agent is deployed
-              command: systemctl is-enabled neutron-openvswitch-agent
-              tags: common
-              ignore_errors: True
-              register: neutron_ovs_agent_enabled
-            - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
-              shell: /usr/bin/systemctl show 'neutron-openvswitch-agent' --property ActiveState | grep '\bactive\b'
-              when:
-                - step|int == 0
-                - neutron_ovs_agent_enabled.rc == 0
-              tags: validation
-            - name: Stop neutron_ovs_agent service
-              when:
-                - step|int == 1
-                - neutron_ovs_agent_enabled.rc == 0
-              service: name=neutron-openvswitch-agent state=stopped
+        - name: Check if neutron_ovs_agent is deployed
+          command: systemctl is-enabled neutron-openvswitch-agent
+          tags: common
+          ignore_errors: True
+          register: neutron_ovs_agent_enabled
+        - name: "PreUpgrade step0,validation: Check service neutron-openvswitch-agent is running"
+          shell: /usr/bin/systemctl show 'neutron-openvswitch-agent' --property ActiveState | grep '\bactive\b'
+          when:
+            - step|int == 0
+            - neutron_ovs_agent_enabled.rc == 0
+          tags: validation
+        - name: Stop neutron_ovs_agent service
+          when:
+            - step|int == 1
+            - neutron_ovs_agent_enabled.rc == 0
+          service: name=neutron-openvswitch-agent state=stopped
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]

@@ -99,6 +99,148 @@ outputs:
               fail: msg="rpm-python package was not present before this run! Check environment before re-running"
               when:
                 - rpm_python_check.changed != false
+        # With the layered product packaging, the key package is rhosp-openvswitch. It depends on
+        # a openvswitch package that includes the version as part of the name (e.g openvswitch2.10).
+        # This requires some additional special handling:
+        #   - During an upgrade the package name for openvswitch may change so
+        #     upgrading the currently installed package won't do anything.
+        #   - The rhosp-openvswitch package "obsoletes" several packages,
+        #     including older openvswitch packages. This results in a pretty
+        #     severe uninstall/install sequence of operations that stops and
+        #     removes openvswitch which could break network links required to
+        #     continue the upgrade.
+        #   - To prevent rhosp-openvswitch breaking connectivity, the currently
+        #     installed core openvswitch packages need to be erased from the rpm
+        #     database but leave the binaries intact. This effectively
+        #     short-circuits the obsoletes mechanism in rhosp-openvswitch and
+        #     leaves the core elements of openvswitch running. In the future we
+        #     may replace this mechanism with "an upgrade on reboot".  We only
+        #     do this for the core openvswitch packages so other packages
+        #     obsoleted by rhosp-openvswitch will be removed when
+        #     rhosp-openvswitch is installed/upgraded.
+        #   - Neither the rhosp-openvswitch nor openvswitch{m.n} package enables
+        #     or starts the systemd service so there must always be a task
+        #     to ensure that it is enabled or OpenvSwitch functionality won't be
+        #     available on reboot.
+        #   - With LP, we expect that the core openvswitch package name will
+        #     change with every major upgrade so this special handling will
+        #     eventually replace the special handling of upgrading the
+        #     openvswitch package "in place"
+        - name: Block for gathering information for upgrading OpenvSwitch layered product packaging
+          when: step|int == 2
+          block:
+            - name: Process rhosp-openvswitch layered package for new version number
+              shell: |
+                set -o pipefail
+                yum info -q rhosp-openvswitch | awk '/^Version/{print $NF}'
+              register: rhosp_package_result
+              ignore_errors: true
+            - name: Set fact for triggering OpenvSwitch layered product package handling
+              set_fact:
+                ovs_lp_packaging: "{{ rhosp_package_result.rc == 0 }}"
+            - name: Capture the expected OpenvSwitch version.
+              set_fact:
+                new_ovs_version: "{{ rhosp_package_result.stdout }}"
+              when: ovs_lp_packaging|default(false)
+
+            - name: Get current OpenvSwitch package name
+              register: ovs_pkg_out
+              shell:
+                rpm -qa | awk -F- '/^(openvswitch[0-9]+\.[0-9]+-|openvswitch-2)/{print $1}'
+            - name: Get version from current OpenvSwitch package
+              register: ovs_version_out
+              shell:
+                rpm -qi  "{{ ovs_pkg_out.stdout }}" | awk '/^Version/{print $NF}'
+            - name: split numeric version for OpenvSwitch into parts
+              set_fact:
+                ovs_version_parts: "{{ ovs_version_out.stdout.split('.') }}"
+            - name: get major minor version for OpenvSwitch package naming
+              set_fact:
+                current_ovs_version: "{{ ovs_version_parts[0] }}.{{ ovs_version_parts[1] }}"
+            - name: get OpenvSwitch major version
+              set_fact:
+                current_ovs_major_version: "{{ ovs_version_parts[0]|int }}"
+            - name: get OpenvSwitch minor version
+              set_fact:
+                current_ovs_minor_version: "{{ ovs_version_parts[1]|int }}"
+        - name: Block for upgrading OpenvSwitch when layer package is present
+          when:
+            - step|int == 2
+            - ovs_lp_packaging|default(false)
+          block:
+            - name: set current OpenvSwitch package suffix if old version is layered product format
+              set_fact:
+                package_suffix: "{{ current_ovs_version }}"
+              when:
+                - current_ovs_major_version|int >= 3 or current_ovs_minor_version|int >=10
+            - name: remove old OpenvSwitch package(s) if version doesn't match
+              shell:
+                rpm -e --noscripts --nopreun --nopostun --notriggers --nodeps $(rpm -qa 'openvswitch{{ package_suffix|default('') }}*' | grep -v 'selinux')
+              warn: false
+              when: new_ovs_version != current_ovs_version
+            - name: install/upgrade OpenvSwitch LP package
+              package:
+                name: rhosp-openvswitch
+                state: latest
+            - name: set flag to skip other upgrade steps since OpenvSwitch is already upgraded!
+              set_fact:
+                run_ovs_update: false
+        - name: Check for openvswitch upgrade if not layered package installs
+          when:
+            - step|int == 2
+            - run_ovs_update|default(true)
+          block:
+            - name: check if an upgrade is required
+              register: ovs_need_upgrade
+              ignore_errors: true
+              shell: |
+                yum check-upgrade openvswitch | awk '/openvswitch/{print}'
+            - name: Check openvswitch packaging.
+              shell: rpm -q --scripts openvswitch | awk '/postuninstall/,/*/' | grep -q "systemctl.*try-restart"
+              register: ovs_packaging_issue
+              ignore_errors: true
+        - name: Upgrade openvswitch
+          block:
+            - name: "Ensure empty directory: emptying."
+              file:
+                state: absent
+                path: /root/OVS_UPGRADE
+            - name: "Ensure empty directory: creating."
+              file:
+                state: directory
+                path: /root/OVS_UPGRADE
+                owner: root
+                group: root
+                mode: 0750
+            - name: Make yum cache.
+              command: yum makecache
+            - name: Download OVS packages.
+              command: yumdownloader --destdir /root/OVS_UPGRADE --resolve openvswitch
+            - name: Get rpm list for manual upgrade of OVS.
+              shell: ls -1 /root/OVS_UPGRADE/*.rpm
+              register: ovs_list_of_rpms
+            - name: Manual upgrade of OVS
+              shell: |
+                rpm -U --replacepkgs --notriggerun --nopostun {{item}}
+              args:
+                chdir: /root/OVS_UPGRADE
+              with_items:
+                - "{{ovs_list_of_rpms.stdout_lines}}"
+          when:
+            - step|int == 2
+            - run_ovs_update|default(true)
+            - ovs_packaging_issue|default(false)|succeeded
+            - ovs_need_upgrade.stdout|default('')
+        # The openvswitch package disables the systemd service on install. When installing
+        # the layered product we prevent the service from being killed, but it doesn't
+        # do anything to prevent the systemd service from being removed and it is not
+        # re-enabled by default by the new package.
+        - name: Always ensure the openvswitch service is enabled and running after upgrades
+          when: step|int == 2
+          service:
+            name: openvswitch
+            enabled: yes
+            state: started
         - name: Check for os-net-config upgrade
           shell: "yum check-upgrade | awk '/os-net-config/{print}'"
           register: os_net_config_need_upgrade
@@ -158,6 +300,13 @@ outputs:
         - name: Update all packages
           yum: name=* state=latest update_cache=yes
           when: step == "3"
+        # This is failsafe unless openvswitch package does something to the systemd service state.
+        - name: Ensure openvswitch is running after update
+          when: step|int == 3
+          service:
+            name: openvswitch
+            enabled: yes
+            state: started
       fast_forward_upgrade_tasks:
         - name: Register repo type and args
           set_fact:
