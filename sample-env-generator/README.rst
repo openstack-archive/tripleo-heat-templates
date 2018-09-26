@@ -38,7 +38,7 @@ Environment-specific:
 - **files**: The Heat templates containing the parameter definitions
   for the environment.  Should be specified as a path relative to the
   root of the ``tripleo-heat-templates`` project.  For example:
-  ``puppet/extraconfig/tls/tls-cert-inject.yaml:``.  Each filename
+  ``puppet/extraconfig/tls/ca-inject.yaml:``.  Each filename
   should be a YAML dictionary that contains a ``parameters`` entry.
 - **parameters**: There should be one ``parameters`` entry per file in the
   ``files`` section (see the example configuration below).

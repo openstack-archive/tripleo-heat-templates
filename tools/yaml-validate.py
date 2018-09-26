@@ -288,7 +288,6 @@ ANSIBLE_TASKS_YAMLS = [
 
 HEAT_OUTPUTS_EXCLUSIONS = [
     './puppet/extraconfig/tls/ca-inject.yaml',
-    './puppet/extraconfig/tls/tls-cert-inject.yaml',
     './deployed-server/deployed-server.yaml',
     './extraconfig/tasks/ssh/host_public_key.yaml',
     './extraconfig/pre_network/host_config_and_reboot.yaml'
