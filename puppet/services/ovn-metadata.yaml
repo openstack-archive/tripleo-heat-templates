@@ -30,6 +30,9 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
   NeutronMetadataProxySharedSecret:
     description: Shared secret to prevent spoofing
     type: string
@@ -79,6 +82,7 @@ parameters:
 conditions:
   neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
   service_debug_unset: {equals: [{get_param: OvnMetadataAgentDebug}, '']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -109,6 +113,12 @@ outputs:
             neutron::agents::ovn_metadata::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             neutron::agents::ovn_metadata::auth_tenant: 'service'
             neutron::agents::ovn_metadata::metadata_ip: "%{hiera('nova_metadata_vip')}"
+            neutron::agents::ovn_metadata::metadata_host:
+              str_replace:
+                template:
+                  "%{hiera('cloud_name_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
             neutron::agents::ovn_metadata::ovsdb_connection_timeout: {get_param: OVNDbConnectionTimeout}
             ovn::southbound::port: {get_param: OVNSouthboundServerPort}
             neutron::agents::ovn_metadata::debug:
@@ -116,6 +126,11 @@ outputs:
                 - service_debug_unset
                 - {get_param: Debug}
                 - {get_param: OvnMetadataAgentDebug}
+            neutron::agents::ovn_metadata::metadata_protocol:
+              if:
+              - internal_tls_enabled
+              - 'https'
+              - 'http'
           -
             if:
             - neutron_workers_unset
