@@ -37,9 +37,25 @@ outputs:
     value:
       service_name: glance_registry_disabled
       upgrade_tasks:
+        - when: step|int == 0
+          block:
+            - name: Check if glance_registry is deployed
+              command: systemctl is-enabled --quiet openstack-glance-registry
+              ignore_errors: True
+              register: glance_registry_enabled_result
+            - name: Check service openstack-glance-registry is running
+              shell: systemctl is-active --quiet openstack-glance-registry
+              register: glance_registry_running_result
+              ignore_errors: True
+            - name: Set facts glance_registry_enabled and glance_registry_running
+              set_fact:
+                glance_registry_enabled: "{{ glance_registry_enabled_result.rc == 0 }}"
+                glance_registry_running: "{{ glance_registry_running_result.rc == 0 }}"
         - name: Stop and disable glance_registry service on upgrade
-          when: step|int == 1
           service: name=openstack-glance-registry state=stopped enabled=no
+          when:
+            - step|int == 1
+            - glance_registry_enabled|bool or glance_registry_running|bool
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
