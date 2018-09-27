@@ -45,6 +45,12 @@ parameters:
     type: comma_delimited_list
     tags:
       - role_specific
+  OpenShiftNodeGroupName:
+    default: node-config-all-in-one
+    description: The group the nodes belong to.
+    type: string
+    tags:
+      - role_specific
   DockerOpenShiftGlusterFSImage:
     description: Container image to use for GlusterFS pod
     type: string
@@ -64,9 +70,11 @@ resources:
         map_replace:
           - map_replace:
             - OpenShiftGlusterDisks: OpenShiftGlusterDisks
+              OpenShiftNodeGroupName: OpenShiftNodeGroupName
             - values: {get_param: [RoleParameters]}
           - values:
               OpenShiftGlusterDisks: {get_param: OpenShiftGlusterDisks}
+              OpenShiftNodeGroupName: {get_param: OpenShiftNodeGroupName}
 
 outputs:
   role_data:
@@ -96,19 +104,15 @@ outputs:
       upgrade_tasks: []
       step_config: ''
       external_deploy_tasks:
-        - name: openshift_cns step 1 Generate Inventory
-          when: step == '1'
+        - name: openshift_cns step 2 Generate Inventory
+          when: step == '2'
           block:
-            - name: create openshift temp dirs
-              file:
-                path: "{{item}}"
-                state: directory
-              with_items:
-                - "{{playbook_dir}}/openshift/inventory"
 
             - name: set openshift global vars fact
               set_fact:
                 openshift_gluster_disks: {get_attr: [RoleParametersValue, value, OpenShiftGlusterDisks]}
+                tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
+                tripleo_role_name: {get_param: RoleName}
 
             - name: set openshift gluster global vars fact
               set_fact:
@@ -158,40 +162,19 @@ outputs:
                 dest: "{{playbook_dir}}/openshift/global_gluster_vars.yml"
                 content: "{{openshift_gluster_global_vars|to_nice_yaml}}"
 
-            - name: generate openshift inventory for openshift_glusterfs service
-              lineinfile:
-                path: "{{playbook_dir}}/openshift/inventory/openshift_glusterfs.ini"
-                create: true
-                line: "[openshift_glusterfs:children]"
-                insertbefore: BOF
-
-            - name: generate openshift inventory for openshift_glusterfs service
-              lineinfile:
-                path: "{{playbook_dir}}/openshift/inventory/openshift_glusterfs.ini"
-                insertafter: "[openshift_glusterfs:children]"
-                line:
-                  str_replace:
-                    template: ROLENAME
-                    params:
-                      ROLENAME: {get_param: RoleName}
-
             - name: generate openshift inventory for Role
               copy:
-                dest:
-                  str_replace:
-                    template: "{{playbook_dir}}/openshift/inventory/ROLENAME_openshift_glusterfs.yml"
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                content:
-                  str_replace:
-                    params:
-                      ROLENAME: {get_param: RoleName}
-                    template: |
-                      glusterfs:
-                        hosts:
-                          {% for host in groups['ROLENAME'] | default([]) -%}
-                          {{ hostvars.raw_get(host)['ansible_hostname'] }}:
-                            glusterfs_ip: {{hostvars.raw_get(host)['storage_ip']}}
-                            glusterfs_devices:
-                              {{openshift_gluster_disks | to_nice_yaml() | indent(8) }}
-                          {% endfor %}
+                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_glusterfs.yml"
+                content: |
+                  {% if tripleo_node_group_name == "node-config-infra" -%}
+                  glusterfs_registry:
+                  {% else -%}
+                  glusterfs:
+                  {% endif %}
+                    hosts:
+                      {% for host in groups[tripleo_role_name] | default([]) -%}
+                      {{ hostvars.raw_get(host)['ansible_hostname'] }}:
+                        glusterfs_ip: {{hostvars.raw_get(host)['storage_ip']}}
+                        glusterfs_devices:
+                          {{openshift_gluster_disks | to_nice_yaml() | indent(8) }}
+                      {% endfor %}
