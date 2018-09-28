@@ -23,6 +23,20 @@ parameters:
     description: Generate a wrapper script so neutron launches haproxy in a separate container.
     type: boolean
     default: true
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
+  NeutronWrapperDebug:
+    type: boolean
+    default: false
+    description: Controls debugging for the wrapper scripts.
+  ContainerCli:
+    type: string
+    default: 'docker'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
   NeutronDhcpAgentLoggingSource:
     type: json
     default:
@@ -68,6 +82,8 @@ conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   dnsmasq_wrapper_enabled: {equals: [{get_param: NeutronEnableDnsmasqDockerWrapper}, true]}
   haproxy_wrapper_enabled: {equals: [{get_param: NeutronEnableHaproxyDockerWrapper}, true]}
+  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  service_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
 
 resources:
 
@@ -108,6 +124,12 @@ outputs:
             tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_haproxy_wrapper: {get_param: NeutronEnableHaproxyDockerWrapper}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/dhcp_haproxy_wrapper'
             tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_image: {get_param: DockerNeutronDHCPImage}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::debug:
+              if:
+                - service_debug_unset
+                - {get_param: Debug }
+                - {get_param: NeutronWrapperDebug}
+            tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
       service_config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, service_config_settings]
@@ -203,7 +225,11 @@ outputs:
                   - /run/openvswitch:/run/openvswitch
                   - /var/lib/neutron:/var/lib/neutron
                   - /run/netns:/run/netns:shared
-                  - /var/lib/openstack:/var/lib/openstack
+                -
+                  if:
+                    - docker_enabled
+                    - - /var/lib/openstack:/var/lib/openstack
+                    - null
                 -
                   if:
                     - dnsmasq_wrapper_enabled

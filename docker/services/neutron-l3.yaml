@@ -40,6 +40,20 @@ parameters:
                  once the fix to radvd is generally available across target distributions.
     type: boolean
     default: false
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
+  NeutronWrapperDebug:
+    type: boolean
+    default: false
+    description: Controls debugging for the wrapper scripts.
+  ContainerCli:
+    type: string
+    default: 'docker'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -72,6 +86,8 @@ conditions:
   haproxy_wrapper_enabled: {equals: [{get_param: NeutronEnableHaproxyDockerWrapper}, true]}
   dibbler_wrapper_enabled: {equals: [{get_param: NeutronEnableDibblerDockerWrapper}, true]}
   radvd_wrapper_enabled: {equals: [{get_param: NeutronEnableRadvdDockerWrapper}, true]}
+  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  service_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
 
 resources:
 
@@ -116,6 +132,12 @@ outputs:
             tripleo::profile::base::neutron::l3_agent_wrappers::enable_radvd_wrapper: {get_param: NeutronEnableRadvdDockerWrapper}
             tripleo::profile::base::neutron::l3_agent_wrappers::radvd_process_wrapper: '/var/lib/neutron/radvd_wrapper'
             tripleo::profile::base::neutron::l3_agent_wrappers::radvd_image: {get_param: DockerNeutronL3AgentImage}
+            tripleo::profile::base::neutron::l3_agent_wrappers::debug:
+              if:
+                - service_debug_unset
+                - {get_param: Debug }
+                - {get_param: NeutronWrapperDebug}
+            tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
 
       service_config_settings:
         map_merge:
@@ -202,7 +224,11 @@ outputs:
                   - /run/openvswitch:/run/openvswitch
                   - /var/lib/neutron:/var/lib/neutron
                   - /run/netns:/run/netns:shared
-                  - /var/lib/openstack:/var/lib/openstack
+                -
+                  if:
+                    - docker_enabled
+                    - - /var/lib/openstack:/var/lib/openstack
+                    - null
                 -
                   if:
                     - keepalived_wrapper_enabled
