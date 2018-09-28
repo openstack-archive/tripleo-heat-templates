@@ -1,0 +1,163 @@
+heat_template_version: rocky
+
+description: External tasks definition for OpenShift
+
+parameters:
+  StackAction:
+    type: string
+    description: >
+      Heat action on performed top-level stack.  Note StackUpdateType is
+      set to UPGRADE when a major-version upgrade is in progress.
+    constraints:
+    - allowed_values: ['CREATE', 'UPDATE']
+  RoleNetIpMap:
+    default: {}
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OpenShiftNodeGroupName:
+    default: node-config-all-in-one
+    description: The group the nodes belong to.
+    type: string
+    tags:
+      - role_specific
+
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - OpenShiftNodeGroupName: OpenShiftNodeGroupName
+            - values: {get_param: [RoleParameters]}
+          - values:
+              OpenShiftNodeGroupName: {get_param: OpenShiftNodeGroupName}
+
+outputs:
+  role_data:
+    description: Role data for the Openshift Service
+    value:
+      service_name: openshift_node
+      config_settings: {}
+      upgrade_tasks: []
+      step_config: ''
+      external_deploy_tasks:
+        - name: openshift_node step 1
+          when: step == '1'
+          tags: openshift
+          block:
+            - name: create openshift temp dirs
+              file:
+                path: "{{item}}"
+                state: directory
+              with_items:
+                - "{{playbook_dir}}/openshift/inventory"
+
+            - name: set role facts for generating inventory
+              set_fact:
+                tripleo_role_name: {get_param: RoleName}
+                tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
+                openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
+
+            # FIXME(mandre) This task always fails:
+            # - become:true doesn't work in that context (containerized undercloud issue?)
+            # - there is no origin-master-api docker container
+            # We should be checking for systemd service status instead.
+            # NOTE(flaper87): Check if origin-node is running in the openshift
+            # nodes so we can flag the node as new later on.
+            #
+            # This task ignores errors because docker inspect exits with 1 if
+            # origin-node doesn't exist. Perhaps we could use failed_when
+            # instead of ignoring the errors. Future improvement.
+            - name: Check if origin-node is running
+              become: true
+              shell: >
+                docker inspect atomic-enterprise-master-api > /dev/null 2>&1
+                || docker inspect origin-master-api > /dev/null 2>&1
+                || echo "false"
+              register: origin_nodes
+              delegate_to: "{{item}}"
+              with_items: "{{ groups[tripleo_role_name] | default([]) }}"
+
+              # NOTE(flaper87): Create all the nodes objects
+              # now, as yaml dicts, instead of formatting
+              # everything as part of a template.
+              # We consider new_node all the nodes that
+              # exited with 1 in the previous task.
+            - set_fact:
+                nodes:
+                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'equalto', 'false') | list | count > 0}}"
+                    hostname: "{{item}}"
+                    ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
+                    ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
+                    ansible_become: true
+                    containerized: true
+                    openshift_node_group_name: '{{tripleo_node_group_name}}'
+                    etcd_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                    openshift_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                    openshift_master_bind_addr: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                    openshift_public_ip: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                    openshift_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
+                    openshift_public_hostname: "{{hostvars[item][openshift_master_network + '_ip']}}"
+              register: all_role_nodes
+              with_items: "{{groups[tripleo_role_name] | default([]) }}"
+
+            - set_fact:
+                role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                new_role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
+
+            - name: generate openshift inventory for {{tripleo_role_name}} role nodes
+              copy:
+                dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_nodes.yml"
+                content: |
+                  {% if role_nodes | count > 0%}
+                  all:
+                    hosts:
+                      {% for host in role_nodes -%}
+                      {{host.hostname}}:
+                        {{host | to_nice_yaml() | indent(6)}}
+                      {% endfor %}
+
+                    children:
+                      nodes:
+                        hosts:
+                          {% for host in role_nodes -%}
+                          {{host.hostname}}:
+                          {% endfor %}
+
+                      {% if new_role_nodes | count > 0 -%}
+                      new_nodes:
+                        hosts:
+                          {% for host in new_role_nodes -%}
+                          {{host.hostname}}:
+                          {% endfor %}
+
+                      {% endif %}
+
+                  {% endif %}
