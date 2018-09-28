@@ -14,6 +14,12 @@
             setype: svirt_sandbox_file_t
             selevel: s0
             recurse: true
+          tags:
+            - host_config
+            - container_config
+            - container_config_tasks
+            - container_config_scripts
+            - container_startup_configs
 
         # Puppet manifest for baremetal host configuration
         - name: Write the puppet step_config manifest
@@ -22,6 +28,8 @@
             dest: /var/lib/tripleo-config/puppet_step_config.pp
             force: yes
             mode: '0600'
+          tags:
+            - host_config
 
         # Config file for our docker-puppet.py script, used to generate container configs
         - name: Create /var/lib/docker-puppet
@@ -30,6 +38,8 @@
             state: directory
             setype: svirt_sandbox_file_t
             selevel: s0
+          tags:
+            - container_config
 
         - name: Write docker-puppet.json file
           copy:
@@ -37,12 +47,16 @@
             dest: /var/lib/docker-puppet/docker-puppet.json
             force: yes
             mode: '0600'
+          tags:
+            - container_config
 
         - name: Create /var/lib/docker-config-scripts
           file:
             path: /var/lib/docker-config-scripts
             state: directory
             setype: svirt_sandbox_file_t
+          tags:
+            - container_config_scripts
 
 
         # The container config files
@@ -52,6 +66,8 @@
           file:
             path: /var/lib/docker-container-startup-configs.json
             state: absent
+          tags:
+            - container_startup_configs
 
         - name: Write docker config scripts
           copy:
@@ -63,6 +79,8 @@
           with_dict: "{{ role_data_docker_config_scripts }}"
           vars:
             role_data_docker_config_scripts: "{{ lookup('file', tripleo_role_name + '/docker_config_scripts.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+          tags:
+            - container_config_scripts
 
 
         # Here we are dumping all the docker container startup configuration data
@@ -75,6 +93,8 @@
           set_fact:
             docker_config_default: "{{ docker_config_default | default({}) | combine( {'step_' + item: {}} ) }}"
           with_sequence: count={{ deploy_steps_max }}
+          tags:
+            - container_startup_configs
 
         - name: Set docker_startup_configs_with_default fact
           no_log: True
@@ -82,6 +102,8 @@
             docker_config_with_default: "{{ docker_config_default | combine(role_data_docker_config) }}"
           vars:
             role_data_docker_config: "{{ lookup('file', tripleo_role_name + '/docker_config.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+          tags:
+            - container_startup_configs
 
         - name: Write docker-container-startup-configs
           copy:
@@ -89,6 +111,8 @@
             dest: /var/lib/docker-container-startup-configs.json
             force: yes
             mode: '0600'
+          tags:
+            - container_startup_configs
 
         - name: Write per-step docker-container-startup-configs
           copy:
@@ -97,6 +121,8 @@
             force: yes
             mode: '0600'
           with_dict: "{{ docker_config_with_default }}"
+          tags:
+            - container_startup_configs
 
         - name: Create /var/lib/kolla/config_files directory
           file:
@@ -105,6 +131,8 @@
             setype: svirt_sandbox_file_t
             selevel: s0
             recurse: true
+          tags:
+            - container_startup_configs
 
         - name: Create /var/lib/config-data directory
           file:
@@ -121,6 +149,8 @@
             mode: '0600'
             setype: svirt_sandbox_file_t
           with_dict: "{{ lookup('file', tripleo_role_name + '/kolla_config.yaml', errors='ignore') | default([], True) | from_yaml }}"
+          tags:
+            - container_startup_configs
 
         ########################################################
         # Bootstrap tasks, only performed on bootstrap_server_id
@@ -133,6 +163,8 @@
           with_fileglob:
             - /var/lib/docker-puppet/docker-puppet-tasks*.json
           when: deploy_server_id == bootstrap_server_id
+          tags:
+            - container_config_tasks
 
         - name: Write docker-puppet-tasks json files
           copy:
@@ -142,6 +174,8 @@
             mode: '0600'
           with_dict: "{{ lookup('file', tripleo_role_name + '/docker_puppet_tasks.yaml', errors='ignore') | default({}, True) | from_yaml }}"
           when: deploy_server_id == bootstrap_server_id
+          tags:
+            - container_config_tasks
 
     #####################################################
     # Per step puppet configuration of the baremetal host
@@ -153,6 +187,8 @@
       when:
         - enable_puppet | default(true) | bool
         - enable_debug | default(false) | bool
+      tags:
+        - host_config
 
     - name: Write the config_step hieradata
       copy:
@@ -160,6 +196,8 @@
         dest: /etc/puppet/hieradata/config_step.json
         force: true
         mode: '0600'
+      tags:
+        - host_config
 
     - name: Run puppet host configuration for step {{ step }}
       when: enable_puppet|default(true)|bool
@@ -175,6 +213,8 @@
       register: outputs
       failed_when: false
       no_log: true
+      tags:
+        - host_config
 
     - name: "Debug output for task: Run puppet host configuration for step {{ step }}"
       debug:
@@ -183,6 +223,8 @@
         - enable_puppet | default(true) | bool
         - outputs.rc is defined
       failed_when: outputs.rc not in [0, 2]
+      tags:
+        - host_config
 
     ######################################
     # Generate config via docker-puppet.py
@@ -201,12 +243,16 @@
       register: outputs
       failed_when: false
       no_log: true
+      tags:
+        - container_config
 
     - name: "Debug output for task: Run docker-puppet tasks (generate config) during step {{ step }}"
       debug:
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+      tags:
+        - container_config
 
     ##################################################
     # Per step starting of the containers using paunch
@@ -226,12 +272,16 @@
       register: outputs
       failed_when: false
       no_log: true
+      tags:
+        - container_startup_configs
 
     - name: "Debug output for task: Start containers for step {{ step }}"
       debug:
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+      tags:
+        - container_startup_configs
 
     ########################################################
     # Bootstrap tasks, only performed on bootstrap_server_id
@@ -241,6 +291,8 @@
       stat:
         path: /var/lib/docker-puppet/docker-puppet-tasks{{ step }}.json
       register: docker_puppet_tasks_json
+      tags:
+        - container_config_tasks
 
     - name: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}
       shell: python /var/lib/docker-puppet/docker-puppet.py
@@ -258,10 +310,13 @@
       register: outputs
       failed_when: false
       no_log: true
+      tags:
+        - container_config_tasks
 
     - name: "Debug output for task: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}"
       debug:
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
-
+      tags:
+        - container_config_tasks
