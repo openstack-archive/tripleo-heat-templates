@@ -548,9 +548,23 @@ outputs:
                     - '{{playbook_dir}}/ceph-ansible/inventory.yml'
                     - '--extra-vars'
                     - '@{{playbook_dir}}/ceph-ansible/extra_vars.yml'
-            - name: run ceph-ansible
-              with_items: "{{ceph_ansible_playbooks}}"
-              shell: "{{ceph_ansible_command}} {{item}}"
+            - name: run ceph-ansible (immediate log at {{playbook_dir}}/ceph-ansible/ceph_ansible_command.log)
+              shell: |
+                set -e
+                {% for playbook in ceph_ansible_playbooks %}
+                echo "Running ceph-ansible playbook {{playbook}}"
+                {{ceph_ansible_command}} {{playbook}} 2>&1
+                {% endfor %}
+              # We want the output chunked into bits to prevent
+              # overflowing Zaqar message size
+              no_log: true
+              failed_when: false
+              register: outputs
+            - name: print ceph-ansible output in case of failure
+              debug:
+                var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
+              failed_when: outputs.rc != 0
+              when: outputs.rc != 0
             - name: create ceph-ansible fetch directory tarball in local backup
               archive:
                 path: "{{playbook_dir}}/ceph-ansible/fetch_dir"
