@@ -197,7 +197,7 @@ for service in (json_data or []):
             service.get('step_config'),
             service.get('config_image'),
             service.get('volumes', []),
-            service.get('prigileged', False),
+            service.get('privileged', False),
         ]
 
     config_volume = service[0] or ''
