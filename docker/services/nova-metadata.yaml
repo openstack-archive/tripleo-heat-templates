@@ -7,7 +7,7 @@ parameters:
   DockerNovaMetadataImage:
     description: image
     type: string
-  DockerNovaConfigImage:
+  DockerNovaMetadataConfigImage:
     description: The container image to use for the nova config_volume
     type: string
   NovaMetadataLoggingSource:
@@ -41,11 +41,21 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
   ContainersCommon:
     type: ./containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
 
   NovaMetadataBase:
     type: ../../puppet/services/nova-metadata.yaml
@@ -57,11 +67,8 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  NovaLogging:
-    type: OS::TripleO::Services::Logging::NovaCommon
-    properties:
-      DockerNovaImage: {get_param: DockerNovaMetadataImage}
-      NovaServiceName: 'metadata'
+  NovaMetadataLogging:
+    type: OS::TripleO::Services::Logging::NovaMetadata
 
 outputs:
   role_data:
@@ -71,7 +78,8 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [NovaMetadataBase, role_data, config_settings]
-          - {get_attr: [NovaLogging, config_settings]}
+          - get_attr: [NovaMetadataLogging, config_settings]
+          - apache::default_vhost: false
       logging_source: {get_attr: [NovaMetadataBase, role_data, logging_source]}
       logging_groups: {get_attr: [NovaMetadataBase, role_data, logging_groups]}
       service_config_settings:
@@ -84,18 +92,17 @@ outputs:
                 - {get_param: NovaMetadataLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
-        config_volume: nova
+        config_volume: nova_metadata
         puppet_tags: nova_config
         step_config:
-          get_attr: [NovaMetadataBase, role_data, step_config]
-        config_image: {get_param: DockerNovaConfigImage}
+          list_join:
+            - "\n"
+            - - {get_attr: [NovaMetadataBase, role_data, step_config]}
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerNovaMetadataConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/nova_metadata.json:
-          command:
-            list_join:
-            - ' '
-            - - /usr/bin/nova-api-metadata
-              - get_attr: [NovaLogging, cmd_extra_args]
+          command: /usr/sbin/httpd -DFOREGROUND
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -107,65 +114,35 @@ outputs:
               recurse: true
       docker_config:
         step_2:
-          get_attr: [NovaLogging, docker_config, step_2]
+          get_attr: [NovaMetadataLogging, docker_config, step_2]
         step_4:
           nova_metadata:
             start_order: 2
-            image: &nova_metadata_image {get_param: DockerNovaMetadataImage}
+            image: {get_param: DockerNovaMetadataImage}
             net: host
-            user: nova
-            privileged: true
+            user: root
             restart: always
             healthcheck:
               test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaLogging, volumes]}
+                - {get_attr: [NovaMetadataLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/nova_metadata.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/puppet-generated/nova_metadata/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
         get_attr: [NovaMetadataBase, role_data, metadata_settings]
-      host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
-      upgrade_tasks:
-        - when: step|int == 0
-          tags: common
-          block:
-            - name: Check if nova_api_metadata is deployed
-              command: systemctl is-enabled --quiet openstack-nova-api
-              ignore_errors: True
-              register: nova_metadata_enabled_result
-            - name: Set fact nova_metadata_enabled
-              set_fact:
-                nova_metadata_enabled: "{{ nova_metadata_enabled_result.rc == 0 }}"
-            - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
-              command: systemctl is-active --quiet openstack-nova-api
-              tags: validation
-              when: nova_metadata_enabled|bool
-        - when: step|int == 2
-          block:
-            - name: Stop and disable nova_api service
-              when: nova_metadata_enabled|bool
-              service: name=openstack-nova-api state=stopped enabled=no
-      fast_forward_upgrade_tasks:
-        - when:
-            - step|int == 0
-            - release == 'ocata'
-          block:
-            - name: Check if nova_api_metadata is deployed
-              command: systemctl is-enabled --quiet openstack-nova-api
-              tags: common
-              ignore_errors: True
-              register: nova_metadata_enabled_result
-            - name: Set fact nova_metadata_enabled
-              set_fact:
-                nova_metadata_enabled: "{{ nova_metadata_enabled_result.rc == 0 }}"
-        - name: Stop and disable nova_api service
-          when:
-            - step|int == 1
-            - release == 'ocata'
-            - nova_metadata_enabled|bool
-          service: name=openstack-nova-api state=stopped enabled=no
+      host_prep_tasks: {get_attr: [NovaMetadataLogging, host_prep_tasks]}
