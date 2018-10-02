@@ -172,6 +172,7 @@ Example
    * OS::TripleO::Services::NovaLibvirt
    * OS::TripleO::Services::NovaMigrationTarget
    * OS::TripleO::Services::OpenDaylightOvs
+   * OS::TripleO::Services::Podman
    * OS::TripleO::Services::Securetty
    * OS::TripleO::Services::SensuClient
    * OS::TripleO::Services::Snmp
