@@ -249,7 +249,7 @@ with open(sh_script, 'w') as script_file:
     mkdir -p /etc/puppet
     cp -dR /tmp/puppet-etc/* /etc/puppet
     rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
+    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker_puppet.json
     TAGS=""
     if [ -n "$PUPPET_TAGS" ]; then
         TAGS="--tags \"$PUPPET_TAGS\""
@@ -267,7 +267,8 @@ with open(sh_script, 'w') as script_file:
     if [ "$NET_HOST" == "false" ]; then
         export FACTER_hostname=$HOSTNAME
     fi
-    export FACTER_uuid=docker
+    # $::deployment_type in puppet-tripleo
+    export FACTER_deployment_type=containers
     /usr/bin/puppet apply --summarize \
             --detailed-exitcodes \
             --color=false \
