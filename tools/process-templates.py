@@ -158,7 +158,11 @@ def process_templates(template_path, role_data_path, output_dir,
             # the command multiple times with the same output_dir.
             out_dir = subdir
             if output_dir:
-                out_dir = os.path.join(output_dir, subdir)
+                if template_path != '.':
+                   # strip out base path if not default
+                   temp = out_dir.split(template_path)[1]
+                   out_dir = temp[1:] if temp.startswith('/') else temp
+                out_dir = os.path.join(output_dir, out_dir)
                 if not os.path.exists(out_dir):
                     os.mkdir(out_dir)
 
