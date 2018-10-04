@@ -51,6 +51,7 @@ envs_containing_endpoint_map = ['no-tls-endpoints-public-ip.yaml',
                                 'tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml',
+                                'no-tls-endpoints-public-ip.yaml',
                                 'tls-endpoints-public-dns.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
