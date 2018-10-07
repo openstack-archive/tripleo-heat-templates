@@ -44,10 +44,14 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  MetadataNATRule:
+    default: false
+    description: When true we create the NAT rule for the metadata service
+    type: boolean
 
 conditions:
-
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  need_metadata_nat_rule: {equals: [{get_param: MetadataNATRule}, true]}
 
 resources:
 
@@ -80,6 +84,20 @@ outputs:
           - get_attr: [NovaMetadataBase, role_data, config_settings]
           - get_attr: [NovaMetadataLogging, config_settings]
           - apache::default_vhost: false
+          - tripleo.nova_metadata.firewall_rules:
+              if:
+              - need_metadata_nat_rule
+              - '144 undercloud metadata nat':
+                  dport: 80
+                  proto: 'tcp'
+                  table: 'nat'
+                  chain: 'PREROUTING'
+                  jump: 'REDIRECT'
+                  iniface: 'br-ctlplane'
+                  destination: '169.254.169.254/32'
+                  extras:
+                    toports: 8775
+              - {}
       logging_source: {get_attr: [NovaMetadataBase, role_data, logging_source]}
       service_config_settings:
         map_merge:
