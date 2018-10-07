@@ -21,13 +21,70 @@
             - container_config_scripts
             - container_startup_configs
 
+        - name: Delete existing /var/lib/tripleo-config/check-mode directory for check mode
+          file:
+            path: /var/lib/tripleo-config/check-mode
+            state: absent
+          tags:
+            - host_config
+            - container_puppet
+            - container_puppet_tasks
+            - container_config_scripts
+            - container_startup_configs
+          when:
+            - ansible_check_mode
+          ignore_errors: true
+          check_mode: no
+
+        - name: Create /var/lib/tripleo-config/check-mode directory for check mode
+          file:
+            path: /var/lib/tripleo-config/check-mode
+            state: directory
+            setype: svirt_sandbox_file_t
+            selevel: s0
+            recurse: true
+          tags:
+            - host_config
+            - container_puppet
+            - container_puppet_tasks
+            - container_config_scripts
+            - container_startup_configs
+          when:
+            - ansible_check_mode
+          check_mode: no
+
         # Puppet manifest for baremetal host configuration
         - name: Write the puppet step_config manifest
           copy:
             content: "{{ lookup('file', tripleo_role_name + '/step_config.pp', errors='ignore') | default('', True) }}"
-            dest: /var/lib/tripleo-config/puppet_step_config.pp
+            dest: /var/lib/tripleo-config/{{ ansible_check_mode | ternary('check-mode/', '') }}puppet_step_config.pp
             force: yes
             mode: '0600'
+          tags:
+            - host_config
+          check_mode: no
+          diff: no
+
+        - name: Diff puppet step_config manifest changes for check mode
+          command:
+            diff -uN /var/lib/tripleo-config/puppet_step_config.pp /var/lib/tripleo-config/check-mode/puppet_step_config.pp
+          register: diff_results
+          tags:
+            - host_config
+          check_mode: no
+          when:
+            - ansible_check_mode
+            - ansible_diff_mode
+          failed_when: false
+          changed_when: diff_results.rc == 1
+
+        - name: Diff puppet step_config manifest changes for check mode
+          debug:
+            var: diff_results.stdout_lines
+          changed_when: diff_results.rc == 1
+          when:
+            - ansible_check_mode
+            - ansible_diff_mode
           tags:
             - host_config
 
@@ -198,12 +255,47 @@
       tags:
         - host_config
 
+    - name: Check for /etc/puppet/check-mode directory for check mode
+      stat:
+        path: /etc/puppet/check-mode
+      register: check_mode_dir
+      when: ansible_check_mode
+      tags:
+        - host_config
+
+    - name: Create /etc/puppet/check-mode/hieradata directory for check mode
+      file:
+        path: /etc/puppet/check-mode/hieradata
+        state: directory
+        setype: svirt_sandbox_file_t
+        selevel: s0
+        recurse: true
+      check_mode: no
+      when:
+        - ansible_check_mode
+        - not check_mode_dir.stat.exists
+      tags:
+        - host_config
+
     - name: Write the config_step hieradata
       copy:
         content: "{{ dict(step=step|int) | to_json }}"
-        dest: /etc/puppet/hieradata/config_step.json
+        dest: /etc/puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}hieradata/config_step.json
         force: true
         mode: '0600'
+      check_mode: no
+      tags:
+        - host_config
+
+    - name: Create puppet check-mode files if they don't exist for check mode
+      shell: |
+        cp -a /etc/puppet/hiera.yaml /etc/puppet/check-mode/hiera.yaml
+        cp -a /etc/puppet/hieradata/* /etc/puppet/check-mode/hieradata/
+        sed -i 's/\/etc\/puppet\/hieradata/\/etc\/puppet\/check-mode\/hieradata/' /etc/puppet/check-mode/hiera.yaml
+      when:
+        - ansible_check_mode
+        - not check_mode_dir.stat.exists
+      check_mode: no
       tags:
         - host_config
 
@@ -215,14 +307,16 @@
         --detailed-exitcodes
         --summarize
         --logdest syslog --logdest console --color=false
-        /var/lib/tripleo-config/puppet_step_config.pp
+        {{ ansible_check_mode | ternary('--noop', '') }}
+        {{ ansible_check_mode | ternary('--hiera_config /etc/puppet/check-mode/hiera.yaml', '') }}
+        /var/lib/tripleo-config/{{ ansible_check_mode | ternary('check-mode/', '') }}puppet_step_config.pp
       changed_when: outputs.rc == 2
-      check_mode: no
       register: outputs
       failed_when: false
       no_log: true
       tags:
         - host_config
+      check_mode: no
 
     - name: "Debug output for task: Run puppet host configuration for step {{ step }}"
       debug:
