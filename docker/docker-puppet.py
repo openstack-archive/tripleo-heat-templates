@@ -209,7 +209,7 @@ with open(sh_script, 'w') as script_file:
     mkdir -p /etc/puppet
     cp -a /tmp/puppet-etc/* /etc/puppet
     rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker.json
+    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker_puppet.json
     TAGS=""
     if [ -n "$PUPPET_TAGS" ]; then
         TAGS="--tags \"$PUPPET_TAGS\""
@@ -223,7 +223,9 @@ with open(sh_script, 'w') as script_file:
     sync
 
     set +e
-    FACTER_hostname=$HOSTNAME FACTER_uuid=docker /usr/bin/puppet apply --summarize \
+    # $::deployment_type in puppet-tripleo
+    export FACTER_deployment_type=containers
+    FACTER_hostname=$HOSTNAME /usr/bin/puppet apply --summarize \
     --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
     rc=$?
     set -e
