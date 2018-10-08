@@ -248,7 +248,7 @@ for base_path in opts.files:
 
             print('The yaml file will be overwritten and the original saved as %s'
                   % backup_filename)
-            if not (opts.yes or raw_input("Overwrite %s? [y/n] " % base_path).lower() == 'y'):
+            if not (opts.yes or input("Overwrite %s? [y/n] " % base_path).lower() == 'y'):
                 print("Skipping file %s" % base_path)
                 continue
 
