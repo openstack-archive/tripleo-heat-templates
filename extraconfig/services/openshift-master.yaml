@@ -353,6 +353,71 @@ outputs:
                   {% if tripleo_stack_action == 'CREATE' or (tripleo_stack_action == 'UPDATE' and (new_masters + new_nodes) | count == 0) %}
                   - include: "{{openshift_ansible_playbook_path}}"
                   {% endif %}
+
+                  - name: Simple validation OpenShift is actually deployed
+                    hosts: masters
+
+                    tasks:
+                      - name: Check oc status
+                        command: oc status --suggest
+                        register: oc_status
+                        become: true
+
+                      - name: Register failure if oc status fails
+                        command: echo true
+                        register: oc_status_failed
+                        when: '"fail" in oc_status.stdout'
+
+                      - debug:
+                          var: oc_status.stdout_lines
+
+                      - name: Check oc get dc/router
+                        command: "oc get dc/router -o jsonpath='{.status.readyReplicas}'"
+                        register: oc_get_router
+                        become: true
+
+                      - name: Register failure if oc get dc/router fails
+                        command: echo true
+                        register: oc_get_router_failed
+                        when: 'oc_get_router.stdout|int < 1'
+
+                      - debug:
+                          var: oc_get_router.stdout
+
+                      - name: Check oc get dc/docker-registry
+                        command: "oc get dc/docker-registry -o jsonpath='{.status.readyReplicas}'"
+                        register: oc_get_registry
+                        become: true
+
+                      - name: Register failure if oc get dc/docker-registry fails
+                        command: echo true
+                        register: oc_get_registry_failed
+                        when: 'oc_get_registry.stdout|int < 1'
+
+                      - debug:
+                          var: oc_get_registry.stdout
+
+                      - name: Check oc get nodes
+                        command: oc get nodes --all-namespaces
+                        register: oc_get_nodes
+                        become: true
+
+                      - name: Register failure if oc get nodes fails
+                        command: echo true
+                        register: oc_get_nodes_failed
+                        when: '"NotReady" in oc_get_nodes.stdout'
+
+                      - debug:
+                          var: oc_get_nodes.stdout_lines
+
+                      - name: Fail the playbook if any validations failed
+                        fail:
+                        when: >
+                          oc_status_failed.changed or
+                          oc_get_nodes_failed.changed or
+                          oc_get_router_failed.changed or
+                          oc_get_registry_failed.changed
+
             - name: set openshift command
               set_fact:
                 openshift_command: >-
