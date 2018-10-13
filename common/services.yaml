@@ -120,39 +120,6 @@ resources:
           data:
             cellv2_discovery: {get_attr: [ServiceChain, role_data, cellv2_discovery]}
 
-  LoggingSourcesConfig:
-    type: OS::Heat::Value
-    properties:
-      type: comma_delimited_list
-      value:
-        # Transform the individual logging_source configuration from
-        # each service in the chain into a global list, adding some
-        # default configuration at the same time.
-        yaql:
-          expression: >
-            let(
-            default_format => coalesce($.data.default_format, ''),
-            pos_file_path => coalesce($.data.pos_file_path, ''),
-            sources => coalesce($.data.sources, {}).flatten()
-            ) ->
-            $sources.where($ != null).select({
-            'type' => 'tail',
-            'tag' => $.tag,
-            'path' => $.path,
-            'format' => $.get('format', $default_format),
-            'pos_file' => $.get('pos_file', $pos_file_path + '/' + $.tag + '.pos')
-            })
-          data:
-            sources:
-              - {get_attr: [LoggingConfiguration, LoggingDefaultSources]}
-              - yaql:
-                  expression: list(coalesce($.data.role_data, []).where($ != null).select($.get('logging_source')).where($ != null))
-                  data: {role_data: {get_attr: [ServiceChain, role_data]}}
-
-              - {get_attr: [LoggingConfiguration, LoggingExtraSources]}
-            default_format: {get_attr: [LoggingConfiguration, LoggingDefaultFormat]}
-            pos_file_path: {get_attr: [LoggingConfiguration, LoggingPosFilePath]}
-
   MonitoringSubscriptionsConfig:
     type: OS::Heat::Value
     properties:
@@ -368,7 +335,6 @@ outputs:
     value:
       service_names: {get_attr: [ServiceNames, value]}
       monitoring_subscriptions: {get_attr: [MonitoringSubscriptionsConfig, value]}
-      logging_sources: {get_attr: [LoggingSourcesConfig, value]}
       config_settings:
         yaql:
           expression: $.data.where($ != null).reduce($1.mergeWith($2), {})
