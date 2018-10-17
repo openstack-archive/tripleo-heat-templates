@@ -553,6 +553,26 @@ outputs:
               service: name={{ item.item }} state=stopped enabled=no
               with_items: "{{ swift_services_enabled.results }}"
               when: item.rc == 0
+            - name: Check if deprecated UC Swift storage directory exists
+              stat: path=/srv/node/1
+              register: swift_dir_1_stat
+            - name: Move deprecated UC Swift storage directory
+              command: mv /srv/node/1 /srv/node/d1
+              when: swift_dir_1_stat.stat.exists
+            - name: Update Swift rings to use d1 device instead of 1
+              command: swift-ring-builder {{ item }} set_info --device 1 --change-device d1
+              with_items:
+                - /etc/swift/account.builder
+                - /etc/swift/container.builder
+                - /etc/swift/object.builder
+              when: swift_dir_1_stat.stat.exists
+            - name: Write out updated Swift rings
+              command: swift-ring-builder {{ item }} write_ring
+              with_items:
+                - /etc/swift/account.builder
+                - /etc/swift/container.builder
+                - /etc/swift/object.builder
+              when: swift_dir_1_stat.stat.exists
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-swift-container,object,account package
