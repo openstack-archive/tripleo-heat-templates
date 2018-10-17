@@ -178,26 +178,6 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-        step_5:
-          cinder_api_online_migrations:
-            start_order: 2
-            image: *cinder_api_image
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/cinder/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
-                  - /var/log/containers/cinder:/var/log/cinder
-                  - /var/log/containers/httpd/cinder-api:/var/log/httpd
-            command:
-              - '/usr/bin/bootstrap_host_exec'
-              - 'cinder_api'
-              - "su cinder -s /bin/bash -c 'cinder-manage db online_data_migrations'"
           cinder_api_cron:
             image: *cinder_api_image
             net: host
@@ -257,31 +237,35 @@ outputs:
             - name: Set fact cinder_api_enabled
               set_fact:
                 cinder_api_enabled: "{{ cinder_api_enabled_result.rc == 0 }}"
+            - name: Check if httpd service is running
+              command: systemctl is-active --quiet httpd
+              ignore_errors: True
+              register: httpd_running_result
+              when: httpd_running is undefined
+            - name: Set fact httpd_running
+              set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when: httpd_running is undefined
+            - name: check for cinder_api running under apache (post upgrade)
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
+              register: cinder_api_apache
+              ignore_errors: true
             - name: "PreUpgrade step0,validation: Check service openstack-cinder-api is running"
               shell: systemctl is-active --quiet openstack-cinder-api
               when: cinder_api_enabled|bool
               tags: validation
-            # NOTE: In puppet service variant, we ran release N online
-            # migrations before upgrade to release N+1. In docker
-            # service variant, we run release N online migrations
-            # after upgrade to release N. This means that during
-            # switch from non-containerized to containerized, we need
-            # to run both of these.
-            - name: Online data migration for Cinder before switching to containers
+            - name: Ensure all online data migrations for Cinder have been applied
+              command: docker exec cinder_api cinder-manage db online_data_migrations
               tags: pre-upgrade
               when:
                 - is_bootstrap_node|bool
-                - cinder_api_enabled|bool
-              command: cinder-manage db online_data_migrations
+                - not (cinder_api_apache|bool and httpd_running|bool)
+                - not cinder_api_enabled|bool
         - when: step|int == 2
           block:
             - name: Stop and disable cinder_api service (pre-upgrade not under httpd)
               service: name=openstack-cinder-api state=stopped enabled=no
               when: cinder_api_enabled|bool
-            - name: check for cinder_api running under apache (post upgrade)
-              shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
-              register: cinder_api_apache
-              ignore_errors: true
             - name: Stop and disable cinder_api service
               service: name=httpd state=stopped enabled=no
               when: cinder_api_apache.rc == 0
@@ -298,6 +282,16 @@ outputs:
               package: name=httpd state=removed
               ignore_errors: True
               when: remove_httpd_package|bool
+      external_upgrade_tasks:
+        - when: step|int == 1
+          block:
+            - name: Online data migration for Cinder
+              command: docker exec cinder_api cinder-manage db online_data_migrations
+              delegate_to: "{{ groups['cinder_api'][0] }}"
+              become: true
+              tags:
+                - online_upgrade
+                - online_upgrade_cinder
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0

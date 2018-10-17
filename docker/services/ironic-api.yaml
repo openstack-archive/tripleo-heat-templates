@@ -137,22 +137,6 @@ outputs:
                   - /var/log/containers/httpd/ironic-api:/var/log/httpd
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-        step_5:
-          ironic_online_migrations:
-            start_order: 2
-            image: *ironic_api_image
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/ironic_api/etc/ironic:/etc/ironic:ro
-                  - /var/log/containers/ironic:/var/log/ironic
-                  - /var/log/containers/httpd/ironic-api:/var/log/httpd
-            command: "/usr/bin/bootstrap_host_exec ironic_api su ironic -s /bin/bash -c 'ironic-dbsync --config-file /etc/ironic/ironic.conf online_data_migrations'"
       host_prep_tasks:
         - name: create persistent logs directory
           file:
@@ -209,18 +193,13 @@ outputs:
               when:
                 - ironic_httpd_enabled|bool
                 - httpd_running|bool
-            # NOTE: In puppet service variant, we ran release N online
-            # migrations before upgrade to release N+1. In docker
-            # service variant, we run release N online migrations
-            # after upgrade to release N. This means that during
-            # switch from non-containerized to containerized, we need
-            # to run both of these.
-            - name: Online data migration for Ironic before switching to containers
+            - name: Ensure all online data migrations for Ironic have been applied
+              command: docker exec ironic_api ironic-dbsync --config-file /etc/ironic/ironic.conf online_data_migrations
               tags: pre-upgrade
               when:
                 - is_bootstrap_node|bool
-                - (ironic_httpd_enabled|bool and httpd_running|bool) or ironic_api_enabled|bool
-              command: ironic-dbsync --config-file /etc/ironic/ironic.conf online_data_migrations
+                - not (ironic_httpd_enabled|bool and httpd_running|bool)
+                - not ironic_api_enabled|bool
         - when: step|int == 2
           block:
             - name: Stop and disable ironic_api service
@@ -241,6 +220,16 @@ outputs:
               package: name=openstack-ironic-api state=removed
               ignore_errors: True
               when: remove_ironic_api_package|bool
+      external_upgrade_tasks:
+        - when: step|int == 1
+          block:
+            - name: Online data migration for Ironic
+              command: docker exec ironic_api ironic-dbsync --config-file /etc/ironic/ironic.conf online_data_migrations
+              delegate_to: "{{ groups['ironic_api'][0] }}"
+              become: true
+              tags:
+                - online_upgrade
+                - online_upgrade_ironic
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
