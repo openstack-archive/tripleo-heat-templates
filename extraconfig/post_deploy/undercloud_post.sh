@@ -6,6 +6,7 @@ ln -sf /etc/puppet/hiera.yaml /etc/hiera.yaml
 HOMEDIR="$homedir"
 USERNAME=`ls -ld $HOMEDIR | awk {'print $3'}`
 GROUPNAME=`ls -ld $HOMEDIR | awk {'print $4'}`
+THT_DIR="/usr/share/openstack-tripleo-heat-templates"
 
 # WRITE OUT STACKRC
 touch $HOMEDIR/stackrc
@@ -136,6 +137,13 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
       echo "{\"name\": \"tripleo.undercloud-config\", \"variables\": {\"undercloud_ceilometer_snmpd_password\": \"$snmp_readonly_user_password\"}}" > $TMP_MISTRAL_ENV
       echo Configure Mistral environment with undercloud-config
       openstack workflow env create $TMP_MISTRAL_ENV
+  fi
+
+  # Create the default deployment plan from /usr/share/openstack-tripleo-heat-templates
+  # but only if there is no overcloud container in swift yet.
+  if [ -d "$THT_DIR" ] && ! openstack container list -c Name -f value | grep -qe "^overcloud$"; then
+      echo Create default deployment plan
+      openstack workflow execution create tripleo.plan_management.v1.create_deployment_plan '{"container": "overcloud", "use_default_templates": true}'
   fi
 
   if [ "$(hiera tripleo_validations_enabled)" = "true" ]; then
