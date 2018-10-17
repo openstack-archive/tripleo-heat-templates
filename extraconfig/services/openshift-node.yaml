@@ -45,6 +45,12 @@ parameters:
     type: string
     tags:
       - role_specific
+  OpenShiftDeploymentType:
+    default: 'origin'
+    description: The OpenShift-Ansible deployment type.
+    type: string
+    constraints:
+      - allowed_values: ['origin', 'openshift-enterprise']
 
 resources:
   RoleParametersValue:
@@ -77,12 +83,21 @@ outputs:
                 tripleo_role_name: {get_param: RoleName}
                 tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
                 openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
+                tripleo_openshift_deployment_type: {get_param: OpenShiftDeploymentType}
+
+            - set_fact:
+                tripleo_openshift_service_type: >-
+                  {%- if tripleo_openshift_deployment_type == 'origin' -%}
+                  origin
+                  {%- else -%}
+                  atomic-openshift
+                  {%- endif -%}
 
             # NOTE(flaper87): Check if origin-node is running in the openshift
             # nodes so we can flag the node as new later on.
-            - name: Check if origin-node is running
-              command: systemctl is-active --quiet origin-node
-              register: origin_nodes
+            - name: Check if node service is running
+              command: "systemctl is-active --quiet {{tripleo_openshift_service_type}}-node"
+              register: node_services
               delegate_to: "{{item}}"
               with_items: "{{ groups[tripleo_role_name] | default([]) }}"
               failed_when: false
@@ -94,7 +109,7 @@ outputs:
             # exited with 1 in the previous task.
             - set_fact:
                 nodes:
-                  - new_node: "{{origin_nodes.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'greaterthan', 0) | list | count > 0}}"
+                  - new_node: "{{node_services.results | selectattr('item', 'equalto', item) | selectattr('stdout', 'greaterthan', 0) | list | count > 0}}"
                     hostname: "{{item}}"
                     ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
                     ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
