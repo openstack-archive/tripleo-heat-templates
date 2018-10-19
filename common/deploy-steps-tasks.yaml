@@ -27,8 +27,8 @@
             state: absent
           tags:
             - host_config
-            - container_puppet
-            - container_puppet_tasks
+            - container_config
+            - container_config_tasks
             - container_config_scripts
             - container_startup_configs
           when:
@@ -45,8 +45,8 @@
             recurse: true
           tags:
             - host_config
-            - container_puppet
-            - container_puppet_tasks
+            - container_config
+            - container_config_tasks
             - container_config_scripts
             - container_startup_configs
           when:
@@ -98,12 +98,60 @@
           tags:
             - container_config
 
+        - name: Delete existing /var/lib/docker-puppet/check-mode for check mode
+          file:
+            path: /var/lib/docker-puppet/check-mode
+            state: absent
+          tags:
+            - container_config
+          ignore_errors: true
+          check_mode: no
+          when:
+            - ansible_check_mode
+
+        - name: Create /var/lib/docker-puppet/check-mode for check mode
+          file:
+            path: /var/lib/docker-puppet/check-mode
+            state: directory
+            setype: svirt_sandbox_file_t
+            selevel: s0
+          tags:
+            - container_config
+          check_mode: no
+          when:
+            - ansible_check_mode
+
         - name: Write docker-puppet.json file
           copy:
-            content: "{{ lookup('file', tripleo_role_name + '/puppet_config.yaml', errors='ignore') | default([], True) | from_yaml | to_json }}"
-            dest: /var/lib/docker-puppet/docker-puppet.json
+            content: "{{ lookup('file', tripleo_role_name + '/puppet_config.yaml', errors='ignore') | default([], True) | from_yaml | to_nice_json }}"
+            dest: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet.json
             force: yes
             mode: '0600'
+          tags:
+            - container_config
+          check_mode: no
+          diff: no
+
+        - name: Diff docker-puppet.json changes for check mode
+          command:
+            diff -uN /var/lib/docker-puppet/docker-puppet.json /var/lib/docker-puppet/check-mode/docker-puppet.json
+          register: diff_results
+          tags:
+            - container_config
+          check_mode: no
+          when:
+            - ansible_check_mode
+            - ansible_diff_mode
+          failed_when: false
+          changed_when: diff_results.rc == 1
+
+        - name: Diff docker-puppet.json changes for check mode
+          debug:
+            var: diff_results.stdout_lines
+          changed_when: diff_results.rc == 1
+          when:
+            - ansible_check_mode
+            - ansible_diff_mode
           tags:
             - container_config
 
@@ -113,7 +161,6 @@
             state: directory
           tags:
             - container_config_scripts
-
 
         # The container config files
         # /var/lib/docker-container-startup-configs.json is removed as we now write
@@ -138,7 +185,6 @@
             role_data_docker_config_scripts: "{{ lookup('file', tripleo_role_name + '/docker_config_scripts.yaml', errors='ignore') | default({}, True) | from_yaml }}"
           tags:
             - container_config_scripts
-
 
         # Here we are dumping all the docker container startup configuration data
         # so that we can have access to how they are started outside of heat
@@ -252,6 +298,7 @@
       when: ansible_check_mode
       tags:
         - host_config
+        - container_config
 
     - name: Create /etc/puppet/check-mode/hieradata directory for check mode
       file:
@@ -266,6 +313,7 @@
         - not check_mode_dir.stat.exists
       tags:
         - host_config
+        - container_config
 
     - name: Write the config_step hieradata
       copy:
@@ -288,6 +336,7 @@
       check_mode: no
       tags:
         - host_config
+        - container_config
 
     - name: Run puppet host configuration for step {{ step }}
       when: enable_puppet|default(true)|bool
@@ -328,6 +377,10 @@
         NET_HOST: 'true'
         DEBUG: '{{ docker_puppet_debug | default(false) }}'
         PROCESS_COUNT: '{{ docker_puppet_process_count | default(3) }}'
+        CONFIG: '/var/lib/docker-puppet/{{ ansible_check_mode | ternary("check-mode/", "") }}docker-puppet.json'
+        CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | ternary("/check-mode", "") }}'
+        CHECK_MODE: '{{ ansible_check_mode | ternary(1, 0) }}'
+        STARTUP_CONFIG_PATTERN: '/var/lib/tripleo-config/{{ ansible_check_mode | ternary("check-mode/", "") }}docker-container-startup-config-step_*.json'
       when: step == "1"
       changed_when: false
       check_mode: no
@@ -342,6 +395,31 @@
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
       failed_when: outputs.rc != 0
+      tags:
+        - container_config
+
+    - name: Diff docker-puppet.py puppet-generated changes for check mode
+      command:
+        diff -ruN /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
+      register: diff_results
+      tags:
+        - container_config
+      check_mode: no
+      when:
+        - step == "1"
+        - ansible_check_mode
+        - ansible_diff_mode
+      failed_when: false
+      changed_when: diff_results.rc == 1
+
+    - name: Diff docker-puppet.py puppet-generated changes for check mode
+      debug:
+        var: diff_results.stdout_lines
+      changed_when: diff_results.rc == 1
+      when:
+        - step == "1"
+        - ansible_check_mode
+        - ansible_diff_mode
       tags:
         - container_config
 
