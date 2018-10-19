@@ -189,12 +189,25 @@ parameters:
       - allowed_values: [ 256, 512, 1024 ]
     tags:
       - role_specific
+  NovaLibvirtFileBackedMemory:
+    description: >
+      Available capacity in MiB for file-backed memory.
+    default: 0
+    type: number
+    tags:
+      - role_specific
 
 conditions:
   enable_live_migration_tunnelled:
     or:
       - equals: [{get_param: NovaNfsEnabled}, true]
       - equals: [{get_param: NovaEnableRbdBackend}, true]
+
+  libvirt_file_backed_memory_enabled:
+    not:
+      or:
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
 
 resources:
   NovaBase:
@@ -224,6 +237,7 @@ resources:
               nova::compute::resume_guests_state_on_host_boot: NovaResumeGuestsStateOnHostBoot
               nova::compute::libvirt::rx_queue_size: NovaLibvirtRxQueueSize
               nova::compute::libvirt::tx_queue_size: NovaLibvirtTxQueueSize
+              nova::compute::libvirt::file_backed_memory: NovaLibvirtFileBackedMemory
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -234,6 +248,7 @@ resources:
               NovaResumeGuestsStateOnHostBoot: {get_param: NovaResumeGuestsStateOnHostBoot}
               NovaLibvirtRxQueueSize: {get_param: NovaLibvirtRxQueueSize}
               NovaLibvirtTxQueueSize: {get_param: NovaLibvirtTxQueueSize}
+              NovaLibvirtFileBackedMemory: {get_param: NovaLibvirtFileBackedMemory}
 
 outputs:
   role_data:
@@ -313,6 +328,12 @@ outputs:
             nova::vncproxy::common::vncproxy_host: {get_param: [EndpointMap, NovaVNCProxyPublic, host_nobrackets]}
             nova::vncproxy::common::vncproxy_port: {get_param: [EndpointMap, NovaVNCProxyPublic, port]}
             nova::compute::verify_glance_signatures: {get_param: [VerifyGlanceSignatures]}
+            # if libvirt_file_backed_memory_enabled we have to set ram_allocation_ratio to 1.0
+            nova::ram_allocation_ratio:
+              if:
+              - libvirt_file_backed_memory_enabled
+              - '1.0'
+              - null
       step_config: |
         # TODO(emilien): figure how to deal with libvirt profile.
         # We'll probably treat it like we do with Neutron plugins.
