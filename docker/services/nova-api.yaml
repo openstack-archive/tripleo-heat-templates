@@ -323,14 +323,6 @@ outputs:
                   - ''
                   - - 'TRIPLEO_DEPLOY_IDENTIFIER='
                     - {get_param: DeployIdentifier}
-          nova_online_migrations:
-            start_order: 2
-            image: *nova_api_image
-            net: host
-            detach: false
-            volumes: *nova_api_bootstrap_volumes
-            user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
       metadata_settings:
         get_attr: [NovaApiBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
@@ -374,18 +366,13 @@ outputs:
               when:
                 - nova_api_httpd_enabled|bool
                 - httpd_running|bool
-            # NOTE: In puppet service variant, we ran release N online
-            # migrations before upgrade to release N+1. In docker
-            # service variant, we run release N online migrations
-            # after upgrade to release N. This means that during
-            # switch from non-containerized to containerized, we need
-            # to run both of these.
-            - name: Online data migration for Nova before switching to containers
+            - name: Ensure all online data migrations for Nova have been applied
+              command: docker exec nova_api nova-manage db online_data_migrations
               tags: pre-upgrade
               when:
                 - is_bootstrap_node|bool
-                - (nova_api_httpd_enabled|bool and httpd_running|bool) or nova_api_enabled|bool
-              command: nova-manage db online_data_migrations
+                - not (nova_api_httpd_enabled|bool and httpd_running|bool)
+                - not nova_api_enabled|bool
         - when: step|int == 2
           block:
             - name: Stop and disable nova_api service
@@ -411,6 +398,16 @@ outputs:
               file:
                 path: /var/spool/cron/nova
                 state: absent
+      external_upgrade_tasks:
+        - when: step|int == 1
+          block:
+            - name: Online data migration for Nova
+              command: docker exec nova_api nova-manage db online_data_migrations
+              delegate_to: "{{ groups['nova_api'][0] }}"
+              become: true
+              tags:
+                - online_upgrade
+                - online_upgrade_nova
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
