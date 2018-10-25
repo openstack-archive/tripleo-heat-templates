@@ -28,6 +28,8 @@ import tempfile
 import time
 import multiprocessing
 
+from paunch import runner as containers_runner
+
 logger = None
 sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
 container_cli = os.environ.get('CONTAINER_CLI', 'docker')
@@ -63,6 +65,9 @@ if not os.path.exists(config_volume_prefix):
 if container_cli == 'docker':
     cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z']
     env = {}
+    # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
+    RUNNER = containers_runner.DockerRunner(
+        'docker-puppet', cont_cmd='docker')
 elif container_cli == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
@@ -70,6 +75,9 @@ elif container_cli == 'podman':
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
     # podman need to find dependent binaries that are in environment
     env = {'PATH': os.environ['PATH']}
+    # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
+    RUNNER = containers_runner.PodmanRunner(
+        'docker-puppet', cont_cmd='podman')
 else:
     log.error('Invalid container_cli: %s' % container_cli)
     sys.exit(1)
@@ -347,12 +355,14 @@ def mp_puppet_config(*args):
             man_file.write('include ::tripleo::packages\n')
             man_file.write(manifest)
 
-        rm_container('docker-puppet-%s' % config_volume)
+        uname = RUNNER.unique_container_name('docker-puppet-%s' %
+                                             config_volume)
+        rm_container(uname)
         pull_image(config_image)
 
         common_dcmd = [cli_cmd, 'run',
                 '--user', 'root',
-                '--name', 'docker-puppet-%s' % config_volume,
+                '--name', uname,
                 '--env', 'PUPPET_TAGS=%s' % puppet_tags,
                 '--env', 'NAME=%s' % config_volume,
                 '--env', 'HOSTNAME=%s' % short_hostname(),
@@ -419,7 +429,7 @@ def mp_puppet_config(*args):
             if cmd_stderr:
                 log.debug(cmd_stderr)
             # only delete successful runs, for debugging
-            rm_container('docker-puppet-%s' % config_volume)
+            rm_container(uname)
 
         log.info('Finished processing puppet configs for %s' % (config_volume))
         return subproc.returncode
