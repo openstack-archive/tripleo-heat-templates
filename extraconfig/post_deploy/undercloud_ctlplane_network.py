@@ -185,7 +185,17 @@ def _get_segment(sdk, phy, network_id):
     return False if not segment else segment[0]
 
 
-def _local_neutron_segments_and_subnets(sdk, ctlplane_id):
+def _set_network_tags(sdk, network, tags):
+    try:
+        sdk.network.set_tags(network, tags=tags)
+        print('INFO: Tags %s added to network %s.' % (tags, network.name))
+    except Exception:
+        print('ERROR: Setting tags %s on network %s failed.' %
+              (tags, network.name))
+        raise
+
+
+def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     """Create's and updates the ctlplane subnet on the segment that is local to
     the underclud.
     """
@@ -219,9 +229,11 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id):
         #  advertisments are sent out for stateless IP addressing to work.
         if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
             _ensure_neutron_router(sdk, name, subnet.id)
+    net_cidrs.append(s['NetworkCidr'])
 
+    return net_cidrs
 
-def _remote_neutron_segments_and_subnets(sdk, ctlplane_id):
+def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     """Create's and updates the ctlplane subnet(s) on segments that is
     not local to the undercloud.
     """
@@ -255,7 +267,9 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id):
             # advertisments are sent out for stateless IP addressing to work.
             if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
                 _ensure_neutron_router(sdk, name, subnet.id)
+        net_cidrs.append(s['NetworkCidr'])
 
+    return net_cidrs
 
 if 'true' not in _run_command(['hiera', 'neutron_api_enabled'],
                               name='hiera').lower():
@@ -265,9 +279,14 @@ else:
     sdk = openstack.connect(CONF['cloud_name'])
 
     network = _ensure_neutron_network(sdk)
+    net_cidrs = []
     # Always create/update the local_subnet first to ensure it is can have the
     # subnet associated with a segment prior to creating the remote subnets if
     # the user enabled routed networks support on undercloud update.
-    _local_neutron_segments_and_subnets(sdk, network.id)
+    net_cidrs = _local_neutron_segments_and_subnets(sdk, network.id, net_cidrs)
     if CONF['enable_routed_networks']:
-        _remote_neutron_segments_and_subnets(sdk, network.id)
+        net_cidrs = _remote_neutron_segments_and_subnets(sdk, network.id,
+                                                         net_cidrs)
+    # Set the cidrs for all ctlplane subnets as tags on the ctlplane network.
+    # These tags are used for the NetCidrMapValue in tripleo-heat-templates.
+    _set_network_tags(sdk, network, net_cidrs)
