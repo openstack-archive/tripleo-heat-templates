@@ -55,7 +55,8 @@ def get_logger():
 log = get_logger()
 log.info('Running docker-puppet')
 
-config_volume_prefix = os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data')
+config_volume_prefix = os.path.abspath(os.environ.get('CONFIG_VOLUME_PREFIX',
+                                                      '/var/lib/config-data'))
 log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
 if not os.path.exists(config_volume_prefix):
     os.makedirs(config_volume_prefix)
@@ -169,9 +170,9 @@ def rm_container(name):
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
 config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
+log.debug('CONFIG: %s' % config_file)
 # If specified, only this config_volume will be used
 config_volume_only = os.environ.get('CONFIG_VOLUME', None)
-log.debug('CONFIG: %s' % config_file)
 with open(config_file) as f:
     json_data = json.load(f)
 
@@ -367,7 +368,7 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
-                '--volume', '%s:/var/lib/config-data/:rw,z' % os.environ.get('CONFIG_VOLUME_PREFIX', '/var/lib/config-data'),
+                '--volume', '%s:/var/lib/config-data/:rw,z' % config_volume_prefix,
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw',
                 # script injection
