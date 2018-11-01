@@ -378,7 +378,7 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
-                '--volume', '%s:/var/lib/config-data/:rw,z' % config_volume_prefix,
+                '--volume', '%s:/var/lib/config-data/:rw' % config_volume_prefix,
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw',
                 # script injection
