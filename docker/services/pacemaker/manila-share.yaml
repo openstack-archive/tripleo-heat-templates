@@ -125,29 +125,6 @@ outputs:
               recurse: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
-        step_1:
-          manila_share_image_tag:
-            start_order: 1
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'MANILASHARE_IMAGE' 'MANILASHARE_IMAGE_PCMKLATEST'"
-                  params:
-                    MANILASHARE_IMAGE: {get_param: DockerManilaShareImage}
-                    MANILASHARE_IMAGE_PCMKLATEST: *manila_share_image_pcmklatest
-            image: {get_param: DockerManilaShareImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_3:
           manila_share_init_logs:
             start_order: 0
@@ -227,6 +204,14 @@ outputs:
           file:
             path: /etc/ceph
             state: directory
+      deploy_steps_tasks:
+        - name: Manila Share tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerManilaShareImage}
+            container_image_latest: *manila_share_image_pcmklatest
       update_tasks:
         - name: Manila-Share fetch and retag container image for pacemaker
           when: step|int == 2
@@ -253,7 +238,11 @@ outputs:
             - name: Pull latest Manila-Share images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Manila-Share image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
@@ -278,7 +267,11 @@ outputs:
                   shell: "docker images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
                   register: manila_share_current_pcmklatest_id
                 - name: Temporarily tag the current Manila-Share image id with the upgraded image name
-                  shell: "docker tag {{manila_share_current_pcmklatest_id.stdout}} {{manila_share_docker_image_latest}}"
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{manila_share_current_pcmklatest_id.stdout}}"
+                    container_image_latest: "{{manila_share_docker_image_latest}}"
                   when: manila_share_current_pcmklatest_id.stdout != ''
             - name: Check openstack-manila-share cluster resource status
               pacemaker_resource:

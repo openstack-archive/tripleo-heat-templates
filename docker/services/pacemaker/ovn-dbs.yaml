@@ -119,29 +119,6 @@ outputs:
               optional: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
-        step_2:
-          ovn_dbs_image_tag:
-            start_order: 0
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'OVN_DBS_IMAGE' 'OVN_DBS_IMAGE_PCMKLATEST'"
-                  params:
-                    OVN_DBS_IMAGE: {get_param: DockerOvnDbsImage}
-                    OVN_DBS_IMAGE_PCMKLATEST: *ovn_dbs_image_pcmklatest
-            image: {get_param: DockerOvnDbsImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_3:
           ovn_dbs_restart_bundle:
             start_order: 0
@@ -209,6 +186,14 @@ outputs:
               Log files from openvswitch containers can be found under
               /var/log/containers/openvswitch.
           ignore_errors: true
+      deploy_steps_tasks:
+        - name: OVN DBS tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerOvnDbsImage}
+            container_image_latest: *ovn_dbs_image_pcmklatest
       update_tasks:
         - name: Get docker ovn-dbs image
           set_fact:
@@ -249,7 +234,11 @@ outputs:
             - name: Pull latest ovn-dbs images
               command: "docker pull {{ovn_dbs_docker_image}}"
             - name: Retag pcmklatest to latest ovn-dbs image
-              shell: "docker tag {{ovn_dbs_docker_image}} {{ovn_dbs_docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
         # When ovn-dbs-bundle support was added, we didn't tag the ovn-dbs image
@@ -301,7 +290,11 @@ outputs:
               shell: "docker images | awk '/ovn.* pcmklatest/{print $3}' | uniq"
               register: ovn_dbs_current_pcmklatest_id
             - name: Temporarily tag the current ovn-dbs pcmklatest image id with the upgraded image name
-              shell: "docker tag {{ovn_dbs_current_pcmklatest_id.stdout}} {{ovn_dbs_docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{ovn_dbs_current_pcmklatest_id.stdout}}"
+                container_image_latest: "{{ovn_dbs_docker_image_latest}}"
               when: ovn_dbs_current_pcmklatest_id.stdout != ''
             # If ovn-dbs image is not tagged with pcmklatest, then create a new
             # tag. This could happen if the stack is upgraded without updating the stack before.
@@ -313,7 +306,11 @@ outputs:
                   shell: "pcs resource show ovn-dbs-bundle | grep image | awk '{ split($2, image, \"=\"); print image[2] }'"
                   register: ovn_dbs_current_image
                 - name: Tag the current image with pcmklatest tag
-                  shell: "docker tag {{ovn_dbs_current_image.stdout}} {{ovn_dbs_docker_image_latest}}"
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{ovn_dbs_current_image.stdout}}"
+                    container_image_latest: "{{ovn_dbs_docker_image_latest}}"
               when:
                 - ovn_dbs_current_pcmklatest_id.stdout == ''
         - name: Check ovn-dbs-bundle cluster resource status

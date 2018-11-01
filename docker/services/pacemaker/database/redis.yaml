@@ -186,29 +186,6 @@ outputs:
               optional: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
-        step_1:
-          redis_image_tag:
-            start_order: 1
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'REDIS_IMAGE' 'REDIS_IMAGE_PCMKLATEST'"
-                  params:
-                    REDIS_IMAGE: {get_param: DockerRedisImage}
-                    REDIS_IMAGE_PCMKLATEST: *redis_image_pcmklatest
-            image: {get_param: DockerRedisImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           map_merge:
             - redis_restart_bundle:
@@ -299,6 +276,14 @@ outputs:
               Log files from redis containers can be found under
               /var/log/containers/redis.
           ignore_errors: true
+      deploy_steps_tasks:
+        - name: Redis tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerRedisImage}
+            container_image_latest: *redis_image_pcmklatest
       update_tasks:
         - name: Redis fetch and retag container image for pacemaker
           when: step|int == 2
@@ -325,7 +310,11 @@ outputs:
             - name: Pull latest Redis images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Redis image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
@@ -354,7 +343,11 @@ outputs:
                   shell: "docker images | awk '/redis.* pcmklatest/{print $3}' | uniq"
                   register: redis_current_pcmklatest_id
                 - name: Temporarily tag the current redis image id with the upgraded image name
-                  shell: "docker tag {{redis_current_pcmklatest_id.stdout}} {{redis_docker_image_latest}}"
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{redis_current_pcmklatest_id.stdout}}"
+                    container_image_latest: "{{redis_docker_image_latest}}"
                   when: redis_current_pcmklatest_id.stdout != ''
             - name: Check redis-bundle cluster resource status
               pacemaker_resource:

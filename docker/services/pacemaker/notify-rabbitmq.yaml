@@ -172,28 +172,6 @@ outputs:
                           passwords:
                             - {get_param: RabbitCookie}
                             - {get_param: [DefaultPasswords, rabbit_cookie]}
-          rabbitmq_image_tag:
-            start_order: 1
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'RABBITMQ_IMAGE' 'RABBITMQ_IMAGE_PCMKLATEST'"
-                  params:
-                    RABBITMQ_IMAGE: {get_param: DockerRabbitmqImage}
-                    RABBITMQ_IMAGE_PCMKLATEST: *rabbitmq_image_pcmklatest
-            image: {get_param: DockerRabbitmqImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           rabbitmq_restart_bundle:
             start_order: 0
@@ -268,6 +246,14 @@ outputs:
             for pid in $(pgrep epmd --ns 1 --nslist pid); do kill $pid; done
       metadata_settings:
         get_attr: [RabbitmqBase, role_data, metadata_settings]
+      deploy_steps_tasks:
+        - name: RabbitMQ tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerRabbitmqImage}
+            container_image_latest: *rabbitmq_image_pcmklatest
       update_tasks:
         - name: Rabbit fetch and retag container image for pacemaker
           when: step|int == 2
@@ -294,7 +280,11 @@ outputs:
             - name: Pull latest Rabbitmq images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Rabbitmq image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
