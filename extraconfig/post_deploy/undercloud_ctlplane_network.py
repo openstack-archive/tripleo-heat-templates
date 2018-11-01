@@ -260,8 +260,11 @@ def config_neutron_segments_and_subnets(sdk, ctlplane_id):
                 _ensure_neutron_router(sdk, name, subnet.id)
 
 
-
-if _run_command(['hiera', 'neutron_api_enabled'], name='hiera'):
+if 'true' not in _run_command(['hiera', 'neutron_api_enabled'],
+                              name='hiera').lower():
+    print('WARNING: UndercloudCtlplaneNetworkDeployment : The Neutron API '
+          'is disabled. The ctlplane network cannot be configured.')
+else:
     sdk = os_client_config.make_sdk(auth_url=AUTH_URL,
                                     project_name='admin',
                                     username='admin',
