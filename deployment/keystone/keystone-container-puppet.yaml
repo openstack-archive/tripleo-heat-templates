@@ -1,47 +1,25 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Keystone service configured with Puppet
+  OpenStack containerized Keystone service
 
 parameters:
-  KeystoneEnableDBPurge:
-    default: true
-    description: |
-        Whether to create cron job for purging soft deleted rows in Keystone database.
-    type: boolean
-  KeystoneSSLCertificate:
-    default: ''
-    description: Keystone certificate for verifying token validity.
+  DockerKeystoneImage:
+    description: image
     type: string
-  KeystoneSSLCertificateKey:
-    default: ''
-    description: Keystone key for signing tokens.
+  DockerKeystoneConfigImage:
+    description: The container image to use for the keystone config_volume
     type: string
-    hidden: true
-  KeystoneNotificationDriver:
-    description: Comma-separated list of Oslo notification drivers used by Keystone
-    default: ['messaging']
-    type: comma_delimited_list
-  KeystoneNotificationFormat:
-    description: The Keystone notification format
-    default: 'basic'
-    type: string
-    constraints:
-      - allowed_values: [ 'basic', 'cadf' ]
-  KeystoneNotificationTopics:
-    description: Keystone notification topics to enable
-    default: []
-    type: comma_delimited_list
-  KeystoneRegion:
-    type: string
-    default: 'regionOne'
-    description: Keystone region for endpoint
-  KeystoneTokenProvider:
-    description: The keystone token format
-    type: string
-    default: 'fernet'
-    constraints:
-      - allowed_values: ['uuid', 'fernet']
+  KeystoneLoggingSource:
+    type: json
+    default:
+      tag: openstack.keystone
+      path: /var/log/containers/keystone/keystone.log
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -63,11 +41,51 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+  KeystoneTokenProvider:
+    description: The keystone token format
+    type: string
+    default: 'fernet'
+    constraints:
+      - allowed_values: ['uuid', 'fernet']
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+  KeystoneEnableDBPurge:
+    default: true
+    description: |
+        Whether to create cron job for purging soft deleted rows in Keystone database.
+    type: boolean
+  KeystoneSSLCertificate:
+    default: ''
+    description: Keystone certificate for verifying token validity.
+    type: string
+  KeystoneSSLCertificateKey:
+    default: ''
+    description: Keystone key for signing tokens.
+    type: string
+    hidden: true
+  KeystoneNotificationFormat:
+    description: The Keystone notification format
+    default: 'basic'
+    type: string
+    constraints:
+      - allowed_values: [ 'basic', 'cadf' ]
+  KeystoneNotificationTopics:
+    description: Keystone notification topics to enable
+    default: []
+    type: comma_delimited_list
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
   Debug:
     type: boolean
     default: false
@@ -81,10 +99,6 @@ parameters:
   AdminEmail:
     default: 'admin@example.com'
     description: The email for the keystone admin account.
-    type: string
-    hidden: true
-  AdminPassword:
-    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
     type: string
     hidden: true
   AdminToken:
@@ -126,14 +140,6 @@ parameters:
   KeystoneCredential1:
     type: string
     description: The second Keystone credential key. Must be a valid key.
-  KeystoneFernetKey0:
-    type: string
-    default: ''
-    description: (DEPRECATED) The first Keystone fernet key. Must be a valid key.
-  KeystoneFernetKey1:
-    type: string
-    default: ''
-    description: (DEPRECATED) The second Keystone fernet key. Must be a valid key.
   KeystoneFernetKeys:
     type: json
     description: Mapping containing keystone's fernet keys and their paths.
@@ -153,35 +159,32 @@ parameters:
     type: json
     default:
       tag: openstack.keystone
-      path: /var/log/keystone/keystone.log
+      path: /var/log/containers/keystone/keystone.log
   KeystoneErrorLoggingSource:
     type: json
     default:
       tag: openstack.keystone.error
-      path: /var/log/httpd/keystone/error_log
+      path: /var/log/containers/httpd/keystone/error_log
   KeystoneAdminAccessLoggingSource:
     type: json
     default:
       tag: openstack.keystone.admin.access
-      path: /var/log/httpd/keystone/keystone_wsgi_admin_access.log
+      path: /var/log/containers/httpd/keystone/keystone_wsgi_admin_access.log
   KeystoneAdminErrorLoggingSource:
     type: json
     default:
       tag: openstack.keystone.admin.error
-      path: /var/log/httpd/keystone/keystone_wsgi_admin_error.log
+      path: /var/log/containers/httpd/keystone/keystone_wsgi_admin_error.log
   KeystoneMainAcccessLoggingSource:
     type: json
     default:
       tag: openstack.keystone.main.access
-      path: /var/log/httpd/keystone/keystone_wsgi_main_access.log
+      path: /var/log/containers/httpd/keystone/keystone_wsgi_main_access.log
   KeystoneMainErrorLoggingSource:
     type: json
     default:
       tag: openstack.keystone.wsgi.main.error
-      path: /var/log/httpd/keystone/keystone_wsgi_main_error.log
-  EnableInternalTLS:
-    type: boolean
-    default: false
+      path: /var/log/containers/httpd/keystone/keystone_wsgi_main_error.log
   KeystoneCronTokenFlushEnsure:
     type: string
     description: >
@@ -365,22 +368,16 @@ parameters:
       Attribute to be used to obtain the entity ID of the Identity Provider
       from the environment.
 
-parameter_groups:
-- label: deprecated
-  description: |
-   The following parameters are deprecated and will be removed. They should not
-   be relied on for new deployments. If you have concerns regarding deprecated
-   parameters, please contact the TripleO development team on IRC or the
-   OpenStack mailing list.
-  parameters:
-  - KeystoneFernetKey0
-  - KeystoneFernetKey1
-  - KeystoneNotificationDriver
-
 resources:
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
+
   ApacheServiceBase:
-    type: ./apache.yaml
+    type: ../../puppet/services/apache.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -390,7 +387,12 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  KeystoneLogging:
+    type: OS::TripleO::Services::Logging::Keystone
+
 conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   keystone_fernet_tokens: {equals: [{get_param: KeystoneTokenProvider}, "fernet"]}
   keystone_ldap_domain_enabled: {equals: [{get_param: KeystoneLDAPDomainEnable}, True]}
   keystone_federation_enabled: {equals: [{get_param: KeystoneFederationEnable}, True]}
@@ -411,7 +413,7 @@ conditions:
 
 outputs:
   role_data:
-    description: Role data for the Keystone role.
+    description: Role data for the Keystone API role.
     value:
       service_name: keystone
       monitoring_subscription: {get_param: MonitoringSubscriptionKeystone}
@@ -641,9 +643,8 @@ outputs:
             - unique_last_password_count_set
             - keystone::security_compliance::unique_last_password_count: {get_param: KeystoneUniqueLastPasswordCount}
             - {}
-
-      step_config: |
-        include ::tripleo::profile::base::keystone
+          - apache::default_vhost: false
+          - get_attr: [KeystoneLogging, config_settings]
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_keystone:
@@ -676,12 +677,191 @@ outputs:
             horizon::keystone_multidomain_support: true
             horizon::keystone_default_domain: 'Default'
           - {}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: keystone
+        puppet_tags: keystone_config,keystone_domain_config
+        step_config:
+          list_join:
+            - "\n"
+            - - "['Keystone_user', 'Keystone_endpoint', 'Keystone_domain', 'Keystone_tenant', 'Keystone_user_role', 'Keystone_role', 'Keystone_service'].each |String $val| { noop_resource($val) }"
+              - |
+                include ::tripleo::profile::base::keystone
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: &keystone_config_image {get_param: DockerKeystoneConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/keystone.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/etc/keystone/fernet-keys"
+              dest: "/etc/keystone/fernet-keys"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+        /var/lib/kolla/config_files/keystone_cron.json:
+          # FIXME(dprince): this is unused ATM because Kolla hardcodes the
+          # args for the keystone container to -DFOREGROUND
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/keystone
+              owner: keystone:keystone
+              recurse: true
+      docker_config:
+        # Kolla_bootstrap/db sync runs before permissions set by kolla_config
+        step_2:
+          get_attr: [KeystoneLogging, docker_config, step_2]
+        step_3:
+          keystone_db_sync:
+            image: &keystone_image {get_param: DockerKeystoneImage}
+            net: host
+            user: root
+            privileged: false
+            detach: false
+            volumes: &keystone_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              list_concat:
+              - - KOLLA_BOOTSTRAP=True
+                - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - {get_attr: [KeystoneLogging, environment]}
+            command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
+          keystone:
+            start_order: 2
+            image: *keystone_image
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes: *keystone_volumes
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          keystone_bootstrap:
+            start_order: 3
+            action: exec
+            user: root
+            command:
+              [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap', '--bootstrap-password', {get_param: AdminPassword} ]
+          keystone_cron:
+            start_order: 4
+            image: *keystone_image
+            user: root
+            net: host
+            privileged: false
+            restart: always
+            command: ['/bin/bash', '-c', '/usr/local/bin/kolla_set_configs && /usr/sbin/crond -n']
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_4:
+          # There are cases where we need to refresh keystone after the resource provisioning,
+          # such as the case of using LDAP backends for domains. So we trigger a graceful
+          # restart [1], which shouldn't cause service disruption, but will reload new
+          # configurations for keystone.
+          # [1] https://httpd.apache.org/docs/2.4/stopping.html#graceful
+          keystone_refresh:
+            start_order: 1
+            action: exec
+            user: root
+            command:
+              [ 'keystone', 'pkill', '--signal', 'USR1', 'httpd' ]
+      docker_puppet_tasks:
+        # Keystone endpoint creation occurs only on single node
+        step_3:
+          config_volume: 'keystone_init_tasks'
+          puppet_tags: 'keystone_config,keystone_domain_config,keystone_endpoint,keystone_identity_provider,keystone_paste_ini,keystone_role,keystone_service,keystone_tenant,keystone_user,keystone_user_role,keystone_domain'
+          step_config: 'include ::tripleo::profile::base::keystone'
+          config_image: *keystone_config_image
+      host_prep_tasks: {get_attr: [KeystoneLogging, host_prep_tasks]}
+      upgrade_tasks:
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-keystone package
+              set_fact:
+                remove_keystone_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-keystone package if operator requests it
+              package: name=openstack-keystone state=removed
+              ignore_errors: True
+              when: remove_keystone_package|bool
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
-      upgrade_tasks:
-        list_concat:
-          - get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
-          -
-            - name: Stop keystone service (running under httpd)
-              when: step|int == 1
-              service: name=httpd state=stopped
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - keystone
+              - keystone_cron
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: Check for keystone running under apache
+              tags: common
+              shell: "httpd -t -D DUMP_VHOSTS | grep -q keystone_wsgi"
+              ignore_errors: true
+              register: keystone_httpd_enabled_result
+            - name: Set fact keystone_httpd_enabled
+              set_fact:
+                keystone_httpd_enabled: "{{ keystone_httpd_enabled_result.rc == 0 }}"
+            - name: Check if httpd is running
+              ignore_errors: True
+              command: systemctl is-active --quiet httpd
+              register: httpd_running_result
+              when:
+                - httpd_running is undefined
+            - name: Set fact httpd_running if undefined
+              set_fact:
+                httpd_running: "{{ httpd_running_result.rc == 0 }}"
+              when:
+                - httpd_running is undefined
+        - name: Stop and disable keystone (under httpd)
+          service: name=httpd state=stopped enabled=no
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - keystone_httpd_enabled|bool
+            - httpd_running|bool
+        - name: Keystone package update
+          package:
+            name: 'openstack-keystone*'
+            state: latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: keystone db sync
+          command: keystone-manage db_sync
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool
