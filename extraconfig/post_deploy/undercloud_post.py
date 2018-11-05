@@ -5,22 +5,12 @@ import os
 import openstack
 import subprocess
 
-from keystoneauth1 import session
 from keystoneauth1 import exceptions as ks_exceptions
-import keystoneauth1.identity.generic as ks_auth
 from mistralclient.api import client as mistralclient
 from mistralclient.api import base as mistralclient_exc
 
 
-AUTH_URL = os.environ['auth_url']
-ADMIN_PASSWORD = os.environ['admin_password']
 CONF = json.loads(os.environ['config'])
-KS_AUTH = {'auth_url': AUTH_URL,
-           'project_name': 'admin',
-           'username': 'admin',
-           'password': ADMIN_PASSWORD,
-           'project_domain_name': 'Default',
-           'user_domain_name': 'Default'}
 WORKBOOK_PATH = '/usr/share/openstack-tripleo-common/workbooks'
 THT_DIR = '/usr/share/openstack-tripleo-heat-templates'
 
@@ -174,16 +164,15 @@ if not mistral_api_enabled:
 if not tripleo_validations_enabled:
     print('WARNING: Undercloud Post - Tripleo validations is disabled.')
 
-sdk = openstack.connect(**KS_AUTH)
+sdk = openstack.connect(CONF['cloud_name'])
 
 try:
     if nova_api_enabled:
         _configure_nova(sdk)
         _create_default_keypair(sdk)
     if mistral_api_enabled:
-        mistral = mistralclient.client(
-            mistral_url=sdk.workflow.get_endpoint(),
-            session=session.Session(auth=ks_auth.Password(**KS_AUTH)))
+        mistral = mistralclient.client(mistral_url=sdk.workflow.get_endpoint(),
+                                       session=sdk.session)
         _configure_wrokbooks_and_workflows(mistral)
         _create_logging_cron(mistral)
         _store_snmp_password_in_mistral_env(mistral)

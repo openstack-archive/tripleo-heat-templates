@@ -54,14 +54,19 @@ resources:
   StandalonePostConfig:
     type: OS::Heat::SoftwareConfig
     properties:
-      group: script
-      inputs:
-        - name: admin_password
-        - name: auth_url
-        - name: cloud_name
-        - name: homedir
-        - name: region_name
-      config: {get_file: ./standalone_post.sh}
+      group: ansible
+      config: |
+        ---
+        - name: StandalonePostConfig
+          connection: local
+          hosts: localhost
+          tasks:
+            - name: Hiera symlink
+              file:
+                src: /etc/puppet/hiera.yaml
+                dest: /etc/hiera.yaml
+                state: link
+                force: yes
 
   StandalonePostDeployment:
     type: OS::Heat::SoftwareDeployments
@@ -69,9 +74,32 @@ resources:
       name: StandalonePostDeployment
       servers: {get_param: servers}
       config: {get_resource: StandalonePostConfig}
+
+  CloudsYamlConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: admin_password
+        - name: auth_url
+        - name: cloud_name
+        - name: home_dir
+        - name: identity_api_version
+        - name: project_name
+        - name: project_domain_name
+        - name: region_name
+        - name: user_name
+        - name: user_domain_name
+      config: {get_file: ./clouds_yaml.py}
+
+  CloudsYamlDeployment:
+    type: OS::Heat::SoftwareDeployments
+    properties:
+      name: CloudsYamlDeployment
+      servers: {get_param: servers}
+      config: {get_resource: CloudsYamlConfig}
       input_values:
         admin_password: {get_param: AdminPassword}
-        # if SSL is enabled we use the public virtual ip as the stackrc endpoint
         auth_url:
           if:
           - tls_enabled
@@ -86,5 +114,10 @@ resources:
               port: 5000
               path: /
         cloud_name: {get_param: StandaloneCloudName}
-        homedir: {get_param: StandaloneHomeDir}
+        home_dir: {get_param: StandaloneHomeDir}
+        identity_api_version: 3
+        project_name: 'admin'
+        project_domain_name: 'Default'
         region_name: {get_param: KeystoneRegion}
+        user_name: 'admin'
+        user_domain_name: 'Default'
