@@ -227,28 +227,6 @@ outputs:
                           passwords:
                             - {get_param: MysqlRootPassword}
                             - {get_param: [DefaultPasswords, mysql_root_password]}
-          mysql_image_tag:
-            start_order: 2
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'MYSQL_IMAGE' 'MYSQL_IMAGE_PCMKLATEST'"
-                  params:
-                    MYSQL_IMAGE: {get_param: DockerMysqlImage}
-                    MYSQL_IMAGE_PCMKLATEST: *mysql_image_pcmklatest
-            image: {get_param: DockerMysqlImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_2:
           mysql_restart_bundle:
             start_order: 0
@@ -319,6 +297,14 @@ outputs:
           ignore_errors: true
       metadata_settings:
         get_attr: [MysqlPuppetBase, role_data, metadata_settings]
+      deploy_steps_tasks:
+        - name: MySQL tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerMysqlImage}
+            container_image_latest: *mysql_image_pcmklatest
       update_tasks:
         - name: Mariadb fetch and retag container image for pacemaker
           when: step|int == 2
@@ -345,7 +331,11 @@ outputs:
             - name: Pull latest Mariadb images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Mariadb image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
@@ -374,7 +364,11 @@ outputs:
                   shell: "docker images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
                   register: galera_current_pcmklatest_id
                 - name: Temporarily tag the current galera image id with the upgraded image name
-                  shell: "docker tag {{galera_current_pcmklatest_id.stdout}} {{mysql_docker_image_latest}}"
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{galera_current_pcmklatest_id.stdout}}"
+                    container_image_latest: "{{mysql_docker_image_latest}}"
                   when: galera_current_pcmklatest_id.stdout != ''
             - name: Check galera cluster resource status
               pacemaker_resource:

@@ -210,30 +210,6 @@ outputs:
               optional: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
-        step_1:
-          haproxy_image_tag:
-            start_order: 1
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'HAPROXY_IMAGE' 'HAPROXY_IMAGE_PCMKLATEST'"
-                  params:
-                    HAPROXY_IMAGE: {get_param: DockerHAProxyImage}
-                    HAPROXY_IMAGE_PCMKLATEST: *haproxy_image_pcmklatest
-            image: {get_param: DockerHAProxyImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
-            image: {get_param: DockerHAProxyImage}
         step_2:
           haproxy_restart_bundle:
             start_order: 2
@@ -305,6 +281,14 @@ outputs:
             - { 'path': /var/lib/haproxy, 'setype': svirt_sandbox_file_t }
       metadata_settings:
         get_attr: [HAProxyBase, role_data, metadata_settings]
+      deploy_steps_tasks:
+        - name: HAproxy tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerHAProxyImage}
+            container_image_latest: *haproxy_image_pcmklatest
       update_tasks:
         - name: Set HAProxy upgrade facts
           block: &haproxy_update_upgrade_facts
@@ -383,7 +367,11 @@ outputs:
             - name: Pull latest Haproxy images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Haproxy image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{ docker_image }}"
+                container_image_latest: "{{ docker_image_latest }}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
@@ -402,7 +390,11 @@ outputs:
                   shell: "docker images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
                   register: haproxy_current_pcmklatest_id
                 - name: Temporarily tag the current haproxy image id with the upgraded image name
-                  shell: "docker tag {{haproxy_current_pcmklatest_id.stdout}} {{haproxy_docker_image_latest}}"
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{haproxy_current_pcmklatest_id.stdout}}"
+                    container_image_latest: "{{haproxy_docker_image_latest}}"
                   when: haproxy_current_pcmklatest_id.stdout != ''
             - name: Check haproxy-bundle cluster resource status
               pacemaker_resource:

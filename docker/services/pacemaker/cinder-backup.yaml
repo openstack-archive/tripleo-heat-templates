@@ -158,29 +158,6 @@ outputs:
               recurse: true
       docker_config_scripts: {get_attr: [ContainersCommon, docker_config_scripts]}
       docker_config:
-        step_1:
-          cinder_backup_image_tag:
-            start_order: 1
-            detach: false
-            net: host
-            user: root
-            command:
-              - '/bin/bash'
-              - '-c'
-              - str_replace:
-                  template:
-                    "/usr/bin/docker tag 'CINDERBACKUP_IMAGE' 'CINDERBACKUP_IMAGE_PCMKLATEST'"
-                  params:
-                    CINDERBACKUP_IMAGE: {get_param: DockerCinderBackupImage}
-                    CINDERBACKUP_IMAGE_PCMKLATEST: *cinder_backup_image_pcmklatest
-            image: {get_param: DockerCinderBackupImage}
-            volumes:
-              - /etc/hosts:/etc/hosts:ro
-              - /etc/localtime:/etc/localtime:ro
-              - /dev/shm:/dev/shm:rw
-              - /etc/sysconfig/docker:/etc/sysconfig/docker:ro
-              - /usr/bin:/usr/bin:ro
-              - /var/run/docker.sock:/var/run/docker.sock:rw
         step_3:
           cinder_backup_init_logs:
             start_order: 0
@@ -260,6 +237,14 @@ outputs:
           file:
             path: /etc/ceph
             state: directory
+      deploy_steps_tasks:
+        - name: Cinder Backup tag container image for pacemaker
+          when: step|int == 2
+          import_role:
+            name: tripleo-container-tag
+          vars:
+            container_image: {get_param: DockerCinderBackupImage}
+            container_image_latest: *cinder_backup_image_pcmklatest
       update_tasks:
         - name: Cinder-Backup fetch and retag container image for pacemaker
           when: step|int == 2
@@ -286,7 +271,11 @@ outputs:
             - name: Pull latest Cinder-Backup images
               command: "docker pull {{docker_image}}"
             - name: Retag pcmklatest to latest Cinder-Backup image
-              shell: "docker tag {{docker_image}} {{docker_image_latest}}"
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{docker_image}}"
+                container_image_latest: "{{docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
@@ -311,8 +300,12 @@ outputs:
                   shell: "docker images | awk '/cinder-backup.* pcmklatest/{print $3}' | uniq"
                   register: cinder_backup_current_pcmklatest_id
                 - name: Temporarily tag the current cinder_backup image id with the upgraded image name
-                  shell: "docker tag {{cinder_backup_current_pcmklatest_id.stdout}} {{cinder_backup_docker_image_latest}}"
                   when: cinder_backup_current_pcmklatest_id.stdout != ''
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{cinder_backup_current_pcmklatest_id.stdout}}"
+                    container_image_latest: "{{cinder_backup_docker_image_latest}}"
             - name: Check openstack-cinder-backup cluster resource status
               pacemaker_resource:
                 resource: openstack-cinder-backup
