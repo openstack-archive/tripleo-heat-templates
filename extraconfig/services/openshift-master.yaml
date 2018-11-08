@@ -51,6 +51,10 @@ parameters:
     default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-master/scaleup.yml'
     description: Path to OpenShift-Ansible master scale-up playbook.
     type: string
+  OpenShiftEtcdScaleupPlaybook:
+    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-etcd/scaleup.yml'
+    description: Path to OpenShift-Ansible etcd scale-up playbook.
+    type: string
   OpenShiftWorkerScaleupPlaybook:
     default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
     description: Path to OpenShift-Ansible node scale-up playbook.
@@ -266,15 +270,13 @@ outputs:
                             children:
                               masters: {}
 
-                          new_etcd:
-                            children:
-                              new_masters: {}
-
                           OSEv3:
                             children:
                               masters: {}
+                              etcd: {}
                               nodes: {}
                               new_masters: {}
+                              new_etcd: {}
                               new_nodes: {}
                               {% if groups['openshift_glusterfs'] | default([]) -%}
                               glusterfs: {}
@@ -296,6 +298,7 @@ outputs:
                     openshift_ansible_playbook_path: {get_param: OpenShiftAnsiblePlaybook}
                     openshift_prerequisites_playbook_path: {get_param: OpenShiftPrerequisitesPlaybook}
                     openshift_master_scaleup_playbook_path: {get_param: OpenShiftMasterScaleupPlaybook}
+                    openshift_etcd_scaleup_playbook_path: {get_param: OpenShiftEtcdScaleupPlaybook}
                     openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
                     openshift_upgrade_playbook_path: {get_param: OpenShiftUpgradePlaybook}
                     openshift_ansible_image: {get_param: DockerOpenShiftAnsibleImage}
@@ -364,6 +367,97 @@ outputs:
                       - include: "{{openshift_ansible_playbook_path}}"
                       {% endif %}
 
+                - name: set openshift command
+                  set_fact:
+                    openshift_command: >-
+                      {%- if openshift_command is defined -%}
+                      {{openshift_command}}
+                      {%- else -%}
+                      sudo /usr/bin/tripleo-deploy-openshift
+                      --config-download-dir {{playbook_dir}}
+                      --image {{openshift_ansible_image}}
+                      {%- endif -%}
+                - name: print openshift command
+                  debug:
+                    var: openshift_command
+                - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook.log)
+                  shell: |
+                    {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook.log
+                    exit ${PIPESTATUS[0]}
+
+                # NOTE(mandre) Scale up the etcd node in a separate ansible run
+                # because osa expects a different inventory for etcd scale up.
+                # The newly added nodes are not new anymore from the point of
+                # view of osa and need to be moved from new_masters and
+                # new_nodes group to masters and nodes groups respectively. In
+                # addition they need to be added to new_etcd groups.
+                - when: tripleo_stack_action == 'UPDATE' and new_master_nodes | count > 0
+                  block:
+
+                  - name: generate updated openshift inventory for openshift_master service
+                    copy:
+                      dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
+                      content: |
+                        {% if (master_nodes + new_master_nodes) | count > 0%}
+                        all:
+                          children:
+                            masters:
+                              hosts:
+                                {% for host in (master_nodes + new_master_nodes) -%}
+                                {{host.hostname}}:
+                                {% endfor %}
+
+                              vars:
+                                {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
+
+                            {% if new_master_nodes | count > 0 -%}
+                            new_etcd:
+                              hosts:
+                                {% for host in new_master_nodes -%}
+                                {{host.hostname}}:
+                                {% endfor %}
+
+                              vars:
+                                {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
+
+                            {% endif %}
+                        {% endif %}
+
+                  - name: generate updated openshift inventory for {{tripleo_role_name}} role groups
+                    copy:
+                      dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_groups.yml"
+                      content: |
+                        {% if (master_nodes + new_master_nodes) | count > 0%}
+                        all:
+                          children:
+                            nodes:
+                              hosts:
+                                {% for host in (master_nodes + new_master_nodes) -%}
+                                {{host.hostname}}:
+                                {% endfor %}
+
+                        {% endif %}
+
+                  - name: generate openshift validation playbook
+                    copy:
+                      dest: "{{playbook_dir}}/openshift/playbook.yml"
+                      content: |
+
+                        - include: "{{openshift_etcd_scaleup_playbook_path}}"
+
+                  - name: print openshift command
+                    debug:
+                      var: openshift_command
+                  - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook-etcd.log)
+                    shell: |
+                      {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook-etcd.log
+                      exit ${PIPESTATUS[0]}
+
+                - name: generate openshift validation playbook
+                  copy:
+                    dest: "{{playbook_dir}}/openshift/playbook.yml"
+                    content: |
+
                       - name: Simple validation OpenShift is actually deployed
                         hosts: masters
 
@@ -428,22 +522,12 @@ outputs:
                               oc_get_router_failed.changed or
                               oc_get_registry_failed.changed
 
-                - name: set openshift command
-                  set_fact:
-                    openshift_command: >-
-                      {%- if openshift_command is defined -%}
-                      {{openshift_command}}
-                      {%- else -%}
-                      sudo /usr/bin/tripleo-deploy-openshift
-                      --config-download-dir {{playbook_dir}}
-                      --image {{openshift_ansible_image}}
-                      {%- endif -%}
                 - name: print openshift command
                   debug:
                     var: openshift_command
-                - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook.log)
+                - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook-validation.log)
                   shell: |
-                    {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook.log
+                    {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook-validation.log
                     exit ${PIPESTATUS[0]}
 
       external_upgrade_tasks:
