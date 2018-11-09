@@ -19,6 +19,20 @@ parameters:
     description: Generate a wrapper script so that haproxy is launched in a separate container.
     type: boolean
     default: true
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
+  OVNWrapperDebug:
+    type: boolean
+    default: false
+    description: Controls debugging for the wrapper scripts.
+  ContainerCli:
+    type: string
+    default: 'docker'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -47,7 +61,9 @@ parameters:
     type: json
 
 conditions:
-    haproxy_wrapper_enabled: {equals: [{get_param: OVNEnableHaproxyDockerWrapper}, true]}
+  haproxy_wrapper_enabled: {equals: [{get_param: OVNEnableHaproxyDockerWrapper}, true]}
+  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  service_debug_unset: {equals : [{get_param: OVNWrapperDebug}, false]}
 
 resources:
 
@@ -81,6 +97,12 @@ outputs:
           - tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::enable_haproxy_wrapper: {get_param: OVNEnableHaproxyDockerWrapper}
             tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/ovn_metadata_haproxy_wrapper'
             tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::haproxy_image: {get_param: DockerOvnMetadataImage}
+            tripleo::profile::base::neutron::ovn_metadata_agent_wrappers::debug:
+              if:
+                - service_debug_unset
+                - {get_param: Debug }
+                - {get_param: OVNWrapperDebug}
+            tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
       puppet_config:
         puppet_tags: neutron_config,ovn_metadata_agent_config
         config_volume: neutron
@@ -171,7 +193,11 @@ outputs:
                   - /run/openvswitch:/run/openvswitch
                   - /var/lib/neutron:/var/lib/neutron
                   - /run/netns:/run/netns:shared
-                  - /var/lib/openstack:/var/lib/openstack
+                -
+                  if:
+                    - docker_enabled
+                    - - /var/lib/openstack:/var/lib/openstack
+                    - null
                 -
                   if:
                     - haproxy_wrapper_enabled
