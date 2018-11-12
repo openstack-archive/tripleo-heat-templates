@@ -203,8 +203,8 @@ outputs:
                       openshift_master_cluster_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
                       openshift_master_cluster_public_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
 
-                # NOTE(flaper87): Check if origin-node is running in the openshift
-                # nodes so we can flag the node as new later on.
+                # NOTE(flaper87): Check if the node service is running in the
+                # openshift nodes so we can flag the node as new later on.
                 - name: Check if node service is running
                   command: "systemctl is-active --quiet {{tripleo_openshift_service_type}}-node"
                   register: node_services
@@ -212,27 +212,26 @@ outputs:
                   with_items: "{{ groups[tripleo_role_name] | default([]) }}"
                   failed_when: false
 
+                # We consider new_node all the nodes that exited with a non-zero
+                # status in the previous task *IF* this is a stack update.
+                # Openshift-ansible expects nodes to be in the new_nodes group for
+                # scale up operation only.
                 - set_fact:
                     nodes:
-                      - new_node: "{{node_services.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0}}"
+                      - new_node: "{{tripleo_stack_action == 'UPDATE' and node_services.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0}}"
                         hostname: "{{item}}"
                   register: all_master_nodes
                   with_items: "{{groups[tripleo_role_name] | default([]) }}"
 
                 - set_fact:
-                    master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                    master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', False) | list}}"
                     new_master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
 
-                # NOTE(flaper87): Every master node will be in the masters group
-                # but only new master nodes will be in the new_masters section, which
-                # will be created only if there are nodes to add. We'll add `new_masters`
-                # to the OSEv3 group regardless to simplify the implementation. Ansible
-                # will ignore the section if it doesn't exist or if it's empty
                 - name: generate openshift inventory for openshift_master service
                   copy:
                     dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
                     content: |
-                      {% if master_nodes | count > 0%}
+                      {% if (master_nodes + new_master_nodes) | count > 0%}
                       all:
                         children:
                           masters:
@@ -247,18 +246,13 @@ outputs:
                           {% if new_master_nodes | count > 0 -%}
                           new_masters:
                             hosts:
-                              # FIXME(mandre)
-                              # patterns do not work in inventory files, so we
-                              # can't write something like
-                              #   hosts:
-                              #     new_nodes:&masters: {}
-                              #
-                              # Also impossible to register var with templated
-                              # name, we can't re-use the all_role_nodes var
-                              # for the master role in openshift-node.yaml
                               {% for host in new_master_nodes -%}
                               {{host.hostname}}:
                               {% endfor %}
+
+                            vars:
+                              {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
+
                           {% endif %}
                       {% endif %}
 
