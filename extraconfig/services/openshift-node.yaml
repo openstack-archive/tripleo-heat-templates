@@ -81,6 +81,7 @@ outputs:
             - name: set role facts for generating inventory
               set_fact:
                 tripleo_role_name: {get_param: RoleName}
+                tripleo_stack_action: {get_param: StackAction}
                 tripleo_node_group_name: {get_attr: [RoleParametersValue, value, OpenShiftNodeGroupName]}
                 openshift_master_network: {get_param: [ServiceNetMap, OpenshiftMasterNetwork]}
                 tripleo_openshift_deployment_type: {get_param: OpenShiftDeploymentType}
@@ -93,8 +94,8 @@ outputs:
                   atomic-openshift
                   {%- endif -%}
 
-            # NOTE(flaper87): Check if origin-node is running in the openshift
-            # nodes so we can flag the node as new later on.
+            # NOTE(flaper87): Check if the node service is running in the
+            # openshift nodes so we can flag the node as new later on.
             - name: Check if node service is running
               command: "systemctl is-active --quiet {{tripleo_openshift_service_type}}-node"
               register: node_services
@@ -102,14 +103,15 @@ outputs:
               with_items: "{{ groups[tripleo_role_name] | default([]) }}"
               failed_when: false
 
-            # NOTE(flaper87): Create all the nodes objects
-            # now, as yaml dicts, instead of formatting
-            # everything as part of a template.
-            # We consider new_node all the nodes that
-            # exited with 1 in the previous task.
+            # NOTE(flaper87): Create all the nodes objects now, as yaml dicts,
+            # instead of formatting everything as part of a template.
+            # We consider new_node all the nodes that exited with a non-zero
+            # status in the previous task *IF* this is a stack update.
+            # Openshift-ansible expects nodes to be in the new_nodes group for
+            # scale up operation only.
             - set_fact:
                 nodes:
-                  - new_node: "{{node_services.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0}}"
+                  - new_node: "{{ tripleo_stack_action == 'UPDATE' and node_services.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0 }}"
                     hostname: "{{item}}"
                     ansible_user: "{{ hostvars[item]['ansible_user'] | default(hostvars[item]['ansible_ssh_user']) | default('root') }}"
                     ansible_host: "{{ hostvars[item]['ansible_host'] | default(item) }}"
@@ -124,7 +126,7 @@ outputs:
               with_items: "{{groups[tripleo_role_name] | default([]) }}"
 
             - set_fact:
-                role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | list}}"
+                role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', False) | list}}"
                 new_role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
 
             - set_fact:
@@ -137,17 +139,20 @@ outputs:
                   {% if role_nodes | count > 0%}
                   all:
                     hosts:
-                      {% for host in role_nodes -%}
+                      {% for host in (role_nodes + new_role_nodes) -%}
                       {{host.hostname}}:
                         {{host | to_nice_yaml() | indent(6)}}
                       {% endfor %}
 
                     children:
+                      {% if role_nodes | count > 0 -%}
                       nodes:
                         hosts:
                           {% for host in role_nodes -%}
                           {{host.hostname}}:
                           {% endfor %}
+
+                      {% endif %}
 
                       {% if new_role_nodes | count > 0 -%}
                       new_nodes:
