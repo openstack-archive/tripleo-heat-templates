@@ -62,7 +62,7 @@ def _configure_nova(sdk):
     sizings = {'ram': 4096, 'vcpus': 1, 'disk': 40}
     extra_specs = {'resources:CUSTOM_BAREMETAL': 1,
                    'resources:VCPU': 0,
-                   'resources:MEMORY_MB': 1,
+                   'resources:MEMORY_MB': 0,
                    'resources:DISK_GB': 0,
                    'capabilities:boot_option': 'local'}
     profiles = ['control', 'compute', 'ceph-storage', 'block-storage',
