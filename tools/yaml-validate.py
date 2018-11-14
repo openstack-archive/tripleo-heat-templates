@@ -1112,8 +1112,11 @@ def validate(filename, param_map):
         # NOTE(hjensas): The routed network data example is very different ...
         # We need to develop a more advanced validator, probably using a schema
         # definition instead.
+        # NOTE(mandre): Same goes for the openshift network data where it
+        # contains only a subset of the overcloud networks.
         if (filename.startswith('./network_data_') and
-                not filename.endswith('routed.yaml')):
+                not (filename.endswith('routed.yaml') or
+                     filename.endswith('openshift.yaml'))):
             result = validate_network_data_file(filename)
             retval |= result
         else:
