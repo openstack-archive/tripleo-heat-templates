@@ -36,6 +36,7 @@ write_entries() {
 
 }
 
+hosts="WRITE_HOSTS"
 if [ ! -z "$hosts" ]; then
     for tmpl in /etc/cloud/templates/hosts.*.tmpl ; do
         write_entries "$tmpl" "$hosts"
