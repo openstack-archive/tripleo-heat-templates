@@ -512,17 +512,22 @@ outputs:
                 fail:
                   msg: "Received HTTP: {{curl_get_http_status.stdout}} when attempting to GET from {{swift_get_url}}"
                 when:
+                  - curl_get_http_status.changed
                   - curl_get_http_status.stdout != "200" # deployment update
                   - curl_get_http_status.stdout != "404" # new deployment
               - name: unpack downloaded ceph-ansible fetch tarball to fetch directory
                 # unarchive module hit https://github.com/ansible/ansible/issues/35645
                 shell: "/usr/bin/gtar --gzip --extract --file /tmp/{{old_ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
-                when: curl_get_http_status.stdout == "200"
+                when:
+                  - curl_get_http_status.changed
+                  - curl_get_http_status.stdout == "200"
               - name: remove downloaded ceph-ansible fetch directory tarball from filesystem
                 file:
                   path: "/tmp/{{old_ceph_ansible_tarball_name}}"
                   state: absent
-                when: curl_get_http_status.stdout == "200"
+                when:
+                  - curl_get_http_status.changed
+                  - curl_get_http_status.stdout == "200"
               when: local_ceph_ansible_fetch_directory_backup == ""
             - name: set ceph-ansible command
               set_fact:
@@ -570,7 +575,9 @@ outputs:
               debug:
                 var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
               failed_when: outputs.rc != 0
-              when: outputs.rc != 0
+              when:
+                - outputs.changed
+                - outputs.rc != 0
             - name: create ceph-ansible fetch directory tarball in local backup
               archive:
                 path: "{{playbook_dir}}/ceph-ansible/fetch_dir"
@@ -588,14 +595,15 @@ outputs:
                   msg: 'Received HTTP: {{curl_put_http_status.stdout}} when attempting to PUT to {{swift_put_url}}'
                 name: ensure we were able to backup temporary fetch directory to swift
                 when:
+                  - curl_put_http_status.changed
                   - curl_put_http_status.stdout != "200"
                   - curl_put_http_status.stdout != "201"
               - name: clean temporary fetch directory after swift backup
                 file:
                   path: "/tmp/{{new_ceph_ansible_tarball_name}}"
                   state: absent
-                when: (curl_put_http_status.stdout == "200" or
-                       curl_put_http_status.stdout == "201")
+                when: (curl_put_http_status.changed and (curl_put_http_status.stdout == "200" or
+                       curl_put_http_status.stdout == "201"))
               when: local_ceph_ansible_fetch_directory_backup == ""
       external_update_tasks:
         - when: step|int == 0
