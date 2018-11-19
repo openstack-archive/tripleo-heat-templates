@@ -63,19 +63,23 @@ def _configure_nova(sdk):
     extra_specs = {'resources:CUSTOM_BAREMETAL': 1,
                    'resources:VCPU': 0,
                    'resources:MEMORY_MB': 0,
-                   'resources:DISK_GB': 0,
-                   'capabilities:boot_option': 'local'}
+                   'resources:DISK_GB': 0}
     profiles = ['control', 'compute', 'ceph-storage', 'block-storage',
-                'swift-storage']
+                'swift-storage', 'baremetal']
     flavors = [flavor.name for flavor in sdk.list_flavors()]
-    if 'baremetal' not in flavors:
-        flavor = sdk.create_flavor('baremetal', **sizings)
-        sdk.set_flavor_specs(flavor.id, extra_specs)
     for profile in profiles:
         if profile not in flavors:
             flavor = sdk.create_flavor(profile, **sizings)
-            extra_specs.update({'capabilities:profile': profile})
+            if profile != 'baremetal':
+                extra_specs.update({'capabilities:profile': profile})
+            else:
+                extra_specs.pop('capabilities:profile', None)
             sdk.set_flavor_specs(flavor.id, extra_specs)
+        else:
+            flavor = sdk.get_flavor(profile)
+            # In place to migrate flavors from rocky too stein
+            if flavor.extra_specs.get('capabilities:boot_option') == 'local':
+                sdk.unset_flavor_specs(flavor.id, ['capabilities:boot_option'])
     print('INFO: Undercloud Post - Nova configuration completed successfully.')
 
 
