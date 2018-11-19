@@ -912,6 +912,10 @@ def validate_service_hiera_interpol(f, tpl):
             # Omit apache remoteip proxy_ips
             if 'apache::mod::remoteip::proxy_ips' in path:
                 continue
+            # Omit Designate rndc_allowed_addressses
+            if ('tripleo::profile::base::designate::rndc_allowed_addresses' in
+                    path):
+                continue
 
             # Omit if not a part of {get_param: [ServiceNetMap ...
             if not enter_lists and path[-1] != 'get_param':
