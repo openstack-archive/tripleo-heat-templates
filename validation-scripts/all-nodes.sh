@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# needed to handle where python lives
+function get_python() {
+  command -v python3 || command -v python2 || command -v python || exit 1
+}
+
 function ping_retry() {
   local IP_ADDR=$1
   local TIMES=${2:-'10'}
@@ -33,7 +38,7 @@ function ping_controller_ips() {
       networks=$(ip r | grep -v default | cut -d " " -f 1)
     fi
     for LOCAL_NETWORK in $networks; do
-      in_network=$(python -c "import ipaddress; net=ipaddress.ip_network(u'$LOCAL_NETWORK'); addr=ipaddress.ip_address(u'$REMOTE_IP'); print(addr in net)")
+      in_network=$($(get_python) -c "import ipaddress; net=ipaddress.ip_network(u'$LOCAL_NETWORK'); addr=ipaddress.ip_address(u'$REMOTE_IP'); print(addr in net)")
       if [[ $in_network == "True" ]]; then
         echo "Trying to ping $REMOTE_IP for local network ${LOCAL_NETWORK}."
         set +e
