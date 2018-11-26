@@ -1,0 +1,88 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Octavia Worker service.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  OctaviaAmphoraImageTag:
+    default: 'amphora-image'
+    description: Glance image tag for identifying the amphora image.
+    type: string
+  OctaviaAmphoraNetworkList:
+    default: []
+    description: List of networks to attach to amphorae.
+    type: comma_delimited_list
+  OctaviaAmphoraSshKeyName:
+    type: string
+    default: 'octavia-ssh-key'
+    description: SSH key name.
+  OctaviaLoadBalancerTopology:
+    default: ''
+    description: Load balancer topology configuration.
+    type: string
+  OctaviaFlavorId:
+    default: 65
+    description: Nova flavor ID to be used when creating the nova flavor for
+                 amphora.
+    type: number
+
+conditions:
+  octavia_topology_unset: {equals : [{get_param: OctaviaLoadBalancerTopology}, ""]}
+
+resources:
+
+  OctaviaBase:
+    type: ./octavia-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for Octavia controller services.
+    value:
+      service_name: octavia_controller
+      config_settings:
+        map_merge:
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          - octavia::controller::amp_boot_network_list: {get_param: OctaviaAmphoraNetworkList}
+            octavia::controller::amp_flavor_id: {get_param: OctaviaFlavorId}
+            octavia::controller::amp_image_tag: {get_param: OctaviaAmphoraImageTag}
+            octavia::controller::amp_ssh_key_name: {get_param: OctaviaAmphoraSshKeyName}
+            octavia::controller::enable_ssh_access: true
+          -
+            if:
+            - octavia_topology_unset
+            - {}
+            - octavia::controller::loadbalancer_topology: {get_param: OctaviaLoadBalancerTopology}
+
