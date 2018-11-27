@@ -88,3 +88,36 @@ outputs:
         - name: Delete cni0 interface if exists
           command: ip link delete cni0
           ignore_errors: True
+      post_upgrade_tasks:
+        - name: Purge everything about Docker on the host
+          when: step|int == 3
+          block:
+            - name: Check if docker has some data
+              stat:
+                path: /var/lib/docker
+              register: docker_path_stat
+
+            - name: Purge Docker
+              when: docker_path_stat.stat.exists
+              block:
+                - name: Ensure docker service is running
+                  systemd:
+                    name: docker
+                  register: docker_service_state
+                - name: Run docker system prune
+                  shell: docker system prune -a -f
+                  when: docker_service_state.status['SubState'] == 'running'
+                - name: Stop and disable Docker service
+                  when: docker_service_state.status['SubState'] == 'running'
+                  systemd:
+                    name: docker
+                    state: stopped
+                    enabled: no
+                - name: Uninstall Docker rpm
+                  package:
+                    name: docker
+                    state: absent
+                - name: Purge /var/lib/docker
+                  file:
+                    path: /var/lib/docker
+                    state: absent
