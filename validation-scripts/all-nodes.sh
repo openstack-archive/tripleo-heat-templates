@@ -110,8 +110,12 @@ function ntp_check() {
   fi
 }
 
-ping_default_gateways
-ping_controller_ips "$ping_test_ips"
+if [[ $validate_gateways_icmp == "True" ]];then
+  ping_default_gateways
+fi
+if [[ $validate_controllers_icmp == "True" ]];then
+  ping_controller_ips "$ping_test_ips"
+fi
 if [[ $validate_fqdn == "True" ]];then
   fqdn_check
 fi
