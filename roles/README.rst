@@ -58,7 +58,7 @@ Role Options
 * tags: (list) list of tags used by other parts of the deployment process to
   find the role for a specific type of functionality. Currently a role
   with both 'primary' and 'controller' is used as the primary role for the
-  deployment process. If no roles have have 'primary' and 'controller', the
+  deployment process. If no roles have 'primary' and 'controller', the
   first role in this file is used as the primary role.
 
 * description: (string) as few sentences describing the role and information
