@@ -111,9 +111,11 @@ def process_templates(template_path, role_data_path, output_dir,
     with open(network_data_path) as network_data_file:
         network_data = yaml.safe_load(network_data_file)
 
+    j2_excludes = {}
     j2_excludes_path = os.path.join(template_path, 'j2_excludes.yaml')
-    with open(j2_excludes_path) as role_data_file:
-        j2_excludes = yaml.safe_load(role_data_file)
+    if os.path.exists(j2_excludes_path):
+        with open(j2_excludes_path) as role_data_file:
+            j2_excludes = yaml.safe_load(role_data_file)
 
     if output_dir and not os.path.isdir(output_dir):
         if os.path.exists(output_dir):
@@ -135,7 +137,7 @@ def process_templates(template_path, role_data_path, output_dir,
             print("skipping %s network: network is disabled" % n.get('name'))
 
     excl_templates = ['%s/%s' % (template_path, e)
-                      for e in j2_excludes.get('name')]
+                      for e in j2_excludes.get('name', [])]
 
     if os.path.isdir(template_path):
         for subdir, dirs, files in os.walk(template_path):
