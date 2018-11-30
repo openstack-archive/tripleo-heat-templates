@@ -225,6 +225,7 @@ with open(sh_script, 'w') as script_file:
     set +e
     # $::deployment_type in puppet-tripleo
     export FACTER_deployment_type=containers
+    export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lower:]')
     FACTER_hostname=$HOSTNAME /usr/bin/puppet apply --summarize \
     --detailed-exitcodes --color=false --logdest syslog --logdest console --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules $TAGS /etc/config.pp
     rc=$?
