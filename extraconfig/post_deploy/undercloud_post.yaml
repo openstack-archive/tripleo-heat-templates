@@ -67,6 +67,14 @@ parameters:
     type: number
     constraints:
       - range: { min: 1000, max: 65536 }
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  UndercloudCloudName:
+    type: string
+    default: 'undercloud'
+    description: Cloud name for the clouds.yaml
 
 conditions:
 
@@ -99,6 +107,7 @@ resources:
         - name: admin_password
         - name: auth_url
         - name: internal_tls_ca_file
+        - name: cloud_name
       config: {get_file: ./undercloud_post.sh}
 
   UndercloudPostDeployment:
@@ -111,6 +120,7 @@ resources:
         ssl_certificate: {get_param: SSLCertificate}
         homedir: {get_param: UndercloudHomeDir}
         admin_password: {get_param: AdminPassword}
+        cloud_name: {get_param: UndercloudCloudName}
         internal_tls_ca_file:
           if:
           - ca_file_enabled
@@ -131,23 +141,29 @@ resources:
               port: 5000
               path: /
 
-  UndercloudPostPyConfig:
+  CloudsYamlConfig:
     type: OS::Heat::SoftwareConfig
     properties:
       group: script
       inputs:
         - name: admin_password
         - name: auth_url
-        - name: config
-      config: {get_file: ./undercloud_post.py}
+        - name: cloud_name
+        - name: home_dir
+        - name: identity_api_version
+        - name: project_name
+        - name: project_domain_name
+        - name: region_name
+        - name: user_name
+        - name: user_domain_name
+      config: {get_file: ./clouds_yaml.py}
 
-  UndercloudPostPyDeployment:
+  CloudsYamlDeployment:
     type: OS::Heat::SoftwareDeployments
-    depends_on: UndercloudPostDeployment
     properties:
-      name: UndercloudPostPyDeployment
+      name: CloudsYamlDeployment
       servers: {get_param: servers}
-      config: {get_resource: UndercloudPostPyConfig}
+      config: {get_resource: CloudsYamlConfig}
       input_values:
         admin_password: {get_param: AdminPassword}
         auth_url:
@@ -163,11 +179,37 @@ resources:
               host: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
               port: 5000
               path: /
+        cloud_name: {get_param: UndercloudCloudName}
+        home_dir: {get_param: UndercloudHomeDir}
+        identity_api_version: 3
+        project_name: 'admin'
+        project_domain_name: 'Default'
+        region_name: {get_param: KeystoneRegion}
+        user_name: 'admin'
+        user_domain_name: 'Default'
+
+  UndercloudPostPyConfig:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+        - name: config
+      config: {get_file: ./undercloud_post.py}
+
+  UndercloudPostPyDeployment:
+    type: OS::Heat::SoftwareDeployments
+    depends_on: [UndercloudPostDeployment, CloudsYamlDeployment]
+    properties:
+      name: UndercloudPostPyDeployment
+      servers: {get_param: servers}
+      config: {get_resource: UndercloudPostPyConfig}
+      input_values:
         config:
           str_replace:
             template: JSON
             params:
               JSON:
+                cloud_name: {get_param: UndercloudCloudName}
                 home_dir: {get_param: UndercloudHomeDir}
                 snmp_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
 
@@ -177,39 +219,23 @@ resources:
     properties:
       group: script
       inputs:
-        - name: admin_password
-        - name: auth_url
         - name: config
       config: {get_file: ./undercloud_ctlplane_network.py}
 
   UndercloudCtlplaneNetworkDeployment:
     type: OS::Heat::SoftwareDeployments
-    depends_on: UndercloudPostDeployment
+    depends_on: [UndercloudPostDeployment, CloudsYamlDeployment]
     properties:
       name: UndercloudCtlplaneNetworkDeployment
       servers: {get_param: servers}
       config: {get_resource: UndercloudCtlplaneNetworkConfig}
       input_values:
-        admin_password: {get_param: AdminPassword}
-        # if SSL is enabled we use the public virtual ip as the stackrc endpoint
-        auth_url:
-          if:
-          - tls_enabled
-          - make_url:
-              scheme: https
-              host: {get_param: [DeployedServerPortMap, 'public_virtual_ip', fixed_ips, 0, ip_address]}
-              port: 13000
-              path: /
-          - make_url:
-              scheme: http
-              host: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
-              port: 5000
-              path: /
         config:
           str_replace:
             template: JSON
             params:
               JSON:
+                cloud_name: {get_param: UndercloudCloudName}
                 local_ip: {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
                 local_subnet: {get_param: UndercloudCtlplaneLocalSubnet}
                 nameservers: {get_param: DnsServers}
@@ -217,3 +243,4 @@ resources:
                 subnets: {get_param: UndercloudCtlplaneSubnets}
                 enable_routed_networks: {get_param: UndercloudEnableRoutedNetworks}
                 mtu: {get_param: UndercloudLocalMtu}
+                home_dir: {get_param: UndercloudHomeDir}

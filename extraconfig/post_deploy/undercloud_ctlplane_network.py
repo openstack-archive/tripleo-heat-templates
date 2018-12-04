@@ -3,13 +3,10 @@
 import json
 import netaddr
 import os
-import os_client_config
+import openstack
 import subprocess
 
 CTLPLANE_NETWORK_NAME = 'ctlplane'
-
-AUTH_URL = os.environ['auth_url']
-ADMIN_PASSWORD = os.environ['admin_password']
 CONF = json.loads(os.environ['config'])
 
 
@@ -269,12 +266,7 @@ if 'true' not in _run_command(['hiera', 'neutron_api_enabled'],
     print('WARNING: UndercloudCtlplaneNetworkDeployment : The Neutron API '
           'is disabled. The ctlplane network cannot be configured.')
 else:
-    sdk = os_client_config.make_sdk(auth_url=AUTH_URL,
-                                    project_name='admin',
-                                    username='admin',
-                                    password=ADMIN_PASSWORD,
-                                    project_domain_name='Default',
-                                    user_domain_name='Default')
+    sdk = openstack.connect(CONF['cloud_name'])
 
     network = _ensure_neutron_network(sdk)
     # Always create/update the local_subnet first to ensure it is can have the
