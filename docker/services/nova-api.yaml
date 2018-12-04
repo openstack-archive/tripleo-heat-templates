@@ -327,37 +327,6 @@ outputs:
           block:
             - name: set is_bootstrap_node fact
               set_fact: is_bootstrap_node={{nova_api_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Check if nova_api is deployed
-              command: systemctl is-enabled --quiet openstack-nova-api
-              ignore_errors: True
-              register: nova_api_enabled_result
-            - set_fact:
-                nova_api_enabled: "{{ nova_api_enabled_result.rc == 0 }}"
-            - name: Check for nova-api running under apache
-              shell: httpd -t -D DUMP_VHOSTS | grep -q 'nova'
-              ignore_errors: True
-              register: nova_api_httpd_enabled_result
-            - set_fact:
-                nova_api_httpd_enabled: "{{ nova_api_httpd_enabled_result.rc == 0 }}"
-            - name: "PreUpgrade step0,validation: Check service openstack-nova-api is running"
-              command: systemctl is-active --quiet openstack-nova-api
-              tags: validation
-              when:
-                - nova_api_enabled|bool
-            - name: Check if httpd service is running
-              command: systemctl is-active --quiet httpd
-              ignore_errors: True
-              register: httpd_running_result
-              when: httpd_running is undefined
-            - set_fact:
-                httpd_running: "{{ httpd_running_result.rc == 0 }}"
-              when: httpd_running is undefined
-            - name: "PreUpgrade step0,validation: Check if nova_wsgi is running"
-              tags: validation
-              shell: systemctl status 'httpd' | grep -q 'nova'
-              when:
-                - nova_api_httpd_enabled|bool
-                - httpd_running|bool
             - name: Ensure all online data migrations for Nova have been applied
               shell: |
                 if {{ container_cli }} ps | grep nova_api; then
@@ -368,21 +337,7 @@ outputs:
                   docker exec nova_api nova-manage db online_data_migrations
                 fi
               tags: pre-upgrade
-              when:
-                - is_bootstrap_node|bool
-                - not (nova_api_httpd_enabled|bool and httpd_running|bool)
-                - not nova_api_enabled|bool
-        - when: step|int == 2
-          block:
-            - name: Stop and disable nova_api service
-              when:
-                - nova_api_enabled|bool
-              service: name=openstack-nova-api state=stopped enabled=no
-            - name: Stop nova_api service (running under httpd)
-              when:
-                - nova_api_httpd_enabled|bool
-                - httpd_running|bool
-              service: name=httpd state=stopped
+              when: is_bootstrap_node|bool
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-nova-api package
@@ -393,10 +348,6 @@ outputs:
               ignore_errors: True
               when:
                 - remove_nova_api_package|bool
-            - name: remove old nova cron jobs
-              file:
-                path: /var/spool/cron/nova
-                state: absent
       external_upgrade_tasks:
         - when: step|int == 1
           block:
