@@ -206,7 +206,6 @@ resources:
     depends_on:
     {%- if step == 1 %}
     {%- for dep in enabled_roles %}
-      - {{dep.name}}PreConfig
       - {{dep.name}}ArtifactsDeploy
     {%- endfor %}
     {%- else %}
@@ -276,7 +275,7 @@ resources:
           expression: switch($.data = {} => "no_bootstrap_server", $.data != {} => $.data.items().orderBy($[0]).first()[1])
           data: {get_param: [servers, {{primary_role_name}}]}
 
-# Artifacts config and HostPrepConfig is done on all roles, not only
+# Artifacts config is done on all roles, not only
 # enabled_roles, because on upgrade we need to write the json files
 # for the operator driven upgrade scripts (the ansible steps consume them)
 {% for role in roles %}
@@ -291,47 +290,10 @@ resources:
       servers:  {get_param: [servers, {{role.name}}]}
       config: {get_resource: {{role.name}}ArtifactsConfig}
 
-  {{role.name}}HostPrepConfig:
-    type: OS::Heat::SoftwareConfig
-    properties:
-      group: ansible
-      options:
-        modulepath: /usr/share/ansible-modules
-      config:
-        str_replace:
-          template: _PLAYBOOK
-          params:
-            _PLAYBOOK:
-              - hosts: localhost
-                connection: local
-                vars:
-                  docker_puppet_script: {get_file: ../docker/docker-puppet.py}
-                  bootstrap_server_id: {get_attr: [BootstrapServerId, value]}
-                tasks:
-                  # FIXME: can we move docker-puppet somewhere so it's installed via a package?
-                  - name: Create /var/lib/docker-puppet
-                    file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
-                  - name: Write docker-puppet.py
-                    copy: content="{{ '{{' }}docker_puppet_script{{ '}}' }}" dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
-
-  {{role.name}}HostPrepDeployment:
-    type: OS::Heat::SoftwareDeploymentGroup
-    properties:
-      name: {{role.name}}HostPrepDeployment
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}HostPrepConfig}
 {% endfor %}
 
   # BEGIN CONFIG STEPS, only on enabled_roles
 {%- for role in enabled_roles %}
-  {{role.name}}PreConfig:
-    type: OS::TripleO::Tasks::{{role.name}}PreConfig
-    depends_on: {{role.name}}HostPrepDeployment
-    properties:
-      servers: {get_param: [servers, {{role.name}}]}
-      input_values:
-        update_identifier: {get_param: DeployIdentifier}
-
   # Deployment steps for {{role.name}}
   # A single config is re-applied with an incrementing step number
   {% for step in range(1, deploy_steps_max) %}
@@ -346,7 +308,6 @@ resources:
     # is fixed.
     {%- if step == 1 %}
     {%- for dep in enabled_roles %}
-      - {{dep.name}}PreConfig
       - {{dep.name}}ArtifactsDeploy
     {%- endfor %}
     {%- else %}
@@ -468,6 +429,10 @@ outputs:
                 bootstrap_server_id: BOOTSTRAP_SERVER_ID
                 step: 0
               tasks:
+                - name: Create /var/lib/docker-puppet
+                  file: path=/var/lib/docker-puppet state=directory setype=svirt_sandbox_file_t selevel=s0 recurse=true
+                - name: Write docker-puppet.py
+                  copy: src=docker_puppet_script.yaml dest=/var/lib/docker-puppet/docker-puppet.py force=yes mode=0600
 {%- for role in roles %}
                 - import_tasks: {{role.name}}/deploy_steps_tasks.yaml
                   when: tripleo_role_name == '{{role.name}}'
