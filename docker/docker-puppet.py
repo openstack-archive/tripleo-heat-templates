@@ -83,6 +83,16 @@ else:
     log.error('Invalid container_cli: %s' % container_cli)
     sys.exit(1)
 
+# Controls whether puppet is bind mounted in from the host
+# NOTE: we require this to support the tarball extracted (Deployment archive)
+# puppet modules but our containers now also include puppet-tripleo so we
+# could use either
+if os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true':
+    if container_cli == 'docker':
+        cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z'])
+    elif container_cli == 'podman':
+        cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'])
+
 
 # this is to match what we do in deployed-server
 def short_hostname():
