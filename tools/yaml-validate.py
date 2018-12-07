@@ -748,10 +748,13 @@ def validate_service(filename, tpl):
             print('ERROR: service_name is required in role_data for %s.'
                   % filename)
             return 1
-        # service_name must match the filename, but with an underscore
-        if (role_data['service_name'] !=
-                os.path.basename(filename).split('.')[0].replace("-", "_")):
-            print('ERROR: service_name should match file name for service: %s.'
+        # service_name must match the beginning of the file name, but with an
+        # underscore
+        service_name = \
+                os.path.basename(filename).split('.')[0].replace("-", "_")
+        if not role_data['service_name'].startswith(service_name):
+            print('ERROR: service_name should match the beginning of the '
+                  'filename: %s.'
                   % filename)
             return 1
         # if service connects to mysql, the uri should use option
@@ -1063,7 +1066,8 @@ def validate(filename, param_map):
                 VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
             retval |= validate_service(filename, tpl)
 
-        if re.search(r'(puppet|docker)\/services', filename):
+        if re.search(r'(puppet|docker)\/services', filename) or \
+                re.search(r'deployment\/', filename):
             retval |= validate_service_hiera_interpol(filename, tpl)
 
         if filename.startswith('./docker/services/logging/'):
