@@ -1,0 +1,242 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack containerized Placement API service
+
+parameters:
+  DockerPlacementImage:
+    description: image
+    type: string
+  DockerPlacementConfigImage:
+    description: The container image to use for the placement config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  PlacementWorkers:
+    default: 0
+    description: Number of workers for Placement services.
+    type: number
+  PlacementPassword:
+    description: The password for the Placement service and db account
+    type: string
+    hidden: true
+  PlacementAPIInterface:
+    type: string
+    description: >
+        Endpoint interface to be used for the placement API.
+    default: 'internal'
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionPlacement:
+    default: 'overcloud-placement'
+    type: string
+  PlacementLoggingSource:
+    type: json
+    default:
+      tag: openstack.placement
+      path: /var/log/containers/httpd/placement_wsgi_error_ssl.log
+
+conditions:
+  placement_workers_zero: {equals : [{get_param: PlacementWorkers}, 0]}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  ApacheServiceBase:
+    type: ../../deployment/apache/apache-baremetal-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
+
+  PlacementLogging:
+    type: OS::TripleO::Services::Logging::PlacementApi
+
+outputs:
+  role_data:
+    description: Role data for the Placement API role.
+    value:
+      service_name: placement
+      config_settings:
+        map_merge:
+          - get_attr: [PlacementLogging, config_settings]
+          - apache::default_vhost: false
+          - tripleo::placement::firewall_rules:
+            '138 placement':
+              dport:
+                - 8778
+                - 13778
+            placement::keystone::authtoken::project_name: 'service'
+            placement::keystone::authtoken::password: {get_param: PlacementPassword}
+            placement::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            placement::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            placement::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            placement::wsgi::apache::api_port: '8778'
+            placement::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            placement::wsgi::apache::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, PlacementNetwork]}
+            placement::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, PlacementNetwork]}
+            placement::config::project_name: 'service'
+            placement::config::password: {get_param: PlacementPassword}
+            placement::config::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            placement::config::region_name: {get_param: KeystoneRegion}
+            placement::config::valid_interfaces: {get_param: PlacementAPIInterface}
+            placement::db::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: placement
+                password: {get_param: PlacementPassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /placement
+                query:
+                  read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+          -
+            if:
+              - placement_workers_zero
+              - {}
+              - placement::wsgi::apache::workers: {get_param: PlacementWorkers}
+      service_config_settings:
+        map_merge:
+          - fluentd:
+              tripleo_fluentd_groups_placement:
+                - placement
+              tripleo_fluentd_sources_placement:
+                - {get_param: PlacementLoggingSource}
+        keystone:
+          placement::keystone::auth::tenant: 'service'
+          placement::keystone::auth::public_url: {get_param: [EndpointMap, PlacementPublic, uri]}
+          placement::keystone::auth::internal_url: {get_param: [EndpointMap, PlacementInternal, uri]}
+          placement::keystone::auth::admin_url: {get_param: [EndpointMap, PlacementAdmin, uri]}
+          placement::keystone::auth::password: {get_param: PlacementPassword}
+          placement::keystone::auth::region: {get_param: KeystoneRegion}
+        mysql:
+          placement::db::mysql::password: {get_param: PlacementPassword}
+          placement::db::mysql::user: placement
+          placement::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          placement::db::mysql::dbname: placement
+          placement::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: placement
+        puppet_tags: placement_config
+        step_config:
+          list_join:
+            - "\n"
+            - - {get_attr: [MySQLClient, role_data, step_config]}
+              - "include tripleo::profile::base::placement::api"
+        config_image: {get_param: DockerPlacementConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/placement_api.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/placement
+              owner: placement:placement
+              recurse: true
+      docker_config:
+        step_2:
+          get_attr: [PlacementLogging, docker_config, step_2]
+        step_3:
+          placement_api_db_sync:
+            start_order: 1
+            image: &placement_api_image {get_param: DockerPlacementImage}
+            net: host
+            detach: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [PlacementLogging, volumes]}
+                -
+                  - /var/lib/config-data/placement/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/placement/etc/placement/:/etc/placement/:ro
+            command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/usr/bin/placement-manage db sync'"
+        step_4:
+          placement_api:
+            start_order: 1
+            image: *placement_api_image
+            net: host
+            user: root
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [PlacementLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/placement_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/placement/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks: {get_attr: [PlacementLogging, host_prep_tasks]}
