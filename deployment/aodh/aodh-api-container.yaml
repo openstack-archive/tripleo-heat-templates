@@ -39,6 +39,19 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  GnocchiExternalProject:
+    default: 'service'
+    description: Project name of resources creator in Gnocchi.
+    type: string
+  MonitoringSubscriptionAodhApi:
+    default: 'overcloud-ceilometer-aodh-api'
+    type: string
+  AodhApiPolicies:
+    description: |
+      A hash of policies to configure for Aodh API.
+      e.g. { aodh-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -51,31 +64,78 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
-  AodhApiPuppetBase:
-      type: ../../puppet/services/aodh-api.yaml
-      properties:
-        EndpointMap: {get_param: EndpointMap}
-        ServiceData: {get_param: ServiceData}
-        ServiceNetMap: {get_param: ServiceNetMap}
-        DefaultPasswords: {get_param: DefaultPasswords}
-        RoleName: {get_param: RoleName}
-        RoleParameters: {get_param: RoleParameters}
+  AodhBase:
+    type: ./aodh-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
     description: Role data for the aodh API role.
     value:
-      service_name: {get_attr: [AodhApiPuppetBase, role_data, service_name]}
+      service_name: aodh_api
       config_settings:
         map_merge:
-          - get_attr: [AodhApiPuppetBase, role_data, config_settings]
+          - get_attr: [AodhBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - apache::default_vhost: false
-      service_config_settings: {get_attr: [AodhApiPuppetBase, role_data, service_config_settings]}
+            aodh::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            aodh::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, AodhApiNetwork]}
+            aodh::wsgi::apache::wsgi_process_display_name: 'aodh_wsgi'
+            aodh::api::service_name: 'httpd'
+            aodh::api::enable_proxy_headers_parsing: true
+            aodh::api::gnocchi_external_project_owner: {get_param: GnocchiExternalProject}
+            aodh::policy::policies: {get_param: AodhApiPolicies}
+            tripleo::aodh_api::firewall_rules:
+              '128 aodh-api':
+                dport:
+                  - 8042
+                  - 13042
+            aodh::api::host:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, AodhApiNetwork]}
+            # NOTE: bind IP is found in hiera replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            aodh::wsgi::apache::bind_host:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, AodhApiNetwork]}
+      service_config_settings: {get_attr: [AodhBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: aodh
@@ -83,7 +143,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [AodhApiPuppetBase, role_data, step_config]}
+            - - "include tripleo::profile::base::aodh::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerAodhConfigImage}
       kolla_config:
@@ -211,7 +271,7 @@ outputs:
               ignore_errors: True
               when: remove_aodh_api_package|bool
       metadata_settings:
-        get_attr: [AodhApiPuppetBase, role_data, metadata_settings]
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
