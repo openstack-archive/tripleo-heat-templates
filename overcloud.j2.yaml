@@ -396,6 +396,16 @@ resources:
             - {get_attr: [{{role.name}}, known_hosts_hostnames]}
             {% endfor %}
 
+  # Creates the "heat-admin" user if configured via the environment
+  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
+  NodeAdminUserData:
+    type: OS::TripleO::NodeAdminUserData
+
+  # For optional operator additional userdata
+  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
+  NodeUserData:
+    type: OS::TripleO::NodeUserData
+
   # Jinja loop for Role in roles_data.yaml
 {% for role in roles %}
   # Resources generated for {{role.name}} Role
@@ -552,6 +562,23 @@ resources:
           data:
             - {get_attr: [{{role.name}}, hostname_map]}
 
+  # Combine the NodeAdminUserData and NodeUserData mime archives
+  {{role.name}}UserData:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: NodeAdminUserData}
+        type: multipart
+      - config: {get_resource: NodeUserData}
+        type: multipart
+      - config: {get_resource: {{role.name}}RoleUserData}
+        type: multipart
+
+  # For optional operator role-specific userdata
+  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
+  {{role.name}}RoleUserData:
+    type: OS::TripleO::{{role.name}}::NodeUserData
+
   {{role.name}}:
     type: OS::Heat::ResourceGroup
     depends_on: Networks
@@ -590,6 +617,7 @@ resources:
             map_merge:
               - {{role.RoleParametersDefault|default({})}}
               - get_param: {{role.name}}Parameters
+          UserData: {get_resource: {{role.name}}UserData}
 {% endfor %}
 
 {% for role in roles %}
