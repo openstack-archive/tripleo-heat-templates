@@ -55,7 +55,7 @@ if __name__ == '__main__':
         project_name=config.get('placement', 'project_name'),
         project_domain_name=config.get('placement', 'user_domain_name'),
         auth_url=config.get('placement', 'auth_url')+'/v3')
-    sess = session.Session(auth=auth)
+    sess = session.Session(auth=auth, verify=False)
     keystone = client.Client(session=sess)
 
     iterations_endpoint = iterations
