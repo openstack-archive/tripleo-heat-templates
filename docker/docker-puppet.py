@@ -64,7 +64,7 @@ if not os.path.exists(config_volume_prefix):
     os.makedirs(config_volume_prefix)
 
 if container_cli == 'docker':
-    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z']
+    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
     env = {}
     # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
     RUNNER = containers_runner.DockerRunner(
@@ -88,11 +88,7 @@ else:
 # puppet modules but our containers now also include puppet-tripleo so we
 # could use either
 if os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true':
-    if container_cli == 'docker':
-        cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro,z'])
-    elif container_cli == 'podman':
-        cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'])
-
+    cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'])
 
 # this is to match what we do in deployed-server
 def short_hostname():
