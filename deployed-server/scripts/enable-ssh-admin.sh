@@ -14,8 +14,13 @@ SSH_HOSTKEY_OPTIONS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 SHORT_TERM_KEY_COMMENT="TripleO split stack short term key"
 SLEEP_TIME=5
 
+# needed to handle where python lives
+function get_python() {
+  command -v python3 || command -v python2 || command -v python || exit 1
+}
+
 function overcloud_ssh_hosts_json {
-    echo "$OVERCLOUD_HOSTS" | python -c '
+    echo "$OVERCLOUD_HOSTS" | $(get_python) -c '
 from __future__ import print_function
 import json, re, sys
 print(json.dumps(re.split("\s+", sys.stdin.read().strip())))'
@@ -24,7 +29,7 @@ print(json.dumps(re.split("\s+", sys.stdin.read().strip())))'
 function overcloud_ssh_key_json {
     # we pass the contents to Mistral instead of just path, otherwise
     # the key file would have to be readable for the mistral user
-    cat "$1" | python -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+    cat "$1" | $(get_python) -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
 }
 
 function workflow_finished {
