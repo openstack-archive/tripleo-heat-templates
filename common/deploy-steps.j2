@@ -107,6 +107,12 @@ parameters:
     type: string
     description: The python interpreter to use for python and ansible actions
     default: /usr/bin/python
+{% for role in enabled_roles %}
+  {{role.name}}Count:
+    description: Number of {{role.name}} nodes to deploy
+    type: number
+    default: {{role.CountDefault|default(0)}}
+{% endfor %}
 
 conditions:
 {% for step in range(1, deploy_steps_max) %}
@@ -119,6 +125,13 @@ conditions:
             - ''
       - False
     {%- endfor %}
+{% endfor %}
+{% for role in enabled_roles %}
+  {{role.name}}NonZero:
+     not:
+       equals:
+         - {get_param: {{role.name}}Count}
+         - 0
 {% endfor %}
 
 resources:
@@ -304,6 +317,7 @@ resources:
 
   {{role.name}}ArtifactsDeploy:
     type: OS::Heat::StructuredDeploymentGroup
+    condition: {{role.name}}NonZero
     properties:
       name: {{role.name}}ArtifactsDeploy
       servers:  {get_param: [servers, {{role.name}}]}
@@ -317,6 +331,7 @@ resources:
   {% for step in range(1, deploy_steps_max) %}
   {{role.name}}Deployment_Step{{step}}:
     type: OS::TripleO::DeploymentSteps
+    condition: {{role.name}}NonZero
     depends_on:
       - WorkflowTasks_Step{{step}}_Execution
     # TODO(gfidente): the following if/else condition
@@ -363,6 +378,7 @@ resources:
   # Ensure that all {{role.name}}ExtraConfigPost steps are executed
   # after all the previous deployment steps.
   {{role.name}}ExtraConfigPost:
+    condition: {{role.name}}NonZero
     depends_on:
   {%- for dep in enabled_roles %}
       - {{dep.name}}Deployment_Step{{deploy_steps_max - 1}}
@@ -375,6 +391,7 @@ resources:
   # quiescing all services, i.e. in the Controller case,
   # we should run a full service reload.
   {{role.name}}PostConfig:
+    condition: {{role.name}}NonZero
     type: OS::TripleO::Tasks::{{role.name}}PostConfig
     depends_on:
   {%- for dep in enabled_roles %}
