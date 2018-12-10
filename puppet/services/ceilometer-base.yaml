@@ -42,6 +42,20 @@ parameters:
     default: 0
     description: Number of workers for Ceilometer service.
     type: number
+  AmqpRpcAddressPrefix:
+    default: ''
+    description: Address prefix for RPC addresses
+    type: string
+  AmqpNotifyAddressPrefix:
+    default: ''
+    description: Address prefix for Notification addresses
+    type: string
+  MetricsQdrPort:
+    default: '5666'
+    description: Service name or port number on which the qdrouterd will accept
+                 connections. This argument must be string, even if the numeric
+                 form is used.
+    type: string
   ManageEventPipeline:
     default: true
     description: Whether to manage event_pipeline.yaml.
@@ -66,6 +80,10 @@ parameters:
         collector is used, override this with notifier:// publisher.
         Set ManagePipeline to true for override to take effect.
     type: comma_delimited_list
+  CeilometerQdrPublish:
+    default: false
+    description: Whether to send telemetry data to Qdr.
+    type: boolean
   ManagePolling:
     default: false
     description: Whether to manage polling.yaml.
@@ -138,6 +156,7 @@ parameter_groups:
 
 conditions:
   service_debug_unset: {equals : [{get_param: CeilometerDebug}, '']}
+  ceilometer_qdr_publish: {equals: [{get_param: CeilometerQdrPublish}, true]}
 
 outputs:
   role_data:
@@ -145,43 +164,57 @@ outputs:
     value:
       service_name: ceilometer_base
       config_settings:
-        ceilometer::debug:
-          if:
-          - service_debug_unset
-          - {get_param: Debug }
-          - {get_param: CeilometerDebug }
-        ceilometer::keystone::authtoken::project_name: 'service'
-        ceilometer::keystone::authtoken::user_domain_name: 'Default'
-        ceilometer::keystone::authtoken::project_domain_name: 'Default'
-        ceilometer::keystone::authtoken::password: {get_param: CeilometerPassword}
-        ceilometer::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
-        ceilometer::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
-        ceilometer::agent::auth::auth_password: {get_param: CeilometerPassword}
-        ceilometer::agent::auth::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
-        ceilometer::agent::notification::manage_event_pipeline: {get_param: ManageEventPipeline}
-        ceilometer::agent::notification::event_pipeline_publishers: {get_param: EventPipelinePublishers}
-        ceilometer::agent::notification::manage_pipeline: {get_param: ManagePipeline}
-        ceilometer::agent::notification::pipeline_publishers: {get_param: PipelinePublishers}
-        ceilometer::agent::polling::manage_polling: {get_param: ManagePolling}
-        ceilometer::agent::auth::auth_region: {get_param: KeystoneRegion}
-        ceilometer::agent::auth::auth_tenant_name: 'service'
-        ceilometer::agent::auth::auth_user_domain_name: 'Default'
-        ceilometer::agent::auth::auth_project_domain_name: 'Default'
-        ceilometer::agent::auth::auth_endpoint_type: 'internalURL'
-        ceilometer::dispatcher::gnocchi::url: {get_param: [EndpointMap, GnocchiInternal, uri]}
-        ceilometer::dispatcher::gnocchi::filter_project: 'service'
-        ceilometer::dispatcher::gnocchi::archive_policy: {get_param: GnocchiArchivePolicy}
-        ceilometer::dispatcher::gnocchi::resources_definition_file: 'gnocchi_resources.yaml'
-        ceilometer::notification_driver: {get_param: NotificationDriver}
-        ceilometer::rabbit_userid: {get_param: RabbitUserName}
-        ceilometer::rabbit_password: {get_param: RabbitPassword}
-        ceilometer::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
-        ceilometer::rabbit_port: {get_param: RabbitClientPort}
-        ceilometer::rabbit_heartbeat_timeout_threshold: 60
-        ceilometer::telemetry_secret: {get_param: CeilometerMeteringSecret}
-        ceilometer::snmpd_readonly_username: {get_param: SnmpdReadonlyUserName}
-        ceilometer::snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
-        ceilometer::host: "%{hiera('fqdn_canonical')}"
+        map_merge:
+          - ceilometer::logging::debug:
+              if:
+              - service_debug_unset
+              - {get_param: Debug }
+              - {get_param: CeilometerDebug }
+            ceilometer::keystone::authtoken::project_name: 'service'
+            ceilometer::keystone::authtoken::user_domain_name: 'Default'
+            ceilometer::keystone::authtoken::project_domain_name: 'Default'
+            ceilometer::keystone::authtoken::password: {get_param: CeilometerPassword}
+            ceilometer::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            ceilometer::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            ceilometer::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            ceilometer::agent::auth::auth_password: {get_param: CeilometerPassword}
+            ceilometer::agent::auth::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            ceilometer::agent::notification::manage_event_pipeline: {get_param: ManageEventPipeline}
+            ceilometer::agent::notification::manage_pipeline: {get_param: ManagePipeline}
+            ceilometer::agent::polling::manage_polling: {get_param: ManagePolling}
+            ceilometer::agent::auth::auth_region: {get_param: KeystoneRegion}
+            ceilometer::agent::auth::auth_tenant_name: 'service'
+            ceilometer::agent::auth::auth_user_domain_name: 'Default'
+            ceilometer::agent::auth::auth_project_domain_name: 'Default'
+            ceilometer::agent::auth::auth_endpoint_type: 'internalURL'
+            ceilometer::dispatcher::gnocchi::url: {get_param: [EndpointMap, GnocchiInternal, uri]}
+            ceilometer::dispatcher::gnocchi::filter_project: 'service'
+            ceilometer::dispatcher::gnocchi::archive_policy: {get_param: GnocchiArchivePolicy}
+            ceilometer::dispatcher::gnocchi::resources_definition_file: 'gnocchi_resources.yaml'
+            ceilometer::notification_driver: {get_param: NotificationDriver}
+            ceilometer::amqp_rpc_address_prefix: {get_param: AmqpRpcAddressPrefix}
+            ceilometer::amqp_notify_address_prefix: {get_param: AmqpNotifyAddressPrefix}
+            ceilometer::rabbit_userid: {get_param: RabbitUserName}
+            ceilometer::rabbit_password: {get_param: RabbitPassword}
+            ceilometer::rabbit_use_ssl: {get_param: RabbitClientUseSSL}
+            ceilometer::rabbit_port: {get_param: RabbitClientPort}
+            ceilometer::rabbit_heartbeat_timeout_threshold: 60
+            ceilometer::telemetry_secret: {get_param: CeilometerMeteringSecret}
+            ceilometer::snmpd_readonly_username: {get_param: SnmpdReadonlyUserName}
+            ceilometer::snmpd_readonly_user_password: {get_param: SnmpdReadonlyUserPassword}
+            ceilometer::host: "%{hiera('fqdn_canonical')}"
+            tripleo::profile::base::ceilometer::event_pipeline_publishers: {get_param: EventPipelinePublishers}
+            tripleo::profile::base::ceilometer::pipeline_publishers: {get_param: PipelinePublishers}
+          - if: #Ceilometer connection to qdr
+            - ceilometer_qdr_publish
+            - tripleo::profile::base::ceilometer::notifier_host_addr:
+                str_replace:
+                  template:
+                    "%{hiera('$NETWORK')}"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              tripleo::profile::base::ceilometer::notifier_host_port: {get_param: MetricsQdrPort}
+            - {}
       service_config_settings:
         keystone:
           ceilometer_auth_enabled: true
