@@ -60,8 +60,25 @@ parameters:
       e.g. { octavia-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
     default: {}
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 resources:
+
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
   OctaviaBase:
     type: ./octavia-base.yaml
@@ -83,6 +100,7 @@ outputs:
         map_merge:
           - get_attr: [OctaviaBase, role_data, config_settings]
           - octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+          - get_attr: [TLSProxyBase, role_data, config_settings]
             octavia::policy::policies: {get_param: OctaviaApiPolicies}
             octavia::db::database_connection:
               make_url:
@@ -103,7 +121,32 @@ outputs:
                 dport:
                   - 9876
                   - 13876
-            octavia::api::host: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            tripleo::profile::base::octavia::api::tls_proxy_bind_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+            tripleo::profile::base::octavia::api::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+            tripleo::profile::base::octavia::api::tls_proxy_port:
+              get_param: [EndpointMap, OctaviaInternal, port]
+            # Bind to localhost if internal TLS is enabled, since we put a TLS
+            # proxy in front.
+            octavia::api::host:
+              if:
+              - use_tls_proxy
+              - '127.0.0.1'
+              - {get_param: [ServiceNetMap, OctaviaApiNetwork]}
       step_config: |
         include tripleo::profile::base::octavia::api
       service_config_settings:
