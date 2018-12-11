@@ -159,40 +159,6 @@ outputs:
           block:
             - name: set is_bootstrap_node fact
               set_fact: is_bootstrap_node={{ironic_api_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Check if ironic_api is deployed
-              command: systemctl is-enabled --quiet openstack-ironic-api
-              ignore_errors: True
-              register: ironic_api_enabled_result
-            - name: Set fact ironic_api_enabled
-              set_fact:
-                ironic_api_enabled: "{{ ironic_api_enabled_result.rc == 0 }}"
-            - name: Check for ironic_api running under apache
-              shell: "httpd -t -D DUMP_VHOSTS | grep -q ironic"
-              ignore_errors: True
-              register: ironic_httpd_enabled_result
-            - name: Set fact ironic_httpd_enabled
-              set_fact:
-                ironic_httpd_enabled: "{{ ironic_httpd_enabled_result.rc == 0 }}"
-            - name: "PreUpgrade step0,validation: Check service openstack-ironic-api is running"
-              command: systemctl is-active --quiet openstack-ironic-api
-              when:
-                - ironic_api_enabled|bool
-              tags: validation
-            - name: Check if httpd service is running
-              command: systemctl is-active --quiet httpd
-              ignore_errors: True
-              register: httpd_running_result
-              when: httpd_running is undefined
-            - name: Set fact httpd_running
-              set_fact:
-                httpd_running: "{{ httpd_running_result.rc == 0 }}"
-              when: httpd_running is undefined
-            - name: "PreUpgrade step0,validation: Check if ironic_api_wsgi is running"
-              shell: systemctl status 'httpd' | grep -q ironic
-              tags: validation
-              when:
-                - ironic_httpd_enabled|bool
-                - httpd_running|bool
             - name: Ensure all online data migrations for Ironic have been applied
               shell: |
                 if {{ container_cli }} ps | grep ironic_api; then
@@ -203,21 +169,7 @@ outputs:
                   docker exec ironic_api ironic-dbsync --config-file /etc/ironic/ironic.conf online_data_migrations
                 fi
               tags: pre-upgrade
-              when:
-                - is_bootstrap_node|bool
-                - not (ironic_httpd_enabled|bool and httpd_running|bool)
-                - not ironic_api_enabled|bool
-        - when: step|int == 2
-          block:
-            - name: Stop and disable ironic_api service
-              when:
-                - ironic_api_enabled|bool
-              service: name=openstack-ironic-api state=stopped enabled=no
-            - name: Stop ironic_api service (running under httpd)
-              when:
-                - ironic_httpd_enabled|bool
-                - httpd_running|bool
-              service: name=httpd state=stopped enabled=no
+              when: is_bootstrap_node|bool
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-ironic-api package

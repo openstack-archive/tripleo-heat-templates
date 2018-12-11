@@ -230,33 +230,6 @@ outputs:
           block:
             - name: set is_bootstrap_node fact
               set_fact: is_bootstrap_node={{cinder_api_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Check is cinder_api is deployed
-              command: systemctl is-enabled openstack-cinder-api
-              ignore_errors: True
-              register: cinder_api_enabled_result
-            - name: Set fact cinder_api_enabled
-              set_fact:
-                cinder_api_enabled: "{{ cinder_api_enabled_result.rc == 0 }}"
-            - name: Check if httpd service is running
-              command: systemctl is-active --quiet httpd
-              ignore_errors: True
-              register: httpd_running_result
-              when: httpd_running is undefined
-            - name: Set fact httpd_running
-              set_fact:
-                httpd_running: "{{ httpd_running_result.rc == 0 }}"
-              when: httpd_running is undefined
-            - name: check for cinder_api running under apache (post upgrade)
-              shell: "httpd -t -D DUMP_VHOSTS | grep -q cinder"
-              register: cinder_api_apache
-              ignore_errors: true
-            - name: Set fact cinder_api_apache (upgrade)
-              set_fact:
-                cinder_api_apache: "{{ cinder_api_apache.rc == 0 }}"
-            - name: "PreUpgrade step0,validation: Check service openstack-cinder-api is running"
-              shell: systemctl is-active --quiet openstack-cinder-api
-              when: cinder_api_enabled|bool
-              tags: validation
             - name: Ensure all online data migrations for Cinder have been applied
               shell: |
                 if {{ container_cli }} ps | grep cinder_api; then
@@ -267,24 +240,9 @@ outputs:
                   docker exec cinder_api cinder-manage db online_data_migrations
                 fi
               tags: pre-upgrade
-              when:
-                - is_bootstrap_node|bool
-                - not (cinder_api_apache|bool and httpd_running|bool)
-                - not cinder_api_enabled|bool
-        - when: step|int == 2
-          block:
-            - name: Stop and disable cinder_api service (pre-upgrade not under httpd)
-              service: name=openstack-cinder-api state=stopped enabled=no
-              when: cinder_api_enabled|bool
-            - name: Stop and disable cinder_api service
-              service: name=httpd state=stopped enabled=no
-              when: cinder_api_apache|bool
+              when: is_bootstrap_node|bool
         - when: step|int == 3
           block:
-            - name: remove old cinder cron jobs
-              file:
-                path: /var/spool/cron/cinder
-                state: absent
             - name: Set fact for removal of httpd package
               set_fact:
                 remove_httpd_package: {get_param: UpgradeRemoveUnusedPackages}
