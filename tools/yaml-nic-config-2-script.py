@@ -60,6 +60,7 @@ def to_commented_yaml(filename):
                     spaces+=' '
                     next;
                 elif char == '#':
+                    last_non_comment_spaces = spaces
                     comment_count += 1
                     comment = line[char_count:-1]
                     out_str += "%scomment%i_%i: '%s'\n" % (last_non_comment_spaces, comment_count, len(spaces), comment)
