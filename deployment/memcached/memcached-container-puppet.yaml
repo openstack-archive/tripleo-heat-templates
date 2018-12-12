@@ -1,9 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  Memcached service configured with Puppet
+  OpenStack containerized Memcached services
 
 parameters:
+  DockerMemcachedImage:
+    description: image
+    type: string
+  DockerMemcachedConfigImage:
+    description: The container image to use for the memcached config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -24,11 +35,6 @@ parameters:
   RoleParameters:
     default: {}
     description: Parameters specific to the role
-    type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
     type: json
   MemcachedMaxMemory:
     default: '50%'
@@ -64,9 +70,14 @@ conditions:
       - equals: [{get_param: MemcachedDebug}, 'true']
       - equals: [{get_param: MemcachedDebug}, 'True']
 
+resources:
+
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
 outputs:
   role_data:
-    description: Role data for the Memcached role.
+    description: Role data for the Memcached API role.
     value:
       service_name: memcached
       monitoring_subscription: {get_param: MonitoringSubscriptionMemcached}
@@ -115,8 +126,7 @@ outputs:
               - memcached_network_unset
               - "%{hiera('memcached_network')}"
               - {get_param: MemcachedIpSubnet}
-      step_config: |
-        include ::tripleo::profile::base::memcached
+        memcached::logstdout: true
       service_config_settings:
         collectd:
             tripleo.collectd.plugins.memcached:
@@ -125,3 +135,61 @@ outputs:
               local:
                 host: "%{hiera('memcached::listen_ip')}"
                 port: 11211
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: 'memcached'
+        puppet_tags: 'file'
+        step_config: |
+            include ::tripleo::profile::base::memcached
+        config_image: {get_param: DockerMemcachedConfigImage}
+      kolla_config: {}
+      docker_config:
+        step_1:
+          memcached:
+            start_order: 0
+            image: {get_param: DockerMemcachedImage}
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/memcached/etc/sysconfig/memcached:/etc/sysconfig/memcached:ro
+            command: ['/bin/bash', '-c', 'source /etc/sysconfig/memcached; /usr/bin/memcached -p ${PORT} -u ${USER} -m ${CACHESIZE} -c ${MAXCONN} $OPTIONS']
+      host_prep_tasks:
+        - name: memcached logs readme
+          copy:
+            dest: /var/log/memcached-readme.txt
+            content: |
+              Memcached container logs to stdout/stderr only.
+          ignore_errors: true
+      upgrade_tasks: []
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - memcached
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: Check if memcached is deployed
+              command: systemctl is-enabled --quiet memcached
+              tags: common
+              ignore_errors: True
+              register: memcached_enabled_result
+            - name: memcached_enabled
+              set_fact:
+                memcached_enabled: "{{ memcached_enabled_result.rc == 0 }}"
+        - name: Stop and disable memcached service
+          when:
+            - step|int == 2
+            - release == 'ocata'
+            - memcached_enabled|bool
+          service: name=memcached state=stopped enabled=no
