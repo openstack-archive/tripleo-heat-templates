@@ -1,9 +1,24 @@
 heat_template_version: rocky
 
 description: >
-  Openstack Zaqar service. Shared for all Heat services.
+  OpenStack containerized Zaqar services
 
 parameters:
+  DockerZaqarImage:
+    description: image
+    type: string
+  DockerZaqarConfigImage:
+    description: The container image to use for the zaqar config_volume
+    type: string
+  ZaqarManagementStore:
+    type: string
+    description: The management store for Zaqar
+    default: redis
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -13,11 +28,6 @@ parameters:
     description: Mapping of service_name -> network name. Typically set
                  via parameter_defaults in the resource registry.  This
                  mapping overrides those in ServiceNetMapDefaults.
-    type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
     type: json
   DefaultPasswords:
     default: {}
@@ -30,10 +40,17 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  Debug:
-    default: false
-    description: Set to True to enable debugging on all services.
+  EnableInternalTLS:
     type: boolean
+    default: false
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+  Debug:
+    type: boolean
+    description: Set to True to enable debugging on all services.
+    default: false
   ZaqarDebug:
     default: ''
     description: Set to True to enable debugging Zaqar service.
@@ -75,16 +92,17 @@ parameters:
     hidden: true
 
 conditions:
-  zaqar_workers_zero: {equals : [{get_param: ZaqarWorkers}, 0]}
+  internal_tls_enabled: {get_param: EnableInternalTLS}
   service_debug_unset: {equals : [{get_param: ZaqarDebug}, '']}
+  zaqar_management_store_sqlalchemy: {equals : [{get_param: ZaqarManagementStore}, 'sqlalchemy']}
+  zaqar_workers_zero: {equals : [{get_param: ZaqarWorkers}, 0]}
   zaqar_messaging_store_swift: {equals : [{get_param: ZaqarMessageStore}, 'swift']}
   zaqar_messaging_store_redis: {equals : [{get_param: ZaqarMessageStore}, 'redis']}
-  zaqar_management_store_sqlalchemy: {equals : [{get_param: ZaqarManagementStore}, 'sqlalchemy']}
 
 resources:
 
   ApacheServiceBase:
-    type: ./apache.yaml
+    type: ../../puppet/services/apache.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -92,9 +110,15 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
+
 outputs:
   role_data:
-    description: Shared role data for the Zaqar services.
+    description: Role data for the Zaqar API role.
     value:
       service_name: zaqar_api
       config_settings:
@@ -218,8 +242,141 @@ outputs:
                   - '%'
                   - "%{hiera('mysql_bind_host')}"
             - {}
-      step_config: |
-        include ::tripleo::profile::base::zaqar
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: zaqar
+        puppet_tags: zaqar_config
+        step_config:
+          list_join:
+            - "\n"
+            - - include ::tripleo::profile::base::zaqar
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerZaqarConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/zaqar.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+        /var/lib/kolla/config_files/zaqar_websocket.json:
+          command: /usr/bin/zaqar-server --config-file /etc/zaqar/zaqar.conf --config-file /etc/zaqar/1.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/zaqar
+              owner: zaqar:zaqar
+              recurse: true
+      docker_config:
+        map_merge:
+          -
+            if:
+            - zaqar_management_store_sqlalchemy
+            -
+              step_2:
+                zaqar_init_log:
+                  image: &zaqar_image {get_param: DockerZaqarImage}
+                  user: root
+                  volumes:
+                    - /var/log/containers/zaqar:/var/log/zaqar
+                    - /var/log/containers/httpd/zaqar:/var/log/httpd
+                  command: ['/bin/bash', '-c', 'chown -R zaqar:zaqar /var/log/zaqar']
+              step_3:
+                zaqar_db_sync:
+                  image: *zaqar_image
+                  net: host
+                  privileged: false
+                  detach: false
+                  user: root
+                  volumes:
+                    list_concat:
+                      - {get_attr: [ContainersCommon, volumes]}
+                      -
+                        - /var/lib/config-data/zaqar/etc/zaqar/:/etc/zaqar/:ro
+                        - /var/log/containers/zaqar:/var/log/zaqar
+                        - /var/log/containers/httpd/zaqar:/var/log/httpd
+                  command: "/usr/bin/bootstrap_host_exec zaqar_api su zaqar -s /bin/bash -c 'zaqar-sql-db-manage upgrade head'"
+            - {}
+          - step_4:
+              zaqar:
+                image: *zaqar_image
+                net: host
+                privileged: false
+                restart: always
+                # NOTE(mandre) kolla image changes the user to 'zaqar', we need it
+                # to be root to run httpd
+                user: root
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/zaqar.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/zaqar/:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/zaqar:/var/log/zaqar
+                      - /var/log/containers/httpd/zaqar:/var/log/httpd
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - ''
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                          - ''
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              zaqar_websocket:
+                image: *zaqar_image
+                net: host
+                privileged: false
+                restart: always
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/zaqar_websocket.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/zaqar/:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/zaqar:/var/log/zaqar
+                      - /var/log/containers/httpd/zaqar:/var/log/httpd
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/log/containers/zaqar
+            - /var/log/containers/httpd/zaqar
+        - name: zaqar logs readme
+          copy:
+            dest: /var/log/zaqar/readme.txt
+            content: |
+              Log files from zaqar containers can be found under
+              /var/log/containers/zaqar and /var/log/containers/httpd/zaqar.
+          ignore_errors: true
+      upgrade_tasks:
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-zaqar package
+              set_fact:
+                remove_zaqar_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-zaqar package if operator requests it
+              package: name=openstack-zaqar state=removed
+              ignore_errors: True
+              when: remove_zaqar_package|bool
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - zaqar
+              - zaqar_websocket
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
-      upgrade_tasks: []
