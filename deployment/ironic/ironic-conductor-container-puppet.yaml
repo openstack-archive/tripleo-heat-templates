@@ -1,9 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Ironic conductor configured with Puppet
+  OpenStack containerized Ironic Conductor service
 
 parameters:
+  DockerIronicConductorImage:
+    description: image
+    type: string
+  DockerIronicConfigImage:
+    description: The container image to use for the ironic config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -29,11 +40,11 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
+  IronicConfigureSwiftTempUrlKey:
+    default: true
+    description: Whether to configure Swift temporary URLs for use with
+                 the "direct" and "ansible" deploy interfaces.
+    type: boolean
   IronicAutomatedClean:
     default: true
     description: Enables or disables automated cleaning which may result in
@@ -215,19 +226,10 @@ parameters:
     default: []
     description: List of additional architectures to enable.
     type: comma_delimited_list
-
-resources:
-  IronicBase:
-    type: ./ironic-base.yaml
-    properties:
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-      Debug: {get_param: Debug}
-      IronicDebug: {get_param: IronicDebug}
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
 
 conditions:
   default_deploy_interface_unset: {equals : [{get_param: IronicDefaultDeployInterface}, '']}
@@ -239,10 +241,31 @@ conditions:
       - equals: [{get_param: IronicDebug}, 'TRUE']
       - equals: [{get_param: Debug}, true]
   enable_architecture_ppc64le: {contains: ['ppc64le', {get_param: AdditionalArchitectures}]}
+  configure_swift_temp_url: {equals: [{get_param: IronicConfigureSwiftTempUrlKey}, true]}
+
+resources:
+
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
+
+  IronicBase:
+    type: ./ironic-base-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      Debug: {get_param: Debug}
+      IronicDebug: {get_param: IronicDebug}
 
 outputs:
   role_data:
-    description: Role data for the Ironic conductor role.
+    description: Role data for the Ironic Conductor role.
     value:
       service_name: ironic_conductor
       monitoring_subscription: {get_param: MonitoringSubscriptionIronicConductor}
@@ -394,9 +417,213 @@ outputs:
             ironic::drivers::inspector::user_domain_name: 'Default'
             ironic::drivers::inspector::project_domain_name: 'Default'
             tripleo::profile::base::ironic::conductor::enable_staging:  {get_param: IronicEnableStagingDrivers}
-      step_config: |
-        include ::tripleo::profile::base::ironic::conductor
+          # to avoid hard linking errors we store these on the same
+          # volume/device as the ironic master_path
+          # https://github.com/docker/docker/issues/7457
+          - ironic::drivers::pxe::tftp_root: /var/lib/ironic/tftpboot
+          - ironic::drivers::pxe::tftp_master_path: /var/lib/ironic/tftpboot/master_images
+          - ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
+          - ironic::pxe::http_root: /var/lib/ironic/httpboot
+          - ironic::conductor::http_root: /var/lib/ironic/httpboot
+      service_config_settings: {}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: ironic
+        puppet_tags: ironic_config
+        step_config:
+         list_join:
+            - "\n"
+            - - include ::tripleo::profile::base::ironic::conductor
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerIronicConfigImage}
+        volumes:
+          - /var/lib/ironic:/var/lib/ironic:z
+      kolla_config:
+        /var/lib/kolla/config_files/ironic_conductor.json:
+          command: /usr/bin/ironic-conductor
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/ironic
+              owner: ironic:ironic
+              recurse: true
+            - path: /var/log/ironic
+              owner: ironic:ironic
+              recurse: true
+      docker_config_scripts:
+        create_swift_temp_url_key.sh:
+          mode: "0700"
+          content: |
+            #!/bin/bash
+            export OS_PROJECT_DOMAIN_NAME=$(crudini --get /etc/ironic/ironic.conf swift project_domain_name)
+            export OS_USER_DOMAIN_NAME=$(crudini --get /etc/ironic/ironic.conf swift user_domain_name)
+            export OS_PROJECT_NAME=$(crudini --get /etc/ironic/ironic.conf swift project_name)
+            export OS_USERNAME=$(crudini --get /etc/ironic/ironic.conf swift username)
+            export OS_PASSWORD=$(crudini --get /etc/ironic/ironic.conf swift password)
+            export OS_AUTH_URL=$(crudini --get /etc/ironic/ironic.conf swift auth_url)
+            export OS_AUTH_TYPE=password
+            export OS_IDENTITY_API_VERSION=3
+
+            echo "Check if a temporary URL key already exists"
+            RETVAL=-1
+            RETRIES=5
+            while [ ${RETVAL} -ne 0 ] && [ ${RETRIES} -gt 0 ]; do
+              RETRIES=$[$RETRIES-1]
+              CMD_OUT=$(openstack object store account show -f value)
+              RETVAL=$?
+              if [ ${RETVAL} -ne 0 ]; then
+                  echo Retrying...
+                  sleep 5
+                  continue
+              fi
+              if [[ ! ${CMD_OUT} =~ "Temp-Url-Key" ]] ; then
+                  echo "Creating a new temporary URL for project $OS_PROJECT_NAME"
+                  SWIFT_TEMP_URL_KEY=$(uuidgen | sha1sum | awk '{print $1}')
+                  openstack object store account set --property "Temp-URL-Key=$SWIFT_TEMP_URL_KEY"
+                  RETVAL=$?
+              fi
+            done
+
+      docker_config:
+        step_4:
+          map_merge:
+            - if:
+              - configure_swift_temp_url
+              - create_swift_temp_url_key:
+                  start_order: 70
+                  image: &ironic_conductor_image {get_param: DockerIronicConductorImage}
+                  net: host
+                  detach: false
+                  volumes:
+                    list_concat:
+                      - {get_attr: [ContainersCommon, volumes]}
+                      -
+                        - /var/lib/config-data/puppet-generated/ironic/etc/ironic:/etc/ironic:ro
+                        - /var/lib/docker-config-scripts/create_swift_temp_url_key.sh:/create_swift_temp_url_key.sh:ro
+                  user: root
+                  command: "/usr/bin/bootstrap_host_exec ironic_conductor /create_swift_temp_url_key.sh"
+              - {}
+            - ironic_conductor:
+                start_order: 80
+                image: *ironic_conductor_image
+                net: host
+                privileged: true
+                restart: always
+                healthcheck:
+                  test:
+                    list_join:
+                      - ' '
+                      - - '/openstack/healthcheck'
+                        - yaql:
+                            expression: str($.data.port)
+                            data:
+                              port: {get_attr: [IronicBase, role_data, config_settings, 'ironic::rabbit_port']}
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/ironic/:/var/lib/kolla/config_files/src:ro
+                      - /lib/modules:/lib/modules:ro
+                      - /sys:/sys
+                      - /dev:/dev
+                      - /run:/run #shared?
+                      - /var/lib/ironic:/var/lib/ironic:z
+                      - /var/log/containers/ironic:/var/log/ironic:z
+                environment:
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: load iscsi_tcp module
+          import_role:
+            name: tripleo-module-load
+          vars:
+            modules:
+              - name: iscsi_tcp
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+          with_items:
+            - { 'path': /var/log/containers/ironic, 'setype': svirt_sandbox_file_t }
+            - { 'path': /var/lib/ironic, 'setype': svirt_sandbox_file_t }
+        - name: ironic logs readme
+          copy:
+            dest: /var/log/ironic/readme.txt
+            content: |
+              Log files from ironic containers can be found under
+              /var/log/containers/ironic and /var/log/containers/httpd/ironic-*.
+          ignore_errors: true
+        - name: stat /httpboot
+          stat: path=/httpboot
+          register: stat_httpboot
+        - name: stat /tftpboot
+          stat: path=/tftpboot
+          register: stat_tftpboot
+        - name: stat /var/lib/ironic/httpboot
+          stat: path=/var/lib/ironic/httpboot
+          register: stat_ironic_httpboot
+        - name: stat /var/lib/ironic/tftpboot
+          stat: path=/var/lib/ironic/tftpboot
+          register: stat_ironic_tftpboot
+        # cannot use 'copy' module as with 'remote_src' it doesn't support recursion
+        - name: migrate /httpboot to containerized (if applicable)
+          command: /bin/cp -R /httpboot /var/lib/ironic/httpboot
+          when: stat_httpboot.stat.exists and not stat_ironic_httpboot.stat.exists
+        - name: migrate /tftpboot to containerized (if applicable)
+          command: /bin/cp -R /tftpboot /var/lib/ironic/tftpboot
+          when: stat_tftpboot.stat.exists and not stat_ironic_tftpboot.stat.exists
+        # Even if there was nothing to copy from original locations,
+        # we need to create the dirs before starting the containers
+        - name: ensure ironic pxe directories exist
+          file:
+            path: /var/lib/ironic/{{ item }}
+            state: directory
+          with_items:
+            - httpboot
+            - tftpboot
       upgrade_tasks:
-        - name: Stop ironic_conductor service
-          when: step|int == 1
-          service: name=openstack-ironic-conductor state=stopped
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-ironic-conductor package
+              set_fact:
+                remove_ironic_conductor_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-ironic-conductor package if operator requests it
+              package: name=openstack-ironic-conductor state=removed
+              ignore_errors: True
+              when: remove_ironic_conductor_package|bool
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - ironic_conductor
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: Check if ironic_conductor is deployed
+              command: systemctl is-enabled --quiet openstack-ironic-conductor
+              ignore_errors: True
+              register: ironic_conductor_enabled_result
+            - name: Set fact ironic_conductor_enabled
+              set_fact:
+                ironic_conductor_enabled: "{{ ironic_conductor_enabled_result.rc == 0 }}"
+        - name: Stop openstack-ironic-conductor
+          service: name=openstack-ironic-conductor state=stopped enabled=no
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - ironic_conductor_enabled|bool
+        - name: Ironic packages update
+          package:
+            name: 'openstack-ironic*'
+            state: latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
