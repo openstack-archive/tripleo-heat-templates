@@ -46,37 +46,61 @@ parameters:
     default: false
     description: Whether or not restart Keepalived. Useful for Undercloud only.
     type: boolean
+  ControlVirtualInterface:
+    default: ''
+    description: >
+        Interface where virtual ip will be assigned.  This value will be
+        automatically set by the deployment tool.  Overriding here will
+        override automatic setting.
+    type: string
+  PublicVirtualInterface:
+    default: ''
+    description: >
+        Interface where virtual ip will be assigned.  This value will be
+        automatically set by the deployment tool.  Overriding here will
+        override automatic setting.
+    type: string
+  MonitoringSubscriptionKeepalived:
+    default: 'overcloud-keepalived'
+    type: string
+
+conditions:
+  control_iface_empty: {equals : [{get_param: ControlVirtualInterface}, '']}
+  public_iface_empty: {equals : [{get_param: PublicVirtualInterface}, '']}
 
 resources:
-
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  KeepalivedBase:
-    type: ../../puppet/services/keepalived.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
-    description: Role data for the Keepalived API role.
+    description: Role data for the Keepalived role.
     value:
-      service_name: {get_attr: [KeepalivedBase, role_data, service_name]}
+      service_name: keepalived
+      monitoring_subscription: {get_param: MonitoringSubscriptionKeepalived}
       config_settings:
         map_merge:
-          - get_attr: [KeepalivedBase, role_data, config_settings]
-          - tripleo::keepalived:custom_vrrp_script: 'test -S /var/lib/haproxy/stats && echo "show info" | socat /var/lib/haproxy/stats stdio'
-      service_config_settings: {get_attr: [KeepalivedBase, role_data, service_config_settings]}
+        - tripleo::keepalived:custom_vrrp_script: 'test -S /var/lib/haproxy/stats && echo "show info" | socat /var/lib/haproxy/stats stdio'
+        - tripleo::keepalived::firewall_rules:
+            '106 keepalived vrrp':
+              proto: vrrp
+        -
+          if:
+          - control_iface_empty
+          - {}
+          - tripleo::keepalived::control_virtual_interface: {get_param: ControlVirtualInterface}
+        -
+          if:
+          - public_iface_empty
+          - {}
+          - tripleo::keepalived::public_virtual_interface: {get_param: PublicVirtualInterface}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: 'keepalived'
         puppet_tags: 'file'
-        step_config: {get_attr: [KeepalivedBase, role_data, step_config]}
+        step_config: |
+          include ::tripleo::profile::base::keepalived
         config_image: {get_param: DockerKeepalivedConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/keepalived.json:
