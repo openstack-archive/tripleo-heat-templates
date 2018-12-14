@@ -49,10 +49,6 @@ parameters:
     type: string
     description: Nova Compute upgrade level
     default: ''
-  UpgradeRemoveUnusedPackages:
-    default: false
-    description: Remove package if the service is being disabled during upgrade
-    type: boolean
   CephClientUserName:
     default: openstack
     type: string
@@ -296,13 +292,20 @@ outputs:
             - name: Stop and disable nova-compute service
               when: nova_compute_enabled|bool
               service: name=openstack-nova-compute state=stopped enabled=no
-            - name: Set fact for removal of openstack-nova-compute package
-              set_fact:
-                remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
-            - name: Remove openstack-nova-compute package if operator requests it
-              yum: name=openstack-nova-compute state=removed
+            - name: Remove openstack-nova-compute and python-nova package during upgrade
+              package: name={{ item }} state=removed
+              with_items:
+                - openstack-nova-compute
+                - python-nova
               ignore_errors: True
-              when: remove_nova_compute_package|bool
+      update_tasks:
+        - name: Remove openstack-nova-compute and python-nova package during update
+          package: name={{ item }} state=removed
+          with_items:
+            - openstack-nova-compute
+            - python-nova
+          ignore_errors: True
+          when: step|int == 2
       fast_forward_upgrade_tasks:
         - name: Check if nova-compute is deployed
           command:  systemctl is-enabled --quiet openstack-nova-compute
