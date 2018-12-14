@@ -1,0 +1,262 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Sahara service configured with Puppet
+
+parameters:
+  DockerSaharaApiImage:
+    description: image
+    type: string
+  DockerSaharaConfigImage:
+    description: The container image to use for the sahara config_volume
+    type: string
+  SaharaApiLoggingSource:
+    type: json
+    default:
+      tag: openstack.sahara.api
+      path: /var/log/containers/sahara/sahara-api.log
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+  SaharaPassword:
+    description: The password for the sahara service account, used by sahara-api.
+    type: string
+    hidden: true
+  SaharaWorkers:
+    default: 0
+    description: The number of workers for the sahara-api.
+    type: number
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionSaharaApi:
+    default: 'overcloud-sahara-api'
+    type: string
+  SaharaApiPolicies:
+    description: |
+      A hash of policies to configure for Sahara API.
+      e.g. { sahara-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../../puppet/services/database/mysql-client.yaml
+
+  SaharaPuppetBase:
+    type: ./sahara-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Sahara API role.
+    value:
+      service_name: sahara_api
+      monitoring_subscription: {get_param: MonitoringSubscriptionSaharaApi}
+      config_settings:
+        map_merge:
+          - sahara::sync_db: false
+          - get_attr: [SaharaPuppetBase, role_data, config_settings]
+          - sahara::port: {get_param: [EndpointMap, SaharaInternal, port]}
+            sahara::policy::policies: {get_param: SaharaApiPolicies}
+            sahara::service::api::api_workers: {get_param: SaharaWorkers}
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            sahara::host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, SaharaApiNetwork]}
+            tripleo::sahara_api::firewall_rules:
+              '132 sahara':
+                dport:
+                  - 8386
+                  - 13386
+      service_config_settings:
+        fluentd:
+          tripleo_fluentd_groups_sahara_api:
+            - sahara
+          tripleo_fluentd_sources_sahara_api:
+            - {get_param: SaharaApiLoggingSource}
+        keystone:
+          sahara::keystone::auth::tenant: 'service'
+          sahara::keystone::auth::public_url: {get_param: [EndpointMap, SaharaPublic, uri]}
+          sahara::keystone::auth::internal_url: {get_param: [EndpointMap, SaharaInternal, uri]}
+          sahara::keystone::auth::admin_url: {get_param: [EndpointMap, SaharaAdmin, uri]}
+          sahara::keystone::auth::password: {get_param: SaharaPassword }
+          sahara::keystone::auth::region: {get_param: KeystoneRegion}
+        mysql:
+          sahara::db::mysql::password: {get_param: SaharaPassword}
+          sahara::db::mysql::user: sahara
+          sahara::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          sahara::db::mysql::dbname: sahara
+          sahara::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
+      # BEGIN DOCKER SETTINGS #
+      puppet_config:
+        config_volume: sahara
+        puppet_tags: sahara_api_paste_ini,sahara_cluster_template,sahara_config,sahara_node_group_template
+        step_config:
+          list_join:
+            - "\n"
+            - - include ::tripleo::profile::base::sahara::api
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerSaharaConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/sahara-api.json:
+          command: /usr/bin/sahara-api --config-file /etc/sahara/sahara.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/sahara
+              owner: sahara:sahara
+              recurse: true
+            - path: /var/log/sahara
+              owner: sahara:sahara
+              recurse: true
+      docker_config:
+        step_3:
+          sahara_db_sync:
+            image: &sahara_api_image {get_param: DockerSaharaApiImage}
+            net: host
+            privileged: false
+            detach: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/sahara/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/sahara/etc/sahara/:/etc/sahara/:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/sahara:/var/lib/sahara
+                  - /var/log/containers/sahara:/var/log/sahara
+            command: "/usr/bin/bootstrap_host_exec sahara_api su sahara -s /bin/bash -c 'sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head'"
+        step_4:
+          sahara_api:
+            image: *sahara_api_image
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/sahara-api.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/puppet-generated/sahara/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/sahara:/var/lib/sahara
+                  - /var/log/containers/sahara:/var/log/sahara
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create /var/lib/sahara
+          file:
+            path: /var/lib/sahara
+            state: directory
+        - name: create persistent sahara logs directory
+          file:
+            path: /var/log/containers/sahara
+            state: directory
+        - name: sahara logs readme
+          copy:
+            dest: /var/log/sahara/readme.txt
+            content: |
+              Log files from sahara containers can be found under
+              /var/log/containers/sahara.
+          ignore_errors: true
+      upgrade_tasks:
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-sahara-api package
+              set_fact:
+                remove_sahara_api_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-sahara-api package if operator requests it
+              package: name=openstack-sahara-api state=removed
+              ignore_errors: True
+              when: remove_sahara_api_package|bool
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - sahara_api
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: FFU check openstack-sahara-api is enabled
+              command: systemctl is-enabled openstack-sahara-api
+              ignore_errors: True
+              register: sahara_api_enabled_result
+            - name: Set fact sahara_api_enabled
+              set_fact:
+                sahara_api_enabled: "{{ sahara_api_enabled_result.rc == 0 }}"
+        - name: FFU stop and disable openstack-sahara-api
+          service: name=openstack-sahara-api state=stopped enabled=no
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - sahara_api_enabled|bool
+        - name: FFU Sahara package update
+          package:
+            name: 'openstack-sahara*'
+            state: latest
+          when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+        - name: FFU Sahara db upgrade
+          command: sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool

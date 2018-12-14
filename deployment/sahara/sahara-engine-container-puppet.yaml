@@ -1,20 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Sahara service configured with Puppet
+  OpenStack Sahara service
 
 parameters:
-  DockerSaharaApiImage:
+  DockerSaharaEngineImage:
     description: image
     type: string
   DockerSaharaConfigImage:
     description: The container image to use for the sahara config_volume
     type: string
-  SaharaApiLoggingSource:
+  SaharaEngineLoggingSource:
     type: json
     default:
-      tag: openstack.sahara.api
-      path: /var/log/containers/sahara/sahara-api.log
+      tag: openstack.sahara.engine
+      path: /var/log/containers/sahara/sahara-engine.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -45,53 +45,57 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  MonitoringSubscriptionSaharaEngine:
+    default: 'overcloud-sahara-engine'
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+      type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
-  SaharaApiPuppetBase:
-    type: ../../puppet/services/sahara-api.yaml
+  SaharaBase:
+    type: ./sahara-base.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
-    description: Role data for the Sahara API role.
+    description: Role data for the Sahara Engine role.
     value:
-      service_name: {get_attr: [SaharaApiPuppetBase, role_data, service_name]}
+      service_name: sahara_engine
+      monitoring_subscription: {get_param: MonitoringSubscriptionSaharaEngine}
       config_settings:
         map_merge:
-          - get_attr: [SaharaApiPuppetBase, role_data, config_settings]
+          - get_attr: [SaharaBase, role_data, config_settings]
           - sahara::sync_db: false
       service_config_settings:
-        map_merge:
-          - get_attr: [SaharaApiPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_sahara_api:
-                - sahara
-              tripleo_fluentd_sources_sahara_api:
-                - {get_param: SaharaApiLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_sahara_engine:
+            - sahara
+          tripleo_fluentd_sources_sahara_engine:
+            - {get_param: SaharaEngineLoggingSource}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: sahara
-        puppet_tags: sahara_api_paste_ini,sahara_cluster_template,sahara_config,sahara_node_group_template
+        puppet_tags: sahara_engine_paste_ini,sahara_cluster_template,sahara_config,sahara_node_group_template
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [SaharaApiPuppetBase, role_data, step_config]}
+            - - include ::tripleo::profile::base::sahara::engine
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerSaharaConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/sahara-api.json:
-          command: /usr/bin/sahara-api --config-file /etc/sahara/sahara.conf
+        /var/lib/kolla/config_files/sahara-engine.json:
+          command: /usr/bin/sahara-engine --config-file /etc/sahara/sahara.conf
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -105,38 +109,27 @@ outputs:
               owner: sahara:sahara
               recurse: true
       docker_config:
-        step_3:
-          sahara_db_sync:
-            image: &sahara_api_image {get_param: DockerSaharaApiImage}
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/sahara/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/sahara/etc/sahara/:/etc/sahara/:ro
-                  - /lib/modules:/lib/modules:ro
-                  - /var/lib/sahara:/var/lib/sahara
-                  - /var/log/containers/sahara:/var/log/sahara
-            command: "/usr/bin/bootstrap_host_exec sahara_api su sahara -s /bin/bash -c 'sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head'"
         step_4:
-          sahara_api:
-            image: *sahara_api_image
+          sahara_engine:
+            image: {get_param: DockerSaharaEngineImage}
             net: host
             privileged: false
             restart: always
             healthcheck:
-              test: /openstack/healthcheck
+              test:
+                list_join:
+                  - ' '
+                  - - '/openstack/healthcheck'
+                    - yaql:
+                        expression: str($.data.port)
+                        data:
+                          port: {get_attr: [SaharaBase, role_data, config_settings, 'sahara::rabbit_port']}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/sahara-api.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/kolla/config_files/sahara-engine.json:/var/lib/kolla/config_files/config.json
                   - /var/lib/config-data/puppet-generated/sahara/:/var/lib/kolla/config_files/src:ro
-                  - /lib/modules:/lib/modules:ro
                   - /var/lib/sahara:/var/lib/sahara
                   - /var/log/containers/sahara:/var/log/sahara
             environment:
@@ -157,50 +150,43 @@ outputs:
               Log files from sahara containers can be found under
               /var/log/containers/sahara.
           ignore_errors: true
+        - name: enable virt_sandbox_use_netlink for healthcheck
+          seboolean:
+            name: virt_sandbox_use_netlink
+            persistent: yes
+            state: yes
       upgrade_tasks:
         - when: step|int == 3
           block:
-            - name: Set fact for removal of openstack-sahara-api package
+            - name: Set fact for removal of openstack-sahara-engine package
               set_fact:
-                remove_sahara_api_package: {get_param: UpgradeRemoveUnusedPackages}
-            - name: Remove openstack-sahara-api package if operator requests it
-              package: name=openstack-sahara-api state=removed
+                remove_sahara_engine_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-sahara-engine package if operator requests it
+              package: name=openstack-sahara-engine state=removed
               ignore_errors: True
-              when: remove_sahara_api_package|bool
+              when: remove_sahara_engine_package|bool
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - sahara_api
+              - sahara_engine
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
             - release == 'ocata'
           block:
-            - name: FFU check openstack-sahara-api is enabled
-              command: systemctl is-enabled openstack-sahara-api
+            - name: FFU check if openstack-sahara-engine is enabled
+              command: systemctl is-enabled --quiet openstack-sahara-engine
               ignore_errors: True
-              register: sahara_api_enabled_result
-            - name: Set fact sahara_api_enabled
+              register: sahara_engine_enabled_result
+            - name: Set fact sahara_engine_enabled
               set_fact:
-                sahara_api_enabled: "{{ sahara_api_enabled_result.rc == 0 }}"
-        - name: FFU stop and disable openstack-sahara-api
-          service: name=openstack-sahara-api state=stopped enabled=no
+                sahara_engine_enabled: "{{ sahara_engine_enabled_result.rc == 0 }}"
+        - name: FFU stop and disable openstack-sahara-engine service
           when:
             - step|int == 1
             - release == 'ocata'
-            - sahara_api_enabled|bool
-        - name: FFU Sahara package update
-          package:
-            name: 'openstack-sahara*'
-            state: latest
-          when:
-            - step|int == 6
-            - is_bootstrap_node|bool
-        - name: FFU Sahara db upgrade
-          command: sahara-db-manage --config-file /etc/sahara/sahara.conf upgrade head
-          when:
-            - step|int == 8
-            - is_bootstrap_node|bool
+            - sahara_engine_enabled|bool
+          service: name=openstack-sahara-engine state=stopped enabled=no
