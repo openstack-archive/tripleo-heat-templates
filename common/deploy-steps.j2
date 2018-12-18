@@ -695,19 +695,6 @@ outputs:
                   loop_control:
                     loop_var: step
 {%- endfor %}
-      upgrade_steps_tasks: |
-            - name: ensure /var/lib/config-data exists
-              file:
-                path: /var/lib/config-data
-                state: directory
-            - name: ensure we get the right selinux context
-              command: chcon -R -t svirt_sandbox_file_t /var/lib/config-data
-              args:
-                warn: no
-{%- for role in roles %}
-            - import_tasks: {{role.name}}/upgrade_tasks.yaml
-              when: tripleo_role_name == '{{role.name}}'
-{%- endfor %}
       upgrade_steps_playbook:
         str_replace:
           params:
@@ -719,30 +706,57 @@ outputs:
             DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
             BOOTSTRAP_SERVER_ID: {get_attr: [BootstrapServerId, value]}
             ENABLE_DEBUG: {get_param: ConfigDebug}
-            ENABLE_PUPPET: {get_param: EnablePuppet}
-            DOCKER_PUPPET_DEBUG: {get_param: DockerPuppetDebug}
-            DOCKER_PUPPET_PROCESS_COUNT: {get_param: DockerPuppetProcessCount}
-            DOCKER_PUPPET_MOUNT_HOST_PUPPET: {get_param: DockerPuppetMountHostPuppet}
           template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+              tags:
+                - facts
+
             - hosts: DEPLOY_TARGET_HOST
-              any_errors_fatal: yes
+              name: Gather facts from overcloud
+              gather_facts: yes
+              tags:
+                - facts
+
+            - hosts: all
+              name: Load global variables
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               tasks:
-                - include_tasks: upgrade_steps_tasks.yaml
-                  with_sequence: start=0 end={{upgrade_steps_max-1}}
-                  vars:
-                    bootstrap_server_id: BOOTSTRAP_SERVER_ID
-                    deploy_identifier: DEPLOY_IDENTIFIER
-                    enable_debug: ENABLE_DEBUG
-                    enable_puppet: ENABLE_PUPPET
-                    container_cli: CONTAINER_CLI
-                    container_log_stdout_path: CONTAINER_LOG_STDOUT_PATH
-                    container_healthcheck_disabled: CONTAINER_HEALTHCHECK_DISABLED
-                    docker_puppet_debug: DOCKER_PUPPET_DEBUG
-                    docker_puppet_process_count: DOCKER_PUPPET_PROCESS_COUNT
-                    docker_puppet_mount_host_puppet: DOCKER_PUPPET_MOUNT_HOST_PUPPET
-                  loop_control:
-                    loop_var: step
+                - include_vars: global_vars.yaml
+                - name: ensure we get the right selinux context
+                  command: chcon -R -t svirt_sandbox_file_t /var/lib/config-data
+                  args:
+                    warn: no
+              tags:
+                - always
+
+{%- for step in range(0,upgrade_steps_max) %}
+
+            - hosts: DEPLOY_TARGET_HOST
+              name: Upgrade tasks for step {{step}}
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              any_errors_fatal: yes
+              vars:
+                bootstrap_server_id: BOOTSTRAP_SERVER_ID
+                step: '{{step}}'
+                deploy_identifier: DEPLOY_IDENTIFIER
+                enable_debug: ENABLE_DEBUG
+                container_cli: CONTAINER_CLI
+                container_log_stdout_path: CONTAINER_LOG_STDOUT_PATH
+                container_healthcheck_disabled: CONTAINER_HEALTHCHECK_DISABLED
+              tasks:
+{%- for role in roles %}
+                - import_tasks: {{role.name}}/upgrade_tasks_step{{step}}.yaml
+                  when: tripleo_role_name == '{{role.name}}'
                   tags: always
+{%- endfor %}
+              tags:
+                - upgrade_steps
+                - upgrade_step{{step}}
+
+{%- endfor %}
       post_upgrade_steps_tasks: |
 {%- for role in roles %}
             - import_tasks: {{role.name}}/post_upgrade_tasks.yaml
