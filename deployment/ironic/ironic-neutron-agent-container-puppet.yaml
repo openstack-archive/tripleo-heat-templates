@@ -36,19 +36,28 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  IronicPassword:
+    description: The password for the Ironic service and db account, used by the Ironic services
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  IronicNeutronAgentBase:
-    type: ../../puppet/services/ironic-neutron-agent.yaml
+  # TODO() Point to the right neutron-base once neutron is flat
+  NeutronBase:
+    type: ../../puppet/services/neutron-base.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
@@ -61,16 +70,23 @@ outputs:
   role_data:
     description: Role data for ironic-neutron-agent service
     value:
-      service_name: {get_attr: [IronicNeutronAgentBase, role_data, service_name]}
+      service_name: ironic_neutron_agent
       config_settings:
         map_merge:
-          - get_attr: [IronicNeutronAgentBase, role_data, config_settings]
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - neutron::agents::ml2::networking_baremetal::user: 'ironic'
+          - neutron::agents::ml2::networking_baremetal::password: {get_param: IronicPassword}
+          - neutron::agents::ml2::networking_baremetal::auth_url: { get_param: [ EndpointMap, KeystoneInternal, uri_no_suffix ] }
+          - neutron::agents::ml2::networking_baremetal::project_name: 'service'
+          - neutron::agents::ml2::networking_baremetal::user_domain_name: 'Default'
+          - neutron::agents::ml2::networking_baremetal::project_domain_name: 'Default'
+          - neutron::agents::ml2::networking_baremetal::region_name: {get_param: KeystoneRegion}
           - get_attr: [NeutronLogging, config_settings]
       puppet_config:
         config_volume: neutron
         puppet_tags: neutron_config,ironic_neutron_agent_config
         step_config:
-          get_attr: [IronicNeutronAgentBase, role_data, step_config]
+          include tripleo::profile::base::neutron::agents::networking_baremetal
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/ironic_neutron_agent.json:
