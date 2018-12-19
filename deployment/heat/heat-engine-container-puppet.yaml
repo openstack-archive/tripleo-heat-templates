@@ -49,17 +49,68 @@ parameters:
     default: []
     description: list of optional environment variables
     type: comma_delimited_list
+  HeatEnableDBPurge:
+    type: boolean
+    default: true
+    description: |
+        Whether to create cron job for purging soft deleted rows in the Heat database.
+  HeatWorkers:
+    default: 0
+    description: Number of workers for Heat service.
+    type: number
+  HeatMaxNestedStackDepth:
+    default: 6
+    description: Maximum number of nested stack depth.
+    type: number
+  HeatReauthenticationAuthMethod:
+    description: Allow reauthentication on token expiry, such that long-running tasks
+                 may complete. Note this defeats the expiry of any provided user tokens.
+    type: string
+    default: ''
+    constraints:
+      - allowed_values: [ '', 'trusts' ]
+  HeatPassword:
+    description: The password for the Heat service and db account, used by the Heat services.
+    type: string
+    hidden: true
+  HeatStackDomainAdminPassword:
+    description: Password for heat_stack_domain_admin user.
+    type: string
+    hidden: true
+  HeatAuthEncryptionKey:
+    description: Auth encryption key for heat-engine
+    type: string
+    hidden: true
+    default: ''
+  MonitoringSubscriptionHeatEngine:
+    default: 'overcloud-heat-engine'
+    type: string
+  HeatConvergenceEngine:
+    type: boolean
+    default: true
+    description: Enables the heat engine with the convergence architecture.
+  HeatMaxResourcesPerStack:
+    type: number
+    default: 1000
+    description: Maximum resources allowed per top-level stack. -1 stands for unlimited.
+  HeatEnginePluginDirs:
+    type: comma_delimited_list
+    default: []
+    description: An array of directories to search for plug-ins.
+
+conditions:
+  heat_workers_unset: {equals : [{get_param: HeatWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
   HeatBase:
-    type: ../../puppet/services/heat-engine.yaml
+    type: ./heat-base-puppet.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -75,19 +126,78 @@ outputs:
   role_data:
     description: Role data for the Heat Engine role.
     value:
-      service_name: {get_attr: [HeatBase, role_data, service_name]}
+      service_name: heat_engine
+      monitoring_subscription: {get_param: MonitoringSubscriptionHeatEngine}
       config_settings:
         map_merge:
           - get_attr: [HeatBase, role_data, config_settings]
           - apache::default_vhost: false
+            heat::engine::configure_delegated_roles: false
+            heat::engine::trusts_delegated_roles: []
+            heat::engine::max_nested_stack_depth: {get_param: HeatMaxNestedStackDepth}
+            heat::engine::max_resources_per_stack: {get_param: HeatMaxResourcesPerStack}
+            heat::engine::reauthentication_auth_method: {get_param: HeatReauthenticationAuthMethod}
+            heat::engine::heat_metadata_server_url:
+              make_url:
+                scheme: {get_param: [EndpointMap, HeatCfnPublic, protocol]}
+                host: {get_param: [EndpointMap, HeatCfnPublic, host]}
+                port: {get_param: [EndpointMap, HeatCfnPublic, port]}
+            heat::engine::heat_waitcondition_server_url:
+              make_url:
+                scheme: {get_param: [EndpointMap, HeatCfnPublic, protocol]}
+                host: {get_param: [EndpointMap, HeatCfnPublic, host]}
+                port: {get_param: [EndpointMap, HeatCfnPublic, port]}
+                path: /v1/waitcondition
+            heat::engine::convergence_engine: {get_param: HeatConvergenceEngine}
+            tripleo::profile::base::heat::manage_db_purge: {get_param: HeatEnableDBPurge}
+            heat::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: heat
+                password: {get_param: HeatPassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /heat
+                query:
+                  read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+            heat::keystone_ec2_uri:
+              list_join:
+              - ''
+              - - {get_param: [EndpointMap, KeystoneV3Internal, uri]}
+                - '/ec2tokens'
+            heat::keystone::domain::domain_password: {get_param: HeatStackDomainAdminPassword}
+            heat::engine::auth_encryption_key:
+              yaql:
+                expression: $.data.passwords.where($ != '').first()
+                data:
+                  passwords:
+                    - {get_param: HeatAuthEncryptionKey}
+                    - {get_param: [DefaultPasswords, heat_auth_encryption_key]}
+            heat::engine::plugin_dirs: {get_param: HeatEnginePluginDirs}
+          -
+            if:
+            - heat_workers_unset
+            - {}
+            - heat::engine::num_engine_workers: {get_param: HeatWorkers}
       service_config_settings:
-        map_merge:
-          - get_attr: [HeatBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_heat_engine:
-                - heat
-              tripleo_fluentd_sources_heat_engine:
-                - {get_param: HeatEngineLoggingSource}
+
+        fluentd:
+          tripleo_fluentd_groups_heat_engine:
+            - heat
+          tripleo_fluentd_sources_heat_engine:
+            - {get_param: HeatEngineLoggingSource}
+        mysql:
+          heat::db::mysql::password: {get_param: HeatPassword}
+          heat::db::mysql::user: heat
+          heat::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          heat::db::mysql::dbname: heat
+          heat::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
+        keystone:
+          map_merge:
+            - get_attr: [HeatBase, role_data, service_config_settings, keystone]
+            - tripleo::profile::base::keystone::heat_admin_password: {get_param: HeatStackDomainAdminPassword}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: heat
@@ -95,7 +205,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [HeatBase, role_data, step_config]}
+            - - include ::tripleo::profile::base::heat::engine
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerHeatConfigImage}
       kolla_config:
