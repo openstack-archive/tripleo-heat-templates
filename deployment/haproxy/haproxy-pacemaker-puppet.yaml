@@ -123,28 +123,31 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   HAProxyBase:
-    type: ../../../puppet/services/pacemaker/haproxy.yaml
+    type: ./haproxy-container-puppet.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
-      HAProxySyslogAddress: {get_param: HAProxySyslogAddress}
-      HAProxySyslogFacility: {get_param: HAProxySyslogFacility}
 
 outputs:
   role_data:
     description: Role data for the HAproxy role.
     value:
-      service_name: {get_attr: [HAProxyBase, role_data, service_name]}
+      service_name: haproxy
+      monitoring_subscription: {get_attr: [HAProxyBase, role_data, monitoring_subscription]}
       config_settings:
         map_merge:
           - get_attr: [HAProxyBase, role_data, config_settings]
+          - tripleo::haproxy::haproxy_service_manage: false
+            tripleo::haproxy::mysql_clustercheck: true
+            tripleo::haproxy::haproxy_log_address: {get_param: HAProxySyslogAddress}
+            tripleo::haproxy::haproxy_log_facility: {get_param: HAProxySyslogFacility}
           - haproxy_docker: true
             tripleo::profile::pacemaker::haproxy_bundle::haproxy_docker_image: &haproxy_image {get_param: DockerHAProxyImage}
             tripleo::profile::pacemaker::haproxy_bundle::container_backend: {get_param: ContainerCli}
@@ -174,7 +177,6 @@ outputs:
                       data: {get_param: DockerHAProxyImage}
                       expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
                   - 'pcmklatest'
-      service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: haproxy
@@ -333,7 +335,7 @@ outputs:
               /var/log/containers/haproxy.
           ignore_errors: true
       metadata_settings:
-        get_attr: [HAProxyBase, role_data, metadata_settings]
+        {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
         - name: HAproxy tag container image for pacemaker
           when: step|int == 1
@@ -357,7 +359,7 @@ outputs:
             fi
             exit $rc
           vars:
-            puppet_execute: {get_attr: [HAProxyBase, role_data, step_config]}
+            puppet_execute: include ::tripleo::profile::pacemaker::haproxy
             puppet_tags: 'tripleo::firewall::rule'
             puppet_modulepath: '/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules'
             puppet_debug:
@@ -485,7 +487,7 @@ outputs:
           block:
             - name: Check cluster resource status
               pacemaker_resource:
-                resource: {get_attr: [HAProxyBase, role_data, service_name]}
+                resource: haproxy
                 state: started
                 check_mode: true
               ignore_errors: true
@@ -494,7 +496,7 @@ outputs:
               block:
                 - name: Disable the haproxy cluster resource.
                   pacemaker_resource:
-                    resource: {get_attr: [HAProxyBase, role_data, service_name]}
+                    resource: haproxy
                     state: disable
                     wait_for_resource: true
                   register: output
@@ -502,7 +504,7 @@ outputs:
                   until: output.rc == 0
                 - name: Delete the stopped haproxy cluster resource.
                   pacemaker_resource:
-                    resource: {get_attr: [HAProxyBase, role_data, service_name]}
+                    resource: haproxy
                     state: delete
                     wait_for_resource: true
                   register: output
