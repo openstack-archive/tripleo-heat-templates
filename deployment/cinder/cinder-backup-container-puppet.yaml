@@ -57,17 +57,50 @@ parameters:
     default:
       tag: openstack.cinder.backup
       path: /var/log/containers/cinder/cinder-backup.log
+  CinderBackupBackend:
+    default: swift
+    description: The short name of the Cinder Backup backend to use.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'ceph', 'nfs']
+  CinderBackupRbdPoolName:
+    default: backups
+    type: string
+  CephClusterName:
+    type: string
+    default: ceph
+    description: The Ceph cluster name.
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9]+"
+      description: >
+        The Ceph cluster name must be at least 1 character and contain only
+        letters and numbers.
+  CephClientUserName:
+    default: openstack
+    type: string
+  CinderBackupNfsShare:
+    default: ''
+    description: NFS share to be mounted
+    type: string
+  CinderBackupNfsMountOptions:
+    default: ''
+    description: Mount options passed to the NFS client. See NFS man
+                 page for details.
+    type: string
+  MonitoringSubscriptionCinderBackup:
+    default: 'overcloud-cinder-backup'
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
   CinderBase:
-    type: ../../puppet/services/cinder-backup.yaml
+    type: ./cinder-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -77,14 +110,28 @@ resources:
       RoleParameters: {get_param: RoleParameters}
 
   CinderCommon:
-    type: ./cinder-common.yaml
+    type: ./cinder-common-container-puppet.yaml
 
 outputs:
   role_data:
     description: Role data for the Cinder Backup role.
     value:
-      service_name: {get_attr: [CinderBase, role_data, service_name]}
-      config_settings: {get_attr: [CinderBase, role_data, config_settings]}
+      service_name: cinder_backup
+      monitoring_subscription: {get_param: MonitoringSubscriptionCinderBackup}
+      config_settings:
+        map_merge:
+          - get_attr: [CinderBase, role_data, config_settings]
+          - cinder::backup::ceph::backup_ceph_user: {get_param: CephClientUserName}
+            cinder::backup::ceph::backup_ceph_pool: {get_param: CinderBackupRbdPoolName}
+            cinder::backup::ceph::backup_ceph_conf:
+              list_join:
+              - ''
+              - - '/etc/ceph/'
+                - {get_param: CephClusterName}
+                - '.conf'
+            cinder::backup::swift::backup_swift_container: volumebackups
+            cinder::backup::nfs::backup_share: {get_param: CinderBackupNfsShare}
+            cinder::backup::nfs::backup_mount_options: {get_param: CinderBackupNfsMountOptions}
       service_config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, service_config_settings]
@@ -98,6 +145,10 @@ outputs:
         config_volume: cinder
         puppet_tags: cinder_config,file,concat,file_line
         step_config:
+        str_replace:
+          template: "include ::tripleo::profile::base::cinder::backup::DRIVER"
+          params:
+            DRIVER: {get_param: CinderBackupBackend}
           list_join:
             - "\n"
             - - {get_attr: [CinderBase, role_data, step_config]}
