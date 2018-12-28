@@ -40,17 +40,45 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  MistralWorkers:
+    default: 1
+    description: The number of workers for the mistral-api.
+    type: number
+  MistralApiPolicies:
+    description: |
+      A hash of policies to configure for Mistral API.
+      e.g. { mistral-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  MistralExecutionInterval:
+    default: 600
+    description: This setting defines how frequently Mistral checks for cron
+                 triggers that need execution. The default is 10 minutes and
+                 reduces the load that is has on the system.
+    type: number
+  MistralCorsAllowedOrigin:
+    type: string
+    default: ''
+    description: Indicate whether this resource may be shared with the domain received in the request
+                 "origin" header.
+
+conditions:
+  mistral_workers_zero: {equals : [{get_param: MistralWorkers}, 0]}
+  cors_allowed_origin_unset: {equals : [{get_param: MistralCorsAllowedOrigin}, '']}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
-  MistralApiBase:
-    type: ../../puppet/services/mistral-api.yaml
+  MistralBase:
+    type: ./mistral-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -63,11 +91,51 @@ outputs:
   role_data:
     description: Role data for the Mistral API role.
     value:
-      service_name: {get_attr: [MistralApiBase, role_data, service_name]}
+      service_name: mistral_api
       config_settings:
         map_merge:
-          - get_attr: [MistralApiBase, role_data, config_settings]
-      service_config_settings: {get_attr: [MistralApiBase, role_data, service_config_settings]}
+          - get_attr: [MistralBase, role_data, config_settings]
+          -
+            if:
+            - cors_allowed_origin_unset
+            - {}
+            - mistral::cors::allowed_origin: {get_param: MistralCorsAllowedOrigin}
+          - mistral::api::api_workers: {get_param: MistralWorkers}
+            mistral::api::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            mistral::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            mistral::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            mistral::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            mistral::policy::policies: {get_param: MistralApiPolicies}
+            mistral::cron_trigger::execution_interval: {get_param: MistralExecutionInterval}
+            mistral::api::allow_action_execution_deletion: true
+            tripleo::mistral_api::firewall_rules:
+              '133 mistral':
+                dport:
+                  - 8989
+                  - 13989
+            mistral::api::service_name: 'httpd'
+            mistral::wsgi::apache::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MistralApiNetwork]}
+            mistral::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MistralApiNetwork]}
+          - if:
+            - mistral_workers_zero
+            - {}
+            - mistral::wsgi::apache::workers: {get_param: MistralWorkers}
+      service_config_settings: {get_attr: [MistralBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: mistral
@@ -75,7 +143,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [MistralApiBase, role_data, step_config]}
+            - - include ::tripleo::profile::base::mistral::api
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerMistralConfigImage}
       kolla_config:

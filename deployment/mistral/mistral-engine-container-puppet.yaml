@@ -1,10 +1,10 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack containerized Mistral Event Engine service
+  OpenStack containerized Mistral Engine service
 
 parameters:
-  DockerMistralEventEngineImage:
+  DockerMistralEngineImage:
     description: image
     type: string
   DockerMistralConfigImage:
@@ -40,18 +40,42 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
-
+  MistralExecutionFieldSizeLimit:
+    default: 1024
+    description: The default maximum size in KB of large text fields of runtime
+                 execution objects. Use -1 for no limit.
+    type: number
+  MistralEvaluationInterval:
+    default: 120
+    description: How often will the executions be evaluated
+                 (in minutes). For example for value 120 the interval
+                 will be 2 hours (every 2 hours).
+    type: number
+  MistralFinishedExecutionDuration:
+    default: 2880
+    description: Evaluate from which time remove executions in minutes.
+                 For example when set to 60, remove all executions
+                 that finished a 60 minutes ago or more.
+                 Minimum value is 1.
+                 Note that only final state execution will remove (SUCCESS/ERROR).
+    constraints:
+      - range: { min: 1 }
+    type: number
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
   MistralBase:
-    type: ../../puppet/services/mistral-event-engine.yaml
+    type: ./mistral-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -62,12 +86,15 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Mistral Event Engine role.
+    description: Role data for the Mistral Engine role.
     value:
-      service_name: {get_attr: [MistralBase, role_data, service_name]}
+      service_name: mistral_engine
       config_settings:
         map_merge:
           - get_attr: [MistralBase, role_data, config_settings]
+          - mistral::engine::execution_field_size_limit_kb: {get_param: MistralExecutionFieldSizeLimit}
+            mistral::engine::evaluation_interval: {get_param: MistralEvaluationInterval}
+            mistral::engine::older_than: {get_param: MistralFinishedExecutionDuration}
       service_config_settings: {get_attr: [MistralBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -76,12 +103,12 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - get_attr: [MistralBase, role_data, step_config]
-              - get_attr: [MySQLClient, role_data, step_config]
+            - - include ::tripleo::profile::base::mistral::engine
+              - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerMistralConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/mistral_event_engine.json:
-          command: /usr/bin/mistral-server --config-file=/etc/mistral/mistral.conf --log-file=/var/log/mistral/event-engine.log --server=event-engine
+        /var/lib/kolla/config_files/mistral_engine.json:
+          command: /usr/bin/mistral-server --config-file=/etc/mistral/mistral.conf --log-file=/var/log/mistral/engine.log --server=engine
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -93,8 +120,8 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          mistral_event_engine:
-            image: {get_param: DockerMistralEventEngineImage}
+          mistral_engine:
+            image: {get_param: DockerMistralEngineImage}
             net: host
             privileged: false
             restart: always
@@ -106,13 +133,13 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [MistralBase, role_data, config_settings, 'mistral::rabbit_port']}
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/mistral_event_engine.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/mistral_engine.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/mistral/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/mistral:/var/log/mistral:z
                   - /var/lib/mistral:/var/lib/mistral:ro
@@ -144,17 +171,17 @@ outputs:
       upgrade_tasks:
         - when: step|int == 3
           block:
-            - name: Set fact for removal of openstack-mistral-event-engine package
+            - name: Set fact for removal of openstack-mistral-engine package
               set_fact:
-                remove_mistral_event_engine_package: {get_param: UpgradeRemoveUnusedPackages}
-            - name: Remove openstack-mistral-event-engine package if operator requests it
-              package: name=openstack-mistral-event-engine state=removed
+                remove_mistral_engine_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-mistral-engine package if operator requests it
+              package: name=openstack-mistral-engine state=removed
               ignore_errors: True
-              when: remove_mistral_event_engine_package|bool
+              when: remove_mistral_engine_package|bool
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - mistral_event_engine
+              - mistral_engine
