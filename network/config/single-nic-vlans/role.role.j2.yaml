@@ -25,6 +25,12 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
+  ControlPlaneMtu:
+    default: 1500
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the network.
+      (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
+    type: number
 {% for network in networks if network.enabled|default(true) and network.name in role.networks %}
   {{network.name}}IpSubnet:
     default: ''
@@ -34,17 +40,23 @@ parameters:
     default: {{network.vlan}}
     description: Vlan ID for the {{network.name_lower}} network traffic.
     type: number
-{%- if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
+  {{network.name}}Mtu:
+    default: {{network.mtu}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
+    type: number
+{%-     if network.ipv6|default(false) and network.gateway_ipv6|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
     default: '{{network.gateway_ipv6}}'
     description: default route for the {{network.name_lower}} network
     type: string
-{%- elif network.gateway_ip|default(false) %}
+{%-     elif network.gateway_ip|default(false) %}
   {{network.name}}InterfaceDefaultRoute:
     default: '{{network.gateway_ip}}'
     description: default route for the {{network.name_lower}} network
     type: string
-{%- endif %}
+{%-     endif %}
   {{network.name}}InterfaceRoutes:
     default: []
     description: >
@@ -67,6 +79,24 @@ parameters:
       is automatically resolved from the ctlplane subnet's host_routes attribute.)
     type: string
 resources:
+
+  MinViableMtu:
+    # This resource resolves the minimum viable MTU for interfaces, bonds and
+    # bridges that carry multiple VLANs. Each VLAN may have different MTU. The
+    # bridge, bond or interface must have an MTU to allow the VLAN with the
+    # largest MTU.
+    type: OS::Heat::Value
+    properties:
+      type: number
+      value:
+        yaql:
+          expression: $.data.max()
+          data:
+            - {get_param: ControlPlaneMtu}
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+            - {get_param: {{network.name}}Mtu}
+{%- endfor %}
+
   OsNetConfigImpl:
     type: OS::Heat::SoftwareConfig
     properties:
@@ -84,6 +114,8 @@ resources:
 {%- else %}
                 name: bridge_name
 {%- endif %}
+                mtu:
+                  get_attr: [MinViableMtu, value]
                 use_dhcp: false
                 dns_servers:
                   get_param: DnsServers
@@ -107,10 +139,14 @@ resources:
                 members:
                 - type: interface
                   name: nic1
+                  mtu:
+                    get_attr: [MinViableMtu, value]
                   # force the MAC address of the bridge to this interface
                   primary: true
 {%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
                 - type: vlan
+                  mtu:
+                    get_param: {{network.name}}Mtu
                   vlan_id:
                     get_param: {{network.name}}NetworkVlanID
                   addresses:
@@ -119,11 +155,11 @@ resources:
                   routes:
                     list_concat_unique:
                       - get_param: {{network.name}}InterfaceRoutes
-{%- if network.name in role.default_route_networks %}
+{%-     if network.name in role.default_route_networks %}
                       - - default: true
                           next_hop:
                             get_param: {{network.name}}InterfaceDefaultRoute
-{%- endif %}
+{%-     endif %}
 {%- endfor %}
 outputs:
   OS::stack_id:
