@@ -50,10 +50,6 @@ parameters:
     description: Port that dockerized nova migration target sshd service
                  binds to.
     type: number
-  UpgradeRemoveUnusedPackages:
-    default: false
-    description: Remove package if the service is being disabled during upgrade
-    type: boolean
   CephClientUserName:
     default: openstack
     type: string
@@ -286,15 +282,21 @@ outputs:
               file: path=/var/lib/nova/instanceha/enabled state=touch
               when: iha_nodes.stdout|lower | search('"'+ansible_hostname|lower+'"')
       upgrade_tasks:
-        - when: step|int == 2
-          block:
-            - name: Set fact for removal of openstack-nova-compute package
-              set_fact:
-                remove_nova_compute_package: {get_param: UpgradeRemoveUnusedPackages}
-            - name: Remove openstack-nova-compute package if operator requests it
-              package: name=openstack-nova-compute state=removed
-              ignore_errors: True
-              when: remove_nova_compute_package|bool
+        - name: Remove openstack-nova-compute and python-nova package during upgrade
+          package: name={{ item }} state=removed
+          with_items:
+            - openstack-nova-compute
+            - python-nova
+          ignore_errors: True
+          when: step|int == 2
+      update_tasks:
+        - name: Remove openstack-nova-compute and python-nova package during update
+          package: name={{ item }} state=removed
+          with_items:
+            - openstack-nova-compute
+            - python-nova
+          ignore_errors: True
+          when: step|int == 2
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
