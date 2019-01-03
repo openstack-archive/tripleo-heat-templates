@@ -55,9 +55,9 @@ resources:
     type: ./containers-common.yaml
 
 outputs:
-  cinder_volume_host_prep_tasks:
-    description: Host prep tasks for the cinder-volume service (HA or non-HA)
-    value:
+  cinder_common_host_prep_tasks:
+    description: Common host prep tasks for cinder-volume and cinder-backup services
+    value: &cinder_common_host_prep_tasks
       - name: create persistent directories
         file:
           path: "{{ item.path }}"
@@ -77,58 +77,65 @@ outputs:
         file:
           path: /etc/ceph
           state: directory
-      - name: cinder_enable_iscsi_backend fact
-        set_fact:
-          cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
-      - when: cinder_enable_iscsi_backend
-        block:
-          - name: cinder create LVM volume group dd
-            command:
-              list_join:
-              - ''
-              - - 'dd if=/dev/zero of=/var/lib/cinder/cinder-volumes bs=1 count=0 seek='
-                - str_replace:
-                    template: VALUE
-                    params:
-                      VALUE: {get_param: CinderLVMLoopDeviceSize}
-                - 'M'
-            args:
-              creates: /var/lib/cinder/cinder-volumes
-          - name: cinder create LVM volume group
-            shell: |
-              if ! losetup /dev/loop2; then
-                losetup /dev/loop2 /var/lib/cinder/cinder-volumes
-              fi
-              if ! pvdisplay | grep cinder-volumes; then
-                pvcreate /dev/loop2
-              fi
-              if ! vgdisplay | grep cinder-volumes; then
-                vgcreate cinder-volumes /dev/loop2
-              fi
-            args:
-              executable: /bin/bash
-              creates: /dev/loop2
-          - name: cinder create service to run losetup for LVM on startup
-            copy:
-              dest: /etc/systemd/system/cinder-lvm-losetup.service
-              content: |
-                [Unit]
-                Description=Cinder LVM losetup
-                After=syslog.target
 
-                [Service]
-                Type=oneshot
-                ExecStart=/bin/bash -c '/sbin/losetup /dev/loop2 || /sbin/losetup /dev/loop2 /var/lib/cinder/cinder-volumes'
-                ExecStop=/bin/bash -c '/sbin/losetup -d /dev/loop2'
-                RemainAfterExit=yes
+  cinder_volume_host_prep_tasks:
+    description: Host prep tasks for the cinder-volume service (HA or non-HA)
+    value:
+      list_concat:
+        - *cinder_common_host_prep_tasks
+        -
+          - name: cinder_enable_iscsi_backend fact
+            set_fact:
+              cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
+          - when: cinder_enable_iscsi_backend
+            block:
+              - name: cinder create LVM volume group dd
+                command:
+                  list_join:
+                  - ''
+                  - - 'dd if=/dev/zero of=/var/lib/cinder/cinder-volumes bs=1 count=0 seek='
+                    - str_replace:
+                        template: VALUE
+                        params:
+                          VALUE: {get_param: CinderLVMLoopDeviceSize}
+                    - 'M'
+                args:
+                  creates: /var/lib/cinder/cinder-volumes
+              - name: cinder create LVM volume group
+                shell: |
+                  if ! losetup /dev/loop2; then
+                    losetup /dev/loop2 /var/lib/cinder/cinder-volumes
+                  fi
+                  if ! pvdisplay | grep cinder-volumes; then
+                    pvcreate /dev/loop2
+                  fi
+                  if ! vgdisplay | grep cinder-volumes; then
+                    vgcreate cinder-volumes /dev/loop2
+                  fi
+                args:
+                  executable: /bin/bash
+                  creates: /dev/loop2
+              - name: cinder create service to run losetup for LVM on startup
+                copy:
+                  dest: /etc/systemd/system/cinder-lvm-losetup.service
+                  content: |
+                    [Unit]
+                    Description=Cinder LVM losetup
+                    After=syslog.target
 
-                [Install]
-                WantedBy=multi-user.target
-          - name: cinder enable the LVM losetup service
-            systemd:
-              name: cinder-lvm-losetup
-              enabled: yes
-              daemon_reload: yes
+                    [Service]
+                    Type=oneshot
+                    ExecStart=/bin/bash -c '/sbin/losetup /dev/loop2 || /sbin/losetup /dev/loop2 /var/lib/cinder/cinder-volumes'
+                    ExecStop=/bin/bash -c '/sbin/losetup -d /dev/loop2'
+                    RemainAfterExit=yes
+
+                    [Install]
+                    WantedBy=multi-user.target
+              - name: cinder enable the LVM losetup service
+                systemd:
+                  name: cinder-lvm-losetup
+                  enabled: yes
+                  daemon_reload: yes
 
   cinder_volume_volumes:
     description: Volumes for the cinder-volume container (HA or non-HA)
@@ -155,6 +162,10 @@ outputs:
         - {get_param: CinderVolumeOptEnvVars}
         -
           - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+
+  cinder_backup_host_prep_tasks:
+    description: Host prep tasks for the cinder-backup service (HA or non-HA)
+    value: *cinder_common_host_prep_tasks
 
   cinder_backup_volumes:
     description: Volumes for the cinder-backup container (HA or non-HA)
