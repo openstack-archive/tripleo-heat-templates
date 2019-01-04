@@ -110,8 +110,6 @@ parameters:
         Control the IP allocation for the ControlVirtualIP port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
   # TODO (dsneddon) Legacy name, eventually refactor to match network name
   PublicVirtualFixedIPs:
     default: []
@@ -119,14 +117,13 @@ parameters:
         Control the IP allocation for the PublicVirtualInterface port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
-{%- else %}
+{%- for network in networks if network.vip|default(false) and network.name != 'External' %}
   {{network.name}}VirtualFixedIPs:
     default: []
     description: >
         Control the IP allocation for the {{network.name}}VirtualInterface port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
-{%- endif %}
 {%- endfor %}
   RabbitCookieSalt:
     type: string
@@ -269,6 +266,23 @@ conditions:
   ctlplane_subnet_cidr_set:
     not:
       equals: [{get_param: ControlPlaneSubnetCidr}, '']
+{%- for network in networks if network.name != 'External' %}
+  {{network.name_lower}}_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: {{network.name}}VirtualFixedIPs
+        - []
+{%- endfor %}
+  public_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: PublicVirtualFixedIPs
+        - []
+  redis_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: RedisVirtualFixedIPs
+        - []
 
 resources:
 
@@ -799,20 +813,20 @@ resources:
     type: OS::TripleO::Network
 
   ControlVirtualIP:
+    depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::ControlPlaneVipPort
-    depends_on: Networks
     properties:
       name: control_virtual_ip
       network: {get_param: NeutronControlPlaneID}
       fixed_ips:
         if:
         - control_fixed_ip_not_set
-        - [{subnet: {get_param: ControlPlaneSubnet}}]
+        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, ctlplane]}}]
         - get_param: ControlFixedIPs
       replacement_policy: AUTO
 
   RedisVirtualIP:
-    depends_on: Networks
+    depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::RedisVipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
@@ -825,13 +839,17 @@ resources:
       PortName: redis_virtual_ip
       NetworkName: {get_attr: [ServiceNetMap, service_net_map, RedisNetwork]}
       ServiceName: redis
-      FixedIPs: {get_param: RedisVirtualFixedIPs}
+      FixedIPs:
+        if:
+        - redis_virtual_fixed_ip_set
+        - {get_param: RedisVirtualFixedIPs}
+        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, redis]}}]
 
 {%- for network in networks if network.vip|default(false) %}
 {%- if network.name == 'External' %}
   # The public VIP is on the External net, falls back to ctlplane
   PublicVirtualIP:
-    depends_on: Networks
+    depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::ExternalVipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
@@ -842,10 +860,14 @@ resources:
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: public_virtual_ip
-      FixedIPs: {get_param: PublicVirtualFixedIPs}
+      FixedIPs:
+        if:
+        - public_virtual_fixed_ip_set
+        - {get_param: PublicVirtualFixedIPs}
+        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
 {%- else %}
   {{network.name}}VirtualIP:
-    depends_on: Networks
+    depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::{{network.name}}VipPort
     properties:
       ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
@@ -855,7 +877,11 @@ resources:
           - {get_param: ControlPlaneSubnetCidr}
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       PortName: {{network.name_lower}}_virtual_ip
-      FixedIPs: {get_param: {{network.name}}VirtualFixedIPs}
+      FixedIPs:
+        if:
+        - {{network.name_lower}}_virtual_fixed_ip_set
+        - {get_param: {{network.name}}VirtualFixedIPs}
+        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
 {%- endif %}
 {%- endfor %}
 

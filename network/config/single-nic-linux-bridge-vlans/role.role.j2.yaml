@@ -1,3 +1,14 @@
+{#- Convert net map or net list to internal list of networks #}
+{#- NOTE(hjensas): For backward compatibility support role data with both #}
+{#-                networks map (new schema) and network list (old schema). #}
+{%- set _role_networks = [] %}
+{%- if role.networks is mapping %}
+{%-     for key,val in role.networks.items() %}
+{%-         set _role_networks = _role_networks.append(key) %}
+{%-     endfor %}
+{%- else %}
+{%-     set _role_networks = role.networks %}
+{%- endif %}
 heat_template_version: rocky
 description: >
   Software Config to drive os-net-config to configure VLANs for the {{role.name}} role.
@@ -31,7 +42,7 @@ parameters:
       guaranteed to pass through the data path of the segments in the network.
       (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
     type: number
-{% for network in networks if network.enabled|default(true) and network.name in role.networks %}
+{% for network in networks if network.enabled|default(true) and network.name in _role_networks %}
   {{network.name}}IpSubnet:
     default: ''
     description: IP address/subnet on the {{network.name_lower}} network
@@ -93,7 +104,7 @@ resources:
           expression: $.data.max()
           data:
             - {get_param: ControlPlaneMtu}
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+{%- for network in networks if network.enabled|default(true) and network.name in _role_networks %}
             - {get_param: {{network.name}}Mtu}
 {%- endfor %}
 
@@ -142,7 +153,7 @@ resources:
                   mtu:
                     get_attr: [MinViableMtu, value]
                   primary: true
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks
+{%- for network in networks if network.enabled|default(true) and network.name in _role_networks
     and network.name not in role.networks_skip_config|default([]) %}
               - type: vlan
                 mtu:
