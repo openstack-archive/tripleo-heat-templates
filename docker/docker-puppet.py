@@ -405,8 +405,8 @@ def mp_puppet_config(*args):
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
                 '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
                 '--volume', '/etc/localtime:/etc/localtime:ro',
-                '--volume', '%s:/etc/config.pp:ro,z' % tmp_man.name,
-                '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro,z',
+                '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
+                '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
                 # OpenSSL trusted CA injection
                 '--volume', '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
@@ -416,7 +416,7 @@ def mp_puppet_config(*args):
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw',
                 # script injection
-                '--volume', '%s:%s:rw,z' % (sh_script, sh_script) ]
+                '--volume', '%s:%s:ro' % (sh_script, sh_script) ]
         if privileged:
             common_dcmd.push('--privileged')
 
