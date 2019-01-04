@@ -414,9 +414,7 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
                 '--volume', '%s:/var/lib/config-data/:rw' % config_volume_prefix,
                 # Syslog socket for puppet logs
-                '--volume', '/dev/log:/dev/log:rw',
-                # script injection
-                '--volume', '%s:%s:ro' % (sh_script, sh_script) ]
+                '--volume', '/dev/log:/dev/log:rw']
         if privileged:
             common_dcmd.push('--privileged')
 
@@ -444,6 +442,11 @@ def mp_puppet_config(*args):
             log.debug('NET_HOST enabled')
             dcmd.extend(['--net', 'host', '--volume',
                          '/etc/hosts:/etc/hosts:ro'])
+
+        # script injection as the last mount to make sure it's accessible
+        # https://github.com/containers/libpod/issues/1844
+        dcmd.extend(['--volume', '%s:%s:ro' % (sh_script, sh_script)])
+
         dcmd.append(config_image)
         log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
 
