@@ -49,10 +49,76 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  BarbicanPkcs11CryptoATOSEnabled:
+    type: boolean
+    default: false
+  BarbicanPkcs11CryptoThalesEnabled:
+    type: boolean
+    default: false
+  BarbicanPkcs11CryptoEnabled:
+    type: boolean
+    default: false
+  BarbicanPkcs11CryptoLibraryPath:
+    description: Path to vendor PKCS11 library
+    type: string
+    default: ''
+  BarbicanPkcs11CryptoLogin:
+    description: Password to login to PKCS11 session
+    type: string
+    hidden: true
+    default: ''
+  BarbicanPkcs11CryptoMKEKLabel:
+    description: Label for Master KEK
+    type: string
+    default: ''
+  BarbicanPkcs11CryptoMKEKLength:
+    description: Length of Master KEK in bytes
+    type: string
+    default: '256'
+  BarbicanPkcs11CryptoHMACLabel:
+    description: Label for the HMAC key
+    type: string
+    default: ''
+  BarbicanPkcs11CryptoSlotId:
+    description: Slot Id for the HSM
+    type: string
+    default: '0'
+  BarbicanPkcs11CryptoEncryptionMechanism:
+    description: Cryptoki Mechanism used for encryption
+    type: string
+    default: 'CKM_AES_CBC'
+  BarbicanPkcs11CryptoHMACKeyType:
+    description: Cryptoki Key Type for Master HMAC key
+    type: string
+    default: 'CKK_AES'
+  BarbicanPkcs11CryptoHMACKeygenMechanism:
+    description: Cryptoki Mechanism used to generate Master HMAC Key
+    type: string
+    default: 'CKM_AES_KEY_GEN'
+  ThalesHSMNetworkName:
+    description: The network that the HSM is listening on.
+    type: string
+    default: 'internal_api'
+  ThalesVars:
+    default: {}
+    description: Hash of tripleo-barbican-thales variables used to
+                 install Thales client software.
+    type: json
+  ATOSVars:
+    default: {}
+    description: Hash of tripleo-barbican-atos variables used to
+                 install ATOS client software.
+    type: json
 
 conditions:
-
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  thales_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoThalesEnabled}, true]}
+  atos_hsm_enabled:     {equals: [{get_param: BarbicanPkcs11CryptoATOSEnabled}, true]}
+  thales_or_atos_hsm_enabled:
+    or:
+    - thales_hsm_enabled
+    - atos_hsm_enabled
+  pkcs11_plugin_enabled: {equals: [{get_param: BarbicanPkcs11CryptoEnabled}, true]}
 
 resources:
 
@@ -119,128 +185,384 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+      external_deploy_tasks:
+        if:
+        - thales_hsm_enabled
+        -
+          - name: Add ip addresses to the RFS server
+            when: step == '2'
+            block:
+              - name: get the ip addresses for the barbican nodes
+                set_fact:
+                  thales_rfs_playbook_dir: "/tmp/thales_rfs_role_working_dir"
+                  thales_client_ips:
+                    str_replace:
+                      template: >-
+                        {% for host in groups['barbican_backend_pkcs11_crypto'] -%}
+                          {{ hostvars[host]['$THALES_HSM_NETWORK_NAME_ip'] + ' ' }}
+                        {%- endfor %}
+                      params:
+                        $THALES_HSM_NETWORK_NAME: {get_param: ThalesHSMNetworkName}
+                  thales_bootstrap_client_ip:
+                    str_replace:
+                      template: >-
+                        {% for host in groups['barbican_backend_pkcs11_crypto'] -%}
+                        {% if hostvars[host]['bootstrap_server_id'] == hostvars[host]['deploy_server_id'] -%}
+                        {{ hostvars[host]['$THALES_HSM_NETWORK_NAME_ip'] }}
+                        {%- endif %}
+                        {%- endfor %}
+                      params:
+                        $THALES_HSM_NETWORK_NAME: {get_param: ThalesHSMNetworkName}
+                  thales_hsm_ip_address: {get_param: [ThalesVars, thales_hsm_ip_address]}
+                  thales_hsm_config_location: {get_param: [ThalesVars, thales_hsm_config_location]}
+                  thales_rfs_user: {get_param: [ThalesVars, thales_rfs_user]}
+
+              - name: set playbook vars
+                set_fact:
+                  thales_rfs_inventory: "{{thales_rfs_playbook_dir}}/inventory"
+                  thales_rfs_keyfile: "{{thales_rfs_playbook_dir}}/rfs_rsa"
+                  thales_rfs_playbook: "{{thales_rfs_playbook_dir}}/rfs.yaml"
+
+              - name: creating working directory
+                file:
+                  path: "{{thales_rfs_playbook_dir}}"
+                  state: directory
+
+              - name: generate an inventory
+                copy:
+                  dest: "{{thales_rfs_inventory}}"
+                  content: {get_param: [ThalesVars, thales_rfs_server_ip_address]}
+
+              - name: write SSH key to file
+                copy:
+                  dest: "{{thales_rfs_keyfile}}"
+                  content: {get_param: [ThalesVars, thales_rfs_key]}
+                  mode: 0400
+
+              - name: generate playbook to run
+                copy:
+                  dest: "{{thales_rfs_playbook}}"
+                  content: |
+                    ---
+                    - hosts: all
+                      remote_user: "{{thales_rfs_user}}"
+                      vars:
+                        thales_client_ips: "{{thales_client_ips}}"
+                        thales_hsm_ip_address: "{{thales_hsm_ip_address}}"
+                        thales_hsm_config_location: "{{thales_hsm_config_location}}"
+                        thales_bootstrap_client_ip: "{{thales_bootstrap_client_ip}}"
+                      roles:
+                        - tripleo-barbican-thales-rfs
+
+              - name: call ansible on rfs server
+                shell: ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i "{{thales_rfs_inventory}}" --key-file "{{thales_rfs_keyfile}}" --ssh-extra-args "-o StrictHostKeyChecking=no" "{{thales_rfs_playbook}}"
+
+              - name: clean up working directory
+                file:
+                  path: "{{thales_rfs_playbook_dir}}"
+                  state: absent
+        - null
+      deploy_steps_tasks:
+        if:
+        - thales_or_atos_hsm_enabled
+        - list_concat:
+          -
+            if:
+              - thales_hsm_enabled
+              -
+                - name: Thales client install
+                  when: step == '2'
+                  block:
+                    - set_fact:
+                        my_thales_client_ip:
+                          str_replace:
+                             template:
+                               "{{$NETWORK_ip}}"
+                             params:
+                               $NETWORK: {get_param: ThalesHSMNetworkName}
+                    - include_role:
+                        name: tripleo-barbican-thales
+                      vars:
+                        {get_param: ThalesVars}
+              - null
+          -
+            if:
+              - atos_hsm_enabled
+              -
+                - name: ATOS client install
+                  when: step == '2'
+                  block:
+                  - include_role:
+                      name: tripleo-barbican-atos
+                    vars:
+                      {get_param: ATOSVars}
+              - null
+        - null
+
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
-          get_attr: [BarbicanApiLogging, docker_config, step_2]
+          map_merge:
+          - get_attr: [BarbicanApiLogging, docker_config, step_2]
+          - if:
+            - atos_hsm_enabled
+            - barbican_init_atos_directory:
+                image: &barbican_api_image {get_param: DockerBarbicanApiImage}
+                user: root
+                volumes:
+                  - /etc/proteccio:/etc/proteccio
+                  - /usr/lib64/libnetshm.so:/usr/lib64/libnethsm.so
+                command: ['/bin/bash', '-c', 'chown -R barbican:barbican /etc/proteccio && chown barbican:barbican /usr/lib64/libnethsm.so']
+            - {}
         step_3:
-          barbican_api_db_sync:
-            start_order: 0
-            image: &barbican_api_image {get_param: DockerBarbicanApiImage}
-            net: host
-            detach: false
-            user: root
-            volumes: &barbican_api_volumes
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [BarbicanApiLogging, volumes]}
-                -
-                  - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
-                  - /var/lib/config-data/barbican/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-            command:
-              # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
-              # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
-              # final single quote that's part of the list_join.
-              list_join:
-              - ' '
-              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                - "db upgrade"
-                - "'"
-          barbican_api_secret_store_sync:
-            start_order: 1
-            image: *barbican_api_image
-            net: host
-            detach: false
-            user: root
-            volumes: *barbican_api_volumes
-            command:
-              # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
-              # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
-              # final single quote that's part of the list_join.
-              list_join:
-              - ' '
-              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                - "db sync_secret_stores --verbose"
-                - "'"
-          barbican_api:
-            # NOTE(alee): Barbican should start after keystone processes
-            start_order: 5
-            image: *barbican_api_image
-            net: host
-            privileged: false
-            restart: always
-            user: root
-            healthcheck:
-              test: /openstack/healthcheck
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [BarbicanApiLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/barbican_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
-                  -
-                    if:
-                      - internal_tls_enabled
-                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                      - ''
-                  -
-                    if:
-                      - internal_tls_enabled
-                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                      - ''
-            environment: &kolla_env
-              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-          barbican_keystone_listener:
-            start_order: 6
-            image: {get_param: DockerBarbicanKeystoneListenerImage}
-            net: host
-            privileged: false
-            restart: always
-            user: barbican
-            healthcheck:
-              test:
-                list_join:
+          map_merge:
+            - if:
+              - pkcs11_plugin_enabled
+              - barbican_api_create_mkek:
+                  start_order: 0
+                  image: *barbican_api_image
+                  net: host
+                  detach: false
+                  user: root
+                  volumes: &barbican_api_volumes
+                    list_concat:
+                      - {get_attr: [ContainersCommon, volumes]}
+                      - {get_attr: [BarbicanApiLogging, volumes]}
+                      -
+                        - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
+                        - /var/lib/config-data/barbican/etc/my.cnf.d/:/etc/my.cnf.d/:ro
+                      -
+                        if:
+                          - thales_hsm_enabled
+                          -
+                            - /opt/nfast:/opt/nfast
+                          - null
+                      -
+                        if:
+                          - atos_hsm_enabled
+                          -
+                            - /etc/proteccio:/etc/proteccio
+                            - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                          - null
+                  command:
+                    list_join:
+                      - ' '
+                      - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                        - "hsm check_mkek --library-path"
+                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
+                        - "--slot-id"
+                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
+                        - "--passphrase"
+                        - {get_param: [BarbicanPkcs11CryptoLogin]}
+                        - "--label"
+                        - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
+                        - "|| /usr/bin/barbican-manage"
+                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                        - "hsm gen_mkek --library-path"
+                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
+                        - "--slot-id"
+                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
+                        - "--passphrase"
+                        - {get_param: [BarbicanPkcs11CryptoLogin]}
+                        - "--label"
+                        - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
+                        - "'"
+              - {}
+            - if:
+              - pkcs11_plugin_enabled
+              - barbican_api_create_hmac:
+                  start_order: 0
+                  image: *barbican_api_image
+                  net: host
+                  detach: false
+                  user: root
+                  volumes: *barbican_api_volumes
+                  command:
+                    list_join:
+                      - ' '
+                      - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                        - "hsm check_hmac --library-path"
+                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
+                        - "--slot-id"
+                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
+                        - "--passphrase"
+                        - {get_param: [BarbicanPkcs11CryptoLogin]}
+                        - "--label"
+                        - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
+                        - "--key-type"
+                        - {get_param: [BarbicanPkcs11CryptoHMACKeyType]}
+                        - "|| /usr/bin/barbican-manage hsm gen_hmac --library-path"
+                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
+                        - "--slot-id"
+                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
+                        - "--passphrase"
+                        - {get_param: [BarbicanPkcs11CryptoLogin]}
+                        - "--label"
+                        - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
+                        - "--key-type"
+                        - {get_param: [BarbicanPkcs11CryptoHMACKeyType]}
+                        - "--mechanism"
+                        - {get_param: [BarbicanPkcs11CryptoHMACKeygenMechanism]}
+                        - "'"
+              - {}
+            - if:
+              - thales_hsm_enabled
+              - barbican_api_update_rfs_server_with_mkek_and_hmac_keys:
+                  start_order: 0
+                  image: *barbican_api_image
+                  net: host
+                  detach: false
+                  user: root
+                  volumes: *barbican_api_volumes
+                  command: "/usr/bin/bootstrap_host_exec barbican_api /opt/nfast/bin/rfs-sync --commit"
+              - {}
+            - if:
+              - thales_hsm_enabled
+              - barbican_api_get_mkek_and_hmac_keys_from_rfs:
+                  start_order: 0
+                  image: *barbican_api_image
+                  net: host
+                  detach: false
+                  user: root
+                  volumes: *barbican_api_volumes
+                  command: "/opt/nfast/bin/rfs-sync --update"
+              - {}
+            - barbican_api_db_sync:
+                start_order: 0
+                image: *barbican_api_image
+                net: host
+                detach: false
+                user: root
+                volumes: *barbican_api_volumes
+                command:
+                  # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
+                  # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
+                  # final single quote that's part of the list_join.
+                  list_join:
                   - ' '
-                  - - '/openstack/healthcheck'
-                    - yaql:
-                        expression: str($.data.port)
-                        data:
-                          port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [BarbicanApiLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/barbican_keystone_listener.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
-            environment: *kolla_env
-          barbican_worker:
-            start_order: 7
-            image: {get_param: DockerBarbicanWorkerImage}
-            net: host
-            privileged: false
-            restart: always
-            user: barbican
-            healthcheck:
-              test:
-                list_join:
+                  - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                    - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                    - "db upgrade"
+                    - "'"
+            - barbican_api_secret_store_sync:
+                start_order: 1
+                image: *barbican_api_image
+                net: host
+                detach: false
+                user: root
+                volumes: *barbican_api_volumes
+                command:
+                  # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
+                  # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
+                  # final single quote that's part of the list_join.
+                  list_join:
                   - ' '
-                  - - '/openstack/healthcheck'
-                    - yaql:
-                        expression: str($.data.port)
-                        data:
-                          port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [BarbicanApiLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/barbican_worker.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
-            environment: *kolla_env
+                  - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                    - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                    - "db sync_secret_stores --verbose"
+                    - "'"
+            - barbican_api:
+                # NOTE(alee): Barbican should start after keystone processes
+                start_order: 5
+                image: *barbican_api_image
+                net: host
+                privileged: false
+                restart: always
+                user: root
+                healthcheck:
+                  test: /openstack/healthcheck
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [BarbicanApiLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/barbican_api.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
+                    -
+                      if:
+                        - internal_tls_enabled
+                        -
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                        - null
+                    -
+                      if:
+                        - thales_hsm_enabled
+                        -
+                          - /opt/nfast:/opt/nfast
+                        - null
+                    -
+                      if:
+                        - atos_hsm_enabled
+                        -
+                          - /etc/proteccio:/etc/proteccio
+                          - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                        - null
+                environment: &kolla_env
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - barbican_keystone_listener:
+                start_order: 6
+                image: {get_param: DockerBarbicanKeystoneListenerImage}
+                net: host
+                privileged: false
+                restart: always
+                user: barbican
+                healthcheck:
+                  test:
+                    list_join:
+                      - ' '
+                      - - '/openstack/healthcheck'
+                        - yaql:
+                            expression: str($.data.port)
+                            data:
+                              port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [BarbicanApiLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/barbican_keystone_listener.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
+                environment: *kolla_env
+            - barbican_worker:
+                start_order: 7
+                image: {get_param: DockerBarbicanWorkerImage}
+                net: host
+                privileged: false
+                restart: always
+                user: barbican
+                healthcheck:
+                  test:
+                    list_join:
+                      - ' '
+                      - - '/openstack/healthcheck'
+                        - yaql:
+                            expression: str($.data.port)
+                            data:
+                              port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [BarbicanApiLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/barbican_worker.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/barbican/:/var/lib/kolla/config_files/src:ro
+                    -
+                      if:
+                        - thales_hsm_enabled
+                        -
+                          - /opt/nfast:/opt/nfast
+                        - null
+                    -
+                      if:
+                        - atos_hsm_enabled
+                        -
+                          - /etc/proteccio:/etc/proteccio
+                          - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                        - null
+                environment: *kolla_env
       host_prep_tasks: {get_attr: [BarbicanApiLogging, host_prep_tasks]}
       upgrade_tasks:
         - when: step|int == 3
