@@ -39,12 +39,11 @@ def parse_opts(argv):
                         default=('%s/network_data.yaml') % DEFAULT_THT_DIR)
     parser.add_argument('--role-name', metavar='ROLE-NAME',
                         help="Name of the role the NIC config is used for.",
-                        default='Controller')
+                        required=True)
     parser.add_argument('-t', '--template', metavar='TEMPLATE_FILE',
                         help=("Existing NIC config template to merge "
                               "parameter too."),
-                        required=True,
-                        )
+                        required=True)
     parser.add_argument('--tht-dir', metavar='THT_DIR',
                         help=("Path to tripleo-heat-templates (THT) "
                               "directory"),
