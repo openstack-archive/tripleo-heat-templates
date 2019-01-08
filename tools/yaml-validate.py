@@ -228,8 +228,6 @@ PREFERRED_CAMEL_CASE = {
 # If a filename is not found in the overrides then the top level directory is
 # used to determine which validation method to use.
 VALIDATE_PUPPET_OVERRIDE = {
-  # docker/service/sshd.yaml is a variation of the puppet sshd service
-  './docker/services/sshd.yaml': True,
   # docker/services/messaging/*.yaml provide oslo_messaging services
   './docker/services/messaging/notify-rabbitmq-shared.yaml': False,
   './docker/services/messaging/notify-rabbitmq.yaml': False,
@@ -248,8 +246,6 @@ VALIDATE_PUPPET_OVERRIDE = {
 
 }
 VALIDATE_DOCKER_OVERRIDE = {
-  # docker/service/sshd.yaml is a variation of the puppet sshd service
-  './docker/services/sshd.yaml': False,
   # docker/services/messaging/notify-rabbitmq-shared.yaml does not
   # deploy container
   './docker/services/messaging/notify-rabbitmq-shared.yaml': False,
