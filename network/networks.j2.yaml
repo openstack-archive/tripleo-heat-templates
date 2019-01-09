@@ -2,6 +2,11 @@ heat_template_version: rocky
 
 description: Create networks to split out Overcloud traffic
 
+parameters:
+  CtlplaneNetworkCidrs:
+    type: json
+    description: Cidrs for the ctlplane network.
+
 resources:
   {%- for network in networks %}
   {%- set network_name = network.compat_name|default(network.name) %}
@@ -16,12 +21,14 @@ resources:
 outputs:
   net_cidr_map:
     value:
-      # NOTE(gfidente): we need to replace the null value with a
-      # string to work around https://bugs.launchpad.net/heat/+bug/1700025
+      # NOTE(hjensas): If a network does not have any network_cidrs, fall back
+      # to the ctlplane (provisioning) network.
       {%- for network in networks %}
       {%- set network_name = network.compat_name|default(network.name) %}
       {{network.name_lower}}:
         yaql:
-          data: {get_attr: [{{network_name}}Network, subnet_cidr]}
-          expression: str($.data).replace('null', 'disabled')
+          data:
+            network_cidrs: {get_attr: [{{network_name}}Network, network_cidrs]}
+            ctlplane_cidrs: {get_param: CtlplaneNetworkCidrs}
+          expression: switch(not isList($.data.network_cidrs) => $.data.ctlplane_cidrs, $.data.network_cidrs => $.data.network_cidrs)
       {%- endfor %}
