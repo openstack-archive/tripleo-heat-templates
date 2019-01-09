@@ -257,118 +257,119 @@ for service in (json_data or []):
 
 log.info('Service compilation completed.')
 
-with open(sh_script, 'w') as script_file:
-    os.chmod(script_file.name, 0o755)
-    script_file.write("""#!/bin/bash
-    set -ex
-    mkdir -p /etc/puppet
-    cp -dR /tmp/puppet-etc/* /etc/puppet
-    rm -Rf /etc/puppet/ssl # not in use and causes permission errors
-    echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker_puppet.json
-    TAGS=""
-    if [ -n "$PUPPET_TAGS" ]; then
-        TAGS="--tags \"$PUPPET_TAGS\""
-    fi
-
-    CHECK_MODE=""
-    if [ -d "/tmp/puppet-check-mode" ]; then
-        mkdir -p /etc/puppet/check-mode
-        cp -a /tmp/puppet-check-mode/* /etc/puppet/check-mode
-        CHECK_MODE="--hiera_config /etc/puppet/check-mode/hiera.yaml"
-    fi
-
-    # Create a reference timestamp to easily find all files touched by
-    # puppet. The sync ensures we get all the files we want due to
-    # different timestamp.
-    origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
-    touch $origin_of_time
-    sync
-
-    export NET_HOST="${NET_HOST:-false}"
-    set +e
-    if [ "$NET_HOST" == "false" ]; then
-        export FACTER_hostname=$HOSTNAME
-    fi
-    # $::deployment_type in puppet-tripleo
-    export FACTER_deployment_type=containers
-    export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lower:]')
-    /usr/bin/puppet apply --summarize \
-            --detailed-exitcodes \
-            --color=false \
-            --logdest syslog \
-            --logdest console \
-            --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
-            $TAGS \
-            $CHECK_MODE \
-            /etc/config.pp
-    rc=$?
-    set -e
-    if [ $rc -ne 2 -a $rc -ne 0 ]; then
-        exit $rc
-    fi
-
-    # Disables archiving
-    if [ -z "$NO_ARCHIVE" ]; then
-        archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
-        rsync_srcs=""
-        for d in "${archivedirs[@]}"; do
-            if [ -d "$d" ]; then
-                rsync_srcs+=" $d"
-            fi
-        done
-        # On stack update, if a password was changed in a config file,
-        # some services (e.g. mysql) must change their internal state
-        # (e.g. password in mysql DB) when paunch restarts them; and
-        # they need the old password to achieve that.
-        # For those services, we update the config hash to notify
-        # paunch that a restart is needed, but we do not update the
-        # password file in docker-puppet and let the service
-        # regenerate it instead.
-        action=$(hiera -c /etc/puppet/hiera.yaml stack_action)
-        if [ "x$action" = "xUPDATE" ];then
-            password_files="/root/.my.cnf"
-        else
-            password_files=""
+if not os.path.exists(sh_script):
+    with open(sh_script, 'w') as script_file:
+        os.chmod(script_file.name, 0o755)
+        script_file.write("""#!/bin/bash
+        set -ex
+        mkdir -p /etc/puppet
+        cp -dR /tmp/puppet-etc/* /etc/puppet
+        rm -Rf /etc/puppet/ssl # not in use and causes permission errors
+        echo "{\\"step\\": $STEP}" > /etc/puppet/hieradata/docker_puppet.json
+        TAGS=""
+        if [ -n "$PUPPET_TAGS" ]; then
+            TAGS="--tags \"$PUPPET_TAGS\""
         fi
-
-        exclude_files=""
-        for p in $password_files; do
-            exclude_files+=" --exclude=$p"
-        done
-        rsync -a -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
-
-
-        # Also make a copy of files modified during puppet run
-        # This is useful for debugging
-        echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
-        mkdir -p /var/lib/config-data/puppet-generated/${NAME}
-        rsync -a -R -0 --delay-updates --delete-after $exclude_files \
-                      --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
-                      / /var/lib/config-data/puppet-generated/${NAME}
-
-        # Write a checksum of the config-data dir, this is used as a
-        # salt to trigger container restart when the config changes
-        # note: while being excluded from the output, password files
-        # are still included in checksum computation
-        additional_checksum_files=""
-        for p in $password_files; do
-            if [ -f "$p" ]; then
-                additional_checksum_files+=" $p"
+    
+        CHECK_MODE=""
+        if [ -d "/tmp/puppet-check-mode" ]; then
+            mkdir -p /etc/puppet/check-mode
+            cp -a /tmp/puppet-check-mode/* /etc/puppet/check-mode
+            CHECK_MODE="--hiera_config /etc/puppet/check-mode/hiera.yaml"
+        fi
+    
+        # Create a reference timestamp to easily find all files touched by
+        # puppet. The sync ensures we get all the files we want due to
+        # different timestamp.
+        origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
+        touch $origin_of_time
+        sync
+    
+        export NET_HOST="${NET_HOST:-false}"
+        set +e
+        if [ "$NET_HOST" == "false" ]; then
+            export FACTER_hostname=$HOSTNAME
+        fi
+        # $::deployment_type in puppet-tripleo
+        export FACTER_deployment_type=containers
+        export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lower:]')
+        /usr/bin/puppet apply --summarize \
+                --detailed-exitcodes \
+                --color=false \
+                --logdest syslog \
+                --logdest console \
+                --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
+                $TAGS \
+                $CHECK_MODE \
+                /etc/config.pp
+        rc=$?
+        set -e
+        if [ $rc -ne 2 -a $rc -ne 0 ]; then
+            exit $rc
+        fi
+    
+        # Disables archiving
+        if [ -z "$NO_ARCHIVE" ]; then
+            archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
+            rsync_srcs=""
+            for d in "${archivedirs[@]}"; do
+                if [ -d "$d" ]; then
+                    rsync_srcs+=" $d"
+                fi
+            done
+            # On stack update, if a password was changed in a config file,
+            # some services (e.g. mysql) must change their internal state
+            # (e.g. password in mysql DB) when paunch restarts them; and
+            # they need the old password to achieve that.
+            # For those services, we update the config hash to notify
+            # paunch that a restart is needed, but we do not update the
+            # password file in docker-puppet and let the service
+            # regenerate it instead.
+            action=$(hiera -c /etc/puppet/hiera.yaml stack_action)
+            if [ "x$action" = "xUPDATE" ];then
+                password_files="/root/.my.cnf"
+            else
+                password_files=""
             fi
-        done
-        # We need to exclude the swift rings and their backup as those change over time and
-        # containers do not need to restart if they change
-        EXCLUDE=--exclude='*/etc/swift/backups/*'\ --exclude='*/etc/swift/*.ring.gz'\ --exclude='*/etc/swift/*.builder'\ --exclude='*/etc/libvirt/passwd.db'
-        # We need to repipe the tar command through 'tar xO' to force text
-        # output because otherwise the sed command cannot work. The sed is
-        # needed because puppet puts timestamps as comments in cron and
-        # parsedfile resources, hence triggering a change at every redeploy
-        tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/${NAME} $additional_checksum_files | tar xO | \
-                sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
-        tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/puppet-generated/${NAME} $additional_checksum_files --mtime='1970-01-01' | tar xO \
-                | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
-    fi
-    """)
+    
+            exclude_files=""
+            for p in $password_files; do
+                exclude_files+=" --exclude=$p"
+            done
+            rsync -a -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
+    
+    
+            # Also make a copy of files modified during puppet run
+            # This is useful for debugging
+            echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
+            mkdir -p /var/lib/config-data/puppet-generated/${NAME}
+            rsync -a -R -0 --delay-updates --delete-after $exclude_files \
+                          --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
+                          / /var/lib/config-data/puppet-generated/${NAME}
+    
+            # Write a checksum of the config-data dir, this is used as a
+            # salt to trigger container restart when the config changes
+            # note: while being excluded from the output, password files
+            # are still included in checksum computation
+            additional_checksum_files=""
+            for p in $password_files; do
+                if [ -f "$p" ]; then
+                    additional_checksum_files+=" $p"
+                fi
+            done
+            # We need to exclude the swift rings and their backup as those change over time and
+            # containers do not need to restart if they change
+            EXCLUDE=--exclude='*/etc/swift/backups/*'\ --exclude='*/etc/swift/*.ring.gz'\ --exclude='*/etc/swift/*.builder'\ --exclude='*/etc/libvirt/passwd.db'
+            # We need to repipe the tar command through 'tar xO' to force text
+            # output because otherwise the sed command cannot work. The sed is
+            # needed because puppet puts timestamps as comments in cron and
+            # parsedfile resources, hence triggering a change at every redeploy
+            tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/${NAME} $additional_checksum_files | tar xO | \
+                    sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+            tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/puppet-generated/${NAME} $additional_checksum_files --mtime='1970-01-01' | tar xO \
+                    | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
+        fi
+        """)
 
 
 
