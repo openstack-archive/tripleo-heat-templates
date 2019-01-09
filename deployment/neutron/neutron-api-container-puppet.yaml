@@ -1,9 +1,25 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Neutron Server configured with Puppet
+  OpenStack containerized Neutron API service
 
 parameters:
+  DockerNeutronApiImage:
+    description: image
+    type: string
+  DockerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  NeutronApiLoggingSource:
+    type: json
+    default:
+      tag: openstack.neutron.api
+      path: /var/log/containers/neutron/server.log
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -25,11 +41,21 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+  NeutronApiOptVolumes:
+    default: []
+    description: list of optional volumes to be mounted
+    type: comma_delimited_list
+  NeutronApiOptEnvVars:
+    default: []
+    description: list of optional environment variables
+    type: comma_delimited_list
   NeutronWorkers:
     default: ''
     description: |
@@ -123,6 +149,7 @@ conditions:
   neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
   neutron_rpc_workers_unset: {equals : [{get_param: NeutronRpcWorkers}, '']}
   neutron_ovs_int_br_unset: {equals : [{get_param: NeutronOvsIntegrationBridge}, '']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -137,19 +164,30 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
+
   NeutronBase:
-    type: ./neutron-base.yaml
+    type: ../../puppet/services/neutron-base.yaml
     properties:
+      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NeutronLogging:
+    type: OS::TripleO::Services::Logging::NeutronApi
+    properties:
+      NeutronServiceName: server
+
 outputs:
   role_data:
-    description: Role data for the Neutron Server agent service.
+    description: Role data for the Neutron API role.
     value:
       service_name: neutron_api
       monitoring_subscription: {get_param: MonitoringSubscriptionNeutronServer}
@@ -157,6 +195,7 @@ outputs:
         map_merge:
           - get_attr: [NeutronBase, role_data, config_settings]
           - get_attr: [TLSProxyBase, role_data, config_settings]
+          - get_attr: [NeutronLogging, config_settings]
           - neutron::server::database_connection:
               make_url:
                 scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
@@ -241,8 +280,6 @@ outputs:
             - neutron_ovs_int_br_unset
             - {}
             - neutron::server::ovs_integration_bridge: {get_param: NeutronOvsIntegrationBridge}
-      step_config: |
-        include tripleo::profile::base::neutron::server
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_neutron_api:
@@ -264,6 +301,161 @@ outputs:
           neutron::db::mysql::allowed_hosts:
             - '%'
             - "%{hiera('mysql_bind_host')}"
-      upgrade_tasks: []
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: neutron
+        puppet_tags: neutron_config,neutron_api_config
+        step_config:
+          list_join:
+            - "\n"
+            - - include tripleo::profile::base::neutron::server
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerNeutronConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/neutron_api.json:
+          command:
+            list_join:
+            - ' '
+            - - /usr/bin/neutron-server --config-file /usr/share/neutron/neutron-dist.conf --config-dir /usr/share/neutron/server --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugin.ini --config-dir /etc/neutron/conf.d/common --config-dir /etc/neutron/conf.d/neutron-server
+              - get_attr: [NeutronLogging, cmd_extra_args]
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
+        /var/lib/kolla/config_files/neutron_server_tls_proxy.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
+              merge: false
+              preserve_properties: true
+      docker_config:
+        step_2:
+          get_attr: [NeutronLogging, docker_config, step_2]
+        step_3:
+          neutron_db_sync:
+            image: &neutron_api_image {get_param: DockerNeutronApiImage}
+            net: host
+            privileged: false
+            detach: false
+            user: root
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NeutronLogging, volumes]}
+                -
+                  - /var/lib/config-data/neutron/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/neutron/etc/neutron:/etc/neutron:ro
+            command: ['/usr/bin/bootstrap_host_exec', 'neutron_api', 'neutron-db-manage', 'upgrade', 'heads']
+            # FIXME: we should make config file permissions right
+            # and run as neutron user
+            #command: "/usr/bin/bootstrap_host_exec neutron_api su neutron -s /bin/bash -c 'neutron-db-manage upgrade heads'"
+        step_4:
+          map_merge:
+            - neutron_api:
+                start_order: 0
+                image: *neutron_api_image
+                net: host
+                privileged: false
+                restart: always
+                healthcheck:
+                  test: /openstack/healthcheck
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NeutronLogging, volumes]}
+                    - {get_param: NeutronApiOptVolumes}
+                    -
+                      - /var/lib/kolla/config_files/neutron_api.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                environment:
+                  list_concat:
+                    - {get_param: NeutronApiOptEnvVars}
+                    -
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - if:
+                - internal_tls_enabled
+                - neutron_server_tls_proxy:
+                    image: *neutron_api_image
+                    net: host
+                    user: root
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/neutron_server_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                    environment:
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+                - {}
+      host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
+      upgrade_tasks:
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-neutron package
+              set_fact:
+                remove_neutron_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-neutron package if operator requests it
+              package: name=openstack-neutron state=removed
+              ignore_errors: True
+              when: remove_neutron_package|bool
       metadata_settings:
         get_attr: [TLSProxyBase, role_data, metadata_settings]
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              with_items:
+                list_concat:
+                  - - neutron_api
+                  - - if:
+                        - internal_tls_enabled
+                        - - neutron_server_tls_proxy
+                        - null
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: Check if neutron_server is deployed
+              command: systemctl is-enabled --quiet neutron-server
+              ignore_errors: True
+              register: neutron_server_enabled_result
+            - name: Set fact neutron_server_enabled
+              set_fact:
+                neutron_server_enabled: "{{ neutron_server_enabled_result.rc == 0 }}"
+        - name: Stop neutron_server
+          service: name=neutron-server state=stopped enabled=no
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - neutron_server_enabled|bool
+        - when:
+            - step|int == 6
+            - is_bootstrap_node|bool
+          block:
+            - name: Neutron package update
+              package:
+                name: 'openstack-neutron*'
+                state: latest
+            - name: Neutron package update workaround
+              package: name=python-networking-odl state=latest
+        - name: Neutron db sync
+          command: neutron-db-manage upgrade head
+          when:
+            - step|int == 8
+            - is_bootstrap_node|bool

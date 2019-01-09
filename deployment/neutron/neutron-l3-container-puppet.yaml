@@ -80,6 +80,45 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  NeutronL3AgentMode:
+    description: |
+      Agent mode for L3 agent. Must be one of legacy or dvr_snat.
+    default: 'legacy'
+    type: string
+    constraints:
+      - allowed_values:
+        - legacy
+        - dvr_snat
+        - dvr
+    tags:
+      - role_specific
+  MonitoringSubscriptionNeutronL3:
+    default: 'overcloud-neutron-l3-agent'
+    type: string
+  NeutronL3AgentDebug:
+    default: ''
+    description: Set to True to enable debugging for Neutron L3 agent.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  NeutronL3AgentLoggingSource:
+    type: json
+    default:
+      tag: openstack.neutron.agent.l3
+      path: /var/log/neutron/l3-agent.log
+
+  # DEPRECATED: the following options are deprecated and are currently maintained
+  # for backwards compatibility. They will be removed in the Pike cycle.
+  NeutronExternalNetworkBridge:
+    description: Name of bridge used for external network traffic. Usually L2
+                 agent handles port wiring into external bridge, and hence the
+                 parameter should be unset.
+    type: string
+    default: ''
 
 conditions:
   keepalived_wrapper_enabled: {equals: [{get_param: NeutronEnableKeepalivedWrapper}, true]}
@@ -88,14 +127,15 @@ conditions:
   radvd_wrapper_enabled: {equals: [{get_param: NeutronEnableRadvdDockerWrapper}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   service_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
+  external_network_bridge_empty: {equals : [{get_param: NeutronExternalNetworkBridge}, "''"]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  NeutronL3Base:
-    type: ../../puppet/services/neutron-l3.yaml
+  NeutronBase:
+    type: ../../puppet/services/neutron-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -103,6 +143,20 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::agents::l3::agent_mode: NeutronL3AgentMode
+            - values: {get_param: [RoleParameters]}
+          - values:
+              NeutronL3AgentMode: {get_param: NeutronL3AgentMode}
 
   NeutronLogging:
     type: OS::TripleO::Services::Logging::NeutronCommon
@@ -113,10 +167,12 @@ outputs:
   role_data:
     description: Role data for Neutron L3 agent
     value:
-      service_name: {get_attr: [NeutronL3Base, role_data, service_name]}
+      service_name: neutron_l3
+      monitoring_subscription: {get_param: MonitoringSubscriptionNeutronL3}
       config_settings:
         map_merge:
-          - get_attr: [NeutronL3Base, role_data, config_settings]
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           - get_attr: [NeutronLogging, config_settings]
           - tripleo::profile::base::neutron::l3_agent_wrappers::enable_keepalived_wrapper: {get_param: NeutronEnableKeepalivedWrapper}
             tripleo::profile::base::neutron::l3_agent_wrappers::keepalived_process_wrapper: '/var/lib/neutron/keepalived_wrapper'
@@ -138,10 +194,22 @@ outputs:
                 - {get_param: Debug }
                 - {get_param: NeutronWrapperDebug}
             tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
-
+          - neutron::agents::l3::debug:
+              if:
+              - service_debug_unset
+              - {get_param: Debug}
+              - {get_param: NeutronL3AgentDebug}
+            tripleo::neutron_l3::firewall_rules:
+              '106 neutron_l3 vrrp':
+                proto: vrrp
+          -
+            if:
+            - external_network_bridge_empty
+            - {}
+            - neutron::agents::l3::external_network_bridge: {get_param: NeutronExternalNetworkBridge}
       service_config_settings:
         map_merge:
-          - get_attr: [NeutronL3Base, role_data, service_config_settings]
+          - get_attr: [NeutronBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_neutron_l3:
                 - neutron
@@ -150,8 +218,8 @@ outputs:
       puppet_config:
         puppet_tags: neutron_config,neutron_l3_agent_config
         config_volume: neutron
-        step_config:
-          get_attr: [NeutronL3Base, role_data, step_config]
+        step_config: |
+          include tripleo::profile::base::neutron::l3
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/neutron_l3_agent.json:
@@ -211,7 +279,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NeutronL3Base, role_data, config_settings, 'neutron::rabbit_port']}
+                          port: {get_param: RpcPort}
             ulimit: {get_param: DockerNeutronL3AgentUlimit}
             volumes:
               list_concat:
@@ -252,7 +320,7 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NeutronL3Base, role_data, metadata_settings]
+        get_attr: [NeutronBase, role_data, metadata_settings]
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}
