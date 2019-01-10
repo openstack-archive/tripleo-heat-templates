@@ -904,6 +904,9 @@ def validate_service_hiera_interpol(f, tpl):
             # Omit if external deploy tasks in the path
             if 'external_deploy_tasks' in path:
                 continue
+            # Omit apache remoteip proxy_ips
+            if 'apache::mod::remoteip::proxy_ips' in path:
+                continue
 
             # Omit if not a part of {get_param: [ServiceNetMap ...
             if not enter_lists and path[-1] != 'get_param':
