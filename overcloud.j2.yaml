@@ -514,7 +514,7 @@ resources:
     depends_on: {{role.name}}AllNodesDeployment
     properties:
       name: {{role.name}}AllNodesValidationDeployment
-      config: {get_resource: AllNodesValidationConfig}
+      config: {get_resource: {{role.name}}AllNodesValidationConfig}
       servers: {get_attr: [{{role.name}}Servers, value]}
 
   {{role.name}}IpListMap:
@@ -522,7 +522,7 @@ resources:
     properties:
       ControlPlaneIpList: {get_attr: [{{role.name}}, ip_address]}
 {%- for network in networks %}
-  {%- if network.enabled|default(true) %}
+  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
       {{network.name}}IpList: {get_attr: [{{role.name}}, {{network.name_lower}}_ip_address]}
   {%- else %}
       {{network.name}}IpList: {get_attr: [{{role.name}}, ip_address]}
@@ -824,18 +824,22 @@ resources:
     # ServiceNetMap's attribute values are available.
     depends_on: ServiceNetMap
 
+{%- for role in roles %}
   # All Nodes Validations
-  AllNodesValidationConfig:
+  {{role.name}}AllNodesValidationConfig:
     type: OS::TripleO::AllNodes::Validation
     properties:
       PingTestIps:
         list_join:
         - ' '
         -
-{%- for network in networks if network.enabled|default(true) %}
+{%- for network in networks %}
+  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
           - yaql:
               expression: coalesce($.data, []).first(null)
               data: {get_attr: [{{primary_role_name}}, {{network.name_lower}}_ip_address]}
+  {%- endif %}
+{%- endfor %}
 {%- endfor %}
 
   UpdateWorkflow:
