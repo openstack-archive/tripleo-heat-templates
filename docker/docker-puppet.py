@@ -28,7 +28,11 @@ import tempfile
 import time
 import multiprocessing
 
+from paunch import runner as containers_runner
+
 logger = None
+RUNNER = containers_runner.DockerRunner(
+        'docker-puppet')
 
 
 def get_logger():
@@ -286,12 +290,14 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             man_file.write('include ::tripleo::packages\n')
             man_file.write(manifest)
 
-        rm_container('docker-puppet-%s' % config_volume)
+        uname = RUNNER.unique_container_name('docker-puppet-%s' %
+                                             config_volume)
+        rm_container(uname)
         pull_image(config_image)
 
         dcmd = ['/usr/bin/docker', 'run',
                 '--user', 'root',
-                '--name', 'docker-puppet-%s' % config_volume,
+                '--name', uname,
                 '--env', 'PUPPET_TAGS=%s' % puppet_tags,
                 '--env', 'NAME=%s' % config_volume,
                 '--env', 'HOSTNAME=%s' % short_hostname(),
@@ -349,7 +355,7 @@ def mp_puppet_config((config_volume, puppet_tags, manifest, config_image, volume
             if cmd_stderr:
                 log.debug(cmd_stderr)
             # only delete successful runs, for debugging
-            rm_container('docker-puppet-%s' % config_volume)
+            rm_container(uname)
 
         log.info('Finished processing puppet configs for %s' % (config_volume))
         return subproc.returncode
