@@ -57,18 +57,96 @@ parameters:
     type: string
     description: The python interpreter to use for python and ansible actions
     default: /usr/bin/python
+  NeutronEnableL2Pop:
+    type: string
+    description: Enable/disable the L2 population feature in the Neutron agents.
+    default: "False"
+  NeutronBridgeMappings:
+    description: >
+      The OVS logical->physical bridge mappings to use. See the Neutron
+      documentation for details. Defaults to mapping br-ex - the external
+      bridge on hosts - to a physical name 'datacentre' which can be used
+      to create provider networks (and we use this for the default floating
+      network) - if changing this either use different post-install network
+      scripts or be sure to keep 'datacentre' as a mapping network name.
+    type: comma_delimited_list
+    default: "datacentre:br-ex"
+    tags:
+      - role_specific
+  NeutronTunnelTypes:
+    default: 'vxlan'
+    description: The tunnel types for the Neutron tenant network.
+    type: comma_delimited_list
+  NeutronAgentExtensions:
+    default: "qos"
+    description: |
+        Comma-separated list of extensions enabled for the Neutron agents.
+    type: comma_delimited_list
+  NeutronEnableDVR:
+    default: False
+    description: Enable Neutron DVR.
+    type: boolean
+  NeutronEnableARPResponder:
+    default: false
+    description: |
+      Enable ARP responder feature in the OVS Agent.
+    type: boolean
+  MonitoringSubscriptionNeutronOvs:
+    default: 'overcloud-neutron-ovs-agent'
+    type: string
+  NeutronOVSFirewallDriver:
+    default: ''
+    description: |
+      Configure the classname of the firewall driver to use for implementing
+      security groups. Possible values depend on system configuration. Some
+      examples are: noop, openvswitch, iptables_hybrid. The default value of an
+      empty string will result in a default supported configuration.
+    type: string
+  OvsHwOffload:
+    default: false
+    description: |
+      Enable OVS Hardware Offload. This feature supported from OVS 2.8.0
+    type: boolean
+    tags:
+      - role_specific
+  NeutronOVSTunnelCsum:
+    default: false
+    description: |
+      Set or un-set the tunnel header checksum  on outgoing IP packet
+      carrying GRE/VXLAN tunnel.
+    type: boolean
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 conditions:
-
+  no_firewall_driver: {equals : [{get_param: NeutronOVSFirewallDriver}, '']}
   docker_puppet_mount_host: {equals: [{get_param: DockerPuppetMountHostPuppet}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  NeutronOvsAgentBase:
-    type: ../../puppet/services/neutron-ovs-agent.yaml
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::agents::ml2::ovs::bridge_mappings: NeutronBridgeMappings
+              vswitch::ovs::enable_hw_offload: OvsHwOffload
+            - values: {get_param: [RoleParameters]}
+          - values:
+              NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
+              OvsHwOffload: {get_param: OvsHwOffload}
+
+  NeutronBase:
+    type: ../../puppet/services/neutron-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -86,14 +164,45 @@ outputs:
   role_data:
     description: Role data for Neutron openvswitch service
     value:
-      service_name: {get_attr: [NeutronOvsAgentBase, role_data, service_name]}
+      service_name: neutron_ovs_agent
+      monitoring_subscription: {get_param: MonitoringSubscriptionNeutronOvs}
       config_settings:
         map_merge:
-          - get_attr: [NeutronOvsAgentBase, role_data, config_settings]
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           - get_attr: [NeutronLogging, config_settings]
+          - neutron::agents::ml2::ovs::l2_population: {get_param: NeutronEnableL2Pop}
+            neutron::agents::ml2::ovs::enable_distributed_routing: {get_param: NeutronEnableDVR}
+            neutron::agents::ml2::ovs::arp_responder: {get_param: NeutronEnableARPResponder}
+            neutron::agents::ml2::ovs::tunnel_types: {get_param: NeutronTunnelTypes}
+            neutron::agents::ml2::ovs::extensions: {get_param: NeutronAgentExtensions}
+            neutron::agents::ml2::ovs::tunnel_csum: {get_param: NeutronOVSTunnelCsum}
+            # NOTE: bind IP is found in hiera replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            neutron::agents::ml2::ovs::local_ip:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, NeutronTenantNetwork]}
+            tripleo::neutron_ovs_agent::firewall_rules:
+              '118 neutron vxlan networks':
+                proto: 'udp'
+                dport: 4789
+              '136 neutron gre networks':
+                proto: 'gre'
+          -
+            if:
+            - no_firewall_driver
+            - {}
+            - neutron::agents::ml2::ovs::firewall_driver: {get_param: NeutronOVSFirewallDriver}
       service_config_settings:
         map_merge:
-          - get_attr: [NeutronOvsAgentBase, role_data, service_config_settings]
+          - get_attr: [NeutronBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_neutron_ovs_agent:
                 - neutron
@@ -102,8 +211,8 @@ outputs:
       puppet_config:
         config_volume: neutron
         puppet_tags: neutron_config,neutron_agent_ovs,neutron_plugin_ml2
-        step_config:
-          get_attr: [NeutronOvsAgentBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::neutron::ovs
         config_image: {get_param: DockerNeutronConfigImage}
         # We need to mount /run for puppet_config step. This is because
         # puppet-vswitch runs the commands "ovs-vsctl list open_vswitch ."
@@ -191,7 +300,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NeutronOvsAgentBase, role_data, config_settings, 'neutron::rabbit_port']}
+                          port: {get_param: RpcPort}
             ulimit: {get_param: DockerOpenvswitchUlimit}
             volumes:
               list_concat:
@@ -206,7 +315,7 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NeutronOvsAgentBase, role_data, metadata_settings]
+        get_attr: [NeutronBase, role_data, metadata_settings]
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}
@@ -220,13 +329,13 @@ outputs:
                     - name: openvswitch
               - name: Copy in cleanup script
                 copy:
-                  content: {get_file: ./neutron/neutron-cleanup}
+                  content: {get_file: ./neutron-cleanup}
                   dest: '/usr/libexec/neutron-cleanup'
                   force: yes
                   mode: '0755'
               - name: Copy in cleanup service
                 copy:
-                  content: {get_file: ./neutron/neutron-cleanup.service}
+                  content: {get_file: ./neutron-cleanup.service}
                   dest: '/usr/lib/systemd/system/neutron-cleanup.service'
                   force: yes
               - name: Enabling the cleanup service

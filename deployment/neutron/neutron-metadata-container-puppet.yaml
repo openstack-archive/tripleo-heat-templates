@@ -41,14 +41,55 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  NeutronMetadataProxySharedSecret:
+    description: Shared secret to prevent spoofing
+    type: string
+    hidden: true
+  NeutronWorkers:
+    default: ''
+    description: |
+      Sets the number of worker processes for the neutron metadata agent. The
+      default value results in the configuration being left unset and a
+      system-dependent default will be chosen (usually the number of
+      processors). Please note that this can result in a large number of
+      processes and memory consumption on systems with a large core count. On
+      such systems it is recommended that a non-default value be selected that
+      matches the load requirements.
+    type: string
+  NeutronPassword:
+    description: The password for the neutron service and db account, used by neutron agents.
+    type: string
+    hidden: true
+  MonitoringSubscriptionNeutronMetadata:
+    default: 'overcloud-neutron-metadata'
+    type: string
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
+  NeutronMetadataAgentDebug:
+    default: ''
+    description: Set to True to enable debugging for Neutron Metadata agent.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
+  service_debug_unset: {equals: [{get_param: NeutronMetadataAgentDebug}, '']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  is_neutron_shared_metadata_notempty: {not: {equals: [{get_param: NeutronMetadataProxySharedSecret}, '']}}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  NeutronMetadataBase:
-    type: ../../puppet/services/neutron-metadata.yaml
+  NeutronBase:
+    type: ../../puppet/services/neutron-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -66,14 +107,44 @@ outputs:
   role_data:
     description: Role data for Neutron Metadata agent
     value:
-      service_name: {get_attr: [NeutronMetadataBase, role_data, service_name]}
+      service_name: neutron_metadata
+      monitoring_subscription: {get_param: MonitoringSubscriptionNeutronMetadata}
       config_settings:
         map_merge:
-          - get_attr: [NeutronMetadataBase, role_data, config_settings]
+          - get_attr: [NeutronBase, role_data, config_settings]
           - get_attr: [NeutronLogging, config_settings]
+          - neutron::agents::metadata::auth_password: {get_param: NeutronPassword}
+            neutron::agents::metadata::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            neutron::agents::metadata::auth_tenant: 'service'
+            neutron::agents::metadata::debug:
+                if:
+                - service_debug_unset
+                - {get_param: Debug}
+                - {get_param: NeutronMetadataAgentDebug}
+            neutron::agents::metadata::metadata_host:
+              str_replace:
+                template:
+                  "%{hiera('cloud_name_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
+            neutron::agents::metadata::metadata_protocol:
+              if:
+              - internal_tls_enabled
+              - 'https'
+              - 'http'
+          -
+            if:
+            - neutron_workers_unset
+            - {}
+            - neutron::agents::metadata::metadata_workers: {get_param: NeutronWorkers}
+          -
+            if:
+            - is_neutron_shared_metadata_notempty
+            - neutron::agents::metadata::shared_secret: {get_param: NeutronMetadataProxySharedSecret}
+            - {}
       service_config_settings:
         map_merge:
-          - get_attr: [NeutronMetadataBase, role_data, service_config_settings]
+          - get_attr: [NeutronBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_neutron_metadata:
                 - neutron
@@ -82,8 +153,8 @@ outputs:
       puppet_config:
         puppet_tags: neutron_config,neutron_metadata_agent_config
         config_volume: neutron
-        step_config:
-          get_attr: [NeutronMetadataBase, role_data, step_config]
+        step_config: |
+          include tripleo::profile::base::neutron::metadata
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/neutron_metadata_agent.json:
@@ -121,7 +192,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NeutronMetadataBase, role_data, config_settings, 'neutron::rabbit_port']}
+                          port: {get_attr: [NeutronBase, role_data, config_settings, 'neutron::rabbit_port']}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -134,7 +205,7 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NeutronMetadataBase, role_data, metadata_settings]
+        get_attr: [NeutronBase, role_data, metadata_settings]
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}
