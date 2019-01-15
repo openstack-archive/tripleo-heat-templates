@@ -41,7 +41,7 @@ def get_logger():
     if logger is None:
         logger = logging.getLogger()
         ch = logging.StreamHandler(sys.stdout)
-        if os.environ.get('DEBUG', False):
+        if os.environ.get('DEBUG') in ['True', 'true'] :
             logger.setLevel(logging.DEBUG)
             ch.setLevel(logging.DEBUG)
         else:
