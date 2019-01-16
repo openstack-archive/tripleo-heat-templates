@@ -456,8 +456,12 @@ def mp_puppet_config(*args):
         count = 0
         log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
         while count < 3:
+            if count == 0:
+                cmd = dcmd
+            else:
+                cmd = [cli_cmd, 'start', '-a', uname]
             count += 1
-            subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
+            subproc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, env=env)
             cmd_stdout, cmd_stderr = subproc.communicate()
             retval = subproc.returncode
@@ -465,14 +469,14 @@ def mp_puppet_config(*args):
             # and 2 for success and resource changes. Other numbers are failures
             if retval in [0,2]:
                 if cmd_stdout:
-                    log.debug('%s run succeeded: %s' % (dcmd, cmd_stdout))
+                    log.debug('%s run succeeded: %s' % (cmd, cmd_stdout))
                 if cmd_stderr:
                     log.warning(cmd_stderr)
                 # only delete successful runs, for debugging
                 rm_container(uname)
                 break
             time.sleep(3)
-            log.warning('%s run failed after %s attempt(s): %s' % (dcmd,
+            log.warning('%s run failed after %s attempt(s): %s' % (cmd,
                                                                    cmd_stderr,
                                                                    count))
             log.warning('Retrying running container: %s' % config_volume)
