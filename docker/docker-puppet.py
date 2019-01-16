@@ -449,29 +449,41 @@ def mp_puppet_config(*args):
         dcmd.extend(['--volume', '%s:%s:ro' % (sh_script, sh_script)])
 
         dcmd.append(config_image)
-        log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
 
-        subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, env=env)
-        cmd_stdout, cmd_stderr = subproc.communicate()
-        # puppet with --detailed-exitcodes will return 0 for success and no changes
-        # and 2 for success and resource changes. Other numbers are failures
-        if subproc.returncode not in [0, 2]:
-            log.error('Failed running docker-puppet.py for %s' % config_volume)
-            if cmd_stdout:
-                log.error(cmd_stdout)
-            if cmd_stderr:
-                log.error(cmd_stderr)
+        # https://github.com/containers/libpod/issues/1844
+        # This block will run "container_cli" run 5 times before to fail.
+        retval = -1
+        count = 0
+        log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
+        while count < 3:
+            count += 1
+            subproc = subprocess.Popen(dcmd, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, env=env)
+            cmd_stdout, cmd_stderr = subproc.communicate()
+            retval = subproc.returncode
+            # puppet with --detailed-exitcodes will return 0 for success and no changes
+            # and 2 for success and resource changes. Other numbers are failures
+            if retval in [0,2]:
+                if cmd_stdout:
+                    log.debug('%s run succeeded: %s' % (dcmd, cmd_stdout))
+                if cmd_stderr:
+                    log.warning(cmd_stderr)
+                # only delete successful runs, for debugging
+                rm_container(uname)
+                break
+            time.sleep(3)
+            log.warning('%s run failed after %s attempt(s): %s' % (dcmd,
+                                                                   cmd_stderr,
+                                                                   count))
+            log.warning('Retrying running container: %s' % config_volume)
         else:
             if cmd_stdout:
                 log.debug(cmd_stdout)
             if cmd_stderr:
                 log.debug(cmd_stderr)
-            # only delete successful runs, for debugging
-            rm_container(uname)
-
+            log.error('Failed running container for %s' % config_volume)
         log.info('Finished processing puppet configs for %s' % (config_volume))
-        return subproc.returncode
+        return retval
 
 # Holds all the information for each process to consume.
 # Instead of starting them all linearly we run them using a process
