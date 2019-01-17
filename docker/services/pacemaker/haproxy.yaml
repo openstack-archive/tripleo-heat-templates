@@ -264,7 +264,7 @@ outputs:
               list_concat:
                 - - '/docker_puppet_apply.sh'
                   - '2'
-                  - 'file,file_line,concat,augeas,tripleo::firewall::rule,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                   - 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::haproxy_bundle'
                 - if:
                   - puppet_debug_enabled
@@ -342,6 +342,29 @@ outputs:
           vars:
             container_image: {get_param: DockerHAProxyImage}
             container_image_latest: *haproxy_image_pcmklatest
+        - name: Run puppet on the host to apply IPtables rules
+          when: step|int == 2
+          shell: |
+            set +e
+            export FACTER_step=2
+            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
+                --modulepath {{ puppet_modulepath }} --tags {{ puppet_tags }} -e {{ puppet_execute }}
+            rc=$?
+            set -e
+            set +ux
+            if [ $rc -eq 2 -o $rc -eq 0 ]; then
+                exit 0
+            fi
+            exit $rc
+          vars:
+            puppet_execute: {get_attr: [HAProxyBase, role_data, step_config]}
+            puppet_tags: 'tripleo::firewall::rule'
+            puppet_modulepath: '/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules'
+            puppet_debug:
+              if:
+                - puppet_debug_enabled
+                - '--debug --verbose'
+                - ''
       update_tasks:
         - name: Set HAProxy upgrade facts
           block: &haproxy_update_upgrade_facts

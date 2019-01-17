@@ -201,42 +201,7 @@ outputs:
         step_1:
           map_merge:
           - get_attr: [HAProxyLogging, docker_config, step_1]
-          - haproxy_firewall:
-              start_order: 1
-              detach: false
-              image: {get_param: DockerHAProxyImage}
-              net: host
-              user: root
-              privileged: true
-              command: # '/docker_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-                list_concat:
-                  - - '/docker_puppet_apply.sh'
-                    - '1'
-                    - 'tripleo::firewall::rule'
-                    - {get_attr: [HAProxyBase, role_data, step_config]}
-                  - if:
-                    - puppet_debug_enabled
-                    - - '--debug --verbose'
-                    - - ''
-              volumes:
-                list_concat:
-                  - {get_attr: [ContainersCommon, docker_puppet_apply_volumes]}
-                  - - /var/lib/kolla/config_files/haproxy.json:/var/lib/kolla/config_files/config.json:ro
-                    - /var/lib/config-data/puppet-generated/haproxy/:/var/lib/kolla/config_files/src:ro
-                    # puppet saves iptables rules in /etc/sysconfig
-                    - /etc/sysconfig:/etc/sysconfig:rw
-                    # saving rules require accessing /usr/libexec/iptables/iptables.init, just bind-mount
-                    # the necessary bit and prevent systemd to try to reload the service in the container
-                    - /usr/libexec/iptables:/usr/libexec/iptables:ro
-                    - /usr/libexec/initscripts/legacy-actions:/usr/libexec/initscripts/legacy-actions:ro
-                    - /var/lib/haproxy:/var/lib/haproxy:rw,z
-                    # Needed in order to call system iptables in order to ensure
-                    # we have kernel compatible modules
-                    # See https://bugzilla.redhat.com/show_bug.cgi?id=1665598
-                    - /lib/modules:/lib/modules:ro
-              environment:
-                - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-            haproxy:
+          - haproxy:
               start_order: 1
               image: {get_param: DockerHAProxyImage}
               net: host
@@ -273,6 +238,30 @@ outputs:
                     - null
               environment:
                 - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      deploy_steps_tasks:
+        - name: Run puppet on the host to apply IPtables rules
+          when: step|int == 1
+          shell: |
+            set +e
+            export FACTER_step=1
+            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
+                --modulepath {{ puppet_modulepath }} --tags {{ puppet_tags }} -e {{ puppet_execute }}
+            rc=$?
+            set -e
+            set +ux
+            if [ $rc -eq 2 -o $rc -eq 0 ]; then
+                exit 0
+            fi
+            exit $rc
+          vars:
+            puppet_execute: {get_attr: [HAProxyBase, role_data, step_config]}
+            puppet_tags: 'tripleo::firewall::rule'
+            puppet_modulepath: '/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules'
+            puppet_debug:
+              if:
+                - puppet_debug_enabled
+                - '--debug --verbose'
+                - ''
       upgrade_tasks:
         - name: ensure we have haproxy log dir with the correct setype
           file:
