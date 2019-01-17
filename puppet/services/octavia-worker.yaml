@@ -38,27 +38,6 @@ parameters:
     default:
       tag: openstack.octavia.worker
       path: /var/log/octavia/worker.log
-  OctaviaAmphoraImageTag:
-    default: 'amphora-image'
-    description: Glance image tag for identifying the amphora image.
-    type: string
-  OctaviaAmphoraNetworkList:
-    default: []
-    description: List of networks to attach to amphorae.
-    type: comma_delimited_list
-  OctaviaAmphoraSshKeyName:
-    type: string
-    default: 'octavia-ssh-key'
-    description: SSH key name.
-  OctaviaLoadBalancerTopology:
-    default: ''
-    description: Load balancer topology configuration.
-    type: string
-  OctaviaFlavorId:
-    default: 65
-    description: Nova flavor ID to be used when creating the nova flavor for
-                 amphora.
-    type: number
   OctaviaFlavorProperties:
     default:
       ram   : '1024'
@@ -86,7 +65,6 @@ parameters:
     default: 'service'
 
 conditions:
-  octavia_topology_unset: {equals : [{get_param: OctaviaLoadBalancerTopology}, ""]}
   octavia_client_cert_unset: {equals: [{get_param: OctaviaClientCert}, ""]}
 
 resources:
@@ -101,30 +79,31 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  OctaviaController:
+    type: ./octavia-controller.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
-    description: Role data for the Octavia WoWorker service.
+    description: Role data for the Octavia Worker service.
     value:
       service_name: octavia_worker
       monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaWorker}
       config_settings:
         map_merge:
           - get_attr: [OctaviaBase, role_data, config_settings]
-          - octavia::worker::amp_boot_network_list: {get_param: OctaviaAmphoraNetworkList}
-            octavia::worker::amp_flavor_id: {get_param: OctaviaFlavorId}
-            octavia::worker::amp_image_tag: {get_param: OctaviaAmphoraImageTag}
-            octavia::worker::amp_project_name: {get_param: OctaviaProjectName}
-            octavia::worker::amp_ssh_key_name: {get_param: OctaviaAmphoraSshKeyName}
+          - get_attr: [OctaviaController, role_data, config_settings]
+          - octavia::worker::amp_project_name: {get_param: OctaviaProjectName}
             octavia::worker::nova_flavor_config: {get_param: OctaviaFlavorProperties}
             octavia::worker::manage_nova_flavor: {get_param: OctaviaManageNovaFlavor}
             octavia::worker::nova_flavor_config: {get_param: OctaviaFlavorProperties}
-            octavia::worker::enable_ssh_access: true
             octavia::certificates::client_cert: {get_param: OctaviaClientCertFile}
-          -
-            if:
-            - octavia_topology_unset
-            - {}
-            - octavia::worker::loadbalancer_topology: {get_param: OctaviaLoadBalancerTopology}
           -
             if:
             - octavia_client_cert_unset
