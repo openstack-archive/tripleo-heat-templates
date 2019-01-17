@@ -38,6 +38,9 @@ parameters:
   MysqlUpgradePersist:
     type: boolean
     default: false
+  MysqlUpgradeTransfer:
+    type: boolean
+    default: true
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -541,6 +544,27 @@ outputs:
             - name: Upgrade Mysql database from the host
               shell: /bin/bash -ecx "{{mysql_upgrade_script}}"
               when: not mysql_containerized|bool
+      external_upgrade_tasks:
+        - vars:
+            mysql_upgrade_transfer: {get_param: MysqlUpgradeTransfer}
+          when:
+            - step|int == 1
+            - mysql_upgrade_transfer
+          tags:
+            - never
+            - system_upgrade_transfer_data
+          block:
+            - name: Disable mysql
+              command: /usr/sbin/pcs resource disable galera-bundle --wait
+              delegate_to: "{{hostvars[groups['overcloud'][0]]['mysql_short_node_names'][1]}}"
+            - name: Transfer mysql data
+              include_role:
+                name: tripleo-transfer
+              vars:
+                tripleo_transfer_src_dir: /var/lib/mysql
+                tripleo_transfer_src_host: "{{hostvars[groups['overcloud'][0]]['mysql_short_node_names'][1]}}"
+                tripleo_transfer_dest_dir: /var/lib/mysql
+                tripleo_transfer_dest_host: "{{hostvars[groups['overcloud'][0]]['mysql_short_bootstrap_node_name']}}"
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 6
