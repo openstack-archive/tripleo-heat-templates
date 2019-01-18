@@ -1,9 +1,26 @@
 heat_template_version: rocky
 
 description: >
-  Openstack Heat CloudFormation API service configured with Puppet
+  OpenStack containerized Heat API CFN service
 
 parameters:
+  DockerHeatApiCfnImage:
+    description: image
+    type: string
+  # puppet needs the heat-wsgi-api-cfn binary from centos-binary-heat-api-cfn
+  DockerHeatApiCfnConfigImage:
+    description: The container image to use for the heat_api_cfn config_volume
+    type: string
+  HeatApiCfnLoggingSource:
+    type: json
+    default:
+      tag: openstack.heat.api.cfn
+      path: /var/log/containers/heat/heat_api_cfn.log
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -25,11 +42,9 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
   HeatWorkers:
     default: 0
     description: Number of workers for Heat service.
@@ -45,22 +60,19 @@ parameters:
   MonitoringSubscriptionHeatApiCnf:
     default: 'overcloud-heat-api-cfn'
     type: string
-  HeatApiCfnLoggingSource:
-    type: json
-    default:
-      tag: openstack.heat.api.cfn
-      path: /var/log/heat/heat_api_cfn.log
-  EnableInternalTLS:
-    type: boolean
-    default: false
 
 conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   heat_workers_zero: {equals : [{get_param: HeatWorkers}, 0]}
 
 resources:
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
   ApacheServiceBase:
-    type: ./apache.yaml
+    type: ../../puppet/services/apache.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -71,26 +83,30 @@ resources:
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
   HeatBase:
-    type: ./heat-base.yaml
+    type: ./heat-base-puppet.yaml
     properties:
+      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  HeatApiCfnLogging:
+    type: OS::TripleO::Services::Logging::HeatApiCfn
+
 outputs:
   role_data:
-    description: Role data for the Heat CloudFormation API role.
+    description: Role data for the Heat API CFN role.
     value:
       service_name: heat_api_cfn
       monitoring_subscription: {get_param: MonitoringSubscriptionHeatApiCnf}
       config_settings:
         map_merge:
           - get_attr: [HeatBase, role_data, config_settings]
-          - get_attr: [ApacheServiceBase, role_data, config_settings]
-          - tripleo::heat_api_cfn::firewall_rules:
+          - get_attr: [HeatApiCfnLogging, config_settings]
+          - apache::default_vhost: false
+            tripleo::heat_api_cfn::firewall_rules:
               '125 heat_cfn':
                 dport:
                   - 8000
@@ -125,8 +141,6 @@ outputs:
             - heat_workers_zero
             - {}
             - heat::wsgi::apache_api_cfn::workers: {get_param: HeatWorkers}
-      step_config: |
-        include ::tripleo::profile::base::heat::api_cfn
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_heat_api_cfn:
@@ -142,6 +156,84 @@ outputs:
               heat::keystone::auth_cfn::admin_url: {get_param: [EndpointMap, HeatCfnAdmin, uri]}
               heat::keystone::auth_cfn::password: {get_param: HeatPassword}
               heat::keystone::auth_cfn::region: {get_param: KeystoneRegion}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: heat_api_cfn
+        puppet_tags: heat_config,file,concat,file_line
+        step_config: |
+          include ::tripleo::profile::base::heat::api_cfn
+        config_image: {get_param: DockerHeatApiCfnConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/heat_api_cfn.json:
+          command: /usr/sbin/httpd -DFOREGROUND
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/heat
+              owner: heat:heat
+              recurse: true
+      docker_config:
+        step_2:
+          get_attr: [HeatApiCfnLogging, docker_config, step_2]
+        step_4:
+          heat_api_cfn:
+            image: {get_param: DockerHeatApiCfnImage}
+            net: host
+            privileged: false
+            restart: always
+            # NOTE(mandre) kolla image changes the user to 'heat', we need it
+            # to be root to run httpd
+            user: root
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [HeatApiCfnLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/heat_api_cfn.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/heat_api_cfn/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks: {get_attr: [HeatApiCfnLogging, host_prep_tasks]}
+      upgrade_tasks: []
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
-      upgrade_tasks: []
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - heat_api_cfn
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: FFU check if openstack-heat-api-cfn service is enabled
+              command: systemctl is-enabled openstack-heat-api-cfn
+              ignore_errors: True
+              register: heat_api_cfn_enabled_result
+            - name: Set fact heat_api_cfn_enabled
+              set_fact:
+                heat_api_cfn_enabled: "{{ heat_api_cfn_enabled_result.rc == 0 }}"
+        - name: FFU stop and disable openstack-heat-api-cfn service
+          when:
+            - step|int == 1
+            - release == 'ocata'
+            - heat_api_cfn_enabled|bool
+          service: name=openstack-heat-api-cfn state=stopped enabled=no
