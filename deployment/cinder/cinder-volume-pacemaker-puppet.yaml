@@ -69,13 +69,13 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../../puppet/services/database/mysql-client.yaml
+    type: ../../puppet/services/database/mysql-client.yaml
 
   CinderBase:
-    type: ../../../puppet/services/cinder-volume.yaml
+    type: ./cinder-volume-container-puppet.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -85,13 +85,14 @@ resources:
       RoleParameters: {get_param: RoleParameters}
 
   CinderCommon:
-    type: ../cinder-common.yaml
+    type: ./cinder-common-container-puppet.yaml
 
 outputs:
   role_data:
     description: Role data for the Cinder Volume role.
     value:
-      service_name: {get_attr: [CinderBase, role_data, service_name]}
+      service_name: cinder_volume
+      monitoring_subscription: {get_attr: [CinderBase, role_data, monitoring_subscription]}
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
@@ -125,7 +126,7 @@ outputs:
           list_join:
             - "\n"
             - - "include ::tripleo::profile::base::lvm"
-              - get_attr: [CinderBase, role_data, step_config]
+            - - "include ::tripleo::profile::pacemaker::cinder::volume"
               - get_attr: [MySQLClient, role_data, step_config]
         config_image: {get_param: DockerCinderConfigImage}
       kolla_config:
@@ -293,6 +294,12 @@ outputs:
             - name: set is_cinder_volume_bootstrap_node fact
               tags: common
               set_fact: is_cinder_volume_bootstrap_node={{cinder_volume_short_bootstrap_node_name|lower == ansible_hostname|lower}}
+        - name: Stop cinder_volume service (pacemaker)
+          when: step|int == 1
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: disable
+            wait_for_resource: true
         - name: Cinder-Volume baremetal to container upgrade tasks
           when:
             - step|int == 1
@@ -356,6 +363,12 @@ outputs:
             - step|int == 3
             - cinder_volume_containerized|bool
           block: *cinder_volume_fetch_retag_container_tasks
+      post_upgrade_tasks:
+        - name: Start cinder_volume service (pacemaker)
+          when: step|int == 1
+          pacemaker_resource:
+            resource: openstack-cinder-volume
+            state: enable
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0

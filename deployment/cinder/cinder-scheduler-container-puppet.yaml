@@ -45,17 +45,20 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  MonitoringSubscriptionCinderScheduler:
+    default: 'overcloud-cinder-scheduler'
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
   CinderBase:
-    type: ../../puppet/services/cinder-scheduler.yaml
+    type: ./cinder-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -68,8 +71,12 @@ outputs:
   role_data:
     description: Role data for the Cinder Scheduler role.
     value:
-      service_name: {get_attr: [CinderBase, role_data, service_name]}
-      config_settings: {get_attr: [CinderBase, role_data, config_settings]}
+      service_name: cinder_scheduler
+      monitoring_subscription: {get_param: MonitoringSubscriptionCinderScheduler}
+      config_settings:
+        map_merge:
+          - get_attr: [CinderBase, role_data, config_settings]
+          - cinder::scheduler::scheduler_driver: cinder.scheduler.filter_scheduler.FilterScheduler
       service_config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, service_config_settings]
@@ -85,6 +92,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
+            - - "include ::tripleo::profile::base::cinder::scheduler"
             - - {get_attr: [CinderBase, role_data, step_config]}
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerCinderConfigImage}
