@@ -1152,8 +1152,9 @@ def validate(filename, param_map):
             in_resources = str_p in str(tpl.get('resources', {}))
             in_outputs = str_p in str(tpl.get('outputs', {}))
             in_conditions = str_p in str(tpl.get('conditions', {}))
+            in_parameter_groups = str_p in str(tpl.get('parameter_groups', {}))
             if (not in_resources and not in_outputs and not in_conditions
-                and args.quiet < 2):
+                and not in_parameter_groups and args.quiet < 2):
                 print('Warning: parameter %s in template %s '
                       'appears to be unused' % (p, filename))
 
