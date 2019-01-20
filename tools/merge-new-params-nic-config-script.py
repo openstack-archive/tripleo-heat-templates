@@ -209,9 +209,15 @@ def process_templates_and_get_reference_parameters():
     # be used when loading the reference file.
     with open(OPTS.roles_data) as roles_data_file:
         roles_data = yaml.safe_load(roles_data_file)
-    nic_config_name = next((x.get('deprecated_nic_config_name',
-                                  OPTS.role_name.lower() + '.yaml') for x in
-                            roles_data if x['name'] == OPTS.role_name))
+    try:
+        nic_config_name = next((x.get('deprecated_nic_config_name',
+                                      OPTS.role_name.lower() + '.yaml')
+                                for x in roles_data
+                                if x['name'] == OPTS.role_name))
+    except StopIteration:
+        raise RuntimeError('The role: {role_name} is not defined in roles '
+                           'data file: {roles_data_file}'.format(
+            role_name=OPTS.role_name, roles_data_file=OPTS.roles_data))
 
     refernce_file = '/'.join([temp_dir, 'network/config', NIC_CONFIG_REFERENCE,
                               nic_config_name])
