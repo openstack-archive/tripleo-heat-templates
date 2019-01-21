@@ -68,19 +68,10 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   SshdBase:
     type: ../../deployment/sshd/sshd-baremetal-puppet.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  NovaMigrationTargetBase:
-    type: ../../puppet/services/nova-migration-target.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -96,7 +87,39 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [SshdBase, role_data, config_settings]
-          - get_attr: [NovaMigrationTargetBase, role_data, config_settings]
+          - tripleo::profile::base::nova::migration::target::ssh_authorized_keys:
+              - {get_param: [ MigrationSshKey, public_key ]}
+            tripleo::profile::base::nova::migration::target::ssh_localaddrs:
+              - "%{hiera('cold_migration_ssh_inbound_addr')}"
+              - "%{hiera('live_migration_ssh_inbound_addr')}"
+            live_migration_ssh_inbound_addr:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK:
+                    get_param:
+                      - ServiceNetMap
+                      - str_replace:
+                          template: "ROLENAMEHostnameResolveNetwork"
+                          params:
+                            ROLENAME: {get_param: RoleName}
+            cold_migration_ssh_inbound_addr:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+            tripleo::profile::base::sshd::port:
+              - 22
+              - {get_param: MigrationSshPort}
+            tripleo::nova_migration_target::firewall_rules:
+              '113 nova_migration_target':
+                dport:
+                  - {get_param: MigrationSshPort}
+      step_config: |
+        include tripleo::profile::base::nova::migration::target
+
           # NB this prevents the baremetal ssh from listening on port 2022
           # It doesn't affect the sshd port in the container as we override it below on the sshd cli
           - tripleo::profile::base::sshd::port: 22
@@ -112,7 +135,7 @@ outputs:
           list_join:
             - "\n"
             - - get_attr: [SshdBase, role_data, step_config]
-              - get_attr: [NovaMigrationTargetBase, role_data, step_config]
+              - include tripleo::profile::base::nova::migration::target
         config_image: {get_param: DockerNovaLibvirtConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/nova-migration-target.json:

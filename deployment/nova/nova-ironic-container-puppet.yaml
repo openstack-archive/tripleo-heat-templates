@@ -40,17 +40,21 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  IronicPassword:
+    description: The password for the Ironic service and db account, used by the Ironic services
+    type: string
+    hidden: true
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
   NovaComputeCommon:
-    type: ./nova-compute-common.yaml
+    type: ../../docker/services/nova-compute-common.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -59,8 +63,8 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  NovaIronicBase:
-    type: ../../puppet/services/nova-ironic.yaml
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -73,15 +77,26 @@ outputs:
   role_data:
     description: Role data for the Nova Compute service.
     value:
-      service_name: {get_attr: [NovaIronicBase, role_data, service_name]}
-      config_settings: {get_attr: [NovaIronicBase, role_data, config_settings]}
+      service_name: nova_ironic
+      config_settings:
+        map_merge:
+          - get_attr: [NovaBase, role_data, config_settings]
+          - nova::compute::force_config_drive: true
+            nova::compute::reserved_host_memory: '0'
+            nova::compute::vnc_enabled: false
+            nova::ironic::common::password: {get_param: IronicPassword}
+            nova::ironic::common::project_name: 'service'
+            nova::ironic::common::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            nova::ironic::common::username: 'ironic'
+            nova::ironic::common::api_endpoint: {get_param: [EndpointMap, IronicInternal, uri]}
+            nova::network::neutron::dhcp_domain: ''
       puppet_config:
         config_volume: nova
         puppet_tags: nova_config,nova_paste_api_ini
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaIronicBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::compute::ironic
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaConfigImage}
       kolla_config:
@@ -131,7 +146,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NovaIronicBase, role_data, config_settings, 'nova::rabbit_port']}
+                          port: {get_attr: [NovaBase, role_data, config_settings, 'nova::rabbit_port']}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -184,6 +199,9 @@ outputs:
             persistent: yes
             state: yes
       upgrade_tasks:
+        - name: Stop openstack-nova-compute service
+          when: step|int == 1
+          service: name=openstack-nova-compute state=stopped enabled=no
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-nova-compute package

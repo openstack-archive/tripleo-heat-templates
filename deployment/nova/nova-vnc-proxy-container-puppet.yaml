@@ -86,23 +86,17 @@ conditions:
       - {get_param: LibvirtVncCACert}
       - ''
 
+  allow_noauth:
+    # Allow noauth VNC connections during P->Q upgrade. Remove in Rocky.
+    equals: [{get_param: StackUpdateType}, 'UPGRADE']
+
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
-
-  NovaVncProxyPuppetBase:
-    type: ../../puppet/services/nova-vnc-proxy.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
 
   NovaLogging:
     type: OS::TripleO::Services::Logging::NovaCommon
@@ -110,23 +104,103 @@ resources:
       DockerNovaImage: {get_param: DockerNovaVncProxyImage}
       NovaServiceName: 'vncproxy'
 
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
     description: Role data for the Nova Vncproxy service.
     value:
-      service_name: {get_attr: [NovaVncProxyPuppetBase, role_data, service_name]}
+      service_name: nova_vnc_proxy
       config_settings:
         map_merge:
-          - {get_attr: [NovaVncProxyPuppetBase, role_data, config_settings]}
           - {get_attr: [NovaLogging, config_settings]}
+          - nova::vncproxy::enabled: true
+            nova::vncproxy::common::vncproxy_protocol: {get_param: [EndpointMap, NovaVNCProxyPublic, protocol]}
+            nova::vncproxy::common::vncproxy_host: {get_param: [EndpointMap, NovaVNCProxyPublic, host_nobrackets]}
+            nova::vncproxy::common::vncproxy_port: {get_param: [EndpointMap, NovaVNCProxyPublic, port]}
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            nova::vncproxy::host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+            tripleo::nova_vnc_proxy::firewall_rules:
+              '137 nova_vnc_proxy':
+                dport:
+                  - 6080
+                  - 13080
+          -
+            if:
+              - use_tls_for_vnc
+              -
+                nova::vncproxy::allow_vencrypt: true
+                nova::vncproxy::allow_noauth: {if: [allow_noauth, true, false]}
+                nova::vncproxy::vencrypt_key: /etc/pki/libvirt-vnc/client-key.pem
+                nova::vncproxy::vencrypt_cert: /etc/pki/libvirt-vnc/client-cert.pem
+                nova::vncproxy::vencrypt_ca: /etc/pki/libvirt-vnc/ca-cert.pem
+                nova::ssl_only: true
+                nova::cert: /etc/pki/tls/certs/novnc_proxy.crt
+                nova::key: /etc/pki/tls/private/novnc_proxy.key
+                generate_service_certificates: true
+                tripleo::certmonger::ca::libvirt_vnc::origin_ca_pem:
+                  if:
+                    - libvirt_vnc_specific_ca_unset
+                    - get_param: InternalTLSVncCAFile
+                    - get_param: LibvirtVncCACert
+                tripleo::certmonger::libvirt_vnc_dirs::certificate_dir: '/etc/pki/libvirt-vnc'
+                libvirt_vnc_certificates_specs:
+                  libvirt-vnc-client-cert:
+                    cacertfile:
+                      if:
+                        - libvirt_vnc_specific_ca_unset
+                        - get_param: InternalTLSVncCAFile
+                        - null
+                    service_certificate: '/etc/pki/libvirt-vnc/client-cert.pem'
+                    service_key: '/etc/pki/libvirt-vnc/client-key.pem'
+                    notify_service: '%{::nova::params::vncproxy_service_name}'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                novnc_proxy_certificates_specs:
+                  service_certificate: '/etc/pki/tls/certs/novnc_proxy.crt'
+                  service_key: '/etc/pki/tls/private/novnc_proxy.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+                  principal:
+                    str_replace:
+                      template: "novnc-proxy/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+              - {}
       service_config_settings:
-        map_merge:
-          - get_attr: [NovaVncProxyPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_nova_vnc_proxy:
-                - nova
-              tripleo_fluentd_sources_nova_vnc_proxy:
-                - {get_param: NovaVncproxyLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_nova_vnc_proxy:
+            - nova
+          tripleo_fluentd_sources_nova_vnc_proxy:
+            - {get_param: NovaVncproxyLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova
@@ -134,7 +208,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaVncProxyPuppetBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::vncproxy
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaConfigImage}
       kolla_config:
@@ -196,9 +270,21 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NovaVncProxyPuppetBase, role_data, metadata_settings]
+        if:
+          - use_tls_for_vnc
+          -
+            - service: libvirt-vnc
+              network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              type: node
+            - service: novnc-proxy
+              network: {get_param: [ServiceNetMap, NovaApiNetwork]}
+              type: node
+          - null
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       upgrade_tasks:
+        - name: Stop nova_vnc_proxy service
+          when: step|int == 1
+          service: name=openstack-nova-consoleauth state=stopped
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-nova-novncproxy package
