@@ -61,6 +61,8 @@ for i in range(retries):
         service_list = subprocess.check_output([
             'openstack',
             '-q',
+            '--os-interface',
+            'internal',
             'compute',
             'service',
             'list',
