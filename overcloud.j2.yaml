@@ -20,15 +20,22 @@ description: >
 # some order in here.
 parameters:
 
-  # Common parameters (not specific to a role)
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+  # Common parameters (not specific to
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
   # Special case the External hostname param, which is CloudName
   CloudName:
     default: overcloud.localdomain
     description: The DNS name of this cloud. E.g. ci-overcloud.tripleo.org
     type: string
-{%- elif network.name == 'InternalApi' %}
+  # TODO (dsneddon) Legacy name, eventually refactor to match network name
+  PublicVirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the PublicVirtualInterface port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+  {%- elif network.name == 'InternalApi' %}
   # Special case the Internal API hostname param, which is CloudNameInternal
   CloudNameInternal:
     default: overcloud.{{network.name.lower()}}.localdomain
@@ -36,7 +43,7 @@ parameters:
       The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
       'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
-{%- elif network.name == 'StorageMgmt' %}
+  {%- elif network.name == 'StorageMgmt' %}
   # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
   CloudNameStorageManagement:
     default: overcloud.{{network.name.lower()}}.localdomain
@@ -44,14 +51,20 @@ parameters:
       The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
       'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
-{%- else %}
+  {%- else %}
   CloudName{{network.name}}:
     default: overcloud.{{network.name.lower()}}.localdomain
     description: >
       The DNS name of this cloud's {{network.name_lower}} endpoint. E.g.
       'ci-overcloud.{{network.name.lower()}}.tripleo.org'.
     type: string
-{%- endif %}
+  {%- endif %}
+  {{network.name}}VirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the {{network.name}}VirtualInterface port. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
 {%- endfor %}
   CloudNameCtlplane:
     default: overcloud.ctlplane.localdomain
@@ -72,20 +85,6 @@ parameters:
     description: |
       Additional hiera configuration to inject into the cluster.
     type: json
-{%- for role in roles %}
-  {{role.name}}ExtraConfig:
-    default: {}
-    description: |
-      Role specific additional hiera configuration to inject into the cluster.
-    type: json
-{%- if role.deprecated_param_extraconfig is defined %}
-  {{role.deprecated_param_extraconfig}}:
-    default: {}
-    description: |
-      DEPRECATED use {{role.name}}ExtraConfig instead
-    type: json
-{%- endif %}
-{%- endfor %}
   NeutronControlPlaneID:
     default: 'ctlplane'
     type: string
@@ -110,21 +109,6 @@ parameters:
         Control the IP allocation for the ControlVirtualIP port. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
-  # TODO (dsneddon) Legacy name, eventually refactor to match network name
-  PublicVirtualFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the PublicVirtualInterface port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
-{%- for network in networks if network.vip|default(false) and network.name != 'External' %}
-  {{network.name}}VirtualFixedIPs:
-    default: []
-    description: >
-        Control the IP allocation for the {{network.name}}VirtualInterface port. E.g.
-        [{'ip_address':'1.2.3.4'}]
-    type: json
-{%- endfor %}
   RabbitCookieSalt:
     type: string
     default: unset
@@ -169,6 +153,18 @@ parameters:
 
   # Jinja loop for Role in role_data.yaml
 {% for role in roles %}
+  {{role.name}}ExtraConfig:
+    default: {}
+    description: |
+      Role specific additional hiera configuration to inject into the cluster.
+    type: json
+  {%- if role.deprecated_param_extraconfig is defined %}
+  {{role.deprecated_param_extraconfig}}:
+    default: {}
+    description: |
+      DEPRECATED use {{role.name}}ExtraConfig instead
+    type: json
+  {%- endif %}
   # Parameters generated for {{role.name}} Role
   {{role.name}}Services:
     description: A list of service resources (configured in the Heat
@@ -298,35 +294,35 @@ resources:
               params:
                 IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
                 HOST: {get_param: CloudNameCtlplane}
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
   # Special case the External hostname param, which is CloudName
           - str_replace:
               template: IP  HOST
               params:
                 IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudName}
-{%- elif network.name == 'InternalApi' %}
+  {%- elif network.name == 'InternalApi' %}
   # Special case the Internal API hostname param, which is CloudNameInternal
           - str_replace:
               template: IP  HOST
               params:
                 IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudNameInternal}
-{%- elif network.name == 'StorageMgmt' %}
+  {%- elif network.name == 'StorageMgmt' %}
   # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
           - str_replace:
               template: IP  HOST
               params:
                 IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudNameStorageManagement}
-{%- else %}
+  {%- else %}
           - str_replace:
               template: IP  HOST
               params:
                 IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
                 HOST: {get_param: CloudName{{network.name}}}
-{%- endif %}
+  {%- endif %}
 {%- endfor %}
 
   HeatAuthEncryptionKey:
@@ -364,19 +360,19 @@ resources:
     properties:
       CloudEndpoints:
         ctlplane: {get_param: CloudNameCtlplane}
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
   # Special case the External hostname param, which is CloudName
         {{network.name_lower}}: {get_param: CloudName}
-{%- elif network.name == 'InternalApi' %}
+  {%- elif network.name == 'InternalApi' %}
   # Special case the Internal API hostname param, which is CloudNameInternal
         {{network.name_lower}}: {get_param: CloudNameInternal}
-{%- elif network.name == 'StorageMgmt' %}
+  {%- elif network.name == 'StorageMgmt' %}
   # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
         {{network.name_lower}}: {get_param: CloudNameStorageManagement}
-{%- else %}
+  {%- else %}
         {{network.name_lower}}: {get_param: CloudName{{network.name}}}
-{%- endif %}
+  {%- endif %}
 {%- endfor %}
       NetIpMap: {get_attr: [VipMap, net_ip_map]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map]}
@@ -485,9 +481,9 @@ resources:
           map_merge:
           - get_attr: [{{role.name}}ServiceConfigSettings, value]
           - get_param: ExtraConfig
-{%- if role.deprecated_param_extraconfig is defined %}
+  {%- if role.deprecated_param_extraconfig is defined %}
           - get_param: {{role.deprecated_param_extraconfig}}
-{%- endif %}
+  {%- endif %}
           - get_param: {{role.name}}ExtraConfig
 
   # Filter any null/None service_names which may be present due to mapping
@@ -519,10 +515,10 @@ resources:
   {{role.name}}AllNodesDeployment:
     type: OS::TripleO::AllNodesDeployment
     depends_on:
-{% for role_inner in roles %}
+{%- for role_inner in roles %}
       - {{role_inner.name}}HostsDeployment
       - {{role_inner.name}}SshKnownHostsDeployment
-{% endfor %}
+{%- endfor %}
     properties:
       name: {{role.name}}AllNodesDeployment
       config: {get_attr: [allNodesConfig, config_id]}
@@ -550,13 +546,13 @@ resources:
     type: OS::TripleO::Network::Ports::NetIpListMap
     properties:
       ControlPlaneIpList: {get_attr: [{{role.name}}, ip_address]}
-{%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+  {%- for network in networks %}
+    {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
       {{network.name}}IpList: {get_attr: [{{role.name}}, {{network.name_lower}}_ip_address]}
-  {%- else %}
+    {%- else %}
       {{network.name}}IpList: {get_attr: [{{role.name}}, ip_address]}
-  {%- endif %}
-{%- endfor %}
+    {%- endif %}
+  {%- endfor %}
       EnabledServices: {get_attr: [{{role.name}}ServiceNames, value]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       ServiceHostnameList: {get_attr: [{{role.name}}, hostname]}
@@ -618,9 +614,9 @@ resources:
           # nested template, as it can contain %index%
           {{role.name}}SchedulerHints:
             map_merge:
-{%- if role.deprecated_param_scheduler_hints is defined %}
+  {%- if role.deprecated_param_scheduler_hints is defined %}
               - {get_param: {{role.deprecated_param_scheduler_hints}}}
-{%- endif %}
+  {%- endif %}
               - {get_param: {{role.name}}SchedulerHints}
           ServiceConfigSettings: {get_attr: [{{role.name}}ServiceConfigSettings, value]}
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
@@ -632,9 +628,9 @@ resources:
               - {{role.RoleParametersDefault|default({})}}
               - get_param: {{role.name}}Parameters
           UserData: {get_resource: {{role.name}}UserData}
-{% endfor %}
+{%- endfor %}
 
-{% for role in roles %}
+{%- for role in roles %}
   {{role.name}}Servers:
     type: OS::Heat::Value
     depends_on: {{role.name}}
@@ -645,7 +641,7 @@ resources:
           expression: let(servers=>switch(isDict($.data.servers) => $.data.servers, true => {})) -> $servers.deleteAll($servers.keys().where($servers[$] = null))
           data:
             servers: {get_attr: [{{role.name}}, attributes, nova_server_resource]}
-{% endfor %}
+{%- endfor %}
 
   # This is a different format to *Servers, as it creates a map of lists
   # whereas *Servers creates a map of maps with keys of the nested resource names
@@ -654,9 +650,9 @@ resources:
     properties:
       value:
         server_ids:
-{% for role in roles %}
+{%- for role in roles %}
           {{role.name}}: {get_attr: [{{role.name}}, nova_server_resource]}
-{% endfor %}
+{%- endfor %}
         bootstrap_server_id:
           yaql:
             expression: coalesce($.data, []).first(null)
@@ -690,37 +686,37 @@ resources:
             - {get_attr: [VipHosts, value]}
             - ''
         -
-{% for role in roles %}
+{%- for role in roles %}
           - list_join:
             - ""
             - {get_attr: [{{role.name}}, hosts_entry]}
-{% endfor %}
+{%- endfor %}
         - {get_param: ExtraHostFileEntries}
 
   allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
     properties:
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
   # Special case the External hostname param, which is CloudName
       cloud_name_{{network.name_lower}}: {get_param: CloudName}
-{%- elif network.name == 'InternalApi' %}
+  {%- elif network.name == 'InternalApi' %}
   # Special case the Internal API hostname param, which is CloudNameInternal
       cloud_name_{{network.name_lower}}: {get_param: CloudNameInternal}
-{%- elif network.name == 'StorageMgmt' %}
+  {%- elif network.name == 'StorageMgmt' %}
   # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
       cloud_name_{{network.name_lower}}: {get_param: CloudNameStorageManagement}
-{%- else %}
+  {%- else %}
       cloud_name_{{network.name_lower}}: {get_param: CloudName{{network.name}}}
-{%- endif %}
+  {%- endif %}
 {%- endfor %}
       cloud_name_ctlplane: {get_param: CloudNameCtlplane}
       enabled_services:
         list_join:
           - ','
-{% for role in roles %}
+{%- for role in roles %}
           - {get_attr: [{{role.name}}ServiceNames, value]}
-{% endfor %}
+{%- endfor %}
       controller_ips: {get_attr: [{{primary_role_name}}, ip_address]}
       controller_names: {get_attr: [{{primary_role_name}}, hostname]}
       service_ips:
@@ -732,41 +728,41 @@ resources:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten()]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, service_ips]}
-{% endfor %}
+{%- endfor %}
       service_node_names:
         yaql:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten()]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, service_hostnames]}
-{% endfor %}
+{%- endfor %}
       short_service_node_names:
         yaql:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten()]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, short_service_hostnames]}
-{% endfor %}
+{%- endfor %}
       short_service_bootstrap_node:
         yaql:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten().first()]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, short_service_bootstrap_hostnames]}
-{% endfor %}
+{%- endfor %}
       service_bootstrap_node_ip:
         yaql:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten().first(null)]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, service_bootstrap_ips]}
-{% endfor %}
+{%- endfor %}
       NetVipMap: {get_attr: [VipMap, net_ip_map]}
       RedisVirtualIP: {get_attr: [RedisVirtualIP, ip_address]}
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
@@ -832,8 +828,8 @@ resources:
         - {get_param: RedisVirtualFixedIPs}
         - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, redis]}}]
 
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
   # The public VIP is on the External net, falls back to ctlplane
   PublicVirtualIP:
     depends_on: [Networks, ServiceNetMap]
@@ -852,7 +848,7 @@ resources:
         - public_virtual_fixed_ip_set
         - {get_param: PublicVirtualFixedIPs}
         - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
-{%- else %}
+  {%- else %}
   {{network.name}}VirtualIP:
     depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::{{network.name}}VipPort
@@ -869,7 +865,7 @@ resources:
         - {{network.name_lower}}_virtual_fixed_ip_set
         - {get_param: {{network.name}}VirtualFixedIPs}
         - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
-{%- endif %}
+  {% endif %}
 {%- endfor %}
 
   VipMap:
@@ -881,14 +877,14 @@ resources:
           - ctlplane_subnet_cidr_set
           - {get_param: ControlPlaneSubnetCidr}
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
-{%- for network in networks if network.vip|default(false) %}
-{%- if network.name == 'External' %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
       ExternalIp: {get_attr: [PublicVirtualIP, ip_address]}
       ExternalIpUri: {get_attr: [PublicVirtualIP, ip_address_uri]}
-{%- else %}
+  {%- else %}
       {{network.name}}Ip: {get_attr: [{{network.name}}VirtualIP, ip_address]}
       {{network.name}}IpUri: {get_attr: [{{network.name}}VirtualIP, ip_address_uri]}
-{%- endif %}
+  {%- endif %}
 {%- endfor %}
       # No tenant or management VIP required
     # Because of nested get_attr functions in the KeystoneAdminVip output, we
@@ -896,22 +892,24 @@ resources:
     # ServiceNetMap's attribute values are available.
     depends_on: ServiceNetMap
 
-{%- for role in roles %}
   # All Nodes Validations
+{%- for role in roles %}
   {{role.name}}AllNodesValidationConfig:
     type: OS::TripleO::AllNodes::Validation
     properties:
       PingTestIps:
         list_join:
         - ' '
-        -
-{%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+        - - yaql:
+              expression: coalesce($.data, []).first(null)
+              data: {get_attr: [{{primary_role_name}}, ip_address]}
+  {%- for network in networks %}
+    {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
           - yaql:
               expression: coalesce($.data, []).first(null)
               data: {get_attr: [{{primary_role_name}}, {{network.name_lower}}_ip_address]}
-  {%- endif %}
-{%- endfor %}
+    {%- endif %}
+  {%- endfor %}
 {%- endfor %}
 
   # Optional ExtraConfig for all nodes - all roles are passed in here, but
@@ -919,46 +917,46 @@ resources:
   AllNodesExtraConfig:
     type: OS::TripleO::AllNodesExtraConfig
     depends_on:
-{% for role in roles %}
+{%- for role in roles %}
       - {{role.name}}AllNodesValidationDeployment
-{% endfor %}
+{%- endfor %}
     properties:
       servers:
-{% for role in roles %}
+{%- for role in roles %}
         {{role.name}}: {get_attr: [{{role.name}}Servers, value]}
-{% endfor %}
+{%- endfor %}
 
   BlacklistedIpAddresses:
     type: OS::Heat::Value
     properties:
       value:
         list_concat:
-{% for role in roles %}
+{%- for role in roles %}
           - {get_attr: [{{role.name}}, blacklist_ip_address]}
-{% endfor %}
+{%- endfor %}
 
   BlacklistedHostnames:
     type: OS::Heat::Value
     properties:
       value:
         list_concat:
-{% for role in roles %}
+{%- for role in roles %}
           - {get_attr: [{{role.name}}, blacklist_hostname]}
-{% endfor %}
+{%- endfor %}
 
   # Post deployment steps for all roles
   AllNodesDeploySteps:
     type: OS::TripleO::PostDeploySteps
     depends_on:
       - AllNodesExtraConfig
-{% for role in roles %}
+{%- for role in roles %}
       - {{role.name}}AllNodesDeployment
-{% endfor %}
+{%- endfor %}
     properties:
       servers:
-{% for role in roles %}
+{%- for role in roles %}
         {{role.name}}: {get_attr: [{{role.name}}Servers, value]}
-{% endfor %}
+{%- endfor %}
       stack_name: {get_param: 'OS::stack_name'}
       EndpointMap: {get_attr: [EndpointMapData, value]}
       ctlplane_service_ips:
@@ -970,39 +968,39 @@ resources:
           expression: dict($.data.l.where($ != null).selectMany($.items()).groupBy($[0], $[1]).select([$[0], $[1].flatten()]))
           data:
             l:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}IpListMap, ctlplane_service_ips]}
-{% endfor %}
+{%- endfor %}
       role_data:
-{% for role in roles %}
+{%- for role in roles %}
         {{role.name}}:
           map_merge:
           - {get_attr: [{{role.name}}ServiceChainRoleData, value]}
           - {get_attr: [{{role.name}}MergedConfigSettings, value]}
-{% endfor %}
+{%- endfor %}
       blacklisted_ip_addresses: {get_attr: [BlacklistedIpAddresses, value]}
       blacklisted_hostnames: {get_attr: [BlacklistedHostnames, value]}
       ssh_known_hosts_hostnames: {get_attr: [SshKnownHostsHostnames, value]}
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}Count: {get_param: {{role.name}}Count}
-{% endfor %}
+{%- endfor %}
 
   ServerOsCollectConfigData:
     type: OS::Heat::Value
     properties:
       type: json
       value:
-{% for role in roles %}
+{%- for role in roles %}
         {{role.name}}: {get_attr: [{{role.name}}, attributes, os_collect_config]}
-{% endfor %}
+{%- endfor %}
 
   DeployedServerEnvironment:
     type: OS::TripleO::DeployedServerEnvironment
     properties:
       RoleCounts:
-{% for role in roles %}
+{%- for role in roles %}
         {{role.name}}DeployedServerCount: {get_param: {{role.name}}Count}
-{% endfor %}
+{%- endfor %}
       VipMap:
         map_merge:
           - {get_attr: [VipMap, net_ip_map]}
@@ -1010,15 +1008,15 @@ resources:
       DeployedServerPortMap:
         map_merge:
           list_concat:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}, deployed_server_port_map]}
-{% endfor %}
+{%- endfor %}
       DeployedServerDeploymentSwiftDataMap:
         map_merge:
           list_concat:
-{% for role in roles %}
+{%- for role in roles %}
               - {get_attr: [{{role.name}}, deployed_server_deployment_swift_data_map]}
-{% endfor %}
+{%- endfor %}
       DefaultRouteIp:
         str_split:
           - ':'
@@ -1062,40 +1060,40 @@ outputs:
   EnabledServices:
     description: The services enabled on each role
     value:
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}: {get_attr: [{{role.name}}ServiceNames, value]}
-{% endfor %}
+{%- endfor %}
   RoleData:
     description: The configuration data associated with each role
     value:
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}:
         map_merge:
         - {get_attr: [{{role.name}}ServiceChainRoleData, value]}
         - {get_attr: [{{role.name}}MergedConfigSettings, value]}
-{% endfor %}
+{%- endfor %}
   RoleConfig:
     description: The configuration workflows associated with each role
     value: {get_attr: [AllNodesDeploySteps, RoleConfig]}
   RoleNetIpMap:
     description: Mapping of each network to a list of IPs for each role
     value:
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}: {get_attr: [{{role.name}}IpListMap, net_ip_map]}
-{% endfor %}
+{%- endfor %}
   RoleGroupVars:
     description: Mapping of roles to ansible group_vars to be applied config in those roles
     value:
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}:
         map_merge: {get_attr: [{{role.name}}, role_group_vars]}
-{% endfor %}
+{%- endfor %}
   RoleNetHostnameMap:
     description: Mapping of each network to a list of hostnames for each role
     value:
-{% for role in roles %}
+{%- for role in roles %}
       {{role.name}}: {get_attr: [{{role.name}}NetworkHostnameMap, value]}
-{% endfor %}
+{%- endfor %}
   RoleTags:
     description: Tags for each role, as defined in roles_data.yaml
     value:

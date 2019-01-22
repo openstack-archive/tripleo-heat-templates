@@ -110,6 +110,8 @@ def process_templates(template_path, role_data_path, output_dir,
 
     with open(network_data_path) as network_data_file:
         network_data = yaml.safe_load(network_data_file)
+        if network_data is None:
+            network_data = []
 
     j2_excludes = {}
     j2_excludes_path = os.path.join(template_path, 'j2_excludes.yaml')

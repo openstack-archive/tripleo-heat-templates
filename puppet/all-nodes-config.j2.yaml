@@ -1,5 +1,5 @@
 {%- set _networks = [] -%}
-{%- for network in networks -%}
+{%- for network in networks if network.enabled|default(true) -%}
   {%- set _networks = _networks.append(network.name) -%}
 {%- endfor -%}
 heat_template_version: rocky
@@ -70,7 +70,7 @@ parameters:
     default: {}
     description: Map of extra data (hieradata) to set on each node.
 
-{%- for network in networks %}
+{%- for network in networks if network.enabled|default(true) %}
   {{network.name}}NetName:
     default: {{network.name_lower}}
     description: The name of the {{network.name_lower}} network.
@@ -205,17 +205,20 @@ resources:
                 internal_api_virtual_ip: {get_param: [NetVipMap, {get_param: InternalApiNetName}]}
 {%- endif %}
                 network_virtual_ips:
-{%- for network in networks if network.vip|default(false) %}
+                  ctlplane:
+                    ip_address: {get_param: [NetVipMap, ctlplane]}
+                    index: 1
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
 # External virtual ip is currently being handled separately as public_virtual_ip.
 # Likewise, optional StorageNFS virtual ip is handled separately as ganesha_vip.
 {%- if network.name != 'External' and network.name != 'StorageNFS' %}
                   {{network.name_lower}}:
                     ip_address: {get_param: [NetVipMap, {get_param: {{network.name}}NetName}]}
-                    index: {{loop.index}}
+                    index: {{loop.index + 1}}
 {%- endif %}
 {%- endfor %}
                 redis_vip: {get_param: RedisVirtualIP}
-{%- for network in networks if network.name == 'StorageNFS' %}
+{%- for network in networks if network.name == 'StorageNFS' and network.enabled|default(true) %}
                 ganesha_vip: {get_param: [NetVipMap, {get_param: StorageNFSNetName}]}
 {%- endfor %}
                 # public_virtual_ip and controller_virtual_ip are needed in
@@ -231,7 +234,7 @@ resources:
                 tripleo::keepalived::controller_virtual_ip: {get_param: [NetVipMap, ctlplane]}
                 tripleo::keepalived::redis_virtual_ip: {get_param: RedisVirtualIP}
                 tripleo::redis_notification::haproxy_monitor_ip: {get_param: [NetVipMap, ctlplane]}
-{%- for network in networks if network.vip|default(false) %}
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
                 cloud_name_{{network.name_lower}}: {get_param: cloud_name_{{network.name_lower}}}
 {%- endfor %}
                 cloud_name_ctlplane: {get_param: cloud_name_ctlplane}
