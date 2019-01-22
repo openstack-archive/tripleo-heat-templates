@@ -112,12 +112,14 @@ def _create_logging_cron(mistral):
     print('INFO: Undercloud post - Cron triggers configured successfully.')
 
 
-def _store_snmp_password_in_mistral_env(mistral):
-    """ Store the SNMP password in a mistral environment """
+def _store_passwords_in_mistral_env(mistral):
+    """ Store required passwords in a mistral environment """
     env_name = 'tripleo.undercloud-config'
     config_data = {
         'undercloud_ceilometer_snmpd_password':
-            CONF['snmp_readonly_user_password']
+            CONF['snmp_readonly_user_password'],
+        'undercloud_db_password':
+            CONF['undercloud_db_password']
     }
     try:
         mistral.environments.get(env_name).variables
@@ -179,7 +181,7 @@ try:
                                        session=sdk.session)
         _configure_wrokbooks_and_workflows(mistral)
         _create_logging_cron(mistral)
-        _store_snmp_password_in_mistral_env(mistral)
+        _store_passwords_in_mistral_env(mistral)
         _create_default_plan(mistral)
         if tripleo_validations_enabled:
             _prepare_ssh_environment(mistral)
