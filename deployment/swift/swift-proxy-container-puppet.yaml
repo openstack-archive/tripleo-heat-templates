@@ -40,9 +40,6 @@ parameters:
     description: Set to True to enable data-at-rest encryption in Swift
     default: false
     type: boolean
-  EnableInternalTLS:
-    type: boolean
-    default: false
   UpgradeRemoveUnusedPackages:
     default: false
     description: Remove package if the service is being disabled during upgrade
@@ -53,19 +50,76 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  SwiftPassword:
+    description: The password for the swift service account
+    type: string
+    hidden: true
+  SwiftProxyNodeTimeout:
+    default: 60
+    description: Timeout for requests going from swift-proxy to swift a/c/o services.
+    type: number
+  SwiftWorkers:
+    default: 0
+    description: Number of workers for Swift service.
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionSwiftProxy:
+    default: 'overcloud-swift-proxy'
+    type: string
+  SwiftCeilometerPipelineEnabled:
+    description: Set to False to disable the swift proxy ceilometer pipeline.
+    default: false
+    type: boolean
+  SwiftCeilometerIgnoreProjects:
+    default: ['service']
+    description: Comma-seperated list of project names to ignore.
+    type: comma_delimited_list
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  RpcUserName:
+    default: guest
+    description: The username for messaging backend
+    type: string
+  RpcPassword:
+    description: The password for messaging backend
+    type: string
+    hidden: true
+  RpcUseSSL:
+    default: false
+    description: >
+        Messaging client subscriber parameter to specify
+        an SSL connection to the messaging host.
+    type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  SwiftCorsAllowedOrigin:
+    type: string
+    default: ''
+    description: Indicate whether this resource may be shared with the domain received in the request
+                 "origin" header.
 
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   swift_encryption_enabled: {equals : [{get_param: SwiftEncryptionEnabled}, true]}
+  ceilometer_pipeline_enabled: {equals : [{get_param: SwiftCeilometerPipelineEnabled}, true]}
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
+  cors_allowed_origin_unset: {equals : [{get_param: SwiftCorsAllowedOrigin}, '']}
+  swift_workers_zero: {equals : [{get_param: SwiftWorkers}, '0']}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  SwiftProxyBase:
-    type: ../../puppet/services/swift-proxy.yaml
+  SwiftBase:
+    type: ./swift-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -74,19 +128,174 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
 outputs:
   role_data:
     description: Role data for the swift proxy.
     value:
-      service_name: {get_attr: [SwiftProxyBase, role_data, service_name]}
-      config_settings: {get_attr: [SwiftProxyBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [SwiftProxyBase, role_data, service_config_settings]}
+      service_name: swift_proxy
+      monitoring_subscription: {get_param: MonitoringSubscriptionSwiftProxy}
+      config_settings:
+        map_merge:
+          - get_attr: [SwiftBase, role_data, config_settings]
+          - get_attr: [TLSProxyBase, role_data, config_settings]
+          -
+            if:
+            - cors_allowed_origin_unset
+            - {}
+            - swift::proxy::cors_allow_origin: {get_param: SwiftCorsAllowedOrigin}
+          - swift::proxy::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            swift::proxy::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            swift::proxy::authtoken::password: {get_param: SwiftPassword}
+            swift::proxy::authtoken::project_name: 'service'
+            swift::proxy::s3token::auth_uri: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
+            swift::proxy::node_timeout: {get_param: SwiftProxyNodeTimeout}
+          -
+            if:
+            - swift_workers_zero
+            - {}
+            - swift::proxy::workers: {get_param: SwiftWorkers}
+          -
+            if:
+            - ceilometer_pipeline_enabled
+            -
+              # TODO(ansmith): remove once p-t-o switches to oslo params
+              swift::proxy::ceilometer::rabbit_user: {get_param: RpcUserName}
+              swift::proxy::ceilometer::rabbit_password: {get_param: RpcPassword}
+              swift::proxy::ceilometer::rabbit_use_ssl: {get_param: RpcUseSSL}
+              swift::proxy::ceilometer::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              swift::proxy::ceilometer::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              swift::proxy::ceilometer::password: {get_param: SwiftPassword}
+              swift::proxy::ceilometer::ignore_projects: {get_param: SwiftCeilometerIgnoreProjects}
+              swift::proxy::ceilometer::nonblocking_notify: true
+            - {}
+          - swift::proxy::staticweb::url_base: {get_param: [EndpointMap, SwiftPublic, uri_no_suffix]}
+            tripleo::profile::base::swift::proxy::rabbit_port: {get_param: RpcPort}
+            tripleo::profile::base::swift::proxy::ceilometer_messaging_use_ssl: {get_param: RpcUseSSL}
+            tripleo::profile::base::swift::proxy::ceilometer_enabled: {get_param: SwiftCeilometerPipelineEnabled}
+            tripleo::swift_proxy::firewall_rules:
+              '122 swift proxy':
+                dport:
+                  - 8080
+                  - 13808
+            swift::proxy::keystone::operator_roles:
+              - admin
+              - swiftoperator
+              - ResellerAdmin
+            swift::proxy::versioned_writes::allow_versioned_writes: true
+          - if:
+            - swift_encryption_enabled
+            -
+              swift::keymaster::key_id: 'test_id'
+              swift::keymaster::username: 'swift'
+              swift::keymaster::password: {get_param: SwiftPassword}
+              swift::keymaster::project_name: 'service'
+              swift::keymaster::project_domain_id: 'default'
+              swift::keymaster::user_domain_id: 'default'
+              swift::keymaster::auth_endpoint: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            - {}
+          - swift::proxy::pipeline:
+              yaql:
+                expression: $.data.pipeline.where($ != '')
+                data:
+                  pipeline:
+                  - 'catch_errors'
+                  - 'healthcheck'
+                  - 'proxy-logging'
+                  - 'cache'
+                  - 'ratelimit'
+                  - 'bulk'
+                  - 'tempurl'
+                  - 'formpost'
+                  - 'authtoken'
+                  - 's3api'
+                  - 's3token'
+                  - 'keystone'
+                  - 'staticweb'
+                  - 'copy'
+                  - 'container_quotas'
+                  - 'account_quotas'
+                  - 'slo'
+                  - 'dlo'
+                  - 'versioned_writes'
+                  -
+                    if:
+                    - ceilometer_pipeline_enabled
+                    - 'ceilometer'
+                    - ''
+                  -
+                    if:
+                    - swift_encryption_enabled
+                    - 'kms_keymaster'
+                    - ''
+                  -
+                    if:
+                    - swift_encryption_enabled
+                    - 'encryption'
+                    - ''
+                  - 'proxy-logging'
+                  - 'proxy-server'
+            swift::proxy::account_autocreate: true
+            # NOTE: bind IP is found in hiera replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            tripleo::profile::base::swift::proxy::tls_proxy_bind_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, SwiftProxyNetwork]}
+            tripleo::profile::base::swift::proxy::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, SwiftProxyNetwork]}
+            tripleo::profile::base::swift::proxy::tls_proxy_port:
+              get_param: [EndpointMap, SwiftInternal, port]
+            swift::proxy::port: {get_param: [EndpointMap, SwiftInternal, port]}
+            swift::proxy::proxy_local_net_ip:
+              if:
+              - use_tls_proxy
+              - 'localhost'
+              - str_replace:
+                  template:
+                    "%{hiera('$NETWORK')}"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, SwiftProxyNetwork]}
+      service_config_settings:
+        keystone:
+          swift::keystone::auth::public_url: {get_param: [EndpointMap, SwiftPublic, uri]}
+          swift::keystone::auth::internal_url: {get_param: [EndpointMap, SwiftInternal, uri]}
+          swift::keystone::auth::admin_url: {get_param: [EndpointMap, SwiftAdmin, uri]}
+          swift::keystone::auth::public_url_s3: {get_param: [EndpointMap, SwiftS3Public, uri]}
+          swift::keystone::auth::internal_url_s3: {get_param: [EndpointMap, SwiftS3Internal, uri]}
+          swift::keystone::auth::admin_url_s3: {get_param: [EndpointMap, SwiftS3Admin, uri]}
+          swift::keystone::auth::password: {get_param: SwiftPassword}
+          swift::keystone::auth::region: {get_param: KeystoneRegion}
+          swift::keystone::auth::tenant: 'service'
+          swift::keystone::auth::configure_s3_endpoint: false
+          swift::keystone::auth::operator_roles:
+            - admin
+            - swiftoperator
+            - ResellerAdmin
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: swift
         puppet_tags: swift_config,swift_proxy_config,swift_keymaster_config
-        step_config:
-          get_attr: [SwiftProxyBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::swift::proxy
         config_image: {get_param: DockerSwiftConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/swift_proxy.json:
@@ -288,7 +497,7 @@ outputs:
               ignore_errors: True
               when: remove_swift_proxy_package|bool
       metadata_settings:
-        get_attr: [SwiftProxyBase, role_data, metadata_settings]
+        get_attr: [TLSProxyBase, role_data, metadata_settings]
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:

@@ -7,10 +7,6 @@ parameters:
   DockerSwiftConfigImage:
     description: The container image to use for the swift config_volume
     type: string
-  DockerSwiftRingbuilderConfigImage:
-    description: Fake parameter to bypass config_volume yaml validation
-    type: string
-    default: ''
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -70,34 +66,47 @@ parameters:
     description: A temporary Swift URL to upload rings to.
     type: string
 
-resources:
-
-  SwiftRingbuilderBase:
-    type: ../../puppet/services/swift-ringbuilder.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+conditions:
+  swift_use_local_dir:
+    and:
+    - equals:
+      - get_param: SwiftUseLocalDir
+      - true
+    - equals:
+      - get_param: SwiftRawDisks
+      - {}
 
 outputs:
   role_data:
     description: Role data for Swift Ringbuilder configuration in containers.
     value:
-      service_name: {get_attr: [SwiftRingbuilderBase, role_data, service_name]}
+      service_name: swift_ringbuilder
       config_settings:
-        map_merge:
-          - {get_attr: [SwiftRingbuilderBase, role_data, config_settings]}
-          - tripleo::profile::base::swift::ringbuilder:skip_consistency_check: true
-      service_config_settings: {get_attr: [SwiftRingbuilderBase, role_data, service_config_settings]}
+        tripleo::profile::base::swift::ringbuilder:skip_consistency_check: true
+        tripleo::profile::base::swift::ringbuilder::swift_ring_get_tempurl: {get_param: SwiftRingGetTempurl}
+        tripleo::profile::base::swift::ringbuilder::swift_ring_put_tempurl: {get_param: SwiftRingPutTempurl}
+        tripleo::profile::base::swift::ringbuilder::build_ring: {get_param: SwiftRingBuild}
+        tripleo::profile::base::swift::ringbuilder::replicas: {get_param: SwiftReplicas}
+        tripleo::profile::base::swift::ringbuilder::part_power: {get_param: SwiftPartPower}
+        tripleo::profile::base::swift::ringbuilder::min_part_hours: {get_param: SwiftMinPartHours}
+        tripleo::profile::base::swift::ringbuilder::raw_disk_prefix: 'r1z1-'
+        tripleo::profile::base::swift::ringbuilder::raw_disks:
+          yaql:
+            expression: $.data.raw_disk_lists.flatten()
+            data:
+              raw_disk_lists:
+              - {if: [swift_use_local_dir, [':%PORT%/d1'], []]}
+              - repeat:
+                  template: ':%PORT%/DEVICE'
+                  for_each:
+                    DEVICE: {get_param: SwiftRawDisks}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: 'swift_ringbuilder'
         puppet_tags: exec,fetch_swift_ring_tarball,extract_swift_ring_tarball,ring_object_device,swift::ringbuilder::create,tripleo::profile::base::swift::add_devices,swift::ringbuilder::rebalance,create_swift_ring_tarball,upload_swift_ring_tarball
-        step_config:
-          get_attr: [SwiftRingbuilderBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::swift::ringbuilder
         config_image: &swift_ringbuilder_image {get_param: DockerSwiftConfigImage}
       kolla_config: {}
       docker_config:
