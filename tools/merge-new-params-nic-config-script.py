@@ -200,7 +200,7 @@ def process_templates_and_get_reference_parameters():
            '--network-data ' + OPTS.network_data,
            '--output-dir ' + temp_dir]
     child = subprocess.Popen(' '.join(cmd), shell=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE)
+                             stderr=subprocess.PIPE, universal_newlines=True)
     out, err = child.communicate()
     if not child.returncode == 0:
         raise RuntimeError('Error processing templates: %s' % err)

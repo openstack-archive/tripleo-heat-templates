@@ -102,8 +102,9 @@ def short_hostname():
 def pull_image(name):
 
     subproc = subprocess.Popen([cli_cmd, 'inspect', name],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE,
+                               universal_newlines=True)
     cmd_stdout, cmd_stderr = subproc.communicate()
     retval = subproc.returncode
     if retval == 0:
@@ -117,7 +118,8 @@ def pull_image(name):
         count += 1
         subproc = subprocess.Popen([cli_cmd, 'pull', name],
                                    stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
+                                   stderr=subprocess.PIPE,
+                                   universal_newlines=True)
 
         cmd_stdout, cmd_stderr = subproc.communicate()
         retval = subproc.returncode
@@ -162,7 +164,8 @@ def rm_container(name):
         log.info('Diffing container: %s' % name)
         subproc = subprocess.Popen([cli_cmd, 'diff', name],
                                    stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
+                                   stderr=subprocess.PIPE,
+                                   universal_newlines=True)
         cmd_stdout, cmd_stderr = subproc.communicate()
         if cmd_stdout:
             log.debug(cmd_stdout)
@@ -172,7 +175,8 @@ def rm_container(name):
     log.info('Removing container: %s' % name)
     subproc = subprocess.Popen([cli_cmd, 'rm', name],
                                stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+                               stderr=subprocess.PIPE,
+                               universal_newlines=True)
     cmd_stdout, cmd_stderr = subproc.communicate()
     if cmd_stdout:
         log.debug(cmd_stdout)
@@ -270,21 +274,21 @@ if not os.path.exists(sh_script):
         if [ -n "$PUPPET_TAGS" ]; then
             TAGS="--tags \"$PUPPET_TAGS\""
         fi
-    
+
         CHECK_MODE=""
         if [ -d "/tmp/puppet-check-mode" ]; then
             mkdir -p /etc/puppet/check-mode
             cp -a /tmp/puppet-check-mode/* /etc/puppet/check-mode
             CHECK_MODE="--hiera_config /etc/puppet/check-mode/hiera.yaml"
         fi
-    
+
         # Create a reference timestamp to easily find all files touched by
         # puppet. The sync ensures we get all the files we want due to
         # different timestamp.
         origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
         touch $origin_of_time
         sync
-    
+
         export NET_HOST="${NET_HOST:-false}"
         set +e
         if [ "$NET_HOST" == "false" ]; then
@@ -307,7 +311,7 @@ if not os.path.exists(sh_script):
         if [ $rc -ne 2 -a $rc -ne 0 ]; then
             exit $rc
         fi
-    
+
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
             archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
@@ -331,14 +335,14 @@ if not os.path.exists(sh_script):
             else
                 password_files=""
             fi
-    
+
             exclude_files=""
             for p in $password_files; do
                 exclude_files+=" --exclude=$p"
             done
             rsync -a -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
-    
-    
+
+
             # Also make a copy of files modified during puppet run
             # This is useful for debugging
             echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
@@ -346,7 +350,7 @@ if not os.path.exists(sh_script):
             rsync -a -R -0 --delay-updates --delete-after $exclude_files \
                           --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
                           / /var/lib/config-data/puppet-generated/${NAME}
-    
+
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
             # note: while being excluded from the output, password files
@@ -462,7 +466,8 @@ def mp_puppet_config(*args):
                 cmd = [cli_cmd, 'start', '-a', uname]
             count += 1
             subproc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE, env=env)
+                                       stderr=subprocess.PIPE, env=env,
+                                       universal_newlines=True)
             cmd_stdout, cmd_stderr = subproc.communicate()
             retval = subproc.returncode
             # puppet with --detailed-exitcodes will return 0 for success and no changes
