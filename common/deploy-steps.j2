@@ -35,9 +35,6 @@ parameters:
   servers:
     type: json
     description: Mapping of Role name e.g Controller to a list of servers
-  stack_name:
-    type: string
-    description: Name of the topmost stack
   role_data:
     type: json
     description: Mapping of Role name e.g Controller to the per-role data
@@ -86,16 +83,6 @@ parameters:
     type: boolean
     default: true
     description: Whether containerized puppet executions use modules from the baremetal host. Defaults to true. Can be set to false to consume puppet modules from containers directly.
-  ctlplane_service_ips:
-    type: json
-  blacklisted_ip_addresses:
-    description: List of IP addresses belong to blacklisted servers
-    type: comma_delimited_list
-    default: []
-  blacklisted_hostnames:
-    description: List of hostnames belong to blacklisted servers
-    type: comma_delimited_list
-    default: []
   FastForwardUpgradeReleases:
     type: comma_delimited_list
     default: ['ocata', 'pike', 'queens']
@@ -103,10 +90,6 @@ parameters:
   ssh_known_hosts_hostnames:
     description: Mapping of hostname to ssh known hosts entry
     type: json
-  PythonInterpreter:
-    type: string
-    description: The python interpreter to use for python and ansible actions
-    default: /usr/bin/python
 {% for role in enabled_roles %}
   {{role.name}}Count:
     description: Number of {{role.name}} nodes to deploy
@@ -124,48 +107,6 @@ conditions:
 {% endfor %}
 
 resources:
-
-  RoleConfig:
-    type: OS::Heat::SoftwareConfig
-    properties:
-      group: ansible
-      options:
-        modulepath: /usr/share/ansible-modules
-      inputs:
-        - name: step
-        - name: tripleo_role_name
-        - name: deploy_identifier
-        - name: bootstrap_server_id
-        - name: enable_debug
-        - name: enable_puppet
-        - name: docker_puppet_debug
-        - name: container_cli
-        - name: docker_puppet_process_count
-        - name: docker_puppet_mount_host_puppet
-        - name: role_data_step_config
-        - name: role_data_puppet_config
-          type: Json
-        - name: role_data_docker_config_scripts
-          type: Json
-        - name: role_data_docker_puppet_tasks
-          type: Json
-        - name: role_data_docker_config
-          type: Json
-        - name: role_data_kolla_config
-          type: Json
-        - name: ansible_python_interpreter
-          description: Python interpreter to use for the ansible execution
-          default: {get_param: PythonInterpreter}
-
-      config:
-        str_replace:
-          template: |
-            - hosts: localhost
-              connection: local
-              tasks:
-              _TASKS
-          params:
-            _TASKS: {get_file: deploy-steps-tasks.yaml}
 
   ExternalDeployTasks:
     type: OS::Heat::Value
@@ -250,62 +191,11 @@ resources:
 
   # BEGIN CONFIG STEPS, only on enabled_roles
 {%- for role in enabled_roles %}
-  # Deployment steps for {{role.name}}
-  # A single config is re-applied with an incrementing step number
-  {% for step in range(1, deploy_steps_max) %}
-  {{role.name}}Deployment_Step{{step}}:
-    type: OS::TripleO::DeploymentSteps
-    condition: {{role.name}}NonZero
-    depends_on:
-    # TODO(gfidente): the following if/else condition
-    # replicates what is already defined for the
-    # WorkflowTasks_StepX resource and can be remove
-    # if https://bugs.launchpad.net/heat/+bug/1700569
-    # is fixed.
-    {%- if step == 1 %}
-    {%- for dep in enabled_roles %}
-      - {{dep.name}}ArtifactsDeploy
-    {%- endfor %}
-    {%- else %}
-    {%- for dep in enabled_roles %}
-      - {{dep.name}}Deployment_Step{{step -1}}
-    {%- endfor %}
-    {%- endif %}
-    properties:
-      name: {{role.name}}Deployment_Step{{step}}
-      servers: {get_param: [servers, {{role.name}}]}
-      config: {get_resource: RoleConfig}
-      input_values:
-        step: {{step}}
-        tripleo_role_name: {{role.name}}
-        deploy_identifier: {get_param: DeployIdentifier}
-        bootstrap_server_id: {get_attr: [BootstrapServerId, value]}
-        enable_debug: {get_param: ConfigDebug}
-        enable_puppet: {get_param: EnablePuppet}
-        docker_puppet_debug: {get_param: DockerPuppetDebug}
-        container_cli: {get_param: ContainerCli}
-        docker_puppet_process_count: {get_param: DockerPuppetProcessCount}
-        docker_puppet_mount_host_puppet: {get_param: DockerPuppetMountHostPuppet}
-        role_data_step_config: {get_param: [role_data, {{role.name}}, step_config]}
-        role_data_puppet_config: {get_param: [role_data, {{role.name}}, puppet_config]}
-        role_data_docker_config_scripts: {get_param: [role_data, {{role.name}}, docker_config_scripts]}
-        role_data_docker_puppet_tasks: {get_param: [role_data, {{role.name}}, docker_puppet_tasks]}
-        role_data_docker_config: {get_param: [role_data, {{role.name}}, docker_config]}
-        role_data_kolla_config: {get_param: [role_data, {{role.name}}, kolla_config]}
-        deploy_steps_max: {{deploy_steps_max}}
-
-  {% endfor %}
-  # END CONFIG STEPS
-
   # Note, this should be the last step to execute configuration changes.
   # Ensure that all {{role.name}}ExtraConfigPost steps are executed
   # after all the previous deployment steps.
   {{role.name}}ExtraConfigPost:
     condition: {{role.name}}NonZero
-    depends_on:
-  {%- for dep in enabled_roles %}
-      - {{dep.name}}Deployment_Step{{deploy_steps_max - 1}}
-  {%- endfor %}
     type: OS::TripleO::NodeExtraConfigPost
     properties:
         servers: {get_param: [servers, {{role.name}}]}
@@ -324,8 +214,6 @@ resources:
       servers:  {get_param: servers}
       input_values:
         deploy_identifier: {get_param: DeployIdentifier}
-
-
 {% endfor %}
 
 outputs:
