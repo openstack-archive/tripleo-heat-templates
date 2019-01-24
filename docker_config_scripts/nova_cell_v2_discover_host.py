@@ -48,7 +48,7 @@ try:
         '/etc/nova/nova.conf',
         'DEFAULT',
         'host'
-    ]).rstrip()
+    ], universal_newlines=True).rstrip()
 except subprocess.CalledProcessError:
     # If host isn't set nova defaults to this
     my_host = socket.gethostname()
@@ -58,7 +58,7 @@ except subprocess.CalledProcessError:
 retries = 10
 for i in range(retries):
     try:
-        service_list = subprocess.check_output([
+        service_output = subprocess.check_output([
             'openstack',
             '-q',
             '--os-interface',
@@ -72,8 +72,12 @@ for i in range(retries):
             'Zone',
             '-f',
             'value'
-        ]).split('\n')
+        ], universal_newlines=True)
+        service_list = service_output.split('\n')
         for entry in service_list:
+            # skip any empty lines
+            if not entry:
+                continue
             host, zone = entry.split()
             if host == my_host and zone != 'internal':
                 print('(cellv2) Service registered, running discovery')
