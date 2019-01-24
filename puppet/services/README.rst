@@ -100,37 +100,6 @@ are re-asserted when applying latter ones.
 
    5) Service activation (Pacemaker)
 
-It is also possible to use Mistral actions or workflows together with
-a deployment step, these are executed before the main configuration run.
-To describe actions or workflows from within a service use:
-
-  * workflow_tasks: One or more workflow task properties
-
-which expects a map where the key is the step and the value a list of
-dictionaries descrbing each a workflow task, for example::
-
-  workflow_tasks:
-    step2:
-      - name: echo
-        action: std.echo output=Hello
-    step3:
-      - name: external
-        workflow: my-pre-existing-workflow-name
-        input:
-          workflow_param1: value
-          workflow_param2: value
-
-The Heat guide for the `OS::Mistral::Workflow task property
-<https://docs.openstack.org/developer/heat/template_guide/openstack.html#OS::Mistral::Workflow-prop-tasks>`_
-has more details about the expected dictionary.
-
-  * external_deploy_tasks: Ansible tasks to be run each step on the undercloud
-    where a variable "step" is provided to enable conditionally running tasks
-    at a given step.
-
-  * external_post_deploy_tasks: Ansible tasks to be run on the undercloud
-    after all other deploy steps have completed.
-
 Batch Upgrade Steps (deprecated)
 --------------------------------
 

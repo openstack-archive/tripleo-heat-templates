@@ -115,17 +115,6 @@ parameters:
 {% endfor %}
 
 conditions:
-{% for step in range(1, deploy_steps_max) %}
-  WorkflowTasks_Step{{step}}_Enabled:
-    or:
-    {%- for role in enabled_roles %}
-      - not:
-          equals:
-            - get_param: [role_data, {{role.name}}, workflow_tasks, step{{step}}]
-            - ''
-      - False
-    {%- endfor %}
-{% endfor %}
 {% for role in enabled_roles %}
   {{role.name}}NonZero:
      not:
@@ -230,71 +219,6 @@ resources:
             - get_param: [role_data, {{role.name}}, external_upgrade_tasks]
           {%- endfor %}
 
-{%- for step in range(1, deploy_steps_max) %}
-# BEGIN workflow_tasks handling
-  WorkflowTasks_Step{{step}}:
-    type: OS::Mistral::Workflow
-    condition: WorkflowTasks_Step{{step}}_Enabled
-    depends_on:
-    {%- if step == 1 %}
-    {%- for dep in enabled_roles %}
-      - {{dep.name}}ArtifactsDeploy
-    {%- endfor %}
-    {%- else %}
-    {%- for dep in enabled_roles %}
-      - {{dep.name}}Deployment_Step{{step -1}}
-    {%- endfor %}
-    {%- endif %}
-    properties:
-      name: {list_join: [".", ["tripleo", {get_param: stack_name}, "workflow_tasks", "step{{step}}"]]}
-      type: direct
-      tags:
-      - tripleo-heat-templates-managed
-      - {get_param: stack_name}
-      tasks:
-        yaql:
-          expression: $.data.where($ != '').select($.get('step{{step}}')).where($ != null).flatten()
-          data:
-          {%- for role in enabled_roles %}
-            - get_param: [role_data, {{role.name}}, workflow_tasks]
-          {%- endfor %}
-
-  WorkflowTasks_Step{{step}}_Execution:
-    type: OS::TripleO::WorkflowSteps
-    condition: WorkflowTasks_Step{{step}}_Enabled
-    depends_on: WorkflowTasks_Step{{step}}
-    properties:
-      actions:
-        CREATE:
-          workflow: { get_resource: WorkflowTasks_Step{{step}} }
-          params:
-            env:
-              heat_stack_name: { get_param: stack_name }
-              service_ips: { get_param: ctlplane_service_ips }
-              role_merged_configs:
-                {%- for r in roles %}
-                {{r.name}}: {get_param: [role_data, {{r.name}}, merged_config_settings]}
-                {%- endfor %}
-              blacklisted_ip_addresses: {get_param: blacklisted_ip_addresses}
-              blacklisted_hostnames: {get_param: blacklisted_hostnames}
-            evaluate_env: false
-        UPDATE:
-          workflow: { get_resource: WorkflowTasks_Step{{step}} }
-          params:
-            env:
-              heat_stack_name: { get_param: stack_name }
-              service_ips: { get_param: ctlplane_service_ips }
-              role_merged_configs:
-                {%- for r in roles %}
-                {{r.name}}: {get_param: [role_data, {{r.name}}, merged_config_settings]}
-                {%- endfor %}
-              blacklisted_ip_addresses: {get_param: blacklisted_ip_addresses}
-              blacklisted_hostnames: {get_param: blacklisted_hostnames}
-            evaluate_env: false
-      always_update: true
-# END workflow_tasks handling
-{% endfor %}
-
   BootstrapServerId:
     type: OS::Heat::Value
     properties:
@@ -333,7 +257,6 @@ resources:
     type: OS::TripleO::DeploymentSteps
     condition: {{role.name}}NonZero
     depends_on:
-      - WorkflowTasks_Step{{step}}_Execution
     # TODO(gfidente): the following if/else condition
     # replicates what is already defined for the
     # WorkflowTasks_StepX resource and can be remove
