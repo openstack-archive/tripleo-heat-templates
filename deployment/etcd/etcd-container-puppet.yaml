@@ -1,9 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  Etcd service configured with Puppet
+  Containerized etcd services
 
 parameters:
+  DockerEtcdImage:
+    description: image
+    type: string
+  DockerEtcdConfigImage:
+    description: The container image to use for the etcd config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -25,11 +36,6 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
   EtcdInitialClusterToken:
     description: Initial cluster token for the etcd cluster during bootstrap.
     type: string
@@ -42,12 +48,11 @@ parameters:
     default: false
 
 conditions:
-
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 outputs:
   role_data:
-    description: Role data for the Etcd role.
+    description: Role data for the etcd role.
     value:
       service_name: etcd
       monitoring_subscription: {get_param: MonitoringSubscriptionEtcd}
@@ -80,6 +85,7 @@ outputs:
               dport:
                 - 2379
                 - 2380
+          etcd::manage_service: false
         -
           if:
           - internal_tls_enabled
@@ -98,8 +104,59 @@ outputs:
                   params:
                     NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
           - {}
-      step_config: |
-        include ::tripleo::profile::base::etcd
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: etcd
+        config_image: &etcd_config_image {get_param: DockerEtcdConfigImage}
+        step_config:
+          list_join:
+            - "\n"
+            - - "['Etcd_key'].each |String $val| { noop_resource($val) }"
+              - "include ::tripleo::profile::base::etcd"
+      kolla_config:
+        /var/lib/kolla/config_files/etcd.json:
+          command: /usr/bin/etcd --config-file /etc/etcd/etcd.yml
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/etcd
+              owner: etcd:etcd
+              recurse: true
+      docker_config:
+        step_2:
+          etcd:
+            image: {get_param: DockerEtcdImage}
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              - /var/lib/etcd:/var/lib/etcd
+              - /etc/localtime:/etc/localtime:ro
+              - /var/lib/kolla/config_files/etcd.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/puppet-generated/etcd/:/var/lib/kolla/config_files/src:ro
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      docker_puppet_tasks:
+        # Etcd keys initialization occurs only on single node
+        step_2:
+          config_volume: 'etcd_init_tasks'
+          puppet_tags: 'etcd_key'
+          step_config: |
+              include ::tripleo::profile::base::etcd
+          config_image: *etcd_config_image
+          volumes:
+            - /var/lib/config-data/etcd/etc/etcd/:/etc/etcd:ro
+            - /var/lib/etcd:/var/lib/etcd:ro
+      host_prep_tasks:
+        - name: create /var/lib/etcd
+          file:
+            path: /var/lib/etcd
+            state: directory
       upgrade_tasks: []
       metadata_settings:
         if:
@@ -109,3 +166,10 @@ outputs:
               network: {get_param: [ServiceNetMap, EtcdNetwork]}
               type: node
           - null
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - etcd
