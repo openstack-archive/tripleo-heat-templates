@@ -437,17 +437,6 @@ outputs:
                       - import_playbook: "{{openshift_worker_scaleup_playbook_path}}"
                       {% endif %}
                       {% endif %}
-
-                      # Re-run the deploy playbook to apply potential change
-                      # changes to existing nodes
-                      - import_playbook: "{{openshift_ansible_playbook_path}}"
-                      - name: Restart masters
-                        hosts: masters
-                        serial: 1
-                        tasks:
-                        - import_role:
-                            name: /usr/share/ansible/openshift-ansible/roles/openshift_control_plane
-                            tasks_from: restart.yml
                       {% endif %}
 
                 - name: set openshift command
@@ -552,6 +541,31 @@ outputs:
                             vars:
                               {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
                       {% endif %}
+
+                - when: tripleo_stack_action == 'UPDATE'
+                  block:
+                  - name: generate openshift playbook
+                    copy:
+                      dest: "{{playbook_dir}}/openshift/playbook.yml"
+                      content: |
+                        # Re-run the deploy playbook to apply potential change
+                        # changes to existing nodes
+                        - import_playbook: "{{openshift_ansible_playbook_path}}"
+                        - name: Restart masters
+                          hosts: masters
+                          serial: 1
+                          tasks:
+                          - import_role:
+                              name: /usr/share/ansible/openshift-ansible/roles/openshift_control_plane
+                              tasks_from: restart.yml
+
+                  - name: print openshift command
+                    debug:
+                      var: openshift_command
+                  - name: run openshift (immediate log at {{playbook_dir}}/openshift/playbook.log)
+                    shell: |
+                      {{openshift_command}} 2>&1 | tee {{playbook_dir}}/openshift/playbook.log
+                      exit ${PIPESTATUS[0]}
 
                 - name: generate openshift validation playbook
                   copy:
