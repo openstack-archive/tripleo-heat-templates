@@ -1,10 +1,10 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack containerized Manila API service
+  OpenStack containerized Manila Scheduler service
 
 parameters:
-  DockerManilaApiImage:
+  DockerManilaSchedulerImage:
     description: image
     type: string
   DockerManilaConfigImage:
@@ -36,17 +36,32 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionManilaScheduler:
+    default: 'overcloud-manila-scheduler'
+    type: string
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  NeutronPassword:
+    description: The password for the neutron service and db account, used by neutron agents.
+    type: string
+    hidden: true
+  NovaPassword:
+    description: The password for the nova service and db account
+    type: string
+    hidden: true
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
-  ManilaApiPuppetBase:
-    type: ../../puppet/services/manila-api.yaml
+  ManilaBase:
+    type: ./manila-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -55,24 +70,32 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Manila API role.
+    description: Role data for the Manila Scheduler role.
     value:
-      service_name: {get_attr: [ManilaApiPuppetBase, role_data, service_name]}
-      config_settings: {get_attr: [ManilaApiPuppetBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [ManilaApiPuppetBase, role_data, service_config_settings]}
+      service_name: manila_scheduler
+      monitoring_subscription: {get_param: MonitoringSubscriptionManilaScheduler}
+      config_settings:
+        map_merge:
+          - get_attr: [ManilaBase, role_data, config_settings]
+          - manila::compute::nova::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::compute::nova::password: {get_param: NovaPassword}
+            manila::compute::nova::project_name: 'service'
+            manila::network::neutron::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::network::neutron::password: {get_param: NeutronPassword}
+      service_config_settings: {get_attr: [ManilaBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: manila
-        puppet_tags: manila_config,manila_api_paste_ini
+        puppet_tags: manila_config,manila_scheduler_paste_ini
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [ManilaApiPuppetBase, role_data, step_config]}
+            - - "include ::tripleo::profile::base::manila::scheduler"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerManilaConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/manila_api.json:
-          command: /usr/bin/manila-api --config-file /usr/share/manila/manila-dist.conf --config-file /etc/manila/manila.conf
+        /var/lib/kolla/config_files/manila_scheduler.json:
+          command: /usr/bin/manila-scheduler --config-file /usr/share/manila/manila-dist.conf --config-file /etc/manila/manila.conf
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -83,54 +106,37 @@ outputs:
               owner: manila:manila
               recurse: true
       docker_config:
-        step_2:
-          manila_init_logs:
-            image: &manila_api_image {get_param: DockerManilaApiImage}
-            net: none
-            user: root
-            volumes:
-              - /var/log/containers/manila:/var/log/manila:z
-              - /var/log/containers/httpd/manila-api:/var/log/httpd:z
-            command: ['/bin/bash', '-c', 'chown -R manila:manila /var/log/manila']
-        step_3:
-          manila_api_db_sync:
-            user: root
-            image: *manila_api_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/manila/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/manila/etc/manila/:/etc/manila/:ro
-                  - /var/log/containers/manila:/var/log/manila:z
-                  - /var/log/containers/httpd/manila-api:/var/log/httpd:z
-            command: "/usr/bin/bootstrap_host_exec manila_api su manila -s /bin/bash -c '/usr/bin/manila-manage db sync'"
         step_4:
-          manila_api:
-            image: *manila_api_image
+          manila_scheduler:
+            image: {get_param: DockerManilaSchedulerImage}
             net: host
             restart: always
+            healthcheck:
+              test:
+                list_join:
+                  - ' '
+                  - - '/openstack/healthcheck'
+                    - yaql:
+                        expression: str($.data.port)
+                        data:
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/manila_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/manila_scheduler.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/manila/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/manila:/var/log/manila:z
-                  - /var/log/containers/httpd/manila-api:/var/log/httpd:z
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
-        - name: Create persistent directories
+        - name: create persistent directories
           file:
             path: "{{ item.path }}"
             state: directory
             setype: "{{ item.setype }}"
           with_items:
             - { 'path': /var/log/containers/manila, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/log/containers/httpd/manila-api, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/manila, 'setype': svirt_sandbox_file_t }
         - name: manila logs readme
           copy:
@@ -139,6 +145,11 @@ outputs:
               Log files from manila containers can be found under
               /var/log/containers/manila and /var/log/containers/httpd/manila-api.
           ignore_errors: true
+        - name: enable virt_sandbox_use_netlink for healthcheck
+          seboolean:
+            name: virt_sandbox_use_netlink
+            persistent: yes
+            state: yes
       upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1
@@ -146,36 +157,24 @@ outputs:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - manila_api
+              - manila_scheduler
       fast_forward_upgrade_tasks:
-        - name: Check if manila_api is deployed
-          command: systemctl is-enabled --quiet openstack-manila-api
+        - name: Check if manila_scheduler is deployed
+          command: systemctl is-enabled --quiet openstack-manila-scheduler
           ignore_errors: True
-          register: manila_api_enabled_result
+          register: manila_scheduler_enabled_result
           when:
             - step|int == 0
             - release == 'ocata'
-        - name: Set fact manila_api_enabled
+        - name: Set fact manila_scheduler_enabled
           set_fact:
-            manila_api_enabled: "{{ manila_api_enabled_result.rc == 0 }}"
+            manila_scheduler_enabled: "{{ manila_scheduler_enabled_result.rc == 0 }}"
           when:
             - step|int == 0
             - release == 'ocata'
-        - name: Stop openstack-manila-api
-          service: name=openstack-manila-api state=stopped
+        - name: Stop openstack-manila-scheduler
+          service: name=openstack-manila-scheduler state=stopped enabled=no
           when:
             - step|int == 1
             - release == 'ocata'
-            - manila_api_enabled|bool
-        - name: manila package update
-          package:
-            name: 'openstack-manila*'
-            state: latest
-          when:
-            - step|int == 6
-            - is_bootstrap_node|bool
-        - name: Manila db sync
-          command: manila-manage db sync
-          when:
-            - step|int == 8
-            - is_bootstrap_node|bool
+            - manila_scheduler_enabled|bool
