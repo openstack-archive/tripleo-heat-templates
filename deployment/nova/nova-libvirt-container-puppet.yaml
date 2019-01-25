@@ -160,6 +160,37 @@ parameters:
     description: CLI tool used to manage containers.
     constraints:
       - allowed_values: ['docker', 'podman']
+  NovaComputeLibvirtType:
+    type: string
+    default: kvm
+  LibvirtEnabledPerfEvents:
+    type: comma_delimited_list
+    default: []
+    description: This is a performance event list which could be used as monitor.
+                 For example - ``enabled_perf_events = cmt, mbml, mbmt``
+                 The supported events list can be found in
+                 https://libvirt.org/html/libvirt-libvirt-domain.html ,
+                 which you may need to search key words ``VIR_PERF_PARAM_*``
+  MonitoringSubscriptionNovaLibvirt:
+    default: 'overcloud-nova-libvirt'
+    type: string
+  MigrationSshKey:
+    type: json
+    description: >
+      SSH key for migration.
+      Expects a dictionary with keys 'public_key' and 'private_key'.
+      Values should be identical to SSH public/private key files.
+    default:
+      public_key: ''
+      private_key: ''
+  MigrationSshPort:
+    default: 2022
+    description: Target port for migration over ssh
+    type: number
+  LibvirtTLSPassword:
+    description: The password for the libvirt service when TLS is enabled
+    type: string
+    hidden: true
 
 conditions:
 
@@ -242,41 +273,177 @@ resources:
 
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
-  NovaLibvirtBase:
-    type: ../../puppet/services/nova-libvirt.yaml
+  NovaLibvirtLogging:
+    type: OS::TripleO::Services::Logging::NovaLibvirt
+
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
-
-  NovaLibvirtLogging:
-    type: OS::TripleO::Services::Logging::NovaLibvirt
 
 outputs:
   role_data:
     description: Role data for the Libvirt service.
     value:
-      service_name: {get_attr: [NovaLibvirtBase, role_data, service_name]}
+      service_name: nova_libvirt
       config_settings:
         map_merge:
-          - get_attr: [NovaLibvirtBase, role_data, config_settings]
+          - get_attr: [NovaBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           - get_attr: [NovaLibvirtLogging, config_settings]
-
+          # we include ::nova::compute::libvirt::services in nova/libvirt profile
+          - nova::compute::libvirt::manage_libvirt_services: false
+          # we manage migration in nova common puppet profile
+            nova::compute::libvirt::migration_support: false
+            nova::compute::rbd::libvirt_images_rbd_ceph_conf:
+              list_join:
+              - ''
+              - - '/etc/ceph/'
+                - {get_param: CephClusterName}
+                - '.conf'
+            nova::compute::rbd::libvirt_rbd_user: {get_param: CephClientUserName}
+            nova::compute::rbd::rbd_keyring:
+              list_join:
+              - '.'
+              - - 'client'
+                - {get_param: CephClientUserName}
+            nova::compute::rbd::libvirt_rbd_secret_key: {get_param: CephClientKey}
+            nova::compute::rbd::libvirt_rbd_secret_uuid: {get_param: CephClusterFSID}
+            tripleo::profile::base::nova::migration::client::libvirt_enabled: true
+            tripleo::profile::base::nova::migration::client::ssh_private_key: {get_param: [ MigrationSshKey, private_key ]}
+            tripleo::profile::base::nova::migration::client::ssh_port: {get_param: MigrationSshPort}
+            nova::compute::libvirt::services::libvirt_virt_type: {get_param: NovaComputeLibvirtType}
+            nova::compute::libvirt::libvirt_virt_type: {get_param: NovaComputeLibvirtType}
+            nova::compute::libvirt::libvirt_enabled_perf_events: {get_param: LibvirtEnabledPerfEvents}
+            nova::compute::libvirt::qemu::configure_qemu: true
+            nova::compute::libvirt::qemu::max_files: 32768
+            nova::compute::libvirt::qemu::max_processes: 131072
+            nova::migration::qemu::configure_qemu: true
+            nova::migration::qemu::migration_port_min: 61152
+            nova::migration::qemu::migration_port_max: 61215
+            nova::compute::libvirt::vncserver_listen:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+            rbd_persistent_storage: {get_param: CinderEnableRbdBackend}
+            tripleo::nova_libvirt::firewall_rules:
+              '200 nova_libvirt':
+                dport:
+                  - 16514
+                  - '61152-61215'
+                  - '5900-6923'
+          -
+            if:
+              - use_tls_for_live_migration
+              -
+                generate_service_certificates: true
+                tripleo::profile::base::nova::migration::client::libvirt_tls: true
+                tripleo::profile::base::nova::libvirt::tls_password: {get_param: [LibvirtTLSPassword]}
+                nova::migration::libvirt::listen_address:
+                  str_replace:
+                     template:
+                       "%{hiera('$NETWORK')}"
+                     params:
+                       $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                nova::migration::libvirt::live_migration_inbound_addr:
+                  str_replace:
+                    template:
+                      "%{hiera('fqdn_$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                tripleo::certmonger::ca::libvirt::origin_ca_pem:
+                  if:
+                    - libvirt_specific_ca_unset
+                    - get_param: InternalTLSCAFile
+                    - get_param: LibvirtCACert
+                tripleo::certmonger::libvirt_dirs::certificate_dir: '/etc/pki/libvirt'
+                tripleo::certmonger::libvirt_dirs::key_dir: '/etc/pki/libvirt/private'
+                libvirt_certificates_specs:
+                  libvirt-server-cert:
+                    service_certificate: '/etc/pki/libvirt/servercert.pem'
+                    service_key: '/etc/pki/libvirt/private/serverkey.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                  libvirt-client-cert:
+                    service_certificate: '/etc/pki/libvirt/clientcert.pem'
+                    service_key: '/etc/pki/libvirt/private/clientkey.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              -
+                nova::migration::libvirt::live_migration_inbound_addr:
+                  str_replace:
+                    template:
+                      "%{hiera('fqdn_$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+          -
+            if:
+              - use_tls_for_vnc
+              -
+                nova::compute::libvirt::qemu::vnc_tls: true
+                nova::compute::libvirt::qemu::vnc_tls_verify: true
+                generate_service_certificates: true
+                tripleo::certmonger::ca::libvirt_vnc::origin_ca_pem:
+                  if:
+                    - libvirt_vnc_specific_ca_unset
+                    - get_param: InternalTLSVncCAFile
+                    - get_param: LibvirtVncCACert
+                tripleo::certmonger::libvirt_vnc_dirs::certificate_dir: '/etc/pki/libvirt-vnc'
+                libvirt_vnc_certificates_specs:
+                  libvirt-vnc-server-cert:
+                    cacertfile:
+                      if:
+                        - libvirt_vnc_specific_ca_unset
+                        - get_param: InternalTLSVncCAFile
+                        - null
+                    service_certificate: '/etc/pki/libvirt-vnc/server-cert.pem'
+                    service_key: '/etc/pki/libvirt-vnc/server-key.pem'
+                    hostname:
+                      str_replace:
+                        template: "%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    principal:
+                      str_replace:
+                        template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+              - {}
       puppet_config:
         config_volume: nova_libvirt
         puppet_tags: libvirtd_config,nova_config,file,libvirt_tls_password
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaLibvirtBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::libvirt
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaLibvirtConfigImage}
       kolla_config:
@@ -564,7 +731,28 @@ outputs:
             content: |
               d /var/run/libvirt 0755 root root - -
       metadata_settings:
-        get_attr: [NovaLibvirtBase, role_data, metadata_settings]
+        list_concat:
+          - if:
+            - use_tls_for_live_migration
+            -
+              - service: libvirt
+                network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                type: node
+            - null
+          - if:
+            - use_tls_for_vnc
+            -
+              - service: libvirt-vnc
+                network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                type: node
+            - null
+          - if:
+            - use_tls_for_nbd
+            -
+              - service: qemu
+                network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                type: node
+            - null
       upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1

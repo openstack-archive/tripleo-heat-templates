@@ -1,9 +1,24 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Nova Compute service configured with Puppet
+  OpenStack containerized Nova Compute service
 
 parameters:
+  DockerNovaComputeImage:
+    description: image
+    type: string
+  DockerNovaLibvirtConfigImage:
+    description: The container image to use for the nova_libvirt config_volume
+    type: string
+  DockerNovaComputeUlimit:
+    default: ['nofile=1024']
+    description: ulimit for Nova Compute Container
+    type: comma_delimited_list
+  NovaComputeLoggingSource:
+    type: json
+    default:
+      tag: openstack.nova.compute
+      path: /var/log/containers/nova/nova-compute.log
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -30,8 +45,13 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  NovaRbdPoolName:
-    default: vms
+  DockerNovaMigrationSshdPort:
+    default: 2022
+    description: Port that dockerized nova migration target sshd service
+                 binds to.
+    type: number
+  CephClientUserName:
+    default: openstack
     type: string
   CephClusterName:
     type: string
@@ -42,8 +62,22 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
-  CephClientUserName:
-    default: openstack
+  NovaComputeOptVolumes:
+    default: []
+    description: list of optional vo
+    type: comma_delimited_list
+  NovaComputeOptEnvVars:
+    default: []
+    description: list of optional en
+    type: comma_delimited_list
+  EnableInstanceHA:
+    default: false
+    description: Whether to enable an Instance Ha configurarion or not.
+                 This setup requires the Compute role to have the
+                 PacemakerRemote service added to it.
+    type: boolean
+  NovaRbdPoolName:
+    default: vms
     type: string
   CephClientKey:
     description: The Ceph client key. Can be created with ceph-authtool --gen-print-key.
@@ -124,11 +158,6 @@ parameters:
   MonitoringSubscriptionNovaCompute:
     default: 'overcloud-nova-compute'
     type: string
-  NovaComputeLoggingSource:
-    type: json
-    default:
-      tag: openstack.nova.compute
-      path: /var/log/nova/nova-compute.log
   UpgradeLevelNovaCompute:
     type: string
     description: Nova Compute upgrade level
@@ -213,22 +242,39 @@ parameters:
     type: string
     tags:
       - role_specific
-
-conditions:
-  enable_live_migration_tunnelled:
-    or:
-      - equals: [{get_param: NovaNfsEnabled}, true]
-      - equals: [{get_param: NovaEnableRbdBackend}, true]
-
-  libvirt_file_backed_memory_enabled:
-    not:
-      or:
-      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
-      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
 
 resources:
+
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../../deployment/database/mysql-client.yaml
+
+  NovaComputeCommon:
+    type: ./nova-compute-common-container-puppet.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NovaLogging:
+    type: OS::TripleO::Services::Logging::NovaCommon
+    properties:
+      DockerNovaImage: {get_param: DockerNovaComputeImage}
+      NovaServiceName: 'compute'
+
   NovaBase:
-    type: ./nova-base.yaml
+    type: ../../puppet/services/nova-base.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -271,6 +317,20 @@ resources:
               NovaLibvirtVolumeUseMultipath: {get_param: NovaLibvirtVolumeUseMultipath}
               NovaHWMachineType: {get_param: NovaHWMachineType}
 
+conditions:
+  enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
+
+  enable_live_migration_tunnelled:
+    or:
+      - equals: [{get_param: NovaNfsEnabled}, true]
+      - equals: [{get_param: NovaEnableRbdBackend}, true]
+
+  libvirt_file_backed_memory_enabled:
+    not:
+      or:
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
+
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
@@ -279,6 +339,7 @@ outputs:
       monitoring_subscription: {get_param: MonitoringSubscriptionNovaCompute}
       config_settings:
         map_merge:
+          - get_attr: [NovaLogging, config_settings]
           - get_attr: [NovaBase, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
           - nova::compute::libvirt::manage_libvirt_services: false
@@ -355,11 +416,6 @@ outputs:
               - libvirt_file_backed_memory_enabled
               - '1.0'
               - null
-      step_config: |
-        # TODO(emilien): figure how to deal with libvirt profile.
-        # We'll probably treat it like we do with Neutron plugins.
-        # Until then, just include it in the default nova-compute role.
-        include tripleo::profile::base::nova::compute::libvirt
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_nova_compute:
@@ -370,55 +426,234 @@ outputs:
           tripleo.collectd.plugins.nova_compute:
             - virt
           collectd::plugin::virt::connection: 'qemu:///system'
+      puppet_config:
+        config_volume: nova_libvirt
+        puppet_tags: nova_config,nova_paste_api_ini
+        step_config:
+          list_join:
+            - "\n"
+            - - # TODO(emilien): figure how to deal with libvirt profile.
+                # We'll probably treat it like we do with Neutron plugins.
+                # Until then, just include it in the default nova-compute role.
+                include tripleo::profile::base::nova::compute::libvirt
+              - {get_attr: [MySQLClient, role_data, step_config]}
+        config_image: {get_param: DockerNovaLibvirtConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/nova_compute.json:
+          command:
+            list_join:
+            - ' '
+            - - if:
+                - enable_instance_ha
+                - /var/lib/nova/instanceha/check-run-nova-compute
+                - /usr/bin/nova-compute
+              - get_attr: [NovaLogging, cmd_extra_args]
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-iscsid/*"
+              dest: "/etc/iscsi/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-ceph/"
+              dest: "/etc/ceph/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/nova
+              owner: nova:nova
+              recurse: true
+            - path:
+                str_replace:
+                  template: /etc/ceph/CLUSTER.client.USER.keyring
+                  params:
+                    CLUSTER: {get_param: CephClusterName}
+                    USER: {get_param: CephClientUserName}
+              owner: nova:nova
+              perm: '0600'
+      docker_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, docker_config_scripts]}
+          - {get_attr: [NovaComputeCommon, docker_config_scripts]}
+      docker_config:
+        step_3:
+          nova_statedir_owner:
+            image: &nova_compute_image {get_param: DockerNovaComputeImage}
+            net: none
+            user: root
+            privileged: false
+            detach: false
+            volumes:
+              - /var/lib/nova:/var/lib/nova:shared,z
+              - /var/lib/docker-config-scripts/:/docker-config-scripts/:z
+            command: "/docker-config-scripts/pyshim.sh /docker-config-scripts/nova_statedir_ownership.py"
+            environment:
+              # NOTE: this should force this container to re-run on each
+              # update (scale-out, etc.)
+              - list_join:
+                  - ''
+                  - - 'TRIPLEO_DEPLOY_IDENTIFIER='
+                    - {get_param: DeployIdentifier}
+        step_4:
+          nova_wait_for_placement_service:
+            start_order: 2
+            image: *nova_compute_image
+            user: root
+            net: host
+            privileged: false
+            detach: false
+            volumes:
+              - /var/lib/docker-config-scripts/:/docker-config-scripts/:z
+              - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
+            command: "/docker-config-scripts/pyshim.sh /docker-config-scripts/nova_wait_for_placement_service.py"
+          nova_compute:
+            start_order: 3
+            image: *nova_compute_image
+            ulimit: {get_param: DockerNovaComputeUlimit}
+            ipc: host
+            net: host
+            privileged: true
+            user: nova
+            restart: always
+            healthcheck:
+              test:
+                list_join:
+                  - ' '
+                  - - '/openstack/healthcheck'
+                    - yaql:
+                        expression: str($.data.port)
+                        data:
+                          port: {get_attr: [NovaBase, role_data, config_settings, 'nova::rabbit_port']}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaLogging, volumes]}
+                - {get_param: NovaComputeOptVolumes}
+                -
+                  - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
+                  - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
+                  - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
+                  - /dev:/dev
+                  - /lib/modules:/lib/modules:ro
+                  - /run:/run
+                  - /var/lib/iscsi:/var/lib/iscsi:z
+                  - /var/lib/nova:/var/lib/nova:shared,z
+                  - /var/lib/libvirt:/var/lib/libvirt:shared,z
+                  - /sys/class/net:/sys/class/net
+                  - /sys/bus/pci:/sys/bus/pci
+            environment:
+              list_concat:
+                - {get_param: NovaComputeOptEnvVars}
+                -
+                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_5:
+          nova_cellv2_discover_hosts:
+            start_order: 0
+            image: *nova_compute_image
+            net: host
+            detach: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/nova_libvirt/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
+                  - /var/lib/docker-config-scripts/:/docker-config-scripts/
+            user: root
+            command: "/docker-config-scripts/pyshim.sh /docker-config-scripts/nova_cell_v2_discover_host.py"
       host_prep_tasks:
-        - name: Mount Nova NFS Share
-          vars:
-            nfs_backend_enable: {get_param: NovaNfsEnabled}
-            nfs_share: {get_param: NovaNfsShare}
-            nfs_options: {get_param: NovaNfsOptions}
-          mount: name=/var/lib/nova/instances src="{{nfs_share}}" fstype=nfs4 opts="_netdev,bg,{{nfs_options}},vers=4,nfsvers=4" state=mounted
-          when: nfs_backend_enable|bool
-        - name: is Nova Resume Guests State On Host Boot enabled
-          set_fact:
-            resume_guests_state_on_host_boot_enabled: {get_param: NovaResumeGuestsStateOnHostBoot}
-        - name: install libvirt-guests systemd unit file
-          when: resume_guests_state_on_host_boot_enabled|bool
-          block:
-          - name: libvirt-guests unit to stop nova_api container before shutdown VMs
-            copy:
-              dest: /etc/systemd/system/libvirt-guests.service
-              content: |
-                [Unit]
-                Description=Suspend/Resume Running libvirt Guests
-                Requires=virt-guest-shutdown.target
-                After=network.target
-                After=time-sync.target
-                After=virt-guest-shutdown.target
-                After=docker.service
-                After=paunch-container-shutdown.service
-                After=rhel-push-plugin.service
-                Documentation=man:libvirtd(8)
-                Documentation=https://libvirt.org
+        list_concat:
+        - {get_attr: [NovaLogging, host_prep_tasks]}
+        - - name: Mount Nova NFS Share
+            vars:
+              nfs_backend_enable: {get_param: NovaNfsEnabled}
+              nfs_share: {get_param: NovaNfsShare}
+              nfs_options: {get_param: NovaNfsOptions}
+            mount: name=/var/lib/nova/instances src="{{nfs_share}}" fstype=nfs4 opts="_netdev,bg,{{nfs_options}},vers=4,nfsvers=4" state=mounted
+            when: nfs_backend_enable|bool
+          - name: is Nova Resume Guests State On Host Boot enabled
+            set_fact:
+              resume_guests_state_on_host_boot_enabled: {get_param: NovaResumeGuestsStateOnHostBoot}
+          - name: install libvirt-guests systemd unit file
+            when: resume_guests_state_on_host_boot_enabled|bool
+            block:
+              - name: libvirt-guests unit to stop nova_api container before shutdown VMs
+                copy:
+                  dest: /etc/systemd/system/libvirt-guests.service
+                  content: |
+                    [Unit]
+                    Description=Suspend/Resume Running libvirt Guests
+                    Requires=virt-guest-shutdown.target
+                    After=network.target
+                    After=time-sync.target
+                    After=virt-guest-shutdown.target
+                    After=docker.service
+                    After=paunch-container-shutdown.service
+                    After=rhel-push-plugin.service
+                    Documentation=man:libvirtd(8)
+                    Documentation=https://libvirt.org
 
-                [Service]
-                EnvironmentFile=-/etc/sysconfig/libvirt-guests
-                # Hack just call traditional service until we factor
-                # out the code
-                ExecStart=/usr/libexec/libvirt-guests.sh start
-                ExecStop=/bin/{{container_cli}} stop nova_compute
-                ExecStop=/usr/libexec/libvirt-guests.sh stop
-                Type=oneshot
-                RemainAfterExit=yes
-                StandardOutput=journal+console
-                TimeoutStopSec=0
+                    [Service]
+                    EnvironmentFile=-/etc/sysconfig/libvirt-guests
+                    # Hack just call traditional service until we factor
+                    # out the code
+                    ExecStart=/usr/libexec/libvirt-guests.sh start
+                    ExecStop=/bin/{{container_cli}} stop nova_compute
+                    ExecStop=/usr/libexec/libvirt-guests.sh stop
+                    Type=oneshot
+                    RemainAfterExit=yes
+                    StandardOutput=journal+console
+                    TimeoutStopSec=0
 
-                [Install]
-                WantedBy=multi-user.target
-          - name: libvirt-guests enable VM shutdown on compute reboot/shutdown
-            systemd:
-              name: libvirt-guests
-              enabled: yes
-              daemon_reload: yes
+                    [Install]
+                    WantedBy=multi-user.target
+              - name: libvirt-guests enable VM shutdown on compute reboot/shutdown
+                systemd:
+                  name: libvirt-guests
+                  enabled: yes
+                  daemon_reload: yes
+          - name: create persistent directories
+            file:
+              path: "{{ item.path }}"
+              state: directory
+              setype: "{{ item.setype }}"
+            with_items:
+              - { 'path': /var/lib/nova, 'setype': svirt_sandbox_file_t }
+              - { 'path': /var/lib/nova/instances, 'setype': svirt_sandbox_file_t }
+              - { 'path': /var/lib/libvirt, 'setype': svirt_sandbox_file_t }
+          - name: ensure ceph configurations exist
+            file:
+              path: /etc/ceph
+              state: directory
+          - name: is Instance HA enabled
+            set_fact:
+              instance_ha_enabled: {get_param: EnableInstanceHA}
+          - name: enable virt_sandbox_use_netlink for healthcheck
+            seboolean:
+              name: virt_sandbox_use_netlink
+              persistent: yes
+              state: yes
+          - name: install Instance HA recovery script
+            when: instance_ha_enabled|bool
+            block:
+            - name: prepare Instance HA script directory
+              file:
+                path: /var/lib/nova/instanceha
+                state: directory
+            - name: install Instance HA script that runs nova-compute
+              copy:
+                content: {get_file: ../../extraconfig/tasks/instanceha/check-run-nova-compute}
+                dest: /var/lib/nova/instanceha/check-run-nova-compute
+                mode: 0755
+            - name: Get list of instance HA compute nodes
+              command: hiera -c /etc/puppet/hiera.yaml compute_instanceha_short_node_names
+              register: iha_nodes
+            - name: If instance HA is enabled on the node activate the evacuation completed check
+              file: path=/var/lib/nova/instanceha/enabled state=touch
+              when: iha_nodes.stdout|lower | search('"'+ansible_hostname|lower+'"')
       upgrade_tasks:
         - name: Stop nova-compute service
           when: step|int == 1
@@ -438,3 +673,51 @@ outputs:
         - name: Start nova-compute service
           when: step|int == 6
           service: name=openstack-nova-compute state=started
+        - name: Remove openstack-nova-compute and python-nova package during upgrade
+          package:
+            name:
+              - openstack-nova-compute
+              - python-nova
+            state: removed
+          ignore_errors: True
+          when: step|int == 2
+      update_tasks:
+        - name: Remove openstack-nova-compute and python-nova package during upgrade
+          package:
+            name:
+              - openstack-nova-compute
+              - python-nova
+            state: removed
+          ignore_errors: True
+          when: step|int == 2
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - nova_compute
+      fast_forward_upgrade_tasks:
+        - when:
+            - step|int == 0
+            - release == 'ocata'
+          block:
+            - name: Check if nova-compute is deployed
+              command:  systemctl is-enabled --quiet openstack-nova-compute
+              ignore_errors: True
+              register: nova_compute_enabled_result
+            - name: Set fact nova_compute_enabled
+              set_fact:
+                nova_compute_enabled: "{{ nova_compute_enabled_result.rc == 0 }}"
+        - when:
+            - step|int == 1
+            - release == 'ocata'
+          block:
+            - name: Stop and disable nova-compute service
+              service: name=openstack-nova-compute state=stopped
+              when:
+                - nova_compute_enabled|bool
+            - name: Set upgrade marker in nova statedir
+              file: path=/var/lib/nova/upgrade_marker state=touch owner=nova group=nova
+              when:
+                - nova_compute_enabled|bool
