@@ -52,7 +52,7 @@ envs_containing_endpoint_map = ['no-tls-endpoints-public-ip.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
-OPTIONAL_SECTIONS = ['workflow_tasks', 'cellv2_discovery']
+OPTIONAL_SECTIONS = ['cellv2_discovery']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings']
 OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
@@ -698,12 +698,6 @@ def validate_docker_service(filename, tpl):
             if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
                 print('ERROR: fast_forward_post_upgrade_tasks validation failed')
                 return 1
-
-        if 'workflow_tasks' in role_data and \
-                filename not in WORKFLOW_TASKS_EXCLUSIONS:
-            print('ERROR: workflow_tasks are no longer supported '
-                  'with config-download in %s.' % filename)
-            return 1
 
     if 'parameters' in tpl:
         for param in required_params:
