@@ -45,25 +45,28 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  NovaWorkers:
+    default: 0
+    description: Number of workers for Nova services.
+    type: number
+  MonitoringSubscriptionNovaConductor:
+    default: 'overcloud-nova-conductor'
+    type: string
+  UpgradeLevelNovaCompute:
+    type: string
+    description: Nova Compute upgrade level
+    default: ''
 
+conditions:
+  nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
-
-  NovaConductorBase:
-    type: ../../puppet/services/nova-conductor.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
 
   NovaLogging:
     type: OS::TripleO::Services::Logging::NovaCommon
@@ -71,23 +74,36 @@ resources:
       DockerNovaImage: {get_param: DockerNovaConductorImage}
       NovaServiceName: 'conductor'
 
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
     description: Role data for the Nova Conductor service.
     value:
-      service_name: {get_attr: [NovaConductorBase, role_data, service_name]}
+      service_name: nova_conductor
       config_settings:
         map_merge:
-          - {get_attr: [NovaConductorBase, role_data, config_settings]}
+          - {get_attr: [NovaBase, role_data, config_settings]}
           - {get_attr: [NovaLogging, config_settings]}
+          -
+            if:
+            - nova_workers_zero
+            - {}
+            - nova::conductor::workers: {get_param: NovaWorkers}
       service_config_settings:
-        map_merge:
-          - get_attr: [NovaConductorBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_nova_conductor:
-                - nova
-              tripleo_fluentd_sources_nova_conductor:
-                - {get_param: NovaConductorLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_nova_conductor:
+            - nova
+          tripleo_fluentd_sources_nova_conductor:
+            - {get_param: NovaConductorLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova
@@ -95,7 +111,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaConductorBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::conductor
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaConfigImage}
       kolla_config:
@@ -129,7 +145,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NovaConductorBase, role_data, config_settings, 'nova::rabbit_port']}
+                          port: {get_attr: [NovaBase, role_data, config_settings, 'nova::rabbit_port']}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -148,6 +164,18 @@ outputs:
                 persistent: yes
                 state: yes
       upgrade_tasks:
+        - name: Stop nova_conductor service
+          when: step|int == 1
+          service: name=openstack-nova-conductor state=stopped
+        # If not already set by puppet (e.g a pre-ocata version), set the
+        # upgrade_level for compute to "auto"
+        - name: Set compute upgrade level to auto
+          when: step|int == 1
+          ini_file:
+            str_replace:
+              template: "dest=/etc/nova/nova.conf section=upgrade_levels option=compute value=LEVEL"
+              params:
+                LEVEL: {get_param: UpgradeLevelNovaCompute}
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-nova-conductor package
