@@ -40,19 +40,36 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  MonitoringSubscriptionCeilometerCompute:
+    default: 'overcloud-ceilometer-agent-compute'
+    type: string
+  InstanceDiscoveryMethod:
+    default: 'libvirt_metadata'
+    description: Method used to discover instances running on compute node
+    type: string
+    constraints:
+    - allowed_values: ['naive', 'libvirt_metadata', 'workload_partitioning']
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  CeilometerAgentComputeBase:
-    type: ../../puppet/services/ceilometer-agent-compute.yaml
+  CeilometerServiceBase:
+    type: ./ceilometer-base-container-puppet.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
@@ -60,15 +77,22 @@ outputs:
   role_data:
     description: Role data for the Ceilometer Agent Compute role.
     value:
-      service_name: {get_attr: [CeilometerAgentComputeBase, role_data, service_name]}
-      config_settings: {get_attr: [CeilometerAgentComputeBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [CeilometerAgentComputeBase, role_data, service_config_settings]}
+      service_name: ceilometer_agent_compute
+      monitoring_subscription: {get_param: MonitoringSubscriptionCeilometerCompute}
+      config_settings:
+        map_merge:
+          - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer::agent::compute::instance_discovery_method: {get_param: InstanceDiscoveryMethod}
+          - ceilometer_redis_password: {get_param: RedisPassword}
+            compute_namespace: true
+      service_config_settings:
+        get_attr: [CeilometerServiceBase, role_data, service_config_settings]
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: ceilometer
         puppet_tags: ceilometer_config
         step_config:
-          get_attr: [CeilometerAgentComputeBase, role_data, step_config]
+          include ::tripleo::profile::base::ceilometer::agent::polling
         config_image: {get_param: DockerCeilometerConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer_agent_compute.json:
@@ -93,7 +117,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [CeilometerAgentComputeBase, role_data, config_settings, 'ceilometer::rabbit_port']}
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}

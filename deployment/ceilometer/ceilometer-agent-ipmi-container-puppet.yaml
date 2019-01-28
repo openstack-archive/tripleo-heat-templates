@@ -45,14 +45,31 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
+  MonitoringSubscriptionCeilometerIpmi:
+    default: 'overcloud-ceilometer-agent-ipmi'
+    type: string
 
 resources:
 
   ContainersCommon:
-   type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  CeilometerAgentIpmiBase:
-    type: ../../puppet/services/ceilometer-agent-ipmi.yaml
+  CeilometerServiceBase:
+    type: ./ceilometer-base-container-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  CeilometerAgentCentralBase:
+    type: ./ceilometer-agent-central-container-puppet.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -65,22 +82,24 @@ outputs:
   role_data:
     description: Role data for the Ceilometer Agent Ipmi role.
     value:
-      service_name: {get_attr: [CeilometerAgentIpmiBase, role_data, service_name]}
-      config_settings: {get_attr: [CeilometerAgentIpmiBase, role_data, config_settings]}
-      service_config_settings:
+      service_name: ceilometer_agent_ipmi
+      config_settings:
         map_merge:
-          - get_attr: [CeilometerAgentIpmiBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_ceilometer_agent_ipmi:
-                - ceilometer
-              tripleo_fluentd_sources_ceilometer_agent_ipmi:
-                - {get_param: CeilometerAgentIpmiLoggingSource}
+          - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer_redis_password: {get_param: RedisPassword}
+            ipmi_namespace: true
+      service_config_settings:
+        fluentd:
+          tripleo_fluentd_groups_ceilometer_agent_ipmi:
+            - ceilometer
+          tripleo_fluentd_sources_ceilometer_agent_ipmi:
+            - {get_param: CeilometerAgentIpmiLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: ceilometer
         puppet_tags: ceilometer_config
-        step_config:
-          get_attr: [CeilometerAgentIpmiBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::ceilometer::agent::polling
         config_image: {get_param: DockerCeilometerConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer-agent-ipmi.json:

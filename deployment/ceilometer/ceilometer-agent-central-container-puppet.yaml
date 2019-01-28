@@ -45,19 +45,26 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
+  MonitoringSubscriptionCeilometerCentral:
+    default: 'overcloud-ceilometer-agent-central'
+    type: string
 
 resources:
 
   ContainersCommon:
-   type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  CeilometerAgentCentralBase:
-    type: ../../puppet/services/ceilometer-agent-central.yaml
+  CeilometerServiceBase:
+    type: ./ceilometer-base-container-puppet.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
@@ -65,11 +72,16 @@ outputs:
   role_data:
     description: Role data for the Ceilometer Agent Central role.
     value:
-      service_name: {get_attr: [CeilometerAgentCentralBase, role_data, service_name]}
-      config_settings: {get_attr: [CeilometerAgentCentralBase, role_data, config_settings]}
+      service_name: ceilometer_agent_central
+      monitoring_subscription: {get_param: MonitoringSubscriptionCeilometerCentral}
+      config_settings:
+        map_merge:
+          - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer_redis_password: {get_param: RedisPassword}
+            central_namespace: true
       service_config_settings:
         map_merge:
-          - get_attr: [CeilometerAgentCentralBase, role_data, service_config_settings]
+          - get_attr: [CeilometerServiceBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_ceilometer_agent_central:
                 - ceilometer
@@ -79,8 +91,8 @@ outputs:
       puppet_config:
         config_volume: ceilometer
         puppet_tags: ceilometer_config
-        step_config:
-          get_attr: [CeilometerAgentCentralBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::ceilometer::agent::polling
         config_image: {get_param: DockerCeilometerConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer_agent_central.json:

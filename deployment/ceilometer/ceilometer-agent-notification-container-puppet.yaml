@@ -49,19 +49,26 @@ parameters:
     default: true
     description: Check if panko need to be enabled or not.
     type: boolean
+  MonitoringSubscriptionCeilometerNotification:
+    default: 'overcloud-ceilometer-agent-notification'
+    type: string
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  CeilometerAgentNotificationBase:
-    type: ../../puppet/services/ceilometer-agent-notification.yaml
+  CeilometerServiceBase:
+    type: ./ceilometer-base-container-puppet.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
@@ -72,11 +79,13 @@ outputs:
   role_data:
     description: Role data for the Ceilometer Agent Notification role.
     value:
-      service_name: {get_attr: [CeilometerAgentNotificationBase, role_data, service_name]}
-      config_settings: {get_attr: [CeilometerAgentNotificationBase, role_data, config_settings]}
+      service_name: ceilometer_agent_notification
+      monitoring_subscription: {get_param: MonitoringSubscriptionCeilometerNotification}
+      config_settings:
+        get_attr: [CeilometerServiceBase, role_data, config_settings]
       service_config_settings:
         map_merge:
-          - get_attr: [CeilometerAgentNotificationBase, role_data, service_config_settings]
+          - get_attr: [CeilometerServiceBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_ceilometer_agent_notification:
                 - ceilometer
@@ -86,8 +95,8 @@ outputs:
       puppet_config:
         config_volume: ceilometer
         puppet_tags: ceilometer_config
-        step_config:
-          get_attr: [CeilometerAgentNotificationBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::ceilometer::agent::notification
         config_image: {get_param: DockerCeilometerConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer_agent_notification.json:
@@ -132,7 +141,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [CeilometerAgentNotificationBase, role_data, config_settings, 'ceilometer::rabbit_port']}
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
