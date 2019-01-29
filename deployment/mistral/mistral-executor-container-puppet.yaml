@@ -62,6 +62,14 @@ parameters:
     description: CLI tool used to manage containers.
     constraints:
       - allowed_values: ['docker', 'podman']
+  MistralDockerGroup:
+    default: false
+    description: Add the mistral user to the docker group to allow actions to perform docker operations.
+    type: boolean
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 conditions:
   undercloud_config_file_path_unset: {equals : [{get_param: UndercloudConfigFilePath}, '']}
@@ -70,13 +78,13 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../puppet/services/database/mysql-client.yaml
 
   MistralBase:
-    type: ../../puppet/services/mistral-executor.yaml
+    type: ./mistral-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -89,7 +97,7 @@ outputs:
   role_data:
     description: Role data for the Mistral Executor role.
     value:
-      service_name: {get_attr: [MistralBase, role_data, service_name]}
+      service_name: mistral_executor
       config_settings:
         map_merge:
           - get_attr: [MistralBase, role_data, config_settings]
@@ -99,6 +107,7 @@ outputs:
           # The hiera param is set to the same value as the bind mound location
           # of the file inside the container.
           - tripleo_undercloud_conf_file:  '/var/lib/mistral/undercloud.conf'
+            tripleo::profile::base::mistral::executor::docker_group: {get_param: MistralDockerGroup}
       service_config_settings: {get_attr: [MistralBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -107,7 +116,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [MistralBase, role_data, step_config]}
+            - - include ::tripleo::profile::base::mistral::executor
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerMistralConfigImage}
         volumes:
@@ -148,7 +157,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [MistralBase, role_data, config_settings, 'mistral::rabbit_port']}
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
