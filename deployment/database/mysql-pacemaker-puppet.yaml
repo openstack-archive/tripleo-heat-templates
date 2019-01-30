@@ -82,10 +82,10 @@ parameters:
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  MysqlPuppetBase:
-    type: ../../../../puppet/services/pacemaker/database/mysql.yaml
+  MysqlBase:
+    type: ./mysql-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -102,11 +102,31 @@ outputs:
   role_data:
     description: Containerized service MySQL using composable services.
     value:
-      service_name: {get_attr: [MysqlPuppetBase, role_data, service_name]}
+      service_name: {get_attr: [MysqlBase, role_data, service_name]}
       config_settings:
         map_merge:
-          - {get_attr: [MysqlPuppetBase, role_data, config_settings]}
-          - tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image_pcmklatest
+          - get_attr: [MysqlBase, role_data, config_settings]
+          - tripleo::profile::pacemaker::database::mysql::bind_address:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+            # NOTE: bind IP is found in hiera replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            tripleo::profile::pacemaker::database::mysql::gmcast_listen_addr:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+            tripleo::profile::pacemaker::database::mysql::ca_file:
+              get_param: InternalTLSCAFile
+            tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image_pcmklatest
               list_join:
                 - ':'
                 - - yaql:
@@ -311,7 +331,7 @@ outputs:
               /var/log/containers/mysql.
           ignore_errors: true
       metadata_settings:
-        get_attr: [MysqlPuppetBase, role_data, metadata_settings]
+        get_attr: [MysqlBase, role_data, metadata_settings]
       deploy_steps_tasks:
         - name: MySQL tag container image for pacemaker
           when: step|int == 1
