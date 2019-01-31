@@ -95,6 +95,19 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  EnableLoadBalancer:
+    default: true
+    description: Whether to deploy a LoadBalancer, set to false when an external load balancer is used.
+    type: boolean
+  HAProxyStatsEnabled:
+    default: true
+    description: Whether or not to enable the HAProxy stats interface.
+    type: boolean
+  InternalTLSCRLPEMFile:
+    default: '/etc/pki/CA/crl/overcloud-crl.pem'
+    type: string
+    description: Specifies the default CRL PEM file to use for revocation if
+                 TLS is used for services in the internal network.
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
@@ -114,43 +127,75 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  HAProxyBase:
-    type: ../../puppet/services/haproxy.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-      HAProxySyslogAddress: {get_param: HAProxySyslogAddress}
-      HAProxySyslogFacility: {get_param: HAProxySyslogFacility}
+    type: ../../docker/services/containers-common.yaml
 
   HAProxyLogging:
     type: OS::TripleO::Services::Logging::HAProxy
+
+  HAProxyPublicTLS:
+    type: OS::TripleO::Services::HAProxyPublicTLS
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  HAProxyInternalTLS:
+    type: OS::TripleO::Services::HAProxyInternalTLS
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the HAproxy role.
     value:
-      service_name: {get_attr: [HAProxyBase, role_data, service_name]}
+      service_name: haproxy
+      monitoring_subscription: {get_param: MonitoringSubscriptionHaproxy}
       config_settings:
         map_merge:
-          - get_attr: [HAProxyBase, role_data, config_settings]
           - get_attr: [HAProxyLogging, config_settings]
           - tripleo::haproxy::haproxy_service_manage: false
             # NOTE(jaosorior): We disable the CRL since we have no way to restart haproxy
             # when this is updated
             tripleo::haproxy::crl_file: null
-      service_config_settings: {get_attr: [HAProxyBase, role_data, service_config_settings]}
+          - tripleo::haproxy::firewall_rules:
+              '107 haproxy stats':
+                dport: 1993
+            tripleo::haproxy::haproxy_log_address: {get_param: HAProxySyslogAddress}
+            tripleo::haproxy::haproxy_log_facility: {get_param: HAProxySyslogFacility}
+            tripleo::haproxy::haproxy_stats_user: {get_param: HAProxyStatsUser}
+            tripleo::haproxy::haproxy_stats_password: {get_param: HAProxyStatsPassword}
+            tripleo::haproxy::redis_password: {get_param: RedisPassword}
+            tripleo::haproxy::crl_file: {get_param: InternalTLSCRLPEMFile}
+            tripleo::haproxy::haproxy_stats: {get_param: HAProxyStatsEnabled}
+            enable_load_balancer: {get_param: EnableLoadBalancer}
+            tripleo::profile::base::haproxy::certificates_specs:
+              map_merge:
+                - get_attr: [HAProxyPublicTLS, role_data, certificates_specs]
+                - get_attr: [HAProxyInternalTLS, role_data, certificates_specs]
+          - if:
+              - public_tls_enabled
+              - tripleo::haproxy::service_certificate: {get_param: DeployedSSLCertificatePath}
+              - {}
+          - if:
+              - internal_tls_enabled
+              - tripleo::haproxy::ca_bundle: {get_param: InternalTLSCAFile}
+              - null
+          - get_attr: [HAProxyPublicTLS, role_data, config_settings]
+          - get_attr: [HAProxyInternalTLS, role_data, config_settings]
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: haproxy
         puppet_tags: haproxy_config
-        step_config:
-          "class {'::tripleo::profile::base::haproxy': manage_firewall => false}"
+        step_config: |
+          class {'::tripleo::profile::base::haproxy': manage_firewall => false}
         config_image: {get_param: DockerHAProxyConfigImage}
         volumes:
           list_concat:
@@ -254,7 +299,7 @@ outputs:
             fi
             exit $rc
           vars:
-            puppet_execute: {get_attr: [HAProxyBase, role_data, step_config]}
+            puppet_execute: include ::tripleo::profile::base::haproxy
             puppet_tags: 'tripleo::firewall::rule'
             puppet_modulepath: '/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules'
             puppet_debug:
@@ -286,7 +331,7 @@ outputs:
             containers_to_rm:
               - haproxy
       host_prep_tasks:
-        - {get_attr: [HAProxyBase, role_data, host_prep_tasks]}
+        - {get_attr: [HAProxyPublicTLS, role_data, host_prep_tasks]}
         - name: Check if rsyslog exists
           shell: systemctl is-active rsyslog
           register: rsyslog_config
@@ -324,4 +369,6 @@ outputs:
               /var/log/containers/haproxy.
           ignore_errors: true
       metadata_settings:
-        get_attr: [HAProxyBase, role_data, metadata_settings]
+        list_concat:
+          - {get_attr: [HAProxyPublicTLS, role_data, metadata_settings]}
+          - {get_attr: [HAProxyInternalTLS, role_data, metadata_settings]}
