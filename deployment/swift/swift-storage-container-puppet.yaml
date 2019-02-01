@@ -65,18 +65,60 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  SwiftMountCheck:
+    default: false
+    description: Value of mount_check in Swift account/container/object -server.conf
+    type: boolean
+  SwiftAccountWorkers:
+    default: 0
+    description: Number of workers for Swift account service.
+    type: string
+  SwiftContainerWorkers:
+    default: 0
+    description: Number of workers for Swift account service.
+    type: string
+  SwiftObjectWorkers:
+    default: 0
+    description: Number of workers for Swift account service.
+    type: string
+
+  # DEPRECATED options for compatibility with overcloud.yaml
+  # This should be removed and manipulation of the ControllerServices list
+  # used instead, but we need client support for that first
+  ControllerEnableSwiftStorage:
+    default: true
+    description: Whether to enable Swift Storage on the Controller
+    type: boolean
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - ControllerEnableSwiftStorage
 
 conditions:
   single_replica_mode: {equals: [{get_param: SwiftReplicas}, 1]}
   swift_container_sharder_enabled: {equals : [{get_param: SwiftContainerSharderEnabled}, true]}
+  swift_mount_check:
+    or:
+    - equals:
+      - get_param: SwiftMountCheck
+      - true
+    - not:
+        equals:
+        - get_param: SwiftRawDisks
+        - {}
+  account_workers_zero: {equals : [{get_param: SwiftAccountWorkers}, '0']}
+  container_workers_zero: {equals : [{get_param: SwiftContainerWorkers}, '0']}
+  object_workers_zero: {equals : [{get_param: SwiftObjectWorkers}, '0']}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  SwiftStorageBase:
-    type: ../../puppet/services/swift-storage.yaml
+  SwiftBase:
+    type: ./swift-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -89,13 +131,56 @@ outputs:
   role_data:
     description: Role data for the swift storage services.
     value:
-      service_name: {get_attr: [SwiftStorageBase, role_data, service_name]}
+      service_name: swift_storage
       config_settings:
         map_merge:
-          - {get_attr: [SwiftStorageBase, role_data, config_settings]}
+          - {get_attr: [SwiftBase, role_data, config_settings]}
           # FIXME (cschwede): re-enable this once checks works inside containers
+          # swift::storage::all::mount_check: {if: [swift_mount_check, true, false]}
           - swift::storage::all::mount_check: false
-      service_config_settings: {get_attr: [SwiftStorageBase, role_data, service_config_settings]}
+            tripleo::profile::base::swift::storage::use_local_dir: {get_param: SwiftUseLocalDir}
+            tripleo::swift_storage::firewall_rules:
+              '123 swift storage':
+                dport:
+                  - 873
+                  - 6000
+                  - 6001
+                  - 6002
+            swift::storage::all::incoming_chmod: 'Du=rwx,g=rx,o=rx,Fu=rw,g=r,o=r'
+            swift::storage::all::outgoing_chmod: 'Du=rwx,g=rx,o=rx,Fu=rw,g=r,o=r'
+            swift::storage::all::object_pipeline:
+              - healthcheck
+              - recon
+              - object-server
+            swift::storage::all::container_pipeline:
+              - healthcheck
+              - container-server
+            swift::storage::all::account_pipeline:
+              - healthcheck
+              - account-server
+            swift::storage::disks::args: {get_param: SwiftRawDisks}
+            swift::storage::all::storage_local_net_ip:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, SwiftStorageNetwork]}
+          -
+            if:
+            - account_workers_zero
+            - {}
+            - swift::storage::all::account_server_workers: {get_param: SwiftAccountWorkers}
+          -
+            if:
+            - container_workers_zero
+            - {}
+            - swift::storage::all::container_server_workers: {get_param: SwiftContainerWorkers}
+          -
+            if:
+            - object_workers_zero
+            - {}
+            - swift::storage::all::object_server_workers: {get_param: SwiftObjectWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: swift
@@ -105,7 +190,7 @@ outputs:
             - "\n"
             - - "class xinetd() {}"
               - "define xinetd::service($bind='',$port='',$server='',$server_args='') {}"
-              - {get_attr: [SwiftStorageBase, role_data, step_config]}
+              - "include ::tripleo::profile::base::swift::storage"
         config_image: {get_param: DockerSwiftConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/swift_account_auditor.json:
