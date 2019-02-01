@@ -64,8 +64,12 @@ class PathManager(object):
                      self.gid,
                      self.uid if target_uid == -1 else target_uid,
                      self.gid if target_gid == -1 else target_gid)
-            os.chown(self.path, target_uid, target_gid)
-            self._update()
+            try:
+                os.chown(self.path, target_uid, target_gid)
+                self._update()
+            except Exception as e:
+                LOG.exception('Could not change ownership of %s: ',
+                              self.path)
         else:
             LOG.info('Ownership of %s already %d:%d',
                      self.path,
