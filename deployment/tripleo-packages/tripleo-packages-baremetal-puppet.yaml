@@ -51,6 +51,20 @@ parameters:
       echo "and passed the upstream name (ocata, pike, queens) of the release as first argument"
       exit 1
     type: string
+  UpgradeInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the upgrade process. E.g. a repository switch.
+    default: ''
+  UpgradeInitCommonCommand:
+    type: string
+    description: |
+      Common commands required by the upgrades process. This should not
+      normally be modified by the operator and is set and unset in the
+      major-upgrade-composable-steps.yaml and major-upgrade-converge.yaml
+      environment files.
+    default: ''
 
 outputs:
   role_data:
@@ -62,15 +76,29 @@ outputs:
       step_config: |
         include ::tripleo::packages
       upgrade_tasks:
-        - name: Check yum for rpm-python present
+        - name: Package and repo update tasks
           when: step|int == 0
-          package: "name=rpm-python state=present"
-          register: rpm_python_check
-        - name: Fail when rpm-python wasn't present
-          fail: msg="rpm-python package was not present before this run! Check environment before re-running"
-          when:
-            - step|int == 0
-            - rpm_python_check.changed != false
+          block:
+            - name: Run UpgradeInitCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+                    - {get_param: UpgradeInitCommand}
+            - name: Run UpgradeInitCommonCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - {get_param: UpgradeInitCommonCommand}
+            - name: Check yum for rpm-python present
+              package: "name=rpm-python state=present"
+              register: rpm_python_check
+            - name: Fail when rpm-python wasn't present
+              fail: msg="rpm-python package was not present before this run! Check environment before re-running"
+              when:
+                - rpm_python_check.changed != false
         # With the layered product packaging, the key package is rhosp-openvswitch. It depends on
         # a openvswitch package that includes the version as part of the name (e.g openvswitch2.10).
         # This requires some additional special handling:
