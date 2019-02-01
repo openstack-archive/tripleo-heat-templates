@@ -85,11 +85,21 @@ parameters:
     description: If set to true and if EnableInternalTLS is enabled, it will
                  enable TLS transaport for libvirt VNC and configure the
                  relevant keys for libvirt.
+  UseTLSTransportForNbd:
+    type: boolean
+    default: true
+    description: If set to true and if EnableInternalTLS is enabled, it will
+                 enable TLS transaport for libvirt NBD and configure the
+                 relevant keys for libvirt.
   InternalTLSCAFile:
     default: '/etc/ipa/ca.crt'
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  InternalTLSNbdCAFile:
+    default: '/etc/pki/qemu/ca-cert.pem'
+    type: string
+    description: Specifies the CA cert to use for NBD TLS.
   InternalTLSVncCAFile:
     default: '/etc/pki/CA/certs/vnc.crt'
     type: string
@@ -114,6 +124,16 @@ parameters:
                  which is /etc/pki/libvirt-vnc/ca-cert.pem.
                  This parameter should be used if the default (which comes from
                  the InternalTLSVncCAFile parameter) is not desired. The current
+                 default reflects TripleO's default CA, which is FreeIPA.
+                 It will only be used if internal TLS is enabled.
+  LibvirtNbdCACert:
+    type: string
+    default: ''
+    description: This specifies the CA certificate to use for NBD TLS.
+                 This file will be symlinked to the default CA path,
+                 which is /etc/pki/libvirt-nbd/ca-cert.pem.
+                 This parameter should be used if the default (which comes from
+                 the InternalTLSNbdCAFile parameter) is not desired. The current
                  default reflects TripleO's default CA, which is FreeIPA.
                  It will only be used if internal TLS is enabled.
   VhostuserSocketGroup:
@@ -184,6 +204,20 @@ conditions:
     not:
       equals:
       - {get_param: QemuMemoryBackingDir}
+      - ''
+
+  use_tls_for_nbd:
+    and:
+    - equals:
+      - {get_param: EnableInternalTLS}
+      - true
+    - equals:
+      - {get_param: UseTLSTransportForNbd}
+      - true
+
+  libvirt_nbd_specific_ca_unset:
+    equals:
+      - {get_param: LibvirtNbdCACert}
       - ''
 
   docker_enabled:
@@ -277,6 +311,14 @@ outputs:
                     merge: true
                     preserve_properties: true
                 - null
+              - if:
+                - use_tls_for_nbd
+                -
+                  - source: /var/lib/kolla/config_files/src-libvirt-nbd-pki/client-*.pem
+                    dest: /etc/pki/libvirt-nbd/
+                    merge: true
+                    preserve_properties: true
+                - null
           permissions:
             list_concat:
               -
@@ -294,6 +336,19 @@ outputs:
                   - path: /etc/pki/libvirt-vnc/server-key.pem
                     owner: root:qemu
                     perm: '0640'
+                - null
+              - if:
+                - use_tls_for_nbd
+                -
+                  - path: /etc/pki/libvirt-nbd/client-key.pem
+                    owner: root:qemu
+                    perm: '0640'
+                  - path: /etc/pki/qemu/server-key.pem
+                    owner: root:qemu
+                    perm: '0640'
+                  - path: /etc/pki/qemu/ca-cert.pem
+                    owner: root:root
+                    perm: '0644'
                 - null
         /var/lib/kolla/config_files/nova_virtlogd.json:
           command: /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
@@ -402,6 +457,22 @@ outputs:
                           template: "MEMORY_BACKING_DIR:MEMORY_BACKING_DIR"
                           params:
                             MEMORY_BACKING_DIR: {get_attr: [RoleParametersValue, value, memory_backing_dir]}
+                    - null
+                -
+                  if:
+                    - use_tls_for_nbd
+                    -
+                      - str_replace:
+                          template: "CACERT:/var/lib/kolla/config_files/src-tls/etc/pki/qemu/ca-cert.pem:ro"
+                          params:
+                            CACERT:
+                              if:
+                                - libvirt_nbd_specific_ca_unset
+                                - get_param: InternalTLSNbdCAFile
+                                - get_param: LibvirtNbdCACert
+                      - /etc/pki/qemu/server-cert.pem:/var/lib/kolla/config_files/src-tls/etc/pki/qemu/server-cert.pem:ro
+                      - /etc/pki/qemu/server-key.pem:/var/lib/kolla/config_files/src-tls/etc/pki/qemu/server-key.pem:ro
+                      - /etc/pki/libvirt-nbd:/var/lib/kolla/config_files/src-libvirt-nbd-pki:ro
                     - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
