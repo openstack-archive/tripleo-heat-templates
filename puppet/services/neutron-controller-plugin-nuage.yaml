@@ -1,0 +1,81 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Neutron Nuage VRS
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NuageActiveController:
+    description: IP address of the Active Virtualized Services Controller (VSC)
+    type: string
+  NuageStandbyController:
+    description: IP address of the Standby Virtualized Services Controller (VSC)
+    type: string
+  NuageBridgeMTU:
+    description: Support for non-default MTU configured on each VRS node
+    type: string
+    default: ''
+  NuageDisableDhcp4:
+    description: Make VRS act as Dhcp server or not
+    type: boolean
+    default: false
+  NuageControllerEnableMetadataAgent:
+    description: Enbale Nuage Metadata Agent on Controller or not
+    type: boolean
+    default: false
+  ControllerVxlanIPtableRule:
+    description: Open Vxlan Port on Controller node or not
+    type: boolean
+    default: false
+
+conditions:
+  apply_vxlan_iptables_rule: {equals : [{get_param: ControllerVxlanIPtableRule}, true]}
+
+outputs:
+  role_data:
+    description: Role data for the Neutron Controller  Nuage plugin
+    value:
+      service_name: neutron_controller_plugin_nuage
+      config_settings:
+        map_merge:
+          - nuage::vrs::active_controller: {get_param: NuageActiveController}
+            nuage::vrs::standby_controller: {get_param: NuageStandbyController}
+            nuage::vrs::bridge_mtu: {get_param: NuageBridgeMTU}
+            nuage::vrs::disable_dhcp4: {get_param: NuageDisableDhcp4}
+            tripleo::profile::base::neutron::agents::nuage::enable_metadata_agent: {get_param: NuageControllerEnableMetadataAgent}
+          - if:
+            - apply_vxlan_iptables_rule
+            - tripleo.neutron_controller_plugin_nuage.firewall_rules:
+                '118 neutron vxlan networks':
+                  proto: 'udp'
+                  dport: 4789
+            - {}
+
+      step_config: |
+        include ::tripleo::profile::base::neutron::agents::nuage
+
