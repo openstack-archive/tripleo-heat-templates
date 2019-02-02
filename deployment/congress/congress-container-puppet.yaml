@@ -40,34 +40,129 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  CongressPassword:
+    description: The password for the congress service account.
+    type: string
+    hidden: true
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
+  CongressDebug:
+    default: ''
+    description: Set to True to enable debugging Congress service.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  CongressPolicies:
+    description: |
+      A hash of policies to configure for Congress.
+      e.g. { congress-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
+  NotificationDriver:
+    type: string
+    default: 'messagingv2'
+    description: Driver or drivers to handle sending notifications.
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  RpcUserName:
+    default: guest
+    description: The username for messaging backend
+    type: string
+  RpcPassword:
+    description: The password for messaging backend
+    type: string
+    hidden: true
+  RpcUseSSL:
+    default: false
+    description: >
+        Messaging client subscriber parameter to specify
+        an SSL connection to the messaging host.
+    type: string
+
+conditions:
+  service_debug_unset: {equals : [{get_param: CongressDebug}, '']}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
-
-  CongressBase:
-    type: ../../puppet/services/congress.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Congress API role.
     value:
-      service_name: {get_attr: [CongressBase, role_data, service_name]}
+      service_name: congress
       config_settings:
-        map_merge:
-          - get_attr: [CongressBase, role_data, config_settings]
-      service_config_settings: {get_attr: [CongressBase, role_data, service_config_settings]}
+        congress_password: {get_param: CongressPassword}
+        congress::db::database_connection:
+          make_url:
+            scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+            username: congress
+            password: {get_param: CongressPassword}
+            host: {get_param: [EndpointMap, MysqlInternal, host]}
+            path: /congress
+            query:
+              read_default_file: /etc/my.cnf.d/tripleo.cnf
+              read_default_group: tripleo
+        congress::logging::debug:
+          if:
+          - service_debug_unset
+          - {get_param: Debug }
+          - {get_param: CongressDebug }
+        congress::rpc_backend: rabbit
+        congress::notification_driver: {get_param: NotificationDriver}
+        # TODO(ansmith): remove once p-t-o switches to oslo params
+        congress::rabbit_userid: {get_param: RpcUserName}
+        congress::rabbit_password: {get_param: RpcPassword}
+        congress::rabbit_use_ssl: {get_param: RpcUseSSL}
+        congress::rabbit_port: {get_param: RpcPort}
+        congress::server::bind_host:
+          str_replace:
+             template:
+               "%{hiera('$NETWORK')}"
+             params:
+               $NETWORK: {get_param: [ServiceNetMap, CongressApiNetwork]}
+
+        congress::keystone::authtoken::password: {get_param: CongressPassword}
+        congress::keystone::authtoken::project_name: 'service'
+        congress::keystone::authtoken::user_domain_name: 'Default'
+        congress::keystone::authtoken::project_domain_name: 'Default'
+        congress::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        congress::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+        congress::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+
+        congress::db::mysql::password: {get_param: CongressPassword}
+        congress::db::mysql::user: congress
+        congress::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+        congress::db::mysql::dbname: congress
+        congress::db::mysql::allowed_hosts:
+          - '%'
+          - {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+        congress::policy::policies: {get_param: CongressPolicies}
+        tripleo::congress::firewall_rules:
+          '113 congress':
+            dport:
+              - 1789
+              - 13789
+      service_config_settings:
+        keystone:
+          congress::keystone::auth::tenant: 'service'
+          congress::keystone::auth::region: {get_param: KeystoneRegion}
+          congress::keystone::auth::password: {get_param: CongressPassword}
+          congress::keystone::auth::public_url: {get_param: [EndpointMap, CongressPublic, uri]}
+          congress::keystone::auth::internal_url: {get_param: [EndpointMap, CongressInternal, uri]}
+          congress::keystone::auth::admin_url: {get_param: [EndpointMap, CongressAdmin, uri]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: congress
@@ -75,7 +170,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [CongressBase, role_data, step_config]}
+            - - "include ::tripleo::profile::base::congress"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerCongressConfigImage}
       kolla_config:
