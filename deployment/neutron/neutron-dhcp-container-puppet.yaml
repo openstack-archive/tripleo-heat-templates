@@ -68,6 +68,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
   EnableInternalTLS:
     type: boolean
     default: false
@@ -76,6 +80,47 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  NeutronEnableMetadataNetwork:
+    default: false
+    description: If True, DHCP provide metadata network. Requires either
+                 IsolatedMetadata or ForceMetadata parameters to also be True.
+    type: boolean
+  NeutronEnableIsolatedMetadata:
+    default: false
+    description: If True, DHCP provide metadata route to VM.
+    type: boolean
+  NeutronEnableForceMetadata:
+    default: false
+    description: If True, DHCP always provides metadata route to VM.
+    type: boolean
+  NeutronEnableInternalDNS:
+    default: false
+    description: |
+      If True, enable the internal Neutron DNS server that provides name
+      resolution between VMs.  This parameter has no effect if
+      NeutronDhcpAgentDnsmasqDnsServers is set.
+    type: boolean
+  MonitoringSubscriptionNeutronDhcp:
+    default: 'overcloud-neutron-dhcp'
+    type: string
+  NeutronDhcpAgentDebug:
+    default: ''
+    description: Set to True to enable debugging for Neutron DHCP agent.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  NeutronDhcpAgentDnsmasqDnsServers:
+    default: []
+    description: List of servers to use as dnsmasq forwarders
+    type: comma_delimited_list
+  NeutronInterfaceDriver:
+    default: 'neutron.agent.linux.interface.OVSInterfaceDriver'
+    description: Neutron DHCP Agent interface driver
+    type: string
+  NeutronDhcpOvsIntegrationBridge:
+    default: ''
+    type: string
+    description: Name of Open vSwitch bridge to use
 
 conditions:
 
@@ -83,15 +128,17 @@ conditions:
   dnsmasq_wrapper_enabled: {equals: [{get_param: NeutronEnableDnsmasqDockerWrapper}, true]}
   haproxy_wrapper_enabled: {equals: [{get_param: NeutronEnableHaproxyDockerWrapper}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
-  service_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
+  service_wrapper_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
+  service_debug_unset: {equals: [{get_param: NeutronDhcpAgentDebug}, '']}
+  dhcp_ovs_intergation_bridge_unset: {equals: [{get_param: NeutronDhcpOvsIntegrationBridge}, '']}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   NeutronBase:
-    type: ../../puppet/services/neutron-dhcp.yaml
+    type: ../../puppet/services/neutron-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -109,7 +156,8 @@ outputs:
   role_data:
     description: Role data for the Neutron DHCP role.
     value:
-      service_name: {get_attr: [NeutronBase, role_data, service_name]}
+      service_name: neutron_dhcp
+      monitoring_subscription: {get_param: MonitoringSubscriptionNeutronDhcp}
       config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, config_settings]
@@ -126,10 +174,39 @@ outputs:
             tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_image: {get_param: DockerNeutronDHCPImage}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::debug:
               if:
-                - service_debug_unset
+                - service_wrapper_debug_unset
                 - {get_param: Debug }
                 - {get_param: NeutronWrapperDebug}
             tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
+            neutron::agents::dhcp::enable_isolated_metadata: {get_param: NeutronEnableIsolatedMetadata}
+            neutron::agents::dhcp::enable_force_metadata: {get_param: NeutronEnableForceMetadata}
+            neutron::agents::dhcp::enable_metadata_network: {get_param: NeutronEnableMetadataNetwork}
+            neutron::agents::dhcp::dnsmasq_local_resolv: {get_param: NeutronEnableInternalDNS}
+            neutron::agents::dhcp::dnsmasq_dns_servers: {get_param: NeutronDhcpAgentDnsmasqDnsServers}
+            neutron::agents::dhcp::interface_driver: {get_param: NeutronInterfaceDriver}
+            neutron::agents::dhcp::debug:
+              if:
+              - service_debug_unset
+              - {get_param: Debug}
+              - {get_param: NeutronDhcpAgentDebug}
+            tripleo::neutron_dhcp::firewall_rules:
+              '115 neutron dhcp input':
+                proto: 'udp'
+                dport: 67
+              '116 neutron dhcp output':
+                proto: 'udp'
+                chain: 'OUTPUT'
+                dport: 68
+          - if:
+              - internal_tls_enabled
+              - neutron::agents::dhcp::ovsdb_agent_ssl_key_file: '/etc/pki/tls/private/neutron.key'
+                neutron::agents::dhcp::ovsdb_agent_ssl_cert_file: '/etc/pki/tls/certs/neutron.crt'
+                neutron::agents::dhcp::ovsdb_agent_ssl_ca_file: {get_param: InternalTLSCAFile}
+              - {}
+          - if:
+              - dhcp_ovs_intergation_bridge_unset
+              - {}
+              - neutron::agents::dhcp::ovs_integration_bridge: {get_param: NeutronDhcpOvsIntegrationBridge}
       service_config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, service_config_settings]
@@ -142,8 +219,8 @@ outputs:
       puppet_config:
         config_volume: neutron
         puppet_tags: neutron_config,neutron_dhcp_agent_config
-        step_config:
-          get_attr: [NeutronBase, role_data, step_config]
+        step_config: |
+          include tripleo::profile::base::neutron::dhcp
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/neutron_dhcp.json:
@@ -213,7 +290,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NeutronBase, role_data, config_settings, 'neutron::rabbit_port']}
+                          port: {get_param: RpcPort}
             ulimit: {get_param: DockerNeutronDHCPAgentUlimit}
             volumes:
               list_concat:
