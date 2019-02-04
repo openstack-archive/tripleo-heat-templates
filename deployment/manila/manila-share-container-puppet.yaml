@@ -48,17 +48,24 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  MonitoringSubscriptionManilaShare:
+    default: 'overcloud-manila-share'
+    type: string
+  ManilaPassword:
+    description: The password for the manila service account.
+    type: string
+    hidden: true
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
   ManilaBase:
-    type: ../../puppet/services/manila-share.yaml
+    type: ./manila-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -67,16 +74,26 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  ManilaCommon:
-    type: ./manila-common.yaml
+  ManilaShareCommon:
+    type: ./manila-share-common.yaml
 
 outputs:
   role_data:
     description: Role data for the Manila Share role.
     value:
-      service_name: {get_attr: [ManilaBase, role_data, service_name]}
-      config_settings: {get_attr: [ManilaBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [ManilaBase, role_data, service_config_settings]}
+      service_name: manila_share
+      monitoring_subscription: {get_param: MonitoringSubscriptionManilaShare}
+      config_settings:
+        map_merge:
+          - get_attr: [ManilaBase, role_data, config_settings]
+          - manila::volume::cinder::cinder_admin_tenant_name: 'service'
+            manila::keystone::authtoken::password: {get_param: ManilaPassword}
+            manila::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri]}
+            manila::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            manila::keystone::authtoken::project_name: 'service'
+      service_config_settings:
+        {get_attr: [ManilaBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: manila
@@ -84,7 +101,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [ManilaBase, role_data, step_config]}
+            - - "include ::tripleo::profile::base::manila::share"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerManilaConfigImage}
       kolla_config:
@@ -117,8 +134,8 @@ outputs:
             image: &manila_share_image {get_param: DockerManilaShareImage}
             net: host
             restart: always
-            volumes: {get_attr: [ManilaCommon, manila_share_volumes]}
-            environment: {get_attr: [ManilaCommon, manila_share_environment]}
+            volumes: {get_attr: [ManilaShareCommon, manila_share_volumes]}
+            environment: {get_attr: [ManilaShareCommon, manila_share_environment]}
       host_prep_tasks:
         - name: create persistent directories
           file:
