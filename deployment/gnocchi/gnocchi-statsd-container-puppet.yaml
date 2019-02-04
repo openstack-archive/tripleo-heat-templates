@@ -53,22 +53,25 @@ parameters:
     description: Path to use when file driver is used. This could be NFS or a
       flat file.
     type: string
+  MonitoringSubscriptionGnocchiStatsd:
+    default: 'overcloud-gnocchi-statsd'
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
-  GnocchiStatsdBase:
-    type: ../../puppet/services/gnocchi-statsd.yaml
+  GnocchiServiceBase:
+    type: ./gnocchi-base.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
@@ -76,9 +79,16 @@ outputs:
   role_data:
     description: Role data for the Gnocchi API role.
     value:
-      service_name: {get_attr: [GnocchiStatsdBase, role_data, service_name]}
-      config_settings: {get_attr: [GnocchiStatsdBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [GnocchiStatsdBase, role_data, service_config_settings]}
+      service_name: gnocchi_statsd
+      monitoring_subscription: {get_param: MonitoringSubscriptionGnocchiStatsd}
+      config_settings:
+        map_merge:
+          - get_attr: [GnocchiServiceBase, role_data, config_settings]
+          - tripleo::gnocchi_statsd::firewall_rules:
+              '140 gnocchi-statsd':
+                dport: 8125
+                proto: 'udp'
+      service_config_settings: {get_attr: [GnocchiServiceBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: gnocchi
@@ -86,7 +96,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [GnocchiStatsdBase, role_data, step_config]}
+            - - "include ::tripleo::profile::base::gnocchi::statsd"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerGnocchiConfigImage}
       kolla_config:
