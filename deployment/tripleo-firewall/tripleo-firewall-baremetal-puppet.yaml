@@ -56,8 +56,53 @@ outputs:
       step_config: |
         include ::tripleo::firewall
       upgrade_tasks:
-        - name: blank ipv6 rule before activating ipv6 firewall.
-          when: step|int == 3
-          shell: cat /etc/sysconfig/ip6tables > /etc/sysconfig/ip6tables.n-o-upgrade; cat</dev/null>/etc/sysconfig/ip6tables
-          args:
-            creates: /etc/sysconfig/ip6tables.n-o-upgrade
+        - when: step|int == 3
+          block:
+            - name: blank ipv6 rule before activating ipv6 firewall.
+              shell: cat /etc/sysconfig/ip6tables > /etc/sysconfig/ip6tables.n-o-upgrade; cat</dev/null>/etc/sysconfig/ip6tables
+              args:
+                creates: /etc/sysconfig/ip6tables.n-o-upgrade
+            - name: cleanup unmanaged rules pushed by iptables-services
+              shell: |
+                iptables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null && \
+                  iptables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+                iptables -C INPUT -p icmp -j ACCEPT &>/dev/null && \
+                  iptables -D INPUT -p icmp -j ACCEPT
+                iptables -C INPUT -i lo -j ACCEPT &>/dev/null && \
+                  iptables -D INPUT -i lo -j ACCEPT
+                iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT &>/dev/null && \
+                  iptables -D INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT
+                iptables -C INPUT -j REJECT --reject-with icmp-host-prohibited &>/dev/null && \
+                  iptables -D INPUT -j REJECT --reject-with icmp-host-prohibited
+                iptables -C FORWARD -j REJECT --reject-with icmp-host-prohibited &>/dev/null && \
+                  iptables -D FORWARD -j REJECT --reject-with icmp-host-prohibited
+
+                sed -i '/^-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT$/d' /etc/sysconfig/iptables
+                sed -i '/^-A INPUT -p icmp -j ACCEPT$/d' /etc/sysconfig/iptables
+                sed -i '/^-A INPUT -i lo -j ACCEPT$/d' /etc/sysconfig/iptables
+                sed -i '/^-A INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT$/d' /etc/sysconfig/iptables
+                sed -i '/^-A INPUT -j REJECT --reject-with icmp-host-prohibited$/d' /etc/sysconfig/iptables
+                sed -i '/^-A FORWARD -j REJECT --reject-with icmp-host-prohibited$/d' /etc/sysconfig/iptables
+
+                ip6tables -C INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null && \
+                  ip6tables -D INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+                ip6tables -C INPUT -p ipv6-icmp -j ACCEPT &>/dev/null && \
+                  ip6tables -D INPUT -p ipv6-icmp -j ACCEPT
+                ip6tables -C INPUT -i lo -j ACCEPT &>/dev/null && \
+                  ip6tables -D INPUT -i lo -j ACCEPT
+                ip6tables -C INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT &>/dev/null && \
+                  ip6tables -D INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT
+                ip6tables -C INPUT -d fe80::/64 -p udp -m udp --dport 546 -m state --state NEW -j ACCEPT &>/dev/null && \
+                  ip6tables -D INPUT -d fe80::/64 -p udp -m udp --dport 546 -m state --state NEW -j ACCEPT
+                ip6tables -C INPUT -j REJECT --reject-with icmp6-adm-prohibited &>/dev/null && \
+                  ip6tables -D INPUT -j REJECT --reject-with icmp6-adm-prohibited
+                ip6tables -C FORWARD -j REJECT --reject-with icmp6-adm-prohibited &>/dev/null && \
+                  ip6tables -D FORWARD -j REJECT --reject-with icmp6-adm-prohibited
+
+                sed -i '/^-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A INPUT -p ipv6-icmp -j ACCEPT$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A INPUT -i lo -j ACCEPT$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A INPUT -d fe80::\/64 -p udp -m udp --dport 546 -m state --state NEW -j ACCEPT$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A INPUT -j REJECT --reject-with icmp6-adm-prohibited$/d' /etc/sysconfig/ip6tables
+                sed -i '/^-A FORWARD -j REJECT --reject-with icmp6-adm-prohibited$/d' /etc/sysconfig/ip6tables
