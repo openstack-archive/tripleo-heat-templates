@@ -235,9 +235,6 @@ VALIDATE_PUPPET_OVERRIDE = {
   # qdr aliases rabbitmq service to provide alternative messaging backend
   './puppet/services/qdr.yaml': False,
   # puppet/services/messaging/*.yaml provide oslo_messaging services
-  './puppet/services/messaging/notify-rabbitmq-shared.yaml': False,
-  './puppet/services/messaging/notify-rabbitmq.yaml': False,
-  './puppet/services/messaging/rpc-rabbitmq.yaml': False,
   './puppet/services/messaging/rpc-qdrouterd.yaml': False,
 
 }
