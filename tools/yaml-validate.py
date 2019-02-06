@@ -224,14 +224,15 @@ PREFERRED_CAMEL_CASE = {
 # If a filename is not found in the overrides then the top level directory is
 # used to determine which validation method to use.
 VALIDATE_PUPPET_OVERRIDE = {
+  # deployment/rabbitmq/rabbitmq-messaging*.yaml provide oslo_messaging services
+  './deployment/rabbitmq/rabbitmq-messaging-notify-shared-puppet.yaml': False,
+  './deployment/rabbitmq/rabbitmq-messaging-notify-container-puppet.yaml': False,
+  './deployment/rabbitmq/rabbitmq-messaging-rpc-container-puppet.yaml': False,
   # docker/services/messaging/*.yaml provide oslo_messaging services
-  './docker/services/messaging/notify-rabbitmq-shared.yaml': False,
-  './docker/services/messaging/notify-rabbitmq.yaml': False,
-  './docker/services/messaging/rpc-rabbitmq.yaml': False,
   './docker/services/messaging/rpc-qdrouterd.yaml': False,
   # docker/services/pacemaker/*-rabbitmq.yaml provide oslo_messaging services
-  './docker/services/pacemaker/notify-rabbitmq.yaml': False,
-  './docker/services/pacemaker/rpc-rabbitmq.yaml': False,
+  './deployment/rabbitmq/rabbitmq-messaging-notify-pacemaker-puppet.yaml': False,
+  './deployment/rabbitmq/rabbitmq-messaging-rpc-pacemaker-puppet.yaml': False,
   # qdr aliases rabbitmq service to provide alternative messaging backend
   './puppet/services/qdr.yaml': False,
   # puppet/services/messaging/*.yaml provide oslo_messaging services
@@ -239,9 +240,9 @@ VALIDATE_PUPPET_OVERRIDE = {
 
 }
 VALIDATE_DOCKER_OVERRIDE = {
-  # docker/services/messaging/notify-rabbitmq-shared.yaml does not
+  # deployment/rabbitmq/rabbitmq-messaging-notify-shared-puppet.yaml does not
   # deploy container
-  './docker/services/messaging/notify-rabbitmq-shared.yaml': False,
+  './deployment/rabbitmq/rabbitmq-messaging-notify-shared-puppet.yaml': False,
 }
 DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::SoftwareDeploymentGroup',
