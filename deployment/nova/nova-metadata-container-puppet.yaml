@@ -48,40 +48,73 @@ parameters:
     default: false
     description: When true we create the NAT rule for the metadata service
     type: boolean
+  NovaWorkers:
+    default: 0
+    description: Number of workers for Nova services.
+    type: number
+  NovaPassword:
+    description: The password for the nova service and db account
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  NeutronMetadataProxySharedSecret:
+    description: Shared secret to prevent spoofing
+    type: string
+    hidden: true
+  MonitoringSubscriptionNovaMetadata:
+    default: 'overcloud-nova-metadata'
+    type: string
 
 conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   need_metadata_nat_rule: {equals: [{get_param: MetadataNATRule}, true]}
+  nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
+  is_neutron_shared_metadata_notempty: {not: {equals: [{get_param: NeutronMetadataProxySharedSecret}, '']}}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
-  NovaMetadataBase:
-    type: ../../puppet/services/nova-metadata.yaml
+  NovaMetadataLogging:
+    type: OS::TripleO::Services::Logging::NovaMetadata
+
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
-  NovaMetadataLogging:
-    type: OS::TripleO::Services::Logging::NovaMetadata
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Nova Metadata service.
     value:
-      service_name: {get_attr: [NovaMetadataBase, role_data, service_name]}
+      service_name: nova_metadata
       config_settings:
         map_merge:
-          - get_attr: [NovaMetadataBase, role_data, config_settings]
+          - get_attr: [NovaBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - get_attr: [NovaMetadataLogging, config_settings]
           - apache::default_vhost: false
           - tripleo::nova_metadata::firewall_rules:
@@ -98,14 +131,71 @@ outputs:
                   extras:
                     toports: 8775
               - {}
+          - tripleo::nova_placement::firewall_rules:
+              '139 nova_metadata':
+                dport:
+                  - 8775
+                  - 13775
+            nova::keystone::authtoken::project_name: 'service'
+            nova::keystone::authtoken::password: {get_param: NovaPassword}
+            nova::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            nova::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+            nova::metadata::enable_proxy_headers_parsing: true
+            nova_metadata_wsgi_enabled: true
+            nova::wsgi::apache_metadata::api_port: '8775'
+            nova::wsgi::apache_metadata::ssl: {get_param: EnableInternalTLS}
+            # NOTE: bind IP is found in Heat replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            nova::wsgi::apache_metadata::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
+            nova::wsgi::apache_metadata::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
+          -
+            if:
+            - nova_workers_zero
+            - {}
+            - nova::wsgi::apache_metadata::workers: {get_param: NovaWorkers}
+          -
+            if:
+            - is_neutron_shared_metadata_notempty
+            - nova::metadata::neutron_metadata_proxy_shared_secret: {get_param: NeutronMetadataProxySharedSecret}
+            - {}
       service_config_settings:
-        map_merge:
-          - get_attr: [NovaMetadataBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_nova_metadata:
-                - nova
-              tripleo_fluentd_sources_nova_metadata:
-                - {get_param: NovaMetadataLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_nova_metadata:
+            - nova
+          tripleo_fluentd_sources_nova_metadata:
+            - {get_param: NovaMetadataLoggingSource}
+        keystone:
+          nova::keystone::auth::tenant: 'service'
+          nova::keystone::auth::public_url: {get_param: [EndpointMap, NovaPublic, uri]}
+          nova::keystone::auth::internal_url: {get_param: [EndpointMap, NovaInternal, uri]}
+          nova::keystone::auth::admin_url: {get_param: [EndpointMap, NovaAdmin, uri]}
+          nova::keystone::auth::password: {get_param: NovaPassword}
+          nova::keystone::auth::region: {get_param: KeystoneRegion}
+        mysql:
+          map_merge:
+            - {get_attr: [NovaBase, role_data, service_config_settings, mysql]}
+            - nova::db::mysql_api::password: {get_param: NovaPassword}
+              nova::db::mysql_api::user: nova_api
+              nova::db::mysql_api::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+              nova::db::mysql_api::dbname: nova_api
+              nova::db::mysql_api::allowed_hosts:
+                - '%'
+                - "%{hiera('mysql_bind_host')}"
+      step_config: |
+        include tripleo::profile::base::nova::metadata
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova_metadata
@@ -113,7 +203,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaMetadataBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::metadata
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaMetadataConfigImage}
       kolla_config:
@@ -163,8 +253,6 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      metadata_settings:
-        get_attr: [NovaMetadataBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaMetadataLogging, host_prep_tasks]}
       post_upgrade_tasks:
         - when: step|int == 1
