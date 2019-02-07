@@ -409,6 +409,7 @@ def mp_puppet_config(*args):
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
                 '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
+                '--log-driver', 'json-file',
                 '--volume', '/etc/localtime:/etc/localtime:ro',
                 '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
@@ -422,6 +423,11 @@ def mp_puppet_config(*args):
                 '--volume', '/dev/log:/dev/log:rw']
         if privileged:
             common_dcmd.push('--privileged')
+
+        if container_cli == 'podman':
+            logging = ['--log-opt',
+                       'path=/var/log/containers/stdouts/%s.log' % uname]
+            common_dcmd.extend(logging)
 
 
         dcmd = common_dcmd + cli_dcmd
