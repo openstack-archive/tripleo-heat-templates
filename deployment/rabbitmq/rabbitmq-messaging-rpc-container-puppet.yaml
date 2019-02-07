@@ -48,141 +48,93 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
-  RabbitUserName:
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  RpcUserName:
     default: guest
-    description: The username for RabbitMQ
+    description: The username for messaging backend
     type: string
-  RabbitPassword:
-    description: The password for RabbitMQ
+  RpcPassword:
+    description: The password for messaging backend
     type: string
     hidden: true
-  RabbitFDLimit:
-    default: 65536
-    description: Configures RabbitMQ FD limit
-    type: number
-  RabbitIPv6:
+  RpcUseSSL:
     default: false
-    description: Enable IPv6 in RabbitMQ
-    type: boolean
-  RabbitCookie:
-    type: string
-    default: ''
-    hidden: true
-  RabbitHAQueues:
-    description:
-      The number of HA queues to be configured in rabbit. The default is -1 which
-      translates to "ha-mode all". The special value 0 will be automatically
-      overridden to CEIL(N/2) where N is the number of nodes running rabbitmq.
-    default: 0
-    type: number
-  RabbitNetTickTime:
-    description:
-      The number of seconds to configure the value of the erlang
-      net_ticktime kernel variable.
-    default: 15
-    type: number
-  RabbitAdditionalErlArgs:
-    description:
-      Additional parameters passed to the Erlang subsystem. The string
-      needs to be enclosed in quotes twice. We default to +sbwt none
-      in order to have the erlang vm be less busy on spinlocks, but
-      we allow a simple way of overriding it.
-    default: "'+sbwt none'"
-    type: string
-  MonitoringSubscriptionRabbitmq:
-    default: 'overcloud-rabbitmq'
+    description: >
+        Messaging client subscriber parameter to specify
+        an SSL connection to the messaging host.
     type: string
 
 conditions:
-
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
+
+  RabbitMQServiceBase:
+    type: ./rabbitmq-container-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Rabbitmq API role.
     value:
-      service_name: rabbitmq
-      monitoring_subscription: {get_param: MonitoringSubscriptionRabbitmq}
-      # RabbitMQ plugins initialization occurs on every node
+      service_name: oslo_messaging_rpc
+      monitoring_subscription: {get_attr: [RabbitMQServiceBase, role_data, monitoring_subscription]}
+      global_config_settings:
+        map_merge:
+          - get_attr: [RabbitMQServiceBase, role_data, global_config_settings]
+          - oslo_messaging_rpc_scheme: rabbit
+            oslo_messaging_rpc_user_name: {get_param: RpcUserName}
+            oslo_messaging_rpc_password: {get_param: RpcPassword}
+            oslo_messaging_rpc_use_ssl: {get_param: RpcUseSSL}
+            oslo_messaging_rpc_port: {get_param: RpcPort }
       config_settings:
         map_merge:
-          -
-            rabbitmq::file_limit: {get_param: RabbitFDLimit}
-            rabbitmq::default_user: {get_param: RabbitUserName}
-            rabbitmq::default_pass: {get_param: RabbitPassword}
-            rabbit_ipv6: {get_param: RabbitIPv6}
-            tripleo::rabbitmq::firewall_rules:
+          - get_attr: [RabbitMQServiceBase, role_data, config_settings]
+          - rabbitmq::default_user: {get_param: RpcUserName}
+            rabbitmq::default_pass: {get_param: RpcPassword}
+            tripleo::oslo_messaging_rpc::firewall_rules:
               '109 rabbitmq':
                 dport:
                   - 4369
-                  - 5672
+                  - {get_param: RpcPort}
                   - 25672
-            rabbitmq::delete_guest_user: false
-            rabbitmq::wipe_db_on_cookie_change: true
-            rabbitmq::port: 5672
-            rabbitmq::package_provider: yum
-            rabbitmq::package_source: undef
-            rabbitmq::repos_ensure: false
-            rabbitmq::tcp_keepalive: true
-            rabbitmq_environment:
-              NODE_PORT: ''
-              NODE_IP_ADDRESS: ''
-              RABBITMQ_NODENAME: "rabbit@%{::hostname}"
-              RABBITMQ_SERVER_ERL_ARGS: '"+K true +P 1048576 -kernel inet_default_connect_options [{nodelay,true}]"'
-              RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: {get_param: RabbitAdditionalErlArgs}
-              'export ERL_EPMD_ADDRESS': "%{hiera('rabbitmq::interface')}"
-            rabbitmq_kernel_variables:
-              inet_dist_listen_min: '25672'
-              inet_dist_listen_max: '25672'
-              net_ticktime: {get_param: RabbitNetTickTime}
-            rabbitmq_config_variables:
-              cluster_partition_handling: 'ignore'
-              queue_master_locator: '<<"min-masters">>'
-              loopback_users: '[]'
-            rabbitmq::erlang_cookie:
-              yaql:
-                expression: $.data.passwords.where($ != '').first()
-                data:
-                  passwords:
-                    - {get_param: RabbitCookie}
-                    - {get_param: [DefaultPasswords, rabbit_cookie]}
-            # NOTE: bind IP is found in hiera replacing the network name with the
-            # local node IP for the given network; replacement examples
-            # (eg. for internal_api):
-            # internal_api -> IP
-            # internal_api_uri -> [IP]
-            # internal_api_subnet - > IP/CIDR
+            rabbitmq::port: {get_param: RpcPort}
             rabbitmq::interface:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
-                  $NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
-            rabbitmq::nr_ha_queues: {get_param: RabbitHAQueues}
+                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
             rabbitmq::ssl: {get_param: EnableInternalTLS}
             rabbitmq::ssl_erl_dist: {get_param: EnableInternalTLS}
-            rabbitmq::ssl_port: 5672
-            rabbitmq::ssl_depth: 1
+            rabbitmq::ssl_port: {get_param: RpcPort}
             rabbitmq::ssl_only: {get_param: EnableInternalTLS}
             rabbitmq::ssl_interface:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
-                  $NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
-            # TODO(jaosorior): Remove this once we set a proper default in
-            # puppet-tripleo
+                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
             tripleo::profile::base::rabbitmq::enable_internal_tls: {get_param: EnableInternalTLS}
+            rabbitmq::admin_enable: false
           -
             if:
             - internal_tls_enabled
             - generate_service_certificates: true
               tripleo::rabbitmq::service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+              tripleo::certmonger::rabbitmq::postsave_cmd: "true" # TODO: restart the rabbitmq container here
               tripleo::profile::base::rabbitmq::certificate_specs:
                 service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
                 service_key: '/etc/pki/tls/private/rabbitmq.key'
@@ -190,18 +142,13 @@ outputs:
                   str_replace:
                     template: "%{hiera('fqdn_NETWORK')}"
                     params:
-                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
                 principal:
                   str_replace:
                     template: "rabbitmq/%{hiera('fqdn_NETWORK')}"
                     params:
-                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
                 postsave_cmd: "/usr/bin/certmonger-rabbitmq-refresh.sh"
-            - {}
-          - rabbitmq::admin_enable: false
-          - if:
-            - internal_tls_enabled
-            - tripleo::certmonger::rabbitmq::postsave_cmd: "true" # TODO: restart the rabbitmq container here
             - {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -246,7 +193,7 @@ outputs:
             privileged: false
             user: root
             volumes:
-              - /var/log/containers/rabbitmq:/var/log/rabbitmq
+              - /var/log/containers/rabbitmq:/var/log/rabbitmq:z
             command: ['/bin/bash', '-c', 'chown -R rabbitmq:rabbitmq /var/log/rabbitmq']
           rabbitmq_bootstrap:
             start_order: 1
@@ -260,8 +207,8 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/rabbitmq/:/var/lib/kolla/config_files/src:ro
-                  - /var/lib/rabbitmq:/var/lib/rabbitmq
-                  - /var/log/containers/rabbitmq:/var/log/rabbitmq
+                  - /var/lib/rabbitmq:/var/lib/rabbitmq:z
+                  - /var/log/containers/rabbitmq:/var/log/rabbitmq:z
                 - if:
                   - internal_tls_enabled
                   -
@@ -325,13 +272,13 @@ outputs:
           config_image: *rabbitmq_config_image
           volumes:
             - /var/lib/config-data/rabbitmq/etc/rabbitmq/:/etc/rabbitmq/:ro
-            - /var/lib/rabbitmq:/var/lib/rabbitmq
+            - /var/lib/rabbitmq:/var/lib/rabbitmq:z
       metadata_settings:
         if:
           - internal_tls_enabled
           -
             - service: rabbitmq
-              network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+              network: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
               type: node
           - null
       host_prep_tasks:
@@ -351,7 +298,6 @@ outputs:
               Log files from rabbitmq containers can be found under
               /var/log/containers/rabbitmq.
           ignore_errors: true
-      # TODO: Removal of package
       upgrade_tasks: []
       update_tasks:
         # TODO: Are we sure we want to support this.  Rolling update

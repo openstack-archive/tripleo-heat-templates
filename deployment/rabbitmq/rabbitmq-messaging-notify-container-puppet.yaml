@@ -48,23 +48,22 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
-  RpcPort:
+  NotifyPort:
     default: 5672
-    description: The network port for messaging backend
+    description: The network port for messaging Notify backend
     type: number
-  RpcUserName:
+  NotifyUserName:
     default: guest
-    description: The username for messaging backend
+    description: The username for messaging Notifications
     type: string
-  RpcPassword:
-    description: The password for messaging backend
+  NotifyPassword:
+    description: The password for messaging Notifications
     type: string
     hidden: true
-  RpcUseSSL:
+  NotifyUseSSL:
     default: false
-    description: >
-        Messaging client subscriber parameter to specify
-        an SSL connection to the messaging host.
+    description: Messaging Notification client subscriber parameter to specify
+                 an SSL connection to the messaging host.
     type: string
 
 conditions:
@@ -73,10 +72,10 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   RabbitMQServiceBase:
-    type: ../rabbitmq.yaml
+    type: ./rabbitmq-container-puppet.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -89,44 +88,45 @@ outputs:
   role_data:
     description: Role data for the Rabbitmq API role.
     value:
-      service_name: oslo_messaging_rpc
+      service_name: oslo_messaging_notify
       monitoring_subscription: {get_attr: [RabbitMQServiceBase, role_data, monitoring_subscription]}
+      # RabbitMQ plugins initialization occurs on every node
       global_config_settings:
         map_merge:
           - get_attr: [RabbitMQServiceBase, role_data, global_config_settings]
-          - oslo_messaging_rpc_scheme: rabbit
-            oslo_messaging_rpc_user_name: {get_param: RpcUserName}
-            oslo_messaging_rpc_password: {get_param: RpcPassword}
-            oslo_messaging_rpc_use_ssl: {get_param: RpcUseSSL}
-            oslo_messaging_rpc_port: {get_param: RpcPort }
+          - oslo_messaging_notify_scheme: rabbit
+            oslo_messaging_notify_user_name: {get_param: NotifyUserName}
+            oslo_messaging_notify_password: {get_param: NotifyPassword}
+            oslo_messaging_notify_use_ssl: {get_param: NotifyUseSSL}
+            oslo_messaging_notify_port: {get_param: NotifyPort}
       config_settings:
         map_merge:
           - get_attr: [RabbitMQServiceBase, role_data, config_settings]
-          - rabbitmq::default_user: {get_param: RpcUserName}
-            rabbitmq::default_pass: {get_param: RpcPassword}
-            tripleo::oslo_messaging_rpc::firewall_rules:
+          - rabbitmq::default_user: {get_param: NotifyUserName}
+            rabbitmq::default_pass: {get_param: NotifyPassword}
+            tripleo::oslo_messaging_notify::firewall_rules:
               '109 rabbitmq':
                 dport:
                   - 4369
-                  - {get_param: RpcPort}
+                  - {get_param: NotifyPort}
                   - 25672
-            rabbitmq::port: {get_param: RpcPort}
+            rabbitmq::port: {get_param: NotifyPort}
             rabbitmq::interface:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
-                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
             rabbitmq::ssl: {get_param: EnableInternalTLS}
             rabbitmq::ssl_erl_dist: {get_param: EnableInternalTLS}
-            rabbitmq::ssl_port: {get_param: RpcPort}
+            rabbitmq::ssl_port: {get_param: NotifyPort}
             rabbitmq::ssl_only: {get_param: EnableInternalTLS}
             rabbitmq::ssl_interface:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
-                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                  $NETWORK: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
             tripleo::profile::base::rabbitmq::enable_internal_tls: {get_param: EnableInternalTLS}
             rabbitmq::admin_enable: false
           -
@@ -142,12 +142,12 @@ outputs:
                   str_replace:
                     template: "%{hiera('fqdn_NETWORK')}"
                     params:
-                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
                 principal:
                   str_replace:
                     template: "rabbitmq/%{hiera('fqdn_NETWORK')}"
                     params:
-                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                      NETWORK: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
                 postsave_cmd: "/usr/bin/certmonger-rabbitmq-refresh.sh"
             - {}
       # BEGIN DOCKER SETTINGS
@@ -278,7 +278,7 @@ outputs:
           - internal_tls_enabled
           -
             - service: rabbitmq
-              network: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+              network: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
               type: node
           - null
       host_prep_tasks:
