@@ -7,16 +7,23 @@
       setup:
         gather_subset: "!min,python"
       when: ansible_python is not defined
+      tags:
+        - container_config_tasks
 
     - name: set python_cmd
       set_fact:
         python_cmd: "python{{ ansible_python.version.major }}"
         cacheable: true
       when: python_cmd is not defined
+      tags:
+        - container_config_tasks
+
 
     - name: print python facts
       debug:
         msg: "python_cmd: {{ python_cmd }}"
+      tags:
+        - container_config_tasks
 
     - name: Write config data at the start of step 1
       when: step == "1"
@@ -301,33 +308,6 @@
           tags:
             - container_startup_configs
 
-        ########################################################
-        # Bootstrap tasks, only performed on bootstrap_server_id
-        ########################################################
-
-        - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
-          file:
-            path: "{{ item }}"
-            state: absent
-          with_fileglob:
-            - /var/lib/docker-puppet/docker-puppet-tasks*.json
-          when: deploy_server_id == bootstrap_server_id
-          tags:
-            - container_config_tasks
-
-        - name: Write docker-puppet-tasks json files
-          copy:
-            content: "{{item[1]|to_nice_json}}"
-            dest: /var/lib/docker-puppet/docker-puppet-tasks{{item[0].replace("step_", "")}}.json
-            force: yes
-            mode: '0600'
-          loop: "{{ lookup('file', tripleo_role_name + '/docker_puppet_tasks.yaml', errors='ignore') | default({}, True) | from_yaml | dictsort }}"
-          loop_control:
-            label: "{{ item[0] }}"
-          when: deploy_server_id == bootstrap_server_id
-          tags:
-            - container_config_tasks
-
     #####################################################
     # Per step puppet configuration of the baremetal host
     #####################################################
@@ -507,15 +487,35 @@
         - container_startup_configs
 
     ########################################################
-    # Bootstrap tasks, only performed on bootstrap_server_id
+    # Bootstrap tasks - run any tasks that have been defined
     ########################################################
 
-    - name: Check if /var/lib/docker-puppet/docker-puppet-tasks{{ step }}.json exists
-      stat:
-        path: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet-tasks{{ step }}.json
-      register: docker_puppet_tasks_json
+    - name: "Clean docker_puppet_tasks for {{ansible_hostname}} step {{step}}"
+      file:
+        path: /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json
+        state: absent
       tags:
         - container_config_tasks
+
+    - name: Calculate docker_puppet_tasks for {{ansible_hostname}} step {{step}}
+      set_fact:
+        host_docker_puppet_tasks: "{{host_docker_puppet_tasks|default([]) + [item]}}"
+      loop: "{{docker_puppet_tasks.get('step_' + step, [])}}"
+      when: vars[item.service_name + '_short_bootstrap_node_name'] == ansible_hostname
+      vars:
+        docker_puppet_tasks: "{{ lookup('file', tripleo_role_name + '/docker_puppet_tasks.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+      tags:
+        - container_config_tasks
+
+    - name: Write docker-puppet-tasks json file for {{ansible_hostname}} step {{step}}
+      copy:
+        content: "{{host_docker_puppet_tasks|to_nice_json}}"
+        dest: "/var/lib/docker-puppet/docker-puppet-tasks{{step}}.json"
+        force: yes
+        mode: '0600'
+      tags:
+        - container_config_tasks
+      when: host_docker_puppet_tasks is defined
 
     - name: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}
       shell: "{{ python_cmd }} /var/lib/docker-puppet/docker-puppet.py"
@@ -528,9 +528,7 @@
         CONTAINER_CLI: "{{ container_cli }}"
         DEBUG: "{{ docker_puppet_debug }}"
         MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet}}'
-      when:
-        - deploy_server_id == bootstrap_server_id
-        - docker_puppet_tasks_json.stat.exists
+      when: host_docker_puppet_tasks is defined
       changed_when: false
       register: outputs
       failed_when: false
