@@ -47,10 +47,10 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   RedisBase:
-    type: ../../../puppet/services/database/redis.yaml
+    type: ./redis-base-puppet.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -61,13 +61,49 @@ outputs:
   role_data:
     description: Role data for the Redis API role.
     value:
-      service_name: {get_attr: [RedisBase, role_data, service_name]}
+      service_name: redis
       config_settings:
         map_merge:
           - {get_attr: [RedisBase, role_data, config_settings]}
           - redis::daemonize: false
             tripleo::stunnel::manage_service: false
             tripleo::stunnel::foreground: 'yes'
+          - tripleo::redis::firewall_rules:
+              '108 redis':
+                dport:
+                  - 6379
+                  - 26379
+            tripleo::profile::base::database::redis::tls_proxy_bind_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+            tripleo::profile::base::database::redis::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+            tripleo::profile::base::database::redis::tls_proxy_port: 6379
+          - if:
+            - internal_tls_enabled
+            - tripleo::redis::service_certificate: '/etc/pki/tls/certs/redis.crt'
+              redis_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/redis.crt'
+                service_key: '/etc/pki/tls/private/redis.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('cloud_name_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+                principal:
+                  str_replace:
+                    template: "redis/%{hiera('cloud_name_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-redis-refresh.sh"
+            - {}
       service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -77,7 +113,10 @@ outputs:
         # https://github.com/arioch/puppet-redis/commit/1c004143223e660cbd433422ff8194508aab9763
         puppet_tags: 'exec'
         step_config:
-          get_attr: [RedisBase, role_data, step_config]
+          list_join:
+            - "\n"
+            - - include ::tripleo::profile::base::database::redis
+              - {get_attr: [RedisBase, role_data, step_config]}
         config_image: {get_param: DockerRedisConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/redis.json:
@@ -155,6 +194,13 @@ outputs:
                 - {}
       metadata_settings:
         get_attr: [RedisBase, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            - service: redis
+              network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+              type: vip
+          - null
       host_prep_tasks:
         - name: create persistent directories
           file:
