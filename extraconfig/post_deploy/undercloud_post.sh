@@ -129,10 +129,10 @@ if [ "$(hiera mistral_api_enabled)" = "true" ]; then
     openstack cron trigger create publish-ui-logs-hourly tripleo.plan_management.v1.publish_ui_logs_to_swift --pattern '0 * * * *'
     echo Mistral workbooks configured successfully.
 
-  # Store the SNMP password in a mistral environment
+  # Store the SNMP and MySQL password in a mistral environment
   if ! openstack workflow env show tripleo.undercloud-config >/dev/null 2>&1; then
       TMP_MISTRAL_ENV=$(mktemp)
-      echo "{\"name\": \"tripleo.undercloud-config\", \"variables\": {\"undercloud_ceilometer_snmpd_password\": \"$snmp_readonly_user_password\"}}" > $TMP_MISTRAL_ENV
+      echo "{\"name\": \"tripleo.undercloud-config\", \"variables\": {\"undercloud_ceilometer_snmpd_password\": \"$snmp_readonly_user_password\", \"undercloud_db_password\": \"$undercloud_db_password\"}}" > $TMP_MISTRAL_ENV
       echo Configure Mistral environment with undercloud-config
       openstack workflow env create $TMP_MISTRAL_ENV
   fi
