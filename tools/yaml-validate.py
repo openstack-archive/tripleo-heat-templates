@@ -258,7 +258,6 @@ CONFIG_RESOURCE_TYPES = [
     'OS::Heat::StructuredConfig'
 ]
 
-VALID_ANSIBLE_UPGRADE_TAGS = [ 'common', 'validation', 'pre-upgrade' ]
 WORKFLOW_TASKS_EXCLUSIONS = [
     './docker/services/octavia/octavia-deployment-config.yaml',
     './docker/services/ceph-ansible/ceph-external.yaml',
@@ -1184,21 +1183,15 @@ def validate_upgrade_tasks(upgrade_tasks):
 
     for task in upgrade_tasks:
         task_name = task.get("name", "")
-        if task.get("tags"):
-            if (task["tags"] not in VALID_ANSIBLE_UPGRADE_TAGS):
-                print('ERROR: Task (%s) includes unexpected \'tags: (%s)\' ' % (task_name, task["tags"]))
-                return 1
+        whenline = task.get("when", "")
+        if (type(whenline) == list):
+            if any('step|int ' in condition for condition in whenline) and ('step|int == ' not in whenline[0]):
+                    print('ERROR: \'step|int ==\' condition should be evaluated first in when conditions for task (%s)'  % (task))
+                    return 1
         else:
-
-            whenline = task.get("when", "")
-            if (type(whenline) == list):
-                if any('step|int ' in condition for condition in whenline) and ('step|int == ' not in whenline[0]):
-                        print('ERROR: \'step|int ==\' condition should be evaluated first in when conditions for task (%s)'  % (task))
-                        return 1
-            else:
-                if (' and ' in whenline) and (' or ' not in whenline) \
-                        and args.quiet < 2:
-                    print("Warning: Consider specifying \'and\' conditions as a list to improve readability in task: \"%s\"" %  (task_name))
+            if (' and ' in whenline) and (' or ' not in whenline) \
+                    and args.quiet < 2:
+                print("Warning: Consider specifying \'and\' conditions as a list to improve readability in task: \"%s\"" %  (task_name))
     return 0
 
 def validate_network_data_file(data_file_path):
