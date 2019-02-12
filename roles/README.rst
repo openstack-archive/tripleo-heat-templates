@@ -161,7 +161,6 @@ Example
    * OS::TripleO::Services::ComputeNeutronL3Agent
    * OS::TripleO::Services::ComputeNeutronMetadataAgent
    * OS::TripleO::Services::ComputeNeutronOvsAgent
-   * OS::TripleO::Services::Docker
    * OS::TripleO::Services::Iscsid
    * OS::TripleO::Services::Kernel
    * OS::TripleO::Services::MySQLClient
