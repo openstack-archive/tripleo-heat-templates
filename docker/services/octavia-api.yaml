@@ -109,7 +109,7 @@ outputs:
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
-          command: /usr/bin/octavia-api --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/api.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-api
+          command: /usr/sbin/httpd -DFOREGROUND
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -119,13 +119,6 @@ outputs:
             - path: /var/log/octavia
               owner: octavia:octavia
               recurse: true
-        /var/lib/kolla/config_files/octavia_api_tls_proxy.json:
-          command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
-            - source: "/var/lib/kolla/config_files/src/*"
-              dest: "/"
-              merge: true
-              preserve_properties: true
       docker_puppet_tasks:
         step_5:
           config_volume: octavia
@@ -177,6 +170,7 @@ outputs:
                 net: host
                 privileged: false
                 restart: always
+                user: root
                 healthcheck:
                   test: /openstack/healthcheck
                 volumes:
@@ -185,29 +179,20 @@ outputs:
                     -
                       - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
-                      - /var/log/containers/octavia:/var/log/octavia
-                      - /var/log/containers/httpd/octavia-api:/var/log/httpd
+                      - /var/log/containers/octavia:/var/log/octavia:z
+                      - /var/log/containers/httpd/octavia-api:/var/log/httpd:z
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - ''
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                          - ''
                 environment:
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-            - if:
-                - internal_tls_enabled
-                - octavia_api_tls_proxy:
-                    start_order: 2
-                    image: *octavia_api_image
-                    net: host
-                    user: root
-                    restart: always
-                    volumes:
-                      list_concat:
-                        - {get_attr: [ContainersCommon, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/octavia_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                          - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
-                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    environment:
-                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-                - {}
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -225,6 +210,14 @@ outputs:
               Log files from octavia containers can be found under
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
+      update_tasks:
+        - name: remove TLS proxy if configured and running
+          when:
+            - step|int == 2
+            - internal_tls_enabled|bool
+          docker:
+            name: octavia_api_tls_proxy
+            state: absent
       upgrade_tasks:
         - when: step|int == 0
           tags: common
@@ -272,5 +265,10 @@ outputs:
                 - octavia_api_httpd_enabled|bool
                 - httpd_running|bool
               service: name=httpd state=stopped
+            - name: remove TLS proxy if configured and running
+              when: internal_tls_enabled|bool
+              docker:
+                name: octavia_api_tls_proxy
+                state: absent
       metadata_settings:
         get_attr: [OctaviaApiPuppetBase, role_data, metadata_settings]
