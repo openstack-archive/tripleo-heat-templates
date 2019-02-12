@@ -64,21 +64,7 @@ parameters:
     type: boolean
     default: false
 
-conditions:
-  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
-
 resources:
-
-  TLSProxyBase:
-    type: OS::TripleO::Services::TLSProxyBase
-    properties:
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-      EnableInternalTLS: {get_param: EnableInternalTLS}
 
   OctaviaBase:
     type: ./octavia-base.yaml
@@ -110,14 +96,16 @@ outputs:
         map_merge:
           - get_attr: [OctaviaBase, role_data, config_settings]
           - get_attr: [OctaviaController, role_data, config_settings]
-          - octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-          - get_attr: [TLSProxyBase, role_data, config_settings]
+          - octavia::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
             octavia::policy::policies: {get_param: OctaviaApiPolicies}
             octavia::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             octavia::keystone::authtoken::project_name: {get_param: OctaviaProjectName}
             octavia::keystone::authtoken::password: {get_param: OctaviaPassword}
             octavia::api::sync_db: true
-            tripleo.octavia_api.firewall_rules:
+            octavia::api::service_name: 'httpd'
+            octavia::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            tripleo::octavia_api::firewall_rules:
               '120 octavia api':
                 dport:
                   - 9876
@@ -127,27 +115,24 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            tripleo::profile::base::octavia::api::tls_proxy_bind_ip:
+            octavia::wsgi::apache::bind_host:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
-            tripleo::profile::base::octavia::api::tls_proxy_fqdn:
+            octavia::wsgi::apache::server_name:
               str_replace:
                 template:
                   "%{hiera('fqdn_$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
-            tripleo::profile::base::octavia::api::tls_proxy_port:
-              get_param: [EndpointMap, OctaviaInternal, port]
-            # Bind to localhost if internal TLS is enabled, since we put a TLS
-            # proxy in front.
             octavia::api::host:
-              if:
-              - use_tls_proxy
-              - '127.0.0.1'
-              - {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
       step_config: |
         include tripleo::profile::base::octavia::api
       service_config_settings:
@@ -171,5 +156,3 @@ outputs:
           octavia::db::mysql::allowed_hosts:
             - '%'
             - "%{hiera('mysql_bind_host')}"
-      metadata_settings:
-        get_attr: [TLSProxyBase, role_data, metadata_settings]
