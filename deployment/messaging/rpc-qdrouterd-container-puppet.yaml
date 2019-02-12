@@ -36,43 +36,70 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  RpcUserName:
+    default: guest
+    description: The username for messaging backend
+    type: string
+  RpcPassword:
+    description: The password for messaging backend
+    type: string
+    hidden: true
+  RpcUseSSL:
+    default: false
+    description: >
+        Messaging client subscriber parameter to specify
+        an SSL connection to the messaging host.
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ../containers-common.yaml
-
-  QdrouterdBase:
-    type: ../../../puppet/services/messaging/rpc-qdrouterd.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
     description: Role data for the qdrouterd service.
     value:
-      service_name: {get_attr: [QdrouterdBase, role_data, service_name]}
-      global_config_settings: {get_attr: [QdrouterdBase, role_data, global_config_settings]}
+      service_name: oslo_messaging_rpc
+      global_config_settings:
+        oslo_messaging_rpc_scheme: amqp
+        oslo_messaging_rpc_user_name: {get_param: RpcUserName}
+        oslo_messaging_rpc_password: {get_param: RpcPassword}
+        oslo_messaging_rpc_use_ssl: {get_param: RpcUseSSL}
+        oslo_messaging_rpc_port: {get_param: RpcPort}
+        messaging_notify_service_name: 'amqp'
+        messaging_rpc_service_name: 'amqp'
+        keystone::messaging::amqp::amqp_pre_settled: 'notify'
       config_settings:
-        map_merge:
-          - {get_attr: [QdrouterdBase, role_data, config_settings]}
-          - tripleo::oslo_messaging_rpc::firewall_rules:
-              '109 qdrouterd':
-                dport:
-                  - 5672
-                  - 31459
-                  - 31460
-      service_config_settings: {get_attr: [QdrouterdBase, role_data, service_config_settings]}
+        tripleo::oslo_messaging_rpc::firewall_rules:
+          '109 qdrouterd':
+            dport:
+              - {get_param: RpcPort}
+              - 31459
+              - 31460
+        qdr::listener_addr:
+          str_replace:
+            template:
+              "%{hiera('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+        tripleo::profile::base::qdr::qdr_listener_port: {get_param: RpcPort}
+        tripleo::profile::base::qdr::qdr_username: {get_param: RpcUserName}
+        tripleo::profile::base::qdr::qdr_password: {get_param: RpcPassword}
+        tripleo::rabbitmq::firewall_rules:
+          '109 qdr':
+            dport:
+              - {get_param: RpcPort}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: qdrouterd
-        step_config:
-          get_attr: [QdrouterdBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::qdr
         config_image: {get_param: DockerQdrouterdConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/qdrouterd.json:
@@ -124,8 +151,7 @@ outputs:
         with_items:
           - { 'path': /var/log/containers/qdrouterd, 'setype': svirt_sandbox_file_t }
           - { 'path': /var/lib/qdrouterd, 'setype': svirt_sandbox_file_t }
-      metadata_settings:
-        get_attr: [QdrouterdBase, role_data, metadata_settings]
+      metadata_settings: {}
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:

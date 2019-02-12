@@ -229,7 +229,7 @@ VALIDATE_PUPPET_OVERRIDE = {
   './deployment/rabbitmq/rabbitmq-messaging-notify-container-puppet.yaml': False,
   './deployment/rabbitmq/rabbitmq-messaging-rpc-container-puppet.yaml': False,
   # docker/services/messaging/*.yaml provide oslo_messaging services
-  './docker/services/messaging/rpc-qdrouterd.yaml': False,
+  './deployment/messaging/rpc-qdrouterd-container-puppet.yaml': False,
   # docker/services/pacemaker/*-rabbitmq.yaml provide oslo_messaging services
   './deployment/rabbitmq/rabbitmq-messaging-notify-pacemaker-puppet.yaml': False,
   './deployment/rabbitmq/rabbitmq-messaging-rpc-pacemaker-puppet.yaml': False,
