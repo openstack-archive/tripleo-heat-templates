@@ -131,6 +131,9 @@ parameters:
 resources:
   {{network.name}}Network:
     type: OS::Neutron::Net
+{%- if network.external_resource_network_id|default('') %}
+    external_id: {{ network.external_resource_network_id }}
+{%- endif %}
     properties:
       admin_state_up: {get_param: {{network.name}}NetAdminStateUp}
       name: {get_param: {{network.name}}NetName}
@@ -142,6 +145,9 @@ resources:
 
   {{network.name}}Subnet:
     type: OS::Neutron::Subnet
+{%- if network.external_resource_subnet_id|default('') %}
+    external_id: {{ network.external_resource_subnet_id }}
+{%- endif %}
     properties:
 {%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
       ip_version: 6
@@ -160,20 +166,29 @@ resources:
       # All networks have an implicit network segment when created, map this subnet to that segment.
       segment: {get_attr: [{{network.name}}Network, segments, 0, id]}
 {%- endif %}
+
 {% for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
   {{network.name}}Segment_{{subnet}}:
     type: OS::Neutron::Segment
     # NOTE(hjensas): Depends-On here to ensure we always create the base subnet
     #   first. We can only set the segment for existing subnet if there is only
     #   one segment and only one existing subnet on the network.
+{%- if subnet.external_resource_segment_id|default('') %}
+    external_id: {{ subnet.external_resource_segment_id }}
+{%- else %}
     depends_on: {{network.name}}Subnet
+{%- endif %}
     properties:
       name: {{network.name_lower}}_{{subnet}}
       network: {get_resource: {{network.name}}Network}
       network_type: flat
       physical_network: {{network.name_lower}}_{{subnet}}
+
   {{network.name}}Subnet_{{subnet}}:
     type: OS::Neutron::Subnet
+{%- if subnet.external_resource_subnet_id|default('') %}
+    external_id: {{ subnet.external_resource_subnet_id }}
+{%- endif %}
     properties:
 {%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
       ip_version: 6
