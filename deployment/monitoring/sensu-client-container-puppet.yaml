@@ -74,6 +74,19 @@ parameters:
     description: CLI tool used to manage containers.
     constraints:
       - allowed_values: ['docker', 'podman']
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+  KeystoneRegion:
+    default: 'regionOne'
+    description: Keystone region for endpoint
+    type: string
+  SensuClientCustomConfig:
+    default: {}
+    description: Hash containing custom sensu-client variables.
+    type: json
+    label: Custom configuration for Sensu Client variables
 
 conditions:
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
@@ -82,23 +95,36 @@ resources:
   ContainersCommon:
     type: ./containers-common.yaml
 
-  SensuClientBase:
-    type: ../../puppet/services/monitoring/sensu-client.yaml
+  SensuBase:
+    type: ./sensu-base.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
-
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Sensu client role.
     value:
-      service_name: {get_attr: [SensuClientBase, role_data, service_name]}
+      service_name: sensu_client
       config_settings:
         map_merge:
-          - get_attr: [SensuClientBase, role_data, config_settings]
+          - get_attr: [SensuBase, role_data, config_settings]
+          - sensu::api: false
+            sensu::client: true
+            sensu::server: false
+            sensu::client_custom:
+              map_merge:
+                - {get_param: SensuClientCustomConfig}
+                - openstack:
+                    username: 'admin'
+                    password: {get_param: AdminPassword}
+                    auth_url: {get_param: [EndpointMap, KeystoneInternal, uri]}
+                    tenant_name: 'admin'
+                    region: {get_param: KeystoneRegion}
           - sensu::checks:
               check-docker-health:
                 standalone: true
@@ -107,13 +133,12 @@ outputs:
                 handlers: {get_param: SensuDockerCheckHandlers}
                 occurrences: {get_param: SensuDockerCheckOccurrences}
                 refresh: {get_param: SensuDockerCheckRefresh}
-      service_config_settings: {get_attr: [SensuClientBase, role_data, service_config_settings]}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: sensu
         puppet_tags:  sensu_rabbitmq_config,sensu_client_config,sensu_check_config,sensu_check
-        step_config:
-          get_attr: [SensuClientBase, role_data, step_config]
+        step_config: include ::tripleo::profile::base::monitoring::sensu
         config_image: {get_param: DockerSensuConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/sensu-client.json:
@@ -147,9 +172,11 @@ outputs:
                         expression: >
                           switch(bool($.data.cluster) => $.data.cluster, bool($.data.single_node) => $.data.single_node).select($.port).distinct().join(' ')
                         data:
-                          cluster: {get_attr: [SensuClientBase, role_data, config_settings, 'sensu::rabbitmq_cluster']}
-                          single_node: [{port: {get_attr: [SensuClientBase, role_data, config_settings, 'sensu::rabbitmq_port']}}]
+                          cluster: {get_attr: [SensuBase, role_data, config_settings, 'sensu::rabbitmq_cluster']}
+                          single_node: [{port: {get_attr: [SensuBase, role_data, config_settings, 'sensu::rabbitmq_port']}}]
             volumes:
+
+
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
