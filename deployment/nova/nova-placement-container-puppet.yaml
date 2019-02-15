@@ -48,50 +48,127 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  NovaWorkers:
+    default: 0
+    description: Number of workers for Nova services.
+    type: number
+  NovaPassword:
+    description: The password for the nova service and db account
+    type: string
+    hidden: true
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionNovaPlacement:
+    default: 'overcloud-nova-placement'
+    type: string
 
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
     type: ../../deployment/database/mysql-client.yaml
 
-  NovaPlacementBase:
-    type: ../../puppet/services/nova-placement.yaml
+  NovaPlacementLogging:
+    type: OS::TripleO::Services::Logging::NovaPlacement
+
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
-  NovaPlacementLogging:
-    type: OS::TripleO::Services::Logging::NovaPlacement
+  NovaBase:
+    type: ../../puppet/services/nova-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
     description: Role data for the Nova Placement API role.
     value:
-      service_name: {get_attr: [NovaPlacementBase, role_data, service_name]}
+      service_name: nova_placement
       config_settings:
         map_merge:
-          - get_attr: [NovaPlacementBase, role_data, config_settings]
+          - get_attr: [NovaBase, role_data, config_settings]
           - get_attr: [NovaPlacementLogging, config_settings]
           - apache::default_vhost: false
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - tripleo::nova_placement::firewall_rules:
+              '138 nova_placement':
+                dport:
+                  - 8778
+                  - 13778
+            nova::keystone::authtoken::project_name: 'service'
+            nova::keystone::authtoken::password: {get_param: NovaPassword}
+            nova::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            nova::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            nova::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            nova::wsgi::apache_placement::api_port: '8778'
+            nova::wsgi::apache_placement::ssl: {get_param: EnableInternalTLS}
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            nova::wsgi::apache_placement::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaPlacementNetwork]}
+            nova::wsgi::apache_placement::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, NovaPlacementNetwork]}
+          -
+            if:
+            - nova_workers_zero
+            - {}
+            - nova::wsgi::apache_placement::workers: {get_param: NovaWorkers}
       service_config_settings:
-        map_merge:
-          - get_attr: [NovaPlacementBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_nova_placement:
-                - nova
-              tripleo_fluentd_sources_nova_placement:
-                - {get_param: NovaPlacementLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_nova_placement:
+            - nova
+          tripleo_fluentd_sources_nova_placement:
+            - {get_param: NovaPlacementLoggingSource}
+        keystone:
+          nova::keystone::auth_placement::tenant: 'service'
+          nova::keystone::auth_placement::public_url: {get_param: [EndpointMap, NovaPlacementPublic, uri]}
+          nova::keystone::auth_placement::internal_url: {get_param: [EndpointMap, NovaPlacementInternal, uri]}
+          nova::keystone::auth_placement::admin_url: {get_param: [EndpointMap, NovaPlacementAdmin, uri]}
+          nova::keystone::auth_placement::password: {get_param: NovaPassword}
+          nova::keystone::auth_placement::region: {get_param: KeystoneRegion}
+        mysql:
+          map_merge:
+          - {get_attr: [NovaBase, role_data, service_config_settings, mysql]}
+          - nova::db::mysql_placement::password: {get_param: NovaPassword}
+            nova::db::mysql_placement::user: nova_placement
+            nova::db::mysql_placement::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+            nova::db::mysql_placement::dbname: nova_placement
+            nova::db::mysql_placement::allowed_hosts:
+              - '%'
+              - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova_placement
@@ -99,7 +176,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [NovaPlacementBase, role_data, step_config]}
+            - - include tripleo::profile::base::nova::placement
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerNovaPlacementConfigImage}
       kolla_config:
@@ -150,8 +227,6 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-      metadata_settings:
-        get_attr: [NovaPlacementBase, role_data, metadata_settings]
       host_prep_tasks:
         - {get_attr: [NovaPlacementLogging, host_prep_tasks]}
         - name: create persistent directory
@@ -160,6 +235,14 @@ outputs:
             state: directory
             setype: svirt_sandbox_file_t
       upgrade_tasks:
+        - name: Stop nova_placement service (running under httpd)
+          when: step|int == 1
+          service: name=httpd state=stopped
+        # The nova placement API isn't installed in newton images, so install
+        # it on upgrade
+        - name: Install nova-placement packages on upgrade
+          when: step|int == 3
+          package: name=openstack-nova-placement-api state=latest
         - when: step|int == 3
           block:
             - name: Set fact for removal of httpd package
