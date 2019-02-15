@@ -36,6 +36,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  ManilaWorkers:
+    type: string
+    description: Set the number of workers for manila::wsgi::apache
+    default: '%{::os_workers}'
   ManilaPassword:
     description: The password for the manila service account.
     type: string
@@ -47,6 +54,11 @@ parameters:
   MonitoringSubscriptionManilaApi:
     default: 'overcloud-manila-api'
     type: string
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  manila_workers_zero: {equals : [{get_param: ManilaWorkers}, 0]}
 
 resources:
 
@@ -63,6 +75,19 @@ resources:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
@@ -72,6 +97,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [ManilaBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - manila::keystone::authtoken::password: {get_param: ManilaPassword}
             manila::keystone::authtoken::auth_uri: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             manila::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
@@ -95,8 +121,26 @@ outputs:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
+            manila::wsgi::apache::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
+            manila::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            manila::api::service_name: 'httpd'
             manila::api::enable_proxy_headers_parsing: true
             manila::api::default_share_type: 'default'
+          - manila::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, ManilaApiNetwork]}
+          - if:
+              - manila_workers_zero
+              - {}
+              - manila::wsgi::apache::workers: {get_param: ManilaWorkers}
       service_config_settings:
         map_merge:
           - get_attr: [ManilaBase, role_data, service_config_settings]
@@ -122,8 +166,12 @@ outputs:
         config_image: {get_param: DockerManilaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/manila_api.json:
-          command: /usr/bin/manila-api --config-file /usr/share/manila/manila-dist.conf --config-file /etc/manila/manila.conf
+          command: /usr/sbin/httpd -DFOREGROUND
           config_files:
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
+              merge: false
+              preserve_properties: true
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
@@ -162,6 +210,9 @@ outputs:
             image: *manila_api_image
             net: host
             restart: always
+            # NOTE(gouthamr) kolla image changes the user to 'manila', we
+            # need it to be root to run httpd
+            user: root
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -170,8 +221,18 @@ outputs:
                   - /var/lib/config-data/puppet-generated/manila/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/manila:/var/log/manila:z
                   - /var/log/containers/httpd/manila-api:/var/log/httpd:z
+                  - if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  - if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      metadata_settings:
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
       host_prep_tasks:
         - name: Create persistent directories
           file:
