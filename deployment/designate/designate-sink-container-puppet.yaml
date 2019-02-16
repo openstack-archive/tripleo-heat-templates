@@ -10,11 +10,6 @@ parameters:
   DockerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateSinkLoggingSource:
-    type: json
-    default:
-      tag: openstack.designate.sink
-      path: /var/log/containers/designate/designate-sink.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -41,25 +36,24 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateSink:
+    default: 'overcloud-designate-sink'
+    type: string
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
 
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   DesignateBase:
     type: ../../puppet/services/designate-base.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  DesignateSinkBase:
-    type: ../../puppet/services/designate-sink.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -72,12 +66,17 @@ outputs:
   role_data:
     description: Role data for the Designate Sink role.
     value:
-      service_name: {get_attr: [DesignateSinkBase, role_data, service_name]}
+      service_name: designate_sink
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateSink}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - get_attr: [DesignateSinkBase, role_data, config_settings]
-      service_config_settings: {get_attr: [DesignateSinkBase, role_data, service_config_settings]}
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::sink::workers: {get_param: DesignateWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -86,7 +85,7 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - {get_attr: [DesignateSinkBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::sink"
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/designate_sink.json:

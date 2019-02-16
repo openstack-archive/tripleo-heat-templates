@@ -36,28 +36,34 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateCentral:
+    default: 'overcloud-designate-central'
+    type: string
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
+  DesignatePassword:
+    description: The password for the Designate's database account.
+    type: string
+    hidden: true
+  DesignatePools:
+    description: The content for Designate's pools.yaml
+    type: string
 
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../database/mysql-client.yaml
 
   DesignateBase:
     type: ../../puppet/services/designate-base.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  DesignateCentralBase:
-    type: ../../puppet/services/designate-central.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -70,12 +76,36 @@ outputs:
   role_data:
     description: Role data for the Designate Central role.
     value:
-      service_name: {get_attr: [DesignateCentralBase, role_data, service_name]}
+      service_name: designate_central
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateCentral}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - get_attr: [DesignateCentralBase, role_data, config_settings]
-      service_config_settings: {get_attr: [DesignateCentralBase, role_data, service_config_settings]}
+          - tripleo::profile::base::designate::central::pools_file_content: {get_param: DesignatePools}
+            designate::db::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: designate
+                password: {get_param: DesignatePassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /designate
+                query:
+                  read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::central::workers: {get_param: DesignateWorkers}
+      service_config_settings:
+        mysql:
+          designate::db::mysql::password: {get_param: DesignatePassword}
+          designate::db::mysql::user: designate
+          designate::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          designate::db::mysql::dbname: designate
+          designate::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -84,7 +114,7 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - {get_attr: [DesignateCentralBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::central"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:

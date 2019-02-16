@@ -1,9 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Designate API service.
+  OpenStack containerized Designate API service
 
 parameters:
+  DockerDesignateApiImage:
+    description: image
+    type: string
+  DockerDesignateConfigImage:
+    description: The container image to use for the designate config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -25,11 +36,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EndpointMap:
-    default: {}
-    description: Mapping of service endpoint -> protocol. Typically set
-                 via parameter_defaults in the resource registry.
-    type: json
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
   DesignatePassword:
     description: The password for the Designate's database account.
     type: string
@@ -41,10 +51,6 @@ parameters:
   MonitoringSubscriptionDesignateApi:
     default: 'overcloud-designate-api'
     type: string
-  DesignateWorkers:
-    default: 0
-    description: Number of workers for Designate services.
-    type: number
   NeutronPassword:
     description: The password for the neutron service and db account, used by neutron agents.
     type: string
@@ -55,19 +61,22 @@ conditions:
 
 resources:
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
   DesignateBase:
-    type: ./designate-base.yaml
+    type: ../../puppet/services/designate-base.yaml
     properties:
+      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
 outputs:
   role_data:
-    description: Role data for the Designate API service.
+    description: Role data for the Designate API role.
     value:
       service_name: designate_api
       monitoring_subscription: {get_param: MonitoringSubscriptionDesignateApi}
@@ -95,8 +104,6 @@ outputs:
             - designate_workers_zero
             - {}
             - designate::api::workers: {get_param: DesignateWorkers}
-      step_config: |
-        include tripleo::profile::base::designate::api
       service_config_settings:
         keystone:
           designate::keystone::auth::tenant: 'service'
@@ -110,3 +117,62 @@ outputs:
           neutron::designate::url: {get_param: [EndpointMap, DesignateInternal, uri]}
           neutron::designate::auth_url: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
           neutron::designate::project_name: 'service'
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: designate
+        puppet_tags: designate_config
+        step_config: |
+          include tripleo::profile::base::designate::api
+        config_image: {get_param: DockerDesignateConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/designate_api.json:
+          command: /usr/bin/designate-api --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/api.log
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/designate
+              owner: designate:designate
+              recurse: true
+      docker_config:
+        step_4:
+          designate_api:
+            start_order: 15
+            image: &designate_api_image {get_param: DockerDesignateApiImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/designate_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/designate/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/designate:/var/log/designate:z
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+          with_items:
+            - { 'path': /var/log/containers/designate, 'setype': svirt_sandbox_file_t }
+            - { 'path': /var/log/designate, 'setype': svirt_sandbox_file_t }
+        - name: designate logs readme
+          copy:
+            dest: /var/log/designate/readme.txt
+            content: |
+              Log files from designate containers can be found under
+              /var/log/containers/designate.
+          ignore_errors: true
+      post_upgrade_tasks:
+        - when: step|int == 1
+          import_role:
+            name: tripleo-docker-rm
+          vars:
+            containers_to_rm:
+              - designate_api
