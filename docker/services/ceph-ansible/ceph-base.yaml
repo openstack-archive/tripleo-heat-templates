@@ -495,7 +495,7 @@ outputs:
                 ignore_errors: True
               - name: untar local backup of ceph-ansible fetch directory
                 # unarchive module hit https://github.com/ansible/ansible/issues/35645
-                shell: "/usr/bin/gtar --gzip --extract --file {{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
+                shell: "/usr/bin/gtar --gzip --extract --no-overwrite-dir --file {{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
                 when: local_backup_file.stat.exists == True
               when: local_ceph_ansible_fetch_directory_backup != ""
             - block: # swift backup
@@ -518,7 +518,7 @@ outputs:
                   - curl_get_http_status.stdout != "404" # new deployment
               - name: unpack downloaded ceph-ansible fetch tarball to fetch directory
                 # unarchive module hit https://github.com/ansible/ansible/issues/35645
-                shell: "/usr/bin/gtar --gzip --extract --file /tmp/{{old_ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
+                shell: "/usr/bin/gtar --gzip --extract --no-overwrite-dir --file /tmp/{{old_ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
                 when:
                   - curl_get_http_status.changed
                   - curl_get_http_status.stdout == "200"
@@ -581,14 +581,20 @@ outputs:
                 - outputs.rc != 0
             - name: create ceph-ansible fetch directory tarball in local backup
               archive:
-                path: "{{playbook_dir}}/ceph-ansible/fetch_dir"
+                path: "{{playbook_dir}}/ceph-ansible/fetch_dir/*"
                 dest: "{{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}}"
+                exclude_path:
+                    - '{{playbook_dir}}/ceph-ansible/fetch_dir/fetch_dir'
+              register: nested
               when: local_ceph_ansible_fetch_directory_backup != ""
             - block: # swift backup
               - name: create temporary ceph-ansible fetch directory tarball for swift backup
                 archive:
-                  path: "{{playbook_dir}}/ceph-ansible/fetch_dir"
+                  path: "{{playbook_dir}}/ceph-ansible/fetch_dir/*"
                   dest: "/tmp/{{new_ceph_ansible_tarball_name}}"
+                  exclude_path:
+                      - '{{playbook_dir}}/ceph-ansible/fetch_dir/fetch_dir'
+                register: nested
               - name: backup temporary ceph-ansible fetch directory tarball in swift
                 shell: "curl  -s -o /dev/null -w '%{http_code}' -X PUT -T /tmp/{{new_ceph_ansible_tarball_name}} \"{{ swift_put_url }}\""
                 register: curl_put_http_status
@@ -606,6 +612,14 @@ outputs:
                 when: (curl_put_http_status.changed and (curl_put_http_status.stdout == "200" or
                        curl_put_http_status.stdout == "201"))
               when: local_ceph_ansible_fetch_directory_backup == ""
+            - name: remove nested broken path if exist
+              file:
+                state: absent
+                path: "{{ item }}"
+                recurse: no
+              with_items:
+                - '{{ nested.missing }}'
+              when: (nested.missing|default([])|length > 0)
       external_update_tasks:
         - when: step|int == 0
           tags: ceph
