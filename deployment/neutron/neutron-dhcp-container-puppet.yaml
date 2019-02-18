@@ -162,10 +162,6 @@ outputs:
         map_merge:
           - get_attr: [NeutronBase, role_data, config_settings]
           - get_attr: [NeutronLogging, config_settings]
-          - if:
-            - internal_tls_enabled
-            - tripleo::certmonger::neutron::postsave_cmd: "true" # TODO: restart the container here
-            - {}
           - tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_dnsmasq_wrapper: {get_param: NeutronEnableDnsmasqDockerWrapper}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_process_wrapper: '/var/lib/neutron/dnsmasq_wrapper'
             tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_image: {get_param: DockerNeutronDHCPImage}
@@ -202,6 +198,21 @@ outputs:
               - neutron::agents::dhcp::ovsdb_agent_ssl_key_file: '/etc/pki/tls/private/neutron.key'
                 neutron::agents::dhcp::ovsdb_agent_ssl_cert_file: '/etc/pki/tls/certs/neutron.crt'
                 neutron::agents::dhcp::ovsdb_agent_ssl_ca_file: {get_param: InternalTLSCAFile}
+                generate_service_certificates: true
+                tripleo::profile::base::neutron::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/neutron.crt'
+                  service_key: '/etc/pki/tls/private/neutron.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+                  principal:
+                    str_replace:
+                      template: "neutron/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+                  postsave_cmd: "/usr/bin/certmonger-neutron-dhcpd-refresh.sh"
               - {}
           - if:
               - dhcp_ovs_intergation_bridge_unset
@@ -332,7 +343,13 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NeutronBase, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            - service: neutron
+              network: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+              type: node
+          - null
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}
