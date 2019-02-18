@@ -33,6 +33,8 @@ from paunch import runner as containers_runner
 logger = None
 sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
 container_cli = os.environ.get('CONTAINER_CLI', 'docker')
+container_log_stdout_path = os.environ.get('CONTAINER_LOG_STDOUT_PATH',
+                                           '/var/log/containers/stdouts')
 cli_cmd = '/usr/bin/' + container_cli
 
 
@@ -425,8 +427,9 @@ def mp_puppet_config(*args):
             common_dcmd.push('--privileged')
 
         if container_cli == 'podman':
+            log_path = os.path.join(container_log_stdout_path, uname)
             logging = ['--log-opt',
-                       'path=/var/log/containers/stdouts/%s.log' % uname]
+                       'path=%s.log' % log_path]
             common_dcmd.extend(logging)
 
 
