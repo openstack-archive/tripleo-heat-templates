@@ -166,20 +166,34 @@ outputs:
         # Containerized deployment upgrade steps
         - name: ODL container L2 update and upgrade tasks
           block: &odl_container_upgrade_tasks
+            - name: Set fact for container CLI
+              set_fact:
+                container_cli: {get_param: ContainerCli}
             - name: Check if ODL container is present
-              shell: "docker ps -a --format '{{ '{{' }}.Names{{ '}}' }}' | grep '^opendaylight_api$'"
+              shell: "{{ container_cli }} ps -a --format '{{ '{{' }}.Names{{ '}}' }}' | grep '^opendaylight_api$'"
               register: opendaylight_api_container_present
               failed_when: false
             # NOTE: using shell module because of
             # https://github.com/ansible/ansible/issues/27960
+            ##TODO: (janki) make update policy compatible with podman
             - name: Update ODL container restart policy to unless-stopped
               shell: "docker update --restart=unless-stopped opendaylight_api"
-              when: opendaylight_api_container_present.rc == 0
+              when:
+                - opendaylight_api_container_present.rc == 0
+                - container_cli == docker
             - name: stop previous ODL container
               docker_container:
                 name: opendaylight_api
                 state: stopped
-              when: step|int == 0
+              when:
+                - step|int == 0
+                - container_cli == docker
+            ##TODO: (janki) Switch to podman ansible module once its available
+            - name: stop previous ODL container using podman
+              shell: "systemctl stop opendaylight_api"
+              when:
+                - step|int == 0
+                - container_cli == podman
             - name: remove journal and snapshots
               file:
                 path: /var/lib/opendaylight/{{item}}
@@ -244,12 +258,16 @@ outputs:
                 odl_update_level: {get_param: ODLUpdateLevel}
         - name: Stop ODL container and remove cache
           block:
+            - name: Set fact for container CLI
+              set_fact:
+                container_cli: {get_param: ContainerCli}
             - name: Check if ODL container is present
-              shell: "docker ps -a --format '{{ '{{' }}.Names{{ '}}' }}' | grep '^opendaylight_api$'"
+              shell: "{{ contianer_cli }} ps -a --format '{{ '{{' }}.Names{{ '}}' }}' | grep '^opendaylight_api$'"
               register: opendaylight_api_container_present
               failed_when: false
             # NOTE: using shell module because of
             # https://github.com/ansible/ansible/issues/27960
+            ##TODO: (janki) make update policy compatible with podman
             - name: Update ODL container restart policy to unless-stopped
               shell: "docker update --restart=unless-stopped opendaylight_api"
               when: opendaylight_api_container_present.rc == 0
@@ -257,6 +275,11 @@ outputs:
               docker_container:
                 name: opendaylight_api
                 state: stopped
+              when: container_cli == docker
+            ##TODO: (janki) Switch to podman ansible module once its available
+            - name: stop previous ODL container using podman
+              shell: "systemctl stop opendaylight_api"
+              when: container_cli == podman
             - name: Delete data folder
               file:
                 path: /var/lib/opendaylight/data
