@@ -126,20 +126,20 @@ outputs:
               with_items: "{{groups[tripleo_role_name] | default([]) }}"
 
             - set_fact:
-                role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', False) | list}}"
-                new_role_nodes: "{{all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
+                role_nodes: "{{ role_nodes|default({}) | combine( {tripleo_role_name: all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', False) | list}) }}"
+                new_role_nodes: "{{ new_role_nodes|default({}) | combine( {tripleo_role_name: all_role_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}) }}"
 
             - set_fact:
-                has_new_nodes: "{{ (has_new_nodes | default(False)) or new_role_nodes | count > 0 }}"
+                has_new_nodes: "{{ (has_new_nodes | default(False)) or new_role_nodes[tripleo_role_name] | count > 0 }}"
 
             - name: generate openshift inventory for {{tripleo_role_name}} role hosts
               copy:
                 dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_hosts.yml"
                 content: |
-                  {% if role_nodes | count > 0%}
+                  {% if role_nodes[tripleo_role_name] | count > 0%}
                   all:
                     hosts:
-                      {% for host in (role_nodes + new_role_nodes) -%}
+                      {% for host in (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) -%}
                       {{host.hostname}}:
                         {{host | to_nice_yaml() | indent(6)}}
                       {% endfor %}
@@ -150,22 +150,22 @@ outputs:
               copy:
                 dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_groups.yml"
                 content: |
-                  {% if role_nodes | count > 0%}
+                  {% if role_nodes[tripleo_role_name] | count > 0%}
                   all:
                     children:
-                      {% if role_nodes | count > 0 -%}
+                      {% if role_nodes[tripleo_role_name] | count > 0 -%}
                       nodes:
                         hosts:
-                          {% for host in role_nodes -%}
+                          {% for host in role_nodes[tripleo_role_name] -%}
                           {{host.hostname}}:
                           {% endfor %}
 
                       {% endif %}
 
-                      {% if new_role_nodes | count > 0 -%}
+                      {% if new_role_nodes[tripleo_role_name] | count > 0 -%}
                       new_nodes:
                         hosts:
-                          {% for host in new_role_nodes -%}
+                          {% for host in new_role_nodes[tripleo_role_name] -%}
                           {{host.hostname}}:
                           {% endfor %}
 

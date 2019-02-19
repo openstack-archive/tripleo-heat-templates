@@ -297,50 +297,26 @@ outputs:
                       openshift_master_cluster_hostname: {get_param: [EndpointMap, OpenshiftInternal, host]}
                       openshift_master_cluster_public_hostname: {get_param: [EndpointMap, OpenshiftPublic, host]}
 
-                # NOTE(flaper87): Check if the node service is running in the
-                # openshift nodes so we can flag the node as new later on.
-                - name: Check if node service is running
-                  command: "systemctl is-active --quiet {{tripleo_openshift_service_type}}-node"
-                  register: node_services
-                  delegate_to: "{{item}}"
-                  with_items: "{{ groups[tripleo_role_name] | default([]) }}"
-                  failed_when: false
-
-                # We consider new_node all the nodes that exited with a non-zero
-                # status in the previous task *IF* this is a stack update.
-                # Openshift-ansible expects nodes to be in the new_nodes group for
-                # scale up operation only.
-                - set_fact:
-                    nodes:
-                      - new_node: "{{tripleo_stack_action == 'UPDATE' and node_services.results | selectattr('item', 'equalto', item) | selectattr('rc', 'greaterthan', 0) | list | count > 0}}"
-                        hostname: "{{item}}"
-                  register: all_master_nodes
-                  with_items: "{{groups[tripleo_role_name] | default([]) }}"
-
-                - set_fact:
-                    master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', False) | list}}"
-                    new_master_nodes: "{{all_master_nodes.results | map(attribute='ansible_facts') | map(attribute='nodes') | flatten | selectattr('new_node', 'equalto', True) | list}}"
-
                 - name: generate openshift inventory for openshift_master service
                   copy:
                     dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
                     content: |
-                      {% if (master_nodes + new_master_nodes) | count > 0%}
+                      {% if (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) | count > 0%}
                       all:
                         children:
                           masters:
                             hosts:
-                              {% for host in master_nodes -%}
+                              {% for host in role_nodes[tripleo_role_name] -%}
                               {{host.hostname}}:
                               {% endfor %}
 
                             vars:
                               {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
 
-                          {% if new_master_nodes | count > 0 -%}
+                          {% if new_role_nodes[tripleo_role_name] | count > 0 -%}
                           new_masters:
                             hosts:
-                              {% for host in new_master_nodes -%}
+                              {% for host in new_role_nodes[tripleo_role_name] -%}
                               {{host.hostname}}:
                               {% endfor %}
 
@@ -453,7 +429,7 @@ outputs:
                             service:
                               name: dnsmasq
                               state: restarted
-                      {% if new_master_nodes | count > 0 %}
+                      {% if new_role_nodes[tripleo_role_name] | count > 0 %}
                       # Scale up nodes (including masters)
                       - include: "{{openshift_master_scaleup_playbook_path}}"
                       {% else %}
@@ -498,29 +474,29 @@ outputs:
                 # view of osa and need to be moved from new_masters and
                 # new_nodes group to masters and nodes groups respectively. In
                 # addition they need to be added to new_etcd groups.
-                - when: tripleo_stack_action == 'UPDATE' and new_master_nodes | count > 0
+                - when: tripleo_stack_action == 'UPDATE' and new_role_nodes[tripleo_role_name] | count > 0
                   block:
 
                   - name: generate updated openshift inventory for openshift_master service
                     copy:
                       dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_openshift_master.yml"
                       content: |
-                        {% if (master_nodes + new_master_nodes) | count > 0%}
+                        {% if (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) | count > 0%}
                         all:
                           children:
                             masters:
                               hosts:
-                                {% for host in (master_nodes + new_master_nodes) -%}
+                                {% for host in (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) -%}
                                 {{host.hostname}}:
                                 {% endfor %}
 
                               vars:
                                 {{openshift_master_node_vars | to_nice_yaml() | indent(6)}}
 
-                            {% if new_master_nodes | count > 0 -%}
+                            {% if new_role_nodes[tripleo_role_name] | count > 0 -%}
                             new_etcd:
                               hosts:
-                                {% for host in new_master_nodes -%}
+                                {% for host in new_role_nodes[tripleo_role_name] -%}
                                 {{host.hostname}}:
                                 {% endfor %}
 
@@ -534,12 +510,12 @@ outputs:
                     copy:
                       dest: "{{playbook_dir}}/openshift/inventory/{{tripleo_role_name}}_groups.yml"
                       content: |
-                        {% if (master_nodes + new_master_nodes) | count > 0%}
+                        {% if (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) | count > 0%}
                         all:
                           children:
                             nodes:
                               hosts:
-                                {% for host in (master_nodes + new_master_nodes) -%}
+                                {% for host in (role_nodes[tripleo_role_name] + new_role_nodes[tripleo_role_name]) -%}
                                 {{host.hostname}}:
                                 {% endfor %}
 
