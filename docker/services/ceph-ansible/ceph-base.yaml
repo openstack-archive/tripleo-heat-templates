@@ -444,12 +444,12 @@ outputs:
                 content: |
                   - hosts: all
                     gather_facts: no
-                    become: true
                     tasks:
                       - name: set nodes data
                         set_fact:
                           nodes_data: "{% raw %}{{ lookup('file','./nodes_uuid_data.json') | from_json  }}{% endraw %}"
                       - name: register machine id
+                        become: true
                         # awk strips unwanted output, see LP bug #1762460
                         shell: dmidecode -s system-uuid | awk 'match($0, /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/) { print substr($0, RSTART, RLENGTH) }' | tr A-F a-f
                         register: machine_uuid
@@ -464,15 +464,16 @@ outputs:
                           dest: "{{playbook_dir}}/ceph-ansible/host_vars/{% raw %}{{inventory_hostname}}{% endraw %}.yml"
         - name: ceph_base_external_deploy_task
           when: step == '2'
-          become: true
           tags: ceph
           block:
             - name: run nodes-uuid
+              # needs become to be able to read the ssh private key
+              become: true
               shell:
                 list_join:
                 - ' '
                 - - ANSIBLE_LOG_PATH="{{playbook_dir}}/ceph-ansible/nodes_uuid_command.log"
-                - - ANSIBLE_CONTROL_PATH_DIR="{{playbook_dir}}/ceph-ansible/"
+                  - ANSIBLE_SSH_CONTROL_PATH_DIR="{{playbook_dir}}/ceph-ansible/"
                   - ANSIBLE_CONFIG="{{playbook_dir}}/ansible.cfg"
                   - ANSIBLE_REMOTE_TEMP=/tmp/nodes_uuid_tmp
                   - ansible-playbook
@@ -503,6 +504,7 @@ outputs:
                 register: local_backup_directory
                 ignore_errors: True
               - name: autocreate new directory for ceph-ansible fetch directory backup
+                become: true
                 file:
                   path: "{{local_ceph_ansible_fetch_directory_backup}}"
                   state: directory
@@ -582,6 +584,8 @@ outputs:
                     - '--extra-vars'
                     - '@{{playbook_dir}}/ceph-ansible/extra_vars.yml'
             - name: run ceph-ansible (immediate log at {{playbook_dir}}/ceph-ansible/ceph_ansible_command.log)
+              # needs become to be able to read the ssh private key
+              become: true
               shell: |
                 set -e
                 {% for playbook in ceph_ansible_playbooks %}
