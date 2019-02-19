@@ -29,7 +29,13 @@ resources:
       - name: node_lookup
       config: |
         #!/bin/sh
-        node_id=$(dmidecode --s system-uuid | tr '[:upper:]' '[:lower:]')
+        node_id=$(dmidecode --s system-uuid | awk 'match($0, \
+                /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/) \
+                { print substr($0, RSTART, RLENGTH) }' | tr '[:upper:]' '[:lower:]')
+        # thanks to dmidecode 3.1, we have to handle both the upper case
+        # and lower case versions of the UUID from dmidecode. LP#1816652
+        # upper for dmidecode < 3.1 and lower for dmidecode >= 3.1
+        node_id_upper=$(echo $node_id | tr '[:lower:]' '[:upper:]')
 
         # Create a /etc/puppet/hieradata/UUID.json file to provide
         # the data of the NodeDataLookup parameter that matches the
@@ -41,6 +47,14 @@ resources:
         cnt = json.loads(input)
         print json.dumps(cnt.get('${node_id}', {}))
         " > /etc/puppet/hieradata/${node_id}.json
+        # handle upper case node id LP#1816652
+        echo $node_lookup | $(get_python) -c "
+        import json
+        import sys
+        input = sys.stdin.readline() or '{}'
+        cnt = json.loads(input)
+        print json.dumps(cnt.get('${node_id_upper}', {}))
+        " > /etc/puppet/hieradata/${node_id_upper}.json
 
   NodeSpecificDeployment:
     type: OS::Heat::SoftwareDeployment
