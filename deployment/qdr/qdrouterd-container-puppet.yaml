@@ -36,35 +36,60 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  RabbitUserName:
+    default: guest
+    description: The username for RabbitMQ
+    type: string
+  RabbitPassword:
+    description: The password for RabbitMQ
+    type: string
+    hidden: true
+  RabbitClientPort:
+    description: Set rabbit subscriber port, change this if using SSL
+    default: 5672
+    type: number
+  MonitoringSubscriptionQdr:
+    default: 'overcloud-qdr'
+    type: string
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  QdrouterdBase:
-    type: ../../puppet/services/qdr.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
     description: Role data for the qdrouterd service.
     value:
-      service_name: {get_attr: [QdrouterdBase, role_data, service_name]}
-      global_config_settings: {get_attr: [QdrouterdBase, role_data, global_config_settings]}
-      config_settings: {get_attr: [QdrouterdBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [QdrouterdBase, role_data, service_config_settings]}
+      service_name: rabbitmq
+      monitoring_subscription: {get_param: MonitoringSubscriptionQdr}
+      global_config_settings:
+        messaging_notify_service_name: 'amqp'
+        messaging_rpc_service_name: 'amqp'
+        keystone::messaging::amqp::amqp_pre_settled: 'notify'
+      config_settings:
+        tripleo::rabbitmq::firewall_rules:
+          '109 qdr':
+            dport:
+              - {get_param: RabbitClientPort}
+        qdr::listener_addr:
+          str_replace:
+             template:
+               "%{hiera('$NETWORK')}"
+             params:
+               $NETWORK: {get_param: [ServiceNetMap, QdrNetwork]}
+        # cannot pass qdr::listener_port directly because it needs to be a string
+        # we do the conversion in the puppet layer
+        tripleo::profile::base::qdr::qdr_listener_port: {get_param: RabbitClientPort}
+        tripleo::profile::base::qdr::qdr_username: {get_param: RabbitUserName}
+        tripleo::profile::base::qdr::qdr_password: {get_param: RabbitPassword}
+
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: qdrouterd
-        step_config:
-          get_attr: [QdrouterdBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::qdr
         config_image: {get_param: DockerQdrouterdConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/qdrouterd.json:
@@ -124,8 +149,7 @@ outputs:
             Log files from qrouterd containers can be found under
             /var/log/containers/qrouterd.
         ignore_errors: true
-      metadata_settings:
-        get_attr: [QdrouterdBase, role_data, metadata_settings]
+      metadata_settings: {}
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
