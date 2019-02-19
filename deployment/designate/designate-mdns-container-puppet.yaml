@@ -1,20 +1,15 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack containerized Designate Producer service
+  OpenStack containerized Designate MiniDNS service
 
 parameters:
-  DockerDesignateProducerImage:
+  DockerDesignateMDNSImage:
     description: image
     type: string
   DockerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateProducerLoggingSource:
-    type: json
-    default:
-      tag: openstack.designate.producer
-      path: /var/log/containers/designate/designate-producer.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -41,25 +36,31 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateMiniDNS:
+    default: 'overcloud-designate-mdns'
+    type: string
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
+  DesignatePassword:
+    description: The password for the Designate's database account.
+    type: string
+    hidden: true
 
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
 
   DesignateBase:
-    type: ../../puppet/services/designate-base.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  DesignateProducerBase:
-    type: ../../puppet/services/designate-producer.yaml
+    type: ./designate-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -70,14 +71,46 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate Producer role.
+    description: Role data for the Designate MDNS role.
     value:
-      service_name: {get_attr: [DesignateProducerBase, role_data, service_name]}
+      service_name: designate_mdns
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateMiniDNS}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - get_attr: [DesignateProducerBase, role_data, config_settings]
-      service_config_settings: {get_attr: [DesignateProducerBase, role_data, service_config_settings]}
+          - designate::db::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: designate
+                password: {get_param: DesignatePassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /designate
+                query:
+                  read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+            tripleo::designate_mdns::firewall_rules:
+              '142 designate_mdns udp':
+                proto: 'udp'
+                dport:
+                  - 5354
+              '143 designate_mdns tcp':
+                proto: 'tcp'
+                dport:
+                  - 5354
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::mdns::workers: {get_param: DesignateWorkers}
+      service_config_settings:
+        mysql:
+          designate::db::mysql::password: {get_param: DesignatePassword}
+          designate::db::mysql::user: designate
+          designate::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          designate::db::mysql::dbname: designate
+          designate::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -86,11 +119,12 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - {get_attr: [DesignateProducerBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::mdns"
+              - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_producer.json:
-          command: /usr/bin/designate-producer --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/producer.log
+        /var/lib/kolla/config_files/designate_mdns.json:
+          command: /usr/bin/designate-mdns --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/mdns.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -102,8 +136,8 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          designate_producer:
-            image: &designate_producer_image {get_param: DockerDesignateProducerImage}
+          designate_mdns:
+            image: &designate_mdns_image {get_param: DockerDesignateMDNSImage}
             net: host
             privileged: false
             restart: always
@@ -114,7 +148,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_producer.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_mdns.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
@@ -141,4 +175,4 @@ outputs:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - designate_producer
+              - designate_mdns

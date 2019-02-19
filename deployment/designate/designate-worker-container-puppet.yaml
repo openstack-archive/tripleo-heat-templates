@@ -44,25 +44,28 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateWorker:
+    default: 'overcloud-designate-worker'
+    type: string
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
+  DesignateRndcKey:
+    description: The rndc key secret for communication with BIND.
+    type: string
+    hidden: true
 
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   DesignateBase:
-    type: ../../puppet/services/designate-base.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  DesignateWorkerBase:
-    type: ../../puppet/services/designate-worker.yaml
+    type: ./designate-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -75,12 +78,63 @@ outputs:
   role_data:
     description: Role data for the Designate Worker role.
     value:
-      service_name: {get_attr: [DesignateWorkerBase, role_data, service_name]}
+      service_name: designate_worker
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateWorker}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - get_attr: [DesignateWorkerBase, role_data, config_settings]
-      service_config_settings: {get_attr: [DesignateWorkerBase, role_data, service_config_settings]}
+          - designate::worker::worker_notify: true
+            designate_rndc_key: {get_param: DesignateRndcKey}
+            dns::vardir: /var/named-persistent
+            dns::recursion: 'no'
+            # Because we generate the key locally and don't want the puppet
+            # module to do it, we set its path to /dev/null.  This means we need
+            # to explicitly include /etc/rndc.key though since the default config
+            # will just include /dev/null.
+            dns::rndckeypath: /dev/null
+            dns::additional_directives:
+              - include "/etc/rndc.key";
+            dns::additional_options:
+              listen-on:
+                str_replace:
+                  template:
+                    "{ %{hiera('$NETWORK')}; }"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, BINDNetwork]}
+            tripleo::profile::base::designate::rndc_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
+            tripleo::profile::base::designate::rndc_allowed_addresses:
+              get_param:
+                - ServiceData
+                - net_cidr_map
+                - {get_param: [ServiceNetMap, DesignateApiNetwork]}
+            designate::backend::bind9::rndc_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
+            tripleo::designate_worker::firewall_rules:
+              '140 designate_worker udp':
+                proto: 'udp'
+                dport:
+                  - 53
+                  - 953
+              '141 designate_worker tcp':
+                proto: 'tcp'
+                dport:
+                  - 53
+                  - 953
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::worker::workers: {get_param: DesignateWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -89,7 +143,7 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - {get_attr: [DesignateWorkerBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::worker"
               - include ::designate::backend::bind9
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:

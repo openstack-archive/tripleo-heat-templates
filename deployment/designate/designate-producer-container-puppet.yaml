@@ -1,15 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack containerized Designate MiniDNS service
+  OpenStack containerized Designate Producer service
 
 parameters:
-  DockerDesignateMDNSImage:
+  DockerDesignateProducerImage:
     description: image
     type: string
   DockerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+  DesignateProducerLoggingSource:
+    type: json
+    default:
+      tag: openstack.designate.producer
+      path: /var/log/containers/designate/designate-producer.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -36,28 +41,24 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateProducer:
+    default: 'overcloud-designate-producer'
+    type: string
+  DesignateWorkers:
+    default: 0
+    description: Number of workers for Designate services.
+    type: number
 
+conditions:
+  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../../docker/services/containers-common.yaml
 
   DesignateBase:
-    type: ../../puppet/services/designate-base.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
-  DesignateMDNSBase:
-    type: ../../puppet/services/designate-mdns.yaml
+    type: ./designate-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -68,14 +69,19 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate MDNS role.
+    description: Role data for the Designate Producer role.
     value:
-      service_name: {get_attr: [DesignateMDNSBase, role_data, service_name]}
+      service_name: designate_producer
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateProducer}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - get_attr: [DesignateMDNSBase, role_data, config_settings]
-      service_config_settings: {get_attr: [DesignateMDNSBase, role_data, service_config_settings]}
+          -
+            if:
+            - designate_workers_zero
+            - {}
+            - designate::producer::workers: {get_param: DesignateWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -84,12 +90,11 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - {get_attr: [DesignateMDNSBase, role_data, step_config]}
-              - {get_attr: [MySQLClient, role_data, step_config]}
+              - "include tripleo::profile::base::designate::producer"
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_mdns.json:
-          command: /usr/bin/designate-mdns --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/mdns.log
+        /var/lib/kolla/config_files/designate_producer.json:
+          command: /usr/bin/designate-producer --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/producer.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -101,8 +106,8 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          designate_mdns:
-            image: &designate_mdns_image {get_param: DockerDesignateMDNSImage}
+          designate_producer:
+            image: &designate_producer_image {get_param: DockerDesignateProducerImage}
             net: host
             privileged: false
             restart: always
@@ -113,7 +118,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_mdns.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_producer.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
@@ -140,4 +145,4 @@ outputs:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - designate_mdns
+              - designate_producer
