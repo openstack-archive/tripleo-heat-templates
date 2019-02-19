@@ -299,6 +299,9 @@ def clean_templates(base_path, role_data_path, network_data_path):
             'network', '%s_from_pool_v6.yaml' % network['name_lower'])
         ports_path = os.path.join(
             'network', 'ports', '%s.yaml' % network['name_lower'])
+        external_resource_ports_path = os.path.join(
+            'network', 'ports',
+            'external_resource_%s.yaml' % network['name_lower'])
         ports_from_pool_path = os.path.join(
             'network', 'ports', '%s_from_pool.yaml' % network['name_lower'])
         ports_v6_path = os.path.join(
@@ -311,6 +314,7 @@ def clean_templates(base_path, role_data_path, network_data_path):
         delete(network_v6_path)
         delete(network_from_pool_v6_path)
         delete(ports_path)
+        delete(external_resource_ports_path)
         delete(ports_from_pool_path)
         delete(ports_v6_path)
         delete(ports_from_pool_v6_path)
