@@ -468,122 +468,32 @@ outputs:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       host_prep_tasks: {get_attr: [NovaApiLogging, host_prep_tasks]}
       upgrade_tasks:
-        list_concat:
-          - get_attr: [ApacheServiceBase, role_data, upgrade_tasks]
-          -
+        - when: step|int == 0
+          tags: common
+          block:
             - name: set is_nova_api_bootstrap_node fact
-              tags: common
               set_fact: is_nova_api_bootstrap_node={{nova_api_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Extra migration for nova tripleo/+bug/1656791
+            - name: Ensure all online data migrations for Nova have been applied
+              shell: |
+                if {{ container_cli }} ps | grep nova_api; then
+                  {{ container_cli }} exec nova_api nova-manage db online_data_migrations
+                # handle situation when container_cli is podman but
+                # the containers are still under docker
+                elif docker ps | grep nova_api; then
+                  docker exec nova_api nova-manage db online_data_migrations
+                fi
               tags: pre-upgrade
+              when: is_nova_api_bootstrap_node|bool
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-nova-api package
+              set_fact:
+                remove_nova_api_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-nova-api package if operator requests it
+              package: name=openstack-nova-api state=removed
+              ignore_errors: True
               when:
-                - step|int == 0
-                - is_nova_api_bootstrap_node|bool
-              command: nova-manage db online_data_migrations
-            - name: Stop and disable nova_api service (pre-upgrade not under httpd)
-              when: step|int == 2
-              service: name=openstack-nova-api state=stopped enabled=no
-            - name: Create puppet manifest to set transport_url in nova.conf
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              copy:
-                dest: /root/nova-api_upgrade_manifest.pp
-                mode: 0600
-                content: >
-                  $transport_url = os_transport_url({
-                    'transport' => hiera('oslo_messaging_rpc_scheme', 'rabbit'),
-                    'hosts'     => any2array(hiera('oslo_messaging_rpc_node_names', undef)),
-                    'port'      => sprintf('%s',hiera('oslo_messaging_rpc_port', '5672') ),
-                    'username'  => hiera('oslo_messaging_rpc_user_name', 'guest'),
-                    'password'  => hiera('oslo_messaging_rpc_password'),
-                    'ssl'       => sprintf('%s', bool2num(str2bool(hiera('oslo_messaging_rpc_use_ssl', '0'))))
-                  })
-                  oslo::messaging::default { 'nova_config':
-                    transport_url => $transport_url
-                  }
-            - name: Run puppet apply to set tranport_url in nova.conf
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              command: puppet apply --summarize --modulepath /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules --detailed-exitcodes /root/nova-api_upgrade_manifest.pp
-              register: puppet_apply_nova_api_upgrade
-              failed_when: puppet_apply_nova_api_upgrade.rc not in [0,2]
-              changed_when: puppet_apply_nova_api_upgrade.rc == 2
-            - name: Setup cell_v2 (map cell0)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              shell: nova-manage cell_v2 map_cell0 --database_connection=$(hiera nova::cell0_database_connection)
-            - name: Setup cell_v2 (create default cell)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              # (owalsh) puppet-nova expects the cell name 'default'
-              # (owalsh) pass the db uri explicitly to avoid https://bugs.launchpad.net/tripleo/+bug/1662344
-              shell: nova-manage cell_v2 create_cell --name='default' --database_connection=$(hiera nova::database_connection)
-              register: nova_api_create_cell
-              failed_when: nova_api_create_cell.rc not in [0,2]
-              changed_when: nova_api_create_cell.rc == 0
-            - name: Setup cell_v2 (sync nova/cell DB)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              command: nova-manage db sync
-              async: {get_param: NovaDbSyncTimeout}
-              poll: 10
-            - name: Setup cell_v2 (get cell uuid)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              shell: nova-manage cell_v2 list_cells | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}'
-              register: nova_api_cell_uuid
-            - name: Setup cell_v2 (migrate hosts)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              command: nova-manage cell_v2 discover_hosts --cell_uuid {{nova_api_cell_uuid.stdout}} --verbose
-            - name: Setup cell_v2 (migrate instances)
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              command: nova-manage cell_v2 map_instances --cell_uuid {{nova_api_cell_uuid.stdout}}
-            - name: Sync nova_api DB
-              command: nova-manage api_db sync
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-            - name: Online data migration for nova
-              when:
-                - step|int == 5
-                - is_nova_api_bootstrap_node|bool
-              command: nova-manage db online_data_migrations
-            - when: step|int == 0
-              tags: common
-              block:
-                - name: set is_nova_api_bootstrap_node fact
-                  set_fact: is_nova_api_bootstrap_node={{nova_api_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-                - name: Ensure all online data migrations for Nova have been applied
-                  shell: |
-                    if {{ container_cli }} ps | grep nova_api; then
-                      {{ container_cli }} exec nova_api nova-manage db online_data_migrations
-                    # handle situation when container_cli is podman but
-                    # the containers are still under docker
-                    elif docker ps | grep nova_api; then
-                      docker exec nova_api nova-manage db online_data_migrations
-                    fi
-                  tags: pre-upgrade
-                  when: is_nova_api_bootstrap_node|bool
-            - when: step|int == 3
-              block:
-                - name: Set fact for removal of openstack-nova-api package
-                  set_fact:
-                    remove_nova_api_package: {get_param: UpgradeRemoveUnusedPackages}
-                - name: Remove openstack-nova-api package if operator requests it
-                  package: name=openstack-nova-api state=removed
-                  ignore_errors: True
-                  when:
-                    - remove_nova_api_package|bool
+                - remove_nova_api_package|bool
       external_upgrade_tasks:
         - when: step|int == 1
           block:
