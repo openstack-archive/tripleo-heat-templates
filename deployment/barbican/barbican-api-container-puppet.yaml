@@ -71,10 +71,6 @@ parameters:
     description: Label for Master KEK
     type: string
     default: ''
-  BarbicanPkcs11CryptoMKEKLength:
-    description: Length of Master KEK in bytes
-    type: string
-    default: '256'
   BarbicanPkcs11CryptoHMACLabel:
     description: Label for the HMAC key
     type: string
@@ -83,10 +79,6 @@ parameters:
     description: Slot Id for the HSM
     type: string
     default: '0'
-  BarbicanPkcs11CryptoEncryptionMechanism:
-    description: Cryptoki Mechanism used for encryption
-    type: string
-    default: 'CKM_AES_CBC'
   BarbicanPkcs11CryptoHMACKeyType:
     description: Cryptoki Key Type for Master HMAC key
     type: string
@@ -95,10 +87,6 @@ parameters:
     description: Cryptoki Mechanism used to generate Master HMAC Key
     type: string
     default: 'CKM_AES_KEY_GEN'
-  BarbicanPkcs11AlwaysSetCkaSensitive:
-    description: Always set CKA_SENSITIVE=CK_TRUE
-    type: boolean
-    default: true
   ThalesHSMNetworkName:
     description: The network that the HSM is listening on.
     type: string
@@ -113,8 +101,62 @@ parameters:
     description: Hash of atos-hsm role variables used to
                  install ATOS client software.
     type: json
+  BarbicanPassword:
+    description: The password for the barbican service account.
+    type: string
+    hidden: true
+  BarbicanWorkers:
+    description: Set the number of workers for barbican::wsgi::apache
+    default: '%{::processorcount}'
+    type: string
+  Debug:
+    default: false
+    description: Set to True to enable debugging on all services.
+    type: boolean
+  BarbicanDebug:
+    default: ''
+    description: Set to True to enable debugging Barbican service.
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  BarbicanPolicies:
+    description: |
+      A hash of policies to configure for Barbican.
+      e.g. { barbican-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
+  NotificationDriver:
+    type: string
+    default: 'messagingv2'
+    description: Driver or drivers to handle sending notifications.
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+  RpcUserName:
+    default: guest
+    description: The username for messaging backend
+    type: string
+  RpcPassword:
+    description: The password for messaging backend
+    type: string
+    hidden: true
+  RpcUseSSL:
+    default: false
+    description: >
+        Messaging client subscriber parameter to specify
+        an SSL connection to the messaging host.
+    type: string
 
 conditions:
+  service_debug_unset: {equals : [{get_param: BarbicanDebug}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   thales_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoThalesEnabled}, true]}
   atos_hsm_enabled:     {equals: [{get_param: BarbicanPkcs11CryptoATOSEnabled}, true]}
@@ -126,37 +168,127 @@ conditions:
 
 resources:
 
-  ContainersCommon:
-    type: ./containers-common.yaml
-
-  MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
-
-  BarbicanApiBase:
-    type: ../../puppet/services/barbican-api.yaml
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
     properties:
-      EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  ContainersCommon:
+    type: ../../docker/services/containers-common.yaml
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
+
   BarbicanApiLogging:
     type: OS::TripleO::Services::Logging::BarbicanApi
-
 
 outputs:
   role_data:
     description: Role data for the Barbican API role.
     value:
-      service_name: {get_attr: [BarbicanApiBase, role_data, service_name]}
+      service_name: barbican_api
       config_settings:
         map_merge:
-          - get_attr: [BarbicanApiBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - get_attr: [BarbicanApiLogging, config_settings]
           - apache::default_vhost: false
-      service_config_settings: {get_attr: [BarbicanApiBase, role_data, service_config_settings]}
+            barbican::keystone::authtoken::password: {get_param: BarbicanPassword}
+            barbican::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            barbican::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            barbican::keystone::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            barbican::keystone::authtoken::project_name: 'service'
+            barbican::keystone::notification::enable_keystone_notification: True
+            barbican::keystone::notification::keystone_notification_topic: 'barbican_notifications'
+            barbican::policy::policies: {get_param: BarbicanPolicies}
+            barbican::api::host_href: {get_param: [EndpointMap, BarbicanPublic, uri]}
+            barbican::api::db_auto_create: false
+            barbican::api::enabled_certificate_plugins: ['simple_certificate']
+            barbican::api::enable_queue: true
+            barbican::api::logging::debug:
+              if:
+              - service_debug_unset
+              - {get_param: Debug }
+              - {get_param: BarbicanDebug }
+            barbican::api::notification_driver: {get_param: NotificationDriver}
+            # TODO(ansmith): remove once p-t-o switches to oslo params
+            barbican::api::rabbit_use_ssl: {get_param: RpcUseSSL}
+            barbican::api::rabbit_userid: {get_param: RpcUserName}
+            barbican::api::rabbit_password: {get_param: RpcPassword}
+            barbican::api::rabbit_port: {get_param: RpcPort}
+            barbican::api::rabbit_heartbeat_timeout_threshold: 60
+            barbican::api::service_name: 'httpd'
+            barbican::wsgi::apache::bind_host:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, BarbicanApiNetwork]}
+            barbican::wsgi::apache::ssl:  {get_param: EnableInternalTLS}
+            barbican::wsgi::apache::workers: {get_param: BarbicanWorkers}
+            barbican::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, BarbicanApiNetwork]}
+            barbican::db::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: barbican
+                password: {get_param: BarbicanPassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /barbican
+                query:
+                  read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+            tripleo::barbican_api::firewall_rules:
+              '117 barbican':
+                dport:
+                  - 9311
+                  - 13311
+      service_config_settings:
+        mysql:
+          barbican::db::mysql::password: {get_param: BarbicanPassword}
+          barbican::db::mysql::user: barbican
+          barbican::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          barbican::db::mysql::dbname: barbican
+          barbican::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
+        keystone:
+          barbican::keystone::auth::public_url: {get_param: [EndpointMap, BarbicanPublic, uri]}
+          barbican::keystone::auth::internal_url: {get_param: [EndpointMap, BarbicanInternal, uri]}
+          barbican::keystone::auth::admin_url: {get_param: [EndpointMap, BarbicanAdmin, uri]}
+          barbican::keystone::auth::password: {get_param: BarbicanPassword}
+          barbican::keystone::auth::region: {get_param: KeystoneRegion}
+          barbican::keystone::auth::tenant: 'service'
+          tripleo::profile::base::keystone::barbican_notification_topics: ['barbican_notifications']
+        nova_compute:
+          nova::compute::keymgr_backend: >
+            castellan.key_manager.barbican_key_manager.BarbicanKeyManager
+          nova::compute::barbican_endpoint:
+            get_param: [EndpointMap, BarbicanInternal, uri]
+          nova::compute::barbican_auth_endpoint:
+            get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]
+        cinder_api:
+          cinder::api::keymgr_backend: >
+            castellan.key_manager.barbican_key_manager.BarbicanKeyManager
+          cinder::api::keymgr_encryption_api_url:
+            get_param: [EndpointMap, BarbicanInternal, uri]
+          cinder::api::keymgr_encryption_auth_url:
+            get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]
+        glance_api:
+          glance::api::keymgr_backend: >
+            castellan.key_manager.barbican_key_manager.BarbicanKeyManager
+          glance::api::keymgr_encryption_api_url:
+            get_param: [EndpointMap, BarbicanInternal, uri]
+          glance::api::keymgr_encryption_auth_url:
+            get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: barbican
@@ -164,7 +296,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [BarbicanApiBase, role_data, step_config]}
+            - - "include ::tripleo::profile::base::barbican::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerBarbicanConfigImage}
       kolla_config:
@@ -309,7 +441,6 @@ outputs:
                       {get_param: ATOSVars}
               - null
         - null
-
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
@@ -528,7 +659,7 @@ outputs:
                         - yaql:
                             expression: str($.data.port)
                             data:
-                              port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
+                              port: {get_param: RpcPort}
                 volumes:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
@@ -552,7 +683,7 @@ outputs:
                         - yaql:
                             expression: str($.data.port)
                             data:
-                              port: {get_attr: [BarbicanApiBase, role_data, config_settings, 'barbican::api::rabbit_port']}
+                              port: {get_param: RpcPort}
                 volumes:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
@@ -602,4 +733,4 @@ outputs:
               - barbican_keystone_listener
               - barbican_worker
       metadata_settings:
-        get_attr: [BarbicanApiBase, role_data, metadata_settings]
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
