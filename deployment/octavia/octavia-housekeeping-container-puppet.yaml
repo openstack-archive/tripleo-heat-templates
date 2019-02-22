@@ -1,20 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Octavia worker service configured with Puppet
+  OpenStack Octavia service configured with Puppet
 
 parameters:
-  DockerOctaviaWorkerImage:
+  DockerOctaviaHousekeepingImage:
     description: image
     type: string
   DockerOctaviaConfigImage:
     description: The container image to use for the octavia config_volume
     type: string
-  OctaviaWorkerLoggingSource:
+  OctaviaHousekeepingLoggingSource:
     type: json
     default:
-      tag: openstack.octavia.worker
-      path: /var/log/containers/octavia/worker.log
+      tag: openstack.octavia.housekeeping
+      path: /var/log/containers/octavia/housekeeping.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -41,21 +41,30 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EnablePackageInstall:
-    default: 'false'
-    description: Set to true to enable package installation at deploy time
-    type: boolean
+  OctaviaAmphoraExpiryAge:
+    default: 0
+    description: The interval in seconds after which an unused Amphora will
+                 be considered expired and cleaned up. If left to 0, the
+                 configuration will not be set and the system will use
+                 the service defaults.
+    type: number
+  MonitoringSubscriptionOctaviaHousekeeping:
+    default: 'overcloud-octavia-housekeeping'
+    type: string
+
+conditions:
+  amphora_expiry_is_zero: {equals: [{get_param: OctaviaAmphoraExpiryAge}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../database/mysql-client.yaml
 
-  OctaviaWorkerPuppetBase:
-    type: ../../puppet/services/octavia-worker.yaml
+  OctaviaBase:
+    type: ./octavia-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -66,18 +75,24 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Octavia worker role.
+    description: Role data for the Octavia housekeeping role.
     value:
-      service_name: {get_attr: [OctaviaWorkerPuppetBase, role_data, service_name]}
-      config_settings: {get_attr: [OctaviaWorkerPuppetBase, role_data, config_settings]}
-      service_config_settings:
+      service_name: octavia_housekeeping
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaHousekeeping}
+      config_settings:
         map_merge:
-          - get_attr: [OctaviaWorkerPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_octavia_worker:
-                - octavia
-              tripleo_fluentd_sources_octavia_worker:
-                - {get_param: OctaviaWorkerLoggingSource}
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          -
+            if:
+            - amphora_expiry_is_zero
+            - {}
+            - octavia::housekeeping::amphora_expiry_age: {get_param: OctaviaAmphoraExpiryAge}
+      service_config_settings:
+        fluentd:
+          tripleo_fluentd_groups_octavia_housekeeping:
+            - octavia
+          tripleo_fluentd_sources_octavia_housekeeping:
+            - {get_param: OctaviaHousekeepingLoggingSource}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
@@ -85,13 +100,12 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - "['nova_flavor'].each |String $val| { noop_resource($val) }"
-              - {get_attr: [OctaviaWorkerPuppetBase, role_data, step_config]}
+            - - "include tripleo::profile::base::octavia::housekeeping"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/octavia_worker.json:
-          command: /usr/bin/octavia-worker --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/worker.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-worker
+        /var/lib/kolla/config_files/octavia_housekeeping.json:
+          command: /usr/bin/octavia-housekeeping --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/housekeeping.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-housekeeping
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -103,9 +117,9 @@ outputs:
               recurse: true
       docker_config:
         step_2:
-          octavia_worker_init_dirs:
+          octavia_housekeeping_init_dirs:
             start_order: 0
-            image: &octavia_worker_image {get_param: DockerOctaviaWorkerImage}
+            image: &octavia_housekeeping_image {get_param: DockerOctaviaHousekeepingImage}
             user: root
             volumes:
               # NOTE(mandre) we need extra dir for the service in /etc/octavia/conf.d
@@ -114,28 +128,21 @@ outputs:
               # octavia services, hence the same container image to generate
               # configuration.
               - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/:z
-            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-worker; chown -R octavia:octavia /etc/octavia/conf.d/octavia-worker']
+            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-housekeeping; chown -R octavia:octavia /etc/octavia/conf.d/octavia-housekeeping']
         step_4:
-          octavia_worker:
+          octavia_housekeeping:
             start_order: 2
-            image: *octavia_worker_image
+            image: *octavia_housekeeping_image
             net: host
             privileged: false
             restart: always
             healthcheck:
-              test:
-                list_join:
-                  - ' '
-                  - - '/openstack/healthcheck'
-                    - yaql:
-                        expression: str($.data.port)
-                        data:
-                          port: {get_attr: [OctaviaWorkerPuppetBase, role_data, config_settings, 'octavia::rabbit_port']}
+              test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/octavia_worker.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/octavia_housekeeping.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/octavia:/var/log/octavia:z
             environment:
@@ -156,19 +163,6 @@ outputs:
               Log files from octavia containers can be found under
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
-        - name: Ensure packages required for configuring octavia are present
-          package:
-            name:
-              - python2-neutronclient
-              - python2-openstackclient
-              - openssl
-            state: present
-          when: {get_param: EnablePackageInstall}
-        - name: enable virt_sandbox_use_netlink for healthcheck
-          seboolean:
-            name: virt_sandbox_use_netlink
-            persistent: yes
-            state: yes
       upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1
@@ -176,4 +170,4 @@ outputs:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - octavia_worker
+              - octavia_housekeeping

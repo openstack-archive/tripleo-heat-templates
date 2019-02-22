@@ -259,7 +259,7 @@ CONFIG_RESOURCE_TYPES = [
 ]
 
 WORKFLOW_TASKS_EXCLUSIONS = [
-    './docker/services/octavia/octavia-deployment-config.yaml',
+    './deployment/octavia/octavia-deployment-config.yaml',
     './docker/services/ceph-ansible/ceph-external.yaml',
     './docker/services/ceph-ansible/ceph-osd.yaml',
     './docker/services/ceph-ansible/ceph-rbdmirror.yaml',

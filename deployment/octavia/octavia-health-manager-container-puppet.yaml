@@ -1,20 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Octavia service configured with Puppet
+  OpenStack Octavia health-manager service configured with Puppet
 
 parameters:
-  DockerOctaviaHousekeepingImage:
+  DockerOctaviaHealthManagerImage:
     description: image
     type: string
   DockerOctaviaConfigImage:
     description: The container image to use for the octavia config_volume
     type: string
-  OctaviaHousekeepingLoggingSource:
+  OctaviaHealthManagerLoggingSource:
     type: json
     default:
-      tag: openstack.octavia.housekeeping
-      path: /var/log/containers/octavia/housekeeping.log
+      tag: openstack.octavia.health-manager
+      path: /var/log/containers/octavia/health-manager.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -41,17 +41,41 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  UpgradeRemoveUnusedPackages:
+    default: false
+    description: Remove package if the service is being disabled during upgrade
+    type: boolean
+  MonitoringSubscriptionOctaviaHealthManager:
+    default: 'overcloud-octavia-health-manager'
+    type: string
+  OctaviaHeartbeatKey:
+    type: string
+    description: Key to identify heartbeat messages for amphorae.
+    hidden: true
+  OctaviaMgmtPortDevName:
+    type: string
+    default: "o-hm0"
+    description: Name of the octavia management network interface using
+                 for communication between octavia worker/health-manager
+                 with the amphora machine.
+  OctaviaEventStreamerDriver:
+    type: string
+    default: "noop_event_streamer"
+    description: Name of the event streamer driver to use for syncing Octavia
+                 and Neutron LBaaS databases. It is highly recommended to
+                 disable if one doesn't need to sync the database or is running
+                 Octavia in standalone mode by setting to noop_event_streamer.
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../database/mysql-client.yaml
 
-  OctaviaHousekeepingPuppetBase:
-    type: ../../puppet/services/octavia-housekeeping.yaml
+  OctaviaBase:
+    type: ./octavia-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -62,18 +86,26 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Octavia housekeeping role.
+    description: Role data for the Octavia health-manager role.
     value:
-      service_name: {get_attr: [OctaviaHousekeepingPuppetBase, role_data, service_name]}
-      config_settings: {get_attr: [OctaviaHousekeepingPuppetBase, role_data, config_settings]}
-      service_config_settings:
+      service_name: octavia_health_manager
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaHealthManager}
+      config_settings:
         map_merge:
-          - get_attr: [OctaviaHousekeepingPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_octavia_housekeeping:
-                - octavia
-              tripleo_fluentd_sources_octavia_housekeeping:
-                - {get_param: OctaviaHousekeepingLoggingSource}
+          - get_attr: [OctaviaBase, role_data, config_settings]
+          - octavia::health_manager::heartbeat_key: {get_param: OctaviaHeartbeatKey}
+            octavia::health_manager::event_streamer_driver: {get_param: OctaviaEventStreamerDriver}
+            tripleo::octavia_health_manager::firewall_rules:
+              '200 octavia health manager interface':
+                proto: udp
+                dport: 5555
+                iniface: {get_param: OctaviaMgmtPortDevName}
+      service_config_settings:
+        fluentd:
+          tripleo_fluentd_groups_octavia_health_manager:
+            - octavia
+          tripleo_fluentd_sources_octavia_health_manager:
+            - {get_param: OctaviaHealthManagerLoggingSource}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
@@ -81,12 +113,12 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [OctaviaHousekeepingPuppetBase, role_data, step_config]}
+            - - "include tripleo::profile::base::octavia::health_manager"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/octavia_housekeeping.json:
-          command: /usr/bin/octavia-housekeeping --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/housekeeping.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-housekeeping
+        /var/lib/kolla/config_files/octavia_health_manager.json:
+          command: /usr/bin/octavia-health-manager --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/health-manager.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-health-manager
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -98,9 +130,9 @@ outputs:
               recurse: true
       docker_config:
         step_2:
-          octavia_housekeeping_init_dirs:
+          octavia_health_manager_init_dirs:
             start_order: 0
-            image: &octavia_housekeeping_image {get_param: DockerOctaviaHousekeepingImage}
+            image: &octavia_health_manager_image {get_param: DockerOctaviaHealthManagerImage}
             user: root
             volumes:
               # NOTE(mandre) we need extra dir for the service in /etc/octavia/conf.d
@@ -109,11 +141,11 @@ outputs:
               # octavia services, hence the same container image to generate
               # configuration.
               - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/:z
-            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-housekeeping; chown -R octavia:octavia /etc/octavia/conf.d/octavia-housekeeping']
+            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-health-manager; chown -R octavia:octavia /etc/octavia/conf.d/octavia-health-manager']
         step_4:
-          octavia_housekeeping:
+          octavia_health_manager:
             start_order: 2
-            image: *octavia_housekeeping_image
+            image: *octavia_health_manager_image
             net: host
             privileged: false
             restart: always
@@ -123,7 +155,7 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/octavia_housekeeping.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/octavia_health_manager.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/octavia:/var/log/octavia:z
             environment:
@@ -144,11 +176,20 @@ outputs:
               Log files from octavia containers can be found under
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
-      upgrade_tasks: []
+      upgrade_tasks:
+        - when: step|int == 3
+          block:
+            - name: Set fact for removal of openstack-octavia-health-manager package
+              set_fact:
+                remove_octavia_health_manager_package: {get_param: UpgradeRemoveUnusedPackages}
+            - name: Remove openstack-octavia-health-manager package if operator requests it
+              package: name=openstack-octavia-health-manager state=removed
+              ignore_errors: True
+              when: remove_octavia_health_manager_package|bool
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - octavia_housekeeping
+              - octavia_health_manager

@@ -1,20 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack Octavia health-manager service configured with Puppet
+  OpenStack Octavia worker service configured with Puppet
 
 parameters:
-  DockerOctaviaHealthManagerImage:
+  DockerOctaviaWorkerImage:
     description: image
     type: string
   DockerOctaviaConfigImage:
     description: The container image to use for the octavia config_volume
     type: string
-  OctaviaHealthManagerLoggingSource:
+  OctaviaWorkerLoggingSource:
     type: json
     default:
-      tag: openstack.octavia.health-manager
-      path: /var/log/containers/octavia/health-manager.log
+      tag: openstack.octavia.worker
+      path: /var/log/containers/octavia/worker.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -41,21 +41,56 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  UpgradeRemoveUnusedPackages:
-    default: false
-    description: Remove package if the service is being disabled during upgrade
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation at deploy time
     type: boolean
+  MonitoringSubscriptionOctaviaWorker:
+    default: 'overcloud-octavia-worker'
+    type: string
+  OctaviaFlavorProperties:
+    default:
+      ram   : '1024'
+      disk  : '3'
+      vcpus : '1'
+    description: Dictionary describing the nova flavor for amphora.
+    type: json
+  OctaviaManageNovaFlavor:
+    default: true
+    description: Configure the nova flavor for the amphora.
+    type: boolean
+  OctaviaClientCertFile:
+    default: '/etc/octavia/certs/client.pem'
+    description: client certificate for amphoras
+    type: string
+  OctaviaClientCert:
+    default: ''
+    description: Client certificate data. If provided, this will create or update
+                 a file on the host with the path provided in OctaviaClientCertFile
+                 with the certificate data.
+    type: string
+  OctaviaProjectName:
+    description: The project name for the keystone Octavia account.
+    type: string
+    default: 'service'
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
+
+conditions:
+  octavia_client_cert_unset: {equals: [{get_param: OctaviaClientCert}, ""]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../database/mysql-client.yaml
 
-  OctaviaHealthManagerPuppetBase:
-    type: ../../puppet/services/octavia-health-manager.yaml
+  OctaviaBase:
+    type: ./octavia-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -66,18 +101,17 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Octavia health-manager role.
+    description: Role data for the Octavia worker role.
     value:
-      service_name: {get_attr: [OctaviaHealthManagerPuppetBase, role_data, service_name]}
-      config_settings: {get_attr: [OctaviaHealthManagerPuppetBase, role_data, config_settings]}
+      service_name: octavia_worker
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaWorker}
+      config_settings: {get_attr: [OctaviaBase, role_data, config_settings]}
       service_config_settings:
-        map_merge:
-          - get_attr: [OctaviaHealthManagerPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_octavia_health_manager:
-                - octavia
-              tripleo_fluentd_sources_octavia_health_manager:
-                - {get_param: OctaviaHealthManagerLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_octavia_worker:
+            - octavia
+          tripleo_fluentd_sources_octavia_worker:
+            - {get_param: OctaviaWorkerLoggingSource}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
@@ -85,12 +119,13 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [OctaviaHealthManagerPuppetBase, role_data, step_config]}
+            - - "['nova_flavor'].each |String $val| { noop_resource($val) }"
+              - "include tripleo::profile::base::octavia::worker"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/octavia_health_manager.json:
-          command: /usr/bin/octavia-health-manager --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/health-manager.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-health-manager
+        /var/lib/kolla/config_files/octavia_worker.json:
+          command: /usr/bin/octavia-worker --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/worker.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-worker
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -102,9 +137,9 @@ outputs:
               recurse: true
       docker_config:
         step_2:
-          octavia_health_manager_init_dirs:
+          octavia_worker_init_dirs:
             start_order: 0
-            image: &octavia_health_manager_image {get_param: DockerOctaviaHealthManagerImage}
+            image: &octavia_worker_image {get_param: DockerOctaviaWorkerImage}
             user: root
             volumes:
               # NOTE(mandre) we need extra dir for the service in /etc/octavia/conf.d
@@ -113,21 +148,28 @@ outputs:
               # octavia services, hence the same container image to generate
               # configuration.
               - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/:z
-            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-health-manager; chown -R octavia:octavia /etc/octavia/conf.d/octavia-health-manager']
+            command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-worker; chown -R octavia:octavia /etc/octavia/conf.d/octavia-worker']
         step_4:
-          octavia_health_manager:
+          octavia_worker:
             start_order: 2
-            image: *octavia_health_manager_image
+            image: *octavia_worker_image
             net: host
             privileged: false
             restart: always
             healthcheck:
-              test: /openstack/healthcheck
+              test:
+                list_join:
+                  - ' '
+                  - - '/openstack/healthcheck'
+                    - yaql:
+                        expression: str($.data.port)
+                        data:
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/octavia_health_manager.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/octavia_worker.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/octavia:/var/log/octavia:z
             environment:
@@ -148,20 +190,24 @@ outputs:
               Log files from octavia containers can be found under
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
-      upgrade_tasks:
-        - when: step|int == 3
-          block:
-            - name: Set fact for removal of openstack-octavia-health-manager package
-              set_fact:
-                remove_octavia_health_manager_package: {get_param: UpgradeRemoveUnusedPackages}
-            - name: Remove openstack-octavia-health-manager package if operator requests it
-              package: name=openstack-octavia-health-manager state=removed
-              ignore_errors: True
-              when: remove_octavia_health_manager_package|bool
+        - name: Ensure packages required for configuring octavia are present
+          package:
+            name:
+              - python2-neutronclient
+              - python2-openstackclient
+              - openssl
+            state: present
+          when: {get_param: EnablePackageInstall}
+        - name: enable virt_sandbox_use_netlink for healthcheck
+          seboolean:
+            name: virt_sandbox_use_netlink
+            persistent: yes
+            state: yes
+      upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - octavia_health_manager
+              - octavia_worker
