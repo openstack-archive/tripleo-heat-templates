@@ -39,30 +39,41 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  OVNNorthboundServerPort:
+    description: Port of the OVN Northbound DB server
+    type: number
+    default: 6641
+  OVNSouthboundServerPort:
+    description: Port of the OVN Southbound DB server
+    type: number
+    default: 6642
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  OVNDbsBase:
-    type: ../../puppet/services/ovn-dbs.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
     description: Role data for the OVN Dbs role.
     value:
-      service_name: {get_attr: [OVNDbsBase, role_data, service_name]}
+      service_name: ovn_dbs
       config_settings:
-        map_merge:
-          - get_attr: [OVNDbsBase, role_data, config_settings]
+          ovn::northbound::port: {get_param: OVNNorthboundServerPort}
+          ovn::southbound::port: {get_param: OVNSouthboundServerPort}
+          ovn::northd::dbs_listen_ip:
+            str_replace:
+               template:
+                 "%{hiera('$NETWORK')}"
+               params:
+                 $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+          tripleo::haproxy::ovn_dbs_manage_lb: true
+          tripleo::ovn_dbs::firewall_rules:
+            '121 OVN DB server ports':
+              proto: 'tcp'
+              dport:
+                - {get_param: OVNNorthboundServerPort}
+                - {get_param: OVNSouthboundServerPort}
       # BEGIN DOCKER SETTINGS
       # puppet_config is not required for this service since we configure
       # the NB and SB DB servers to listen on the proper IP address/port
@@ -71,8 +82,8 @@ outputs:
       puppet_config:
         config_volume: ''
         config_image: ''
-        step_config:
-          get_attr: [OVNDbsBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::neutron::ovn_northd #unused
       kolla_config:
         /var/lib/kolla/config_files/ovn_north_db_server.json:
           command:
