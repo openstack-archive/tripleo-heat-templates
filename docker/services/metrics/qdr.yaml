@@ -124,6 +124,21 @@ parameters:
     default: ''
     description: Path to file containing trusted certificates for listener.
     type: string
+  MetricsQdrAuthenticateClient:
+    default: 'no'
+    description: Authenticate the client using SSL/TLS
+    type: string
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 
 resources:
@@ -144,35 +159,71 @@ outputs:
           tripleo_fluentd_sources_metrics_qdr:
             - {get_param: MetricsQdrLoggingSource}
       config_settings:
-        tripleo.metrics_qdr.firewall_rules:
-          '109 metrics qdr':
-            dport:
-              - {get_param: MetricsQdrPort}
-        tripleo::profile::base::metrics::qdr::listener_addr:
-          str_replace:
-             template:
-               "%{hiera('$NETWORK')}"
-             params:
-               $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
-        tripleo::profile::base::metrics::qdr::listener_port: {get_param: MetricsQdrPort}
-        tripleo::profile::base::metrics::qdr::username: {get_param: MetricsQdrUsername}
-        tripleo::profile::base::metrics::qdr::password: {get_param: MetricsQdrPassword}
-        tripleo::profile::base::metrics::qdr::connectors: {get_param: MetricsQdrConnectors}
-        tripleo::profile::base::metrics::qdr::addresses: {get_param: MetricsQdrAddresses}
-        tripleo::profile::base::metrics::qdr::autolink_addresses: {get_param: MetricsQdrAutoLinks}
-        # ssl support
-        tripleo::profile::base::metrics::qdr::listener_require_ssl: {get_param: MetricsQdrUseSSL}
-        tripleo::profile::base::metrics::qdr::listener_require_encrypt: {get_param: MetricsQdrUseEncryption}
-        tripleo::profile::base::metrics::qdr::listener_sasl_mech: {get_param: MetricsQdrSaslMechanisms}
-        tripleo::profile::base::metrics::qdr::listener_ssl_cert_db: {get_param: MetricsQdrSslCertDb}
-        tripleo::profile::base::metrics::qdr::listener_ssl_cert_file: {get_param: MetricsQdrSslCertFile}
-        tripleo::profile::base::metrics::qdr::listener_ssl_key_file: {get_param: MetricsQdrSslKeyFile}
-        tripleo::profile::base::metrics::qdr::listener_ssl_pw_file: {get_param: MetricsQdrSslPwFile}
-        tripleo::profile::base::metrics::qdr::listener_ssl_password: {get_param: MetricsQdrSslPassword}
-        tripleo::profile::base::metrics::qdr::listener_trusted_certs: {get_param: MetricsQdrTrustedCerts}
-        tripleo::profile::base::metrics::qdr::ssl_profiles: {get_param: MetricsQdrSSLProfiles}
-        qdr::log_enable: 'info+'
-        qdr::log_output: '/var/log/qdrouterd/metrics-qdr.log'
+        map_merge:
+          - tripleo.metrics_qdr.firewall_rules:
+            '109 metrics qdr':
+              dport:
+                - {get_param: MetricsQdrPort}
+            tripleo::profile::base::metrics::qdr::listener_addr:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+            tripleo::profile::base::metrics::qdr::listener_port: {get_param: MetricsQdrPort}
+            tripleo::profile::base::metrics::qdr::username: {get_param: MetricsQdrUsername}
+            tripleo::profile::base::metrics::qdr::password: {get_param: MetricsQdrPassword}
+            tripleo::profile::base::metrics::qdr::connectors: {get_param: MetricsQdrConnectors}
+            tripleo::profile::base::metrics::qdr::addresses: {get_param: MetricsQdrAddresses}
+            tripleo::profile::base::metrics::qdr::autolink_addresses: {get_param: MetricsQdrAutoLinks}
+            # ssl support
+            tripleo::profile::base::metrics::qdr::listener_require_ssl: {get_param: MetricsQdrUseSSL}
+            tripleo::profile::base::metrics::qdr::listener_require_encrypt: {get_param: MetricsQdrUseEncryption}
+            tripleo::profile::base::metrics::qdr::listener_sasl_mech: {get_param: MetricsQdrSaslMechanisms}
+            tripleo::profile::base::metrics::qdr::listener_ssl_cert_db: {get_param: MetricsQdrSslCertDb}
+            tripleo::profile::base::metrics::qdr::listener_ssl_cert_file: {get_param: MetricsQdrSslCertFile}
+            tripleo::profile::base::metrics::qdr::listener_ssl_key_file: {get_param: MetricsQdrSslKeyFile}
+            tripleo::profile::base::metrics::qdr::listener_ssl_pw_file: {get_param: MetricsQdrSslPwFile}
+            tripleo::profile::base::metrics::qdr::listener_ssl_password: {get_param: MetricsQdrSslPassword}
+            tripleo::profile::base::metrics::qdr::listener_trusted_certs: {get_param: MetricsQdrTrustedCerts}
+            qdr::log_enable: 'info+'
+            qdr::log_output: '/var/log/qdrouterd/metrics-qdr.log'
+            qdr::listener_auth_peer: {get_param: MetricsQdrAuthenticateClient}
+          - if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::metrics::qdr::service_certificate: '/etc/pki/tls/certs/metrics_qdr.crt'
+              tripleo::metrics::qdr::service_key: '/etc/pki/tls/private/metrics_qdr.key'
+              tripleo::profile::base::metrics::qdr::certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/metrics_qdr.crt'
+                service_key: '/etc/pki/tls/private/metrics_qdr.key'
+                postsave_cmd: "/usr/bin/certmonger-metrics-qdr-refresh.sh"
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+                principal:
+                  str_replace:
+                    template: "metrics-qdr/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              tripleo::profile::base::metrics::qdr::ssl_profiles:
+                list_concat:
+                  - get_param: MetricsQdrSSLProfiles
+                  - - name: 'tlsProfile'
+                      certFile: '/etc/pki/tls/certs/metrics_qdr.crt'
+                      keyFile: '/etc/pki/tls/private/metrics_qdr.key'
+                      caCertFile: {get_param: InternalTLSCAFile}
+            - tripleo::profile::base::metrics::qdr:ssl_profiles: {get_param: MetricsQdrSSLProfiles}
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: metrics-qdr
+              network: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              type: node
+          - null
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: metrics-qdr
@@ -187,10 +238,21 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
           permissions:
             - path: /var/lib/qdrouterd
               owner: qdrouterd:qdrouterd
               recurse: true
+            - path: /etc/pki/tls/certs/metrics_qdr.crt
+              owner: qdrouterd:qdrouterd
+              optional: true
+            - path: /etc/pki/tls/private/metrics_qdr.key
+              owner: qdrouterd:qdrouterd
+              optional: true
       docker_config:
         step_1:
           metrics_qdr_init_logs:
@@ -217,6 +279,16 @@ outputs:
                   - /var/lib/config-data/puppet-generated/metrics-qdr/:/var/lib/kolla/config_files/src:ro
                   - /var/lib/metrics-qdr:/var/lib/qdrouterd
                   - /var/log/containers/metrics-qdr:/var/log/qdrouterd
+                - if:
+                  - internal_tls_enabled
+                  - - /etc/pki/tls/certs/metrics_qdr.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/metrics_qdr.crt:ro
+                    - /etc/pki/tls/private/metrics_qdr.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/metrics_qdr.key:ro
+                    - list_join:
+                      - ':'
+                      - - {get_param: InternalTLSCAFile}
+                        - {get_param: InternalTLSCAFile}
+                        - 'ro'
+                  - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
