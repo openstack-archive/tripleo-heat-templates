@@ -252,6 +252,13 @@ parameters:
     default: false
     description: Whether this is an cell additional to the default cell.
     type: boolean
+  NovaComputeEnableKsm:
+    default: false
+    description: Whether to enable KSM on compute nodes or not. Especially
+                 in NFV use case one wants to keep it disabled.
+    type: boolean
+    tags:
+      - role_specific
 
 resources:
 
@@ -307,6 +314,7 @@ resources:
               nova::compute::libvirt::file_backed_memory: NovaLibvirtFileBackedMemory
               nova::compute::libvirt::volume_use_multipath: NovaLibvirtVolumeUseMultipath
               nova::compute::libvirt::libvirt_hw_machine_type: NovaHWMachineType
+              compute_enable_ksm: NovaComputeEnableKsm
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -320,6 +328,7 @@ resources:
               NovaLibvirtFileBackedMemory: {get_param: NovaLibvirtFileBackedMemory}
               NovaLibvirtVolumeUseMultipath: {get_param: NovaLibvirtVolumeUseMultipath}
               NovaHWMachineType: {get_param: NovaHWMachineType}
+              NovaComputeEnableKsm: {get_param: NovaComputeEnableKsm}
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
@@ -664,6 +673,56 @@ outputs:
             - name: If instance HA is enabled on the node activate the evacuation completed check
               file: path=/var/lib/nova/instanceha/enabled state=touch
               when: iha_nodes.stdout|lower | search('"'+ansible_hostname|lower+'"')
+          - name: is KSM enabled
+            set_fact:
+              compute_ksm_enabled: {get_attr: [RoleParametersValue, value, compute_enable_ksm]}
+          - name: disable KSM on compute
+            when: not compute_ksm_enabled|bool
+            block:
+            - name: Populate service facts (ksm)
+              service_facts: # needed to make yaml happy
+            - name: disable KSM services
+              service:
+                name: "{{ item }}"
+                state: stopped
+                enabled: no
+              with_items:
+                - ksm.service
+                - ksmtuned.service
+              when: "'ksm.service' in ansible_facts.services"
+              register: ksmdisabled
+            # When KSM is disabled, any memory pages that were shared prior to
+            # deactivating KSM are still shared. To delete all of the PageKSM
+            # in the system, we use:
+            - name: delete PageKSM after disable ksm on compute
+              command: echo 2 >/sys/kernel/mm/ksm/run
+              when: ksmdisabled.changed
+          - name: enable KSM on compute
+            when: compute_ksm_enabled|bool
+            block:
+            - name: Populate service facts (ksm)
+              service_facts: # needed to make yaml happy
+            # mschuppert: we can remove the CentOS/RHEL split here when CentOS8/
+            # RHEL8 is available and we have the same package name providing the
+            # KSM services
+            - name: make sure package providing ksmtuned is installed (CentOS)
+              package:
+                name: qemu-kvm-common-ev
+                state: present
+              when: ansible_distribution == 'CentOS'
+            - name: make sure package providing ksmtuned is installed (RHEL)
+              package:
+                name: qemu-kvm-common-rhev
+                state: present
+              when: ansible_distribution == 'RedHat'
+            - name: enable ksmtunded
+              service:
+                name: "{{ item }}"
+                state: started
+                enabled: yes
+              with_items:
+                - ksm.service
+                - ksmtuned.service
       upgrade_tasks:
         - name: Remove openstack-nova-compute and python-nova package during upgrade
           package:
