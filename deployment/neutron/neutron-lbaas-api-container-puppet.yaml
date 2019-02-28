@@ -33,34 +33,38 @@ parameters:
   DockerNeutronConfigImage:
     description: The container image to use for the neutron config_volume
     type: string
+  NeutronServiceProviders:
+    default: 'LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default'
+    description: Global list of service providers used by neutron. This
+                 list should be passed in to ensure all service
+                 providers desired by the user are included. The
+                 provided default value only set the provider for the LBaaSv2
+                 subsystem.This is currently incompatible with enabling
+                 octavia-api as one service or the other will break because the defaults are different.
+    type: comma_delimited_list
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  NeutronLbaasBase:
-    type: ../../puppet/services/neutron-lbaas-api.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
     description: Role data for the LBaaS role.
     value:
-      service_name: {get_attr: [NeutronLbaasBase, role_data, service_name]}
-      config_settings: {get_attr: [NeutronLbaasBase, role_data, config_settings]}
-      service_config_settings: {get_attr: [NeutronLbaasBase, role_data, service_config_settings]}
+      service_name: neutron_lbaas_api
+      config_settings: {}
+      service_config_settings:
+        neutron_api:
+          neutron::server::service_providers: {get_param: NeutronServiceProviders}
+        horizon:
+          horizon::neutron_options:
+            enable_lb: True
       puppet_config:
         config_volume: 'neutron'
         puppet_tags: neutron_lbaas_service_config
-        step_config:
-          get_attr: [NeutronLbaasBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::neutron::lbaas
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config: {}
       docker_config: {}
