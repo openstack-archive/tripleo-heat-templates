@@ -36,14 +36,77 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  NeutronPhysicalDevMappings:
+    description: >
+      List of <physical_network>:<physical device>
+      All physical networks listed in network_vlan_ranges
+      on the server should have mappings to appropriate
+      interfaces on each agent.
+      Example "tenant0:ens2f0,tenant1:ens2f1"
+    type: comma_delimited_list
+    default: ""
+    tags:
+      - role_specific
+  NeutronExcludeDevices:
+    description: >
+      List of <network_device>:<excluded_devices> mapping
+      network_device to the agent's node-specific list of virtual functions
+      that should not be used for virtual networking. excluded_devices is a
+      semicolon separated list of virtual functions to exclude from
+      network_device. The network_device in the mapping should appear in the
+      physical_device_mappings list.
+    type: comma_delimited_list
+    default: ""
+    tags:
+      - role_specific
+  NeutronSriovNumVFs:
+    description: |
+      Provide the list of VFs to be reserved for each SR-IOV interface.
+      Format ["<interface_name1>:<numvfs1>:<mode>","<interface_name2>:<numvfs2>"]
+      Example ["eth1:4096:switchdev","eth2:128:legacy","eth3:30"]
+    type: comma_delimited_list
+    default: ""
+    tags:
+      - role_specific
+  NeutronSriovAgentExtensions:
+    default: ""
+    description: >
+        Comma-separated list of extensions enabled for the Neutron SR-IOV agents.
+    type: comma_delimited_list
+    tags:
+      - role_specific
+  RpcPort:
+    default: 5672
+    description: The network port for messaging backend
+    type: number
 
 resources:
+
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::agents::ml2::sriov::physical_device_mappings: NeutronPhysicalDevMappings
+              neutron::agents::ml2::sriov::exclude_devices: NeutronExcludeDevices
+              tripleo::host::sriov::number_of_vfs: NeutronSriovNumVFs
+              neutron::agents::ml2::sriov::extensions: NeutronSriovAgentExtensions
+            - values: {get_param: [RoleParameters]}
+          - values:
+              NeutronPhysicalDevMappings: {get_param: NeutronPhysicalDevMappings}
+              NeutronExcludeDevices: {get_param: NeutronExcludeDevices}
+              NeutronSriovNumVFs: {get_param: NeutronSriovNumVFs}
+              NeutronSriovAgentExtensions: {get_param: NeutronSriovAgentExtensions}
 
   ContainersCommon:
     type: ./containers-common.yaml
 
-  NeutronSriovAgentBase:
-    type: ../../puppet/services/neutron-sriov-agent.yaml
+  NeutronBase:
+    type: ../../puppet/services/neutron-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -61,16 +124,17 @@ outputs:
   role_data:
     description: Role data for Neutron sriov service
     value:
-      service_name: {get_attr: [NeutronSriovAgentBase, role_data, service_name]}
+      service_name: neutron_sriov_agent
       config_settings:
         map_merge:
-          - get_attr: [NeutronSriovAgentBase, role_data, config_settings]
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           - get_attr: [NeutronLogging, config_settings]
       puppet_config:
         config_volume: neutron
         puppet_tags: neutron_config,neutron_agent_sriov_numvfs,neutron_sriov_agent_config
-        step_config:
-          get_attr: [NeutronSriovAgentBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::neutron::sriov
         config_image: {get_param: DockerNeutronConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/neutron_sriov_agent.json:
@@ -105,7 +169,7 @@ outputs:
                     - yaql:
                         expression: str($.data.port)
                         data:
-                          port: {get_attr: [NeutronSriovAgentBase, role_data, config_settings, 'neutron::rabbit_port']}
+                          port: {get_param: RpcPort}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
@@ -127,7 +191,7 @@ outputs:
                 persistent: yes
                 state: yes
       metadata_settings:
-        get_attr: [NeutronSriovAgentBase, role_data, metadata_settings]
+        get_attr: [NeutronBase, role_data, metadata_settings]
       upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1
