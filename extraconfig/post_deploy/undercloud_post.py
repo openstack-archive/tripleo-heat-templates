@@ -119,7 +119,9 @@ def _store_passwords_in_mistral_env(mistral):
         'undercloud_ceilometer_snmpd_password':
             CONF['snmp_readonly_user_password'],
         'undercloud_db_password':
-            CONF['undercloud_db_password']
+            CONF['undercloud_db_password'],
+        'undercloud_db_host':
+            CONF['undercloud_db_host']
     }
     try:
         mistral.environments.get(env_name).variables

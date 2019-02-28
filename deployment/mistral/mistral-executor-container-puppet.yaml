@@ -74,10 +74,26 @@ parameters:
     default: 'tripleo-admin'
     description: Name of user which manages the hosts
     type: string
+  MountBackupFilesystemPaths:
+    default: false
+    description: Set to True to mount all directories stated in BackupFilesystemPaths
+    type: boolean
+  BackupBaseMountpoint:
+    default: '/backup'
+    description: Absolute paths to directory, which will use as a base directory for all mounted directories marked for backup
+    type: string
+  BackupFilesystemPaths:
+    description: Absolute paths to directories, which should be included during filesystem backup on undercloud
+    type: json
+    default:
+      - /etc/hiera.yaml
+      - /etc/puppet/
+      - /var/lib/config-data/
 
 conditions:
   undercloud_config_file_path_unset: {equals : [{get_param: UndercloudConfigFilePath}, '']}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  mount_backup_filesystem: {equals : [{get_param: MountBackupFilesystemPaths}, true]}
 
 resources:
 
@@ -198,6 +214,25 @@ outputs:
                         '/home/tripleo-admin:/home/tripleo-admin'
                       params:
                         tripleo-admin: {get_param: TripleoAdminUser}
+                - if:
+                  - mount_backup_filesystem
+                  - repeat:
+                      for_each:
+                        PATH: {get_param: BackupFilesystemPaths}
+                      template:
+                        list_join:
+                        - ':'
+                        - - 'PATH'
+                          - list_join:
+                            - '/'
+                            - - {get_param: BackupBaseMountpoint}
+                              - 'PATH'
+                          - 'ro'
+                      expression: >
+                        ($.data.paths + $.data.extra_plugins)
+                        .flatten().distinct()
+
+                  - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             env_file: /etc/environment
