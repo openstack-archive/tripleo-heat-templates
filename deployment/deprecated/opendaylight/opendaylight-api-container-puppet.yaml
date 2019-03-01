@@ -52,6 +52,60 @@ parameters:
       - allowed_values:
           - 1
           - 2
+  OpenDaylightUsername:
+    default: 'admin'
+    description: The username for the opendaylight server.
+    type: string
+  OpenDaylightPassword:
+    type: string
+    description: The password for the opendaylight server.
+    hidden: true
+  OpenDaylightFeatures:
+    description: List of features to install with ODL
+    type: comma_delimited_list
+    default: ["odl-netvirt-openstack","odl-jolokia"]
+  OpenDaylightManageRepositories:
+    description: Whether to manage the OpenDaylight repository
+    type: boolean
+    default: false
+  OpenDaylightSNATMechanism:
+    description: SNAT mechanism to be used
+    default: 'conntrack'
+    type: string
+    constraints:
+      - allowed_values:
+          - conntrack
+          - controller
+  OpenDaylightLogMechanism:
+    description: Logging mechanism to be used
+    default: 'file'
+    type: string
+    constraints:
+      - allowed_values:
+          - file
+          - console
+  OpenDaylightTLSKeystorePassword:
+    default: 'opendaylight'
+    type: string
+    description: The password for the opendaylight TLS keystore.
+                 Must be at least 6 characters.
+    hidden: true
+  OpenDaylightInheritDSCPMarking:
+    description: Enable DSCP marking for VXLAN/GRE tunnels
+    type: boolean
+    default: false
+  OpenDaylightJavaOpts:
+    default: ''
+    type: string
+    description: Specifies the Java options to run ODL with as a string.
+                 Note, these options are in addition to the default Java
+                 options set by the karaf/ODL boot scripts and IP version
+                 based flag set by 'opendaylight' class.
+  OpenDaylightInactivityProbe:
+    description: Time in millseconds before an inactivity probe is sent via
+                 OVSDB to OVS
+    type: number
+    default: 180000
 
 conditions:
 
@@ -60,17 +114,7 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  OpenDaylightBase:
-    type: ../../puppet/services/opendaylight-api.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../../docker/services/containers-common.yaml
 
   OpenDaylightApiLogging:
     type: OS::TripleO::Services::Logging::OpenDaylightApi
@@ -79,14 +123,55 @@ outputs:
   role_data:
     description: Role data for the OpenDaylight API role.
     value:
-      service_name: {get_attr: [OpenDaylightBase, role_data, service_name]}
+      service_name: opendaylight_api
       config_settings:
         map_merge:
-          - get_attr: [OpenDaylightBase, role_data, config_settings]
-          - if:
-            - internal_tls_enabled
-            - tripleo::certmonger::opendaylight::postsave_cmd: "true" # TODO: restart the odl container here
-            - {}
+          -
+            opendaylight::odl_rest_port: {get_param: [EndpointMap, OpenDaylightInternal, port]}
+            opendaylight::username: {get_param: OpenDaylightUsername}
+            opendaylight::password: {get_param: OpenDaylightPassword}
+            opendaylight::extra_features: {get_param: OpenDaylightFeatures}
+            opendaylight::odl_bind_ip:
+              str_replace:
+                 template:
+                   "%{hiera('$NETWORK')}"
+                 params:
+                   $NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+            opendaylight::manage_repositories: {get_param: OpenDaylightManageRepositories}
+            tripleo::opendaylight_api::firewall_rules:
+              '137 opendaylight api':
+                dport:
+                  - {get_param: [EndpointMap, OpenDaylightInternal, port]}
+                  - 6640
+                  - 6653
+                  - 2550
+                  - 8185
+            opendaylight::snat_mechanism: {get_param: OpenDaylightSNATMechanism}
+            opendaylight::log_mechanism: {get_param: OpenDaylightLogMechanism}
+            opendaylight::inherit_dscp_marking: {get_param: OpenDaylightInheritDSCPMarking}
+            opendaylight::java_opts: {get_param: OpenDaylightJavaOpts}
+            opendaylight::inactivity_probe: {get_param: OpenDaylightInactivityProbe}
+          -
+            if:
+              - internal_tls_enabled
+              - generate_service_certificates: true
+                tripleo::profile::base::neutron::opendaylight::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/odl.crt'
+                  service_key: '/etc/pki/tls/private/odl.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                  principal:
+                    str_replace:
+                      template: "odl/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+                opendaylight::tls_ca_cert_file: {get_param: InternalTLSCAFile}
+                opendaylight::tls_keystore_password: {get_param: OpenDaylightTLSKeystorePassword}
+                tripleo::certmonger::opendaylight::postsave_cmd: "true" # TODO: restart the odl container here
+              - {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: opendaylight
@@ -104,8 +189,8 @@ outputs:
             - null
         # 'file,concat,file_line,augeas' are included by default
         puppet_tags: odl_user,odl_keystore
-        step_config:
-          get_attr: [OpenDaylightBase, role_data, step_config]
+        step_config: |
+          include tripleo::profile::base::neutron::opendaylight
         config_image: {get_param: DockerOpendaylightConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/opendaylight_api.json:
@@ -143,7 +228,13 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [OpenDaylightBase, role_data, metadata_settings]
+        if:
+          - internal_tls_enabled
+          -
+            - service: odl
+              network: {get_param: [ServiceNetMap, OpendaylightApiNetwork]}
+              type: node
+          - null
       host_prep_tasks:
         list_concat:
           - {get_attr: [OpenDaylightApiLogging, host_prep_tasks]}
@@ -239,8 +330,8 @@ outputs:
                 $ODL_URI/restconf/config/genius-mdsalutil:config
                 -d "{ "upgradeInProgress": false }"
               params:
-                $ODL_USERNAME: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::username']}
-                $ODL_PASSWORD: {get_attr: [OpenDaylightBase, role_data, config_settings, 'opendaylight::password']}
+                $ODL_USERNAME: {get_param: OpenDaylightUsername}
+                $ODL_PASSWORD: {get_param: OpenDaylightPassword}
                 $ODL_URI: {get_param: [EndpointMap, OpenDaylightInternal, uri]}
           when: step|int == 0
           run_once: true
