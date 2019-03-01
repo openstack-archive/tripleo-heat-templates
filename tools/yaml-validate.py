@@ -55,7 +55,7 @@ ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
 OPTIONAL_SECTIONS = ['cellv2_discovery']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings']
-OPTIONAL_DOCKER_SECTIONS = ['docker_puppet_tasks', 'upgrade_tasks',
+OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
                             'deploy_steps_tasks',
                             'pre_upgrade_rolling_tasks',
                             'fast_forward_upgrade_tasks',

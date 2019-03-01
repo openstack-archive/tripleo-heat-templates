@@ -90,8 +90,8 @@ are re-asserted when applying latter ones.
        used along with this manifest to generate a config directory for
        this container.
 
- * docker_puppet_tasks: This section provides data to drive the
-   container-puppet.py tool directly. The task is executed only once
+ * container_puppet_tasks: This section provides data to drive the
+   docker-puppet.py tool directly. The task is executed only once
    within the cluster (not on each node) and is useful for several
    puppet snippets we require for initialization of things like
    keystone endpoints, database users, etc. See container-puppet.py
