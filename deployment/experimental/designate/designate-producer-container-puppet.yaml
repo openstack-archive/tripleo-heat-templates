@@ -1,15 +1,20 @@
 heat_template_version: rocky
 
 description: >
-  OpenStack containerized Designate API service
+  OpenStack containerized Designate Producer service
 
 parameters:
-  DockerDesignateApiImage:
+  DockerDesignateProducerImage:
     description: image
     type: string
   DockerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+  DesignateProducerLoggingSource:
+    type: json
+    default:
+      tag: openstack.designate.producer
+      path: /var/log/containers/designate/designate-producer.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -36,25 +41,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateProducer:
+    default: 'overcloud-designate-producer'
+    type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
     type: number
-  DesignatePassword:
-    description: The password for the Designate's database account.
-    type: string
-    hidden: true
-  KeystoneRegion:
-    type: string
-    default: 'regionOne'
-    description: Keystone region for endpoint
-  MonitoringSubscriptionDesignateApi:
-    default: 'overcloud-designate-api'
-    type: string
-  NeutronPassword:
-    description: The password for the neutron service and db account, used by neutron agents.
-    type: string
-    hidden: true
 
 conditions:
   designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
@@ -62,7 +55,7 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../../docker/services/containers-common.yaml
+    type: ../../../docker/services/containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -76,57 +69,37 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate API role.
+    description: Role data for the Designate Producer role.
     value:
-      service_name: designate_api
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateApi}
+      service_name: designate_producer
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateProducer}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-            designate::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-            designate::keystone::authtoken::project_name: 'service'
-            designate::keystone::authtoken::password: {get_param: DesignatePassword}
-            tripleo::profile::base::designate::api::listen_ip:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            tripleo::profile::base::designate::api::listen_port: 9001
-            tripleo::designate_api::firewall_rules:
-              '139 designate api':
-                dport:
-                  - 9001
-                  - 13001
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::api::workers: {get_param: DesignateWorkers}
+            - designate::producer::workers: {get_param: DesignateWorkers}
       service_config_settings:
-        keystone:
-          designate::keystone::auth::tenant: 'service'
-          designate::keystone::auth::public_url: {get_param: [EndpointMap, DesignatePublic, uri_no_suffix]}
-          designate::keystone::auth::internal_url: { get_param: [ EndpointMap, DesignateInternal, uri_no_suffix ] }
-          designate::keystone::auth::admin_url: { get_param: [ EndpointMap, DesignateAdmin, uri_no_suffix ] }
-          designate::keystone::auth::password: {get_param: DesignatePassword}
-          designate::keystone::auth::region: {get_param: KeystoneRegion}
-        neutron_api:
-          neutron::designate::password: {get_param: NeutronPassword}
-          neutron::designate::url: {get_param: [EndpointMap, DesignateInternal, uri]}
-          neutron::designate::auth_url: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
-          neutron::designate::project_name: 'service'
+        fluentd:
+          tripleo_fluentd_groups_designate_producer:
+            - designate
+          tripleo_fluentd_sources_designate_producer:
+            - {get_param: DesignateProducerLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
         puppet_tags: designate_config
-        step_config: |
-          include tripleo::profile::base::designate::api
+        step_config:
+          list_join:
+            - "\n"
+            - - {get_attr: [DesignateBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::producer"
         config_image: {get_param: DockerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_api.json:
-          command: /usr/bin/designate-api --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/api.log
+        /var/lib/kolla/config_files/designate_producer.json:
+          command: /usr/bin/designate-producer --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/producer.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -138,17 +111,19 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          designate_api:
-            start_order: 15
-            image: &designate_api_image {get_param: DockerDesignateApiImage}
+          designate_producer:
+            image: &designate_producer_image {get_param: DockerDesignateProducerImage}
             net: host
             privileged: false
             restart: always
+            healthcheck:
+              test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/designate_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /run:/run
+                  - /var/lib/kolla/config_files/designate_producer.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
@@ -160,8 +135,8 @@ outputs:
             state: directory
             setype: "{{ item.setype }}"
           with_items:
-            - { 'path': /var/log/containers/designate, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/designate, 'setype': svirt_sandbox_file_t }
+            - { 'path': /var/log/containers/designate, 'setype': svirt_sandbox_file_t }
         - name: designate logs readme
           copy:
             dest: /var/log/designate/readme.txt
@@ -175,4 +150,4 @@ outputs:
             name: tripleo-docker-rm
           vars:
             containers_to_rm:
-              - designate_api
+              - designate_producer
