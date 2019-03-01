@@ -13,7 +13,7 @@
 #    under the License.
 
 # Shell script tool to run puppet inside of the given container image.
-# Uses the config file at /var/lib/docker-puppet/docker-puppet.json as a source for a JSON
+# Uses the config file at /var/lib/container-puppet/container-puppet.json as a source for a JSON
 # array of [config_volume, puppet_tags, manifest, config_image, [volumes]] settings
 # that can be used to generate config files or run ad-hoc puppet modules
 # inside of a container.
@@ -31,7 +31,7 @@ import multiprocessing
 from paunch import runner as containers_runner
 
 logger = None
-sh_script = '/var/lib/docker-puppet/docker-puppet.sh'
+sh_script = '/var/lib/container-puppet/container-puppet.sh'
 container_cli = os.environ.get('CONTAINER_CLI', 'docker')
 container_log_stdout_path = os.environ.get('CONTAINER_LOG_STDOUT_PATH',
                                            '/var/log/containers/stdouts')
@@ -57,7 +57,7 @@ def get_logger():
 
 
 log = get_logger()
-log.info('Running docker-puppet')
+log.info('Running container-puppet')
 
 config_volume_prefix = os.path.abspath(os.environ.get('CONFIG_VOLUME_PREFIX',
                                                       '/var/lib/config-data'))
@@ -70,7 +70,7 @@ if container_cli == 'docker':
     env = {}
     # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
     RUNNER = containers_runner.DockerRunner(
-        'docker-puppet', cont_cmd='docker')
+        'container-puppet', cont_cmd='docker')
 elif container_cli == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
@@ -80,7 +80,7 @@ elif container_cli == 'podman':
     env = {'PATH': os.environ['PATH']}
     # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
     RUNNER = containers_runner.PodmanRunner(
-        'docker-puppet', cont_cmd='podman')
+        'container-puppet', cont_cmd='podman')
 else:
     log.error('Invalid container_cli: %s' % container_cli)
     sys.exit(1)
@@ -189,7 +189,7 @@ def rm_container(name):
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
-config_file = os.environ.get('CONFIG', '/var/lib/docker-puppet/docker-puppet.json')
+config_file = os.environ.get('CONFIG', '/var/lib/container-puppet/container-puppet.json')
 log.debug('CONFIG: %s' % config_file)
 # If specified, only this config_volume will be used
 config_volume_only = os.environ.get('CONFIG_VOLUME', None)
@@ -329,7 +329,7 @@ if not os.path.exists(sh_script):
             # they need the old password to achieve that.
             # For those services, we update the config hash to notify
             # paunch that a restart is needed, but we do not update the
-            # password file in docker-puppet if the file already existed
+            # password file in container-puppet if the file already existed
             # before and let the service regenerate it instead.
             password_files="/root/.my.cnf"
 
@@ -397,7 +397,7 @@ def mp_puppet_config(*args):
             man_file.write('include ::tripleo::packages\n')
             man_file.write(manifest)
 
-        uname = RUNNER.unique_container_name('docker-puppet-%s' %
+        uname = RUNNER.unique_container_name('container-puppet-%s' %
                                              config_volume)
         rm_container(uname)
         pull_image(config_image)

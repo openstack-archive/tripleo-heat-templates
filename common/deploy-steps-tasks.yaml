@@ -124,10 +124,10 @@
           tags:
             - host_config
 
-        # Config file for our docker-puppet.py script, used to generate container configs
-        - name: Create /var/lib/docker-puppet
+        # Config file for our container-puppet.py script, used to generate container configs
+        - name: Create /var/lib/container-puppet
           file:
-            path: /var/lib/docker-puppet
+            path: /var/lib/container-puppet
             state: directory
             setype: svirt_sandbox_file_t
             selevel: s0
@@ -135,18 +135,36 @@
             - container_config
             - container_config_tasks
 
-        - name: Delete existing /var/lib/docker-puppet/docker-puppet.sh
+        # For backward compatibility in Stein, so our operators have time
+        # to learn about the new directory.
+        - name: Create /var/lib/docker-puppet for backward compatibility
           file:
-            path: /var/lib/docker-puppet/docker-puppet.sh
+            path: /var/lib/docker-puppet
+            state: directory
+          tags:
+            - container_config
+            - container_config_tasks
+
+        - name: Deprecation file about /var/lib/docker-puppet
+          copy:
+            dest: /var/lib/docker-puppet/readme.txt
+            content: |
+              /var/lib/docker-puppet was moved under
+              /var/lib/container-puppet because we don't run Docker anymore.
+          ignore_errors: true
+
+        - name: Delete existing /var/lib/container-puppet/container-puppet.sh
+          file:
+            path: /var/lib/container-puppet/container-puppet.sh
             state: absent
           tags:
             - container_config
           ignore_errors: true
           check_mode: no
 
-        - name: Delete existing /var/lib/docker-puppet/check-mode for check mode
+        - name: Delete existing /var/lib/container-puppet/check-mode for check mode
           file:
-            path: /var/lib/docker-puppet/check-mode
+            path: /var/lib/container-puppet/check-mode
             state: absent
           tags:
             - container_config
@@ -155,9 +173,9 @@
           when:
             - ansible_check_mode
 
-        - name: Create /var/lib/docker-puppet/check-mode for check mode
+        - name: Create /var/lib/container-puppet/check-mode for check mode
           file:
-            path: /var/lib/docker-puppet/check-mode
+            path: /var/lib/container-puppet/check-mode
             state: directory
             setype: svirt_sandbox_file_t
             selevel: s0
@@ -167,10 +185,10 @@
           when:
             - ansible_check_mode
 
-        - name: Write docker-puppet.json file
+        - name: Write container-puppet.json file
           copy:
             content: "{{ lookup('file', tripleo_role_name + '/puppet_config.yaml', errors='ignore') | default([], True) | from_yaml | to_nice_json }}"
-            dest: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet.json
+            dest: /var/lib/container-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}container-puppet.json
             force: yes
             mode: '0600'
           tags:
@@ -178,9 +196,9 @@
           check_mode: no
           diff: no
 
-        - name: Diff docker-puppet.json changes for check mode
+        - name: Diff container-puppet.json changes for check mode
           command:
-            diff -uN /var/lib/docker-puppet/docker-puppet.json /var/lib/docker-puppet/check-mode/docker-puppet.json
+            diff -uN /var/lib/container-puppet/container-puppet.json /var/lib/container-puppet/check-mode/container-puppet.json
           register: diff_results
           tags:
             - container_config
@@ -191,7 +209,7 @@
           failed_when: false
           changed_when: diff_results.rc == 1
 
-        - name: Diff docker-puppet.json changes for check mode
+        - name: Diff container-puppet.json changes for check mode
           debug:
             var: diff_results.stdout_lines
           changed_when: diff_results.rc == 1
@@ -399,17 +417,17 @@
       ignore_errors: "{{ ansible_check_mode }}"
 
     ######################################
-    # Generate config via docker-puppet.py
+    # Generate config via container-puppet.py
     ######################################
 
-    - name: Run docker-puppet tasks (generate config) during step {{ step }}
-      shell: "{{ python_cmd }} /var/lib/docker-puppet/docker-puppet.py"
+    - name: Run container-puppet tasks (generate config) during step {{ step }}
+      shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
       environment:
         NET_HOST: 'true'
         DEBUG: '{{ docker_puppet_debug | bool }}'
         PROCESS_COUNT: '{{ docker_puppet_process_count }}'
         CONTAINER_CLI: "{{ container_cli }}"
-        CONFIG: '/var/lib/docker-puppet/{{ ansible_check_mode | ternary("check-mode/", "") }}docker-puppet.json'
+        CONFIG: '/var/lib/container-puppet/{{ ansible_check_mode | ternary("check-mode/", "") }}container-puppet.json'
         CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | ternary("/check-mode", "") }}'
         CHECK_MODE: '{{ ansible_check_mode | ternary(1, 0) }}'
         STARTUP_CONFIG_PATTERN: '/var/lib/tripleo-config/{{ ansible_check_mode | ternary("check-mode/", "") }}docker-container-startup-config-step_*.json'
@@ -424,7 +442,7 @@
       tags:
         - container_config
 
-    - name: "Debug output for task: Run docker-puppet tasks (generate config) during step {{ step }}"
+    - name: "Debug output for task: Run container-puppet tasks (generate config) during step {{ step }}"
       debug:
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
@@ -433,7 +451,7 @@
         - container_config
       ignore_errors: "{{ ansible_check_mode }}"
 
-    - name: Diff docker-puppet.py puppet-generated changes for check mode
+    - name: Diff container-puppet.py puppet-generated changes for check mode
       shell: |
         diff -ruN --no-dereference -q /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
         diff -ruN --no-dereference /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
@@ -448,7 +466,7 @@
       failed_when: false
       changed_when: diff_results.rc == 1
 
-    - name: Diff docker-puppet.py puppet-generated changes for check mode
+    - name: Diff container-puppet.py puppet-generated changes for check mode
       debug:
         var: diff_results.stdout_lines
       changed_when: diff_results.rc == 1
@@ -463,7 +481,7 @@
     # Per step starting of the containers using paunch
     ##################################################
 
-    # Note docker-puppet.py generates the hashed-*.json file, which is a copy of
+    # Note container-puppet.py generates the hashed-*.json file, which is a copy of
     # the *step_n.json with a hash of the generated external config added
     # This acts as a salt to enable restarting the container if config changes
     # TODO(cjeanner): add --container-log-path {{ container_log_stdout_path }} once
@@ -498,7 +516,7 @@
 
     - name: "Clean docker_puppet_tasks for {{ansible_hostname}} step {{step}}"
       file:
-        path: /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json
+        path: /var/lib/container-puppet/container-puppet-tasks{{step}}.json
         state: absent
       tags:
         - container_config_tasks
@@ -513,20 +531,20 @@
       tags:
         - container_config_tasks
 
-    - name: Write docker-puppet-tasks json file for {{ansible_hostname}} step {{step}}
+    - name: Write container-puppet-tasks json file for {{ansible_hostname}} step {{step}}
       copy:
         content: "{{host_docker_puppet_tasks|to_nice_json}}"
-        dest: "/var/lib/docker-puppet/docker-puppet-tasks{{step}}.json"
+        dest: "/var/lib/container-puppet/container-puppet-tasks{{step}}.json"
         force: yes
         mode: '0600'
       tags:
         - container_config_tasks
       when: host_docker_puppet_tasks is defined
 
-    - name: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}
-      shell: "{{ python_cmd }} /var/lib/docker-puppet/docker-puppet.py"
+    - name: Run container-puppet tasks (bootstrap tasks) for step {{ step }}
+      shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
       environment:
-        CONFIG: /var/lib/docker-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}docker-puppet-tasks{{ step }}.json
+        CONFIG: /var/lib/container-puppet/{{ ansible_check_mode | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json
         CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | ternary("/check-mode", "") }}'
         NET_HOST: "true"
         NO_ARCHIVE: "true"
@@ -542,7 +560,7 @@
       tags:
         - container_config_tasks
 
-    - name: "Debug output for task: Run docker-puppet tasks (bootstrap tasks) for step {{ step }}"
+    - name: "Debug output for task: Run container-puppet tasks (bootstrap tasks) for step {{ step }}"
       debug:
         var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
       when: outputs.rc is defined
