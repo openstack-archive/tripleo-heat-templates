@@ -91,10 +91,10 @@ are re-asserted when applying latter ones.
        this container.
 
  * docker_puppet_tasks: This section provides data to drive the
-   docker-puppet.py tool directly. The task is executed only once
+   container-puppet.py tool directly. The task is executed only once
    within the cluster (not on each node) and is useful for several
    puppet snippets we require for initialization of things like
-   keystone endpoints, database users, etc. See docker-puppet.py
+   keystone endpoints, database users, etc. See container-puppet.py
    for formatting.
 
 Docker steps
