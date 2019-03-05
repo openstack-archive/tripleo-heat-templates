@@ -1,7 +1,3 @@
-# DEPRECATED: The following template is deprecated in Queens in favor of
-# extraconfig/pre_network/boot-params-service.yaml. This template does not work
-# with config-download and will be removed during the Stein release.
-
 heat_template_version: rocky
 
 description: >
@@ -84,30 +80,8 @@ parameters:
       config during an upgrade. By default DPDK will be enabled during the
       CREATE action only. But on cases when it requires for certain migration,
       it may be required to run it for UPDATE action too.
-  KernelArgs:
-    default: ""
-    type: string
-    description: Kernel Args to apply to the host
-    tags:
-      - role_specific
-  TunedProfileName:
-    default: ""
-    type: string
-    description: Tuned Profile to apply to the host
-    tags:
-      - role_specific
-  IsolCpusList:
-    default: ""
-    type: string
-    description: >
-      List of logical CPU ids whic need to be isolated from the host processes.
-      This input is provided to the tuned profile cpu-partitioning to configure
-      systemd and repin interrupts (IRQ repinning).
-    tags:
-      - role_specific
 
 conditions:
-  is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
   is_dpdk_config_required:
     or:
       - yaql:
@@ -115,10 +89,6 @@ conditions:
           data:
             service_names: {get_param: ServiceNames}
       - {equals: [{get_param: [RoleParameters, OvsEnableDpdk]}, true]}
-  is_reboot_config_required:
-    or:
-      - is_host_config_required
-      - is_dpdk_config_required
   deployment_actions_empty:
     equals:
       - {get_param: deployment_actions}
@@ -142,142 +112,6 @@ resources:
               OvsDpdkMemoryChannels: {get_param: OvsDpdkMemoryChannels}
               OvsDpdkSocketMemory: {get_param: OvsDpdkSocketMemory}
               OvsPmdCoreList: {get_param: OvsPmdCoreList}
-
-  HostParametersConfig:
-    type: OS::Heat::SoftwareConfig
-    condition: is_host_config_required
-    properties:
-      group: ansible
-      inputs:
-        - name: _KERNEL_ARGS_
-        - name: _TUNED_PROFILE_NAME_
-        - name: _TUNED_CORES_
-      outputs:
-        - name: result
-      config:
-        str_replace:
-          template: |
-            ---
-            - name: Configuration to be applied before rebooting the node
-              connection: local
-              hosts: localhost
-              tasks:
-            _HOST_CONFIG_TASKS_
-          params:
-            _HOST_CONFIG_TASKS_:
-              get_file: boot_param_tasks.yaml
-
-  HostParametersDeployment:
-    type: OS::TripleO::Reboot::SoftwareDeployment
-    condition: is_host_config_required
-    properties:
-      name: HostParametersDeployment
-      server:  {get_param: server}
-      config: {get_resource: HostParametersConfig}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
-      input_values:
-        _KERNEL_ARGS_: {get_param: [RoleParameters, KernelArgs]}
-        _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
-        _TUNED_CORES_: {get_param: [RoleParameters, IsolCpusList]}
-
-  # Details @https://bugzilla.redhat.com/show_bug.cgi?id=1515269
-  # Ensure gid of hugetlbfs matching with kolla so that container deployment
-  # and baremetal (future migrating to container) deployment have same id. This
-  # is a new group created from ovs2.8 onwards. 42477 is the kolla hugetlbfs
-  # gid value. Ensure that it is applied and restart(ovs) or reboot(host)
-  # before starting with DPDK initialization.
-  DpdkVhostGroupConfig:
-    type: OS::Heat::SoftwareConfig
-    condition: is_dpdk_config_required
-    properties:
-      group: ansible
-      outputs:
-        - name: result
-      config: |
-        ---
-        - hosts: localhost
-          connection: local
-          gather_facts: False
-          tasks:
-            - group:
-                name: "hugetlbfs"
-                gid: 42477
-
-  DpdkVhostGroupDeployment:
-    type: OS::TripleO::Reboot::SoftwareDeployment
-    condition: is_dpdk_config_required
-    properties:
-      name: DpdkVhostGroupDeployment
-      server:  {get_param: server}
-      config: {get_resource: DpdkVhostGroupConfig}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
-
-  RebootConfig:
-    type: OS::Heat::SoftwareConfig
-    condition: is_reboot_config_required
-    properties:
-      group: script
-      config: |
-        #!/bin/bash
-        # Stop os-collect-config to avoid any race collecting another
-        # deployment before reboot happens
-        systemctl stop os-collect-config.service
-        /sbin/reboot
-
-  RebootDeployment:
-    type: OS::TripleO::Reboot::SoftwareDeployment
-    depends_on: [HostParametersDeployment, DpdkVhostGroupDeployment]
-    condition: is_reboot_config_required
-    properties:
-      name: RebootDeployment
-      server:  {get_param: server}
-      config: {get_resource: RebootConfig}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
-      signal_transport: NO_SIGNAL
-
-  # For successful RebootDeployment, the signal_transport should be NO_SIGNAL,
-  # which will make the resource as COMPLETE immediately. If the
-  # RebootDeployment is the last resource of the tree, then it will be
-  # synchronized, else the next resource (EnableDpdkDeployment), is also sent
-  # along with RebootDeployment. Because of which sometimes, EnableDpdkDeployment
-  # is executed before rebooting. As hugepages are not set to bootargs (waiting
-  # for reboot), EnableDpdkDeployment will fail. To ensure synchronization,
-  # a dummpy deployment RebootEnsureDeployment has been introduced to wait
-  # for reboot to enable DPDK.
-  RebootEnsureConfig:
-    type: OS::Heat::SoftwareConfig
-    condition: is_reboot_config_required
-    properties:
-      group: script
-      config: |
-        #!/bin/bash
-        echo "Reboot completed"
-
-  RebootEnsureDeployment:
-    type: OS::TripleO::Reboot::SoftwareDeployment
-    depends_on: RebootDeployment
-    condition: is_reboot_config_required
-    properties:
-      name: RebootEnsureDeployment
-      server:  {get_param: server}
-      config: {get_resource: RebootEnsureConfig}
-      actions:
-        if:
-          - deployment_actions_empty
-          - []
-          - ['CREATE'] # Only do this on CREATE
 
   # With OvS2.7 (which is default with pike), ovs-vswitchd will start dpdk
   # immediately after setting dpdk-init (behaviour change from ovs2.6).
@@ -317,7 +151,6 @@ resources:
   EnableDpdkDeployment:
     type: OS::Heat::SoftwareDeployment
     condition: is_dpdk_config_required
-    depends_on: RebootEnsureDeployment
     properties:
       name: EnableDpdkDeployment
       server:  {get_param: server}
@@ -328,20 +161,3 @@ resources:
           - []
           - {get_param: EnableDpdkDeploymentActions}
 
-outputs:
-  result:
-    condition: is_host_config_required
-    value:
-      get_attr: [HostParametersDeployment, result]
-  stdout:
-    condition: is_host_config_required
-    value:
-      get_attr: [HostParametersDeployment, deploy_stdout]
-  stderr:
-    condition: is_host_config_required
-    value:
-      get_attr: [HostParametersDeployment, deploy_stderr]
-  status_code:
-    condition: is_host_config_required
-    value:
-      get_attr: [HostParametersDeployment, deploy_status_code]
