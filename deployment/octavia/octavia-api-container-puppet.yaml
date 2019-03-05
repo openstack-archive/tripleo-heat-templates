@@ -44,22 +44,58 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  OctaviaUserName:
+    description: The username for the Octavia database and keystone accounts.
+    type: string
+    default: 'octavia'
+  OctaviaPassword:
+    description: The password for the Octavia database and keystone accounts.
+    type: string
+    hidden: true
+  OctaviaProjectName:
+    description: The project name for the keystone Octavia account.
+    type: string
+    default: 'service'
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionOctaviaApi:
+    default: 'overcloud-octavia-api'
+    type: string
+  OctaviaApiPolicies:
+    description: |
+      A hash of policies to configure for Octavia API.
+      e.g. { octavia-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
 
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-
+  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
   MySQLClient:
-    type: ../../deployment/database/mysql-client.yaml
+    type: ../database/mysql-client.yaml
 
-  OctaviaApiPuppetBase:
-    type: ../../puppet/services/octavia-api.yaml
+  TLSProxyBase:
+    type: OS::TripleO::Services::TLSProxyBase
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
+  OctaviaBase:
+    type: ./octavia-base.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -68,8 +104,8 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
-  OctaviaFlavor:
-    type: ../../puppet/services/octavia-worker.yaml
+  OctaviaWorker: # provides Nova flavor
+    type: ./octavia-worker-container-puppet.yaml
     properties:
       EndpointMap: {get_param: EndpointMap}
       ServiceData: {get_param: ServiceData}
@@ -82,19 +118,76 @@ outputs:
   role_data:
     description: Role data for the Octavia API role.
     value:
-      service_name: {get_attr: [OctaviaApiPuppetBase, role_data, service_name]}
+      service_name: octavia_api
+      monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaApi}
       config_settings:
         map_merge:
-          - {get_attr: [OctaviaApiPuppetBase, role_data, config_settings]}
-          - {get_attr: [OctaviaFlavor, role_data, config_settings]}
+          - {get_attr: [OctaviaBase, role_data, config_settings]}
+          - {get_attr: [OctaviaWorker, role_data, config_settings]}
+          - get_attr: [TLSProxyBase, role_data, config_settings]
+          - octavia::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
+            octavia::policy::policies: {get_param: OctaviaApiPolicies}
+            octavia::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            octavia::keystone::authtoken::project_name: {get_param: OctaviaProjectName}
+            octavia::keystone::authtoken::password: {get_param: OctaviaPassword}
+            octavia::api::sync_db: true
+            tripleo::octavia_api::firewall_rules:
+              '120 octavia api':
+                dport:
+                  - 9876
+                  - 13876
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            tripleo::profile::base::octavia::api::tls_proxy_bind_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+            tripleo::profile::base::octavia::api::tls_proxy_fqdn:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+            tripleo::profile::base::octavia::api::tls_proxy_port:
+              get_param: [EndpointMap, OctaviaInternal, port]
+            # Bind to localhost if internal TLS is enabled, since we put a TLS
+            # proxy in front.
+            octavia::api::host:
+              if:
+              - use_tls_proxy
+              - '127.0.0.1'
+              - str_replace:
+                  template:
+                    "%{hiera('$NETWORK')}"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
       service_config_settings:
-        map_merge:
-          - get_attr: [OctaviaApiPuppetBase, role_data, service_config_settings]
-          - fluentd:
-              tripleo_fluentd_groups_octavia_api:
-                - octavia
-              tripleo_fluentd_sources_octavia_api:
-                - {get_param: OctaviaApiLoggingSource}
+        fluentd:
+          tripleo_fluentd_groups_octavia_api:
+            - octavia
+          tripleo_fluentd_sources_octavia_api:
+            - {get_param: OctaviaApiLoggingSource}
+        keystone:
+          octavia::keystone::auth::tenant: {get_param: OctaviaProjectName}
+          octavia::keystone::auth::public_url: {get_param: [EndpointMap, OctaviaPublic, uri]}
+          octavia::keystone::auth::internal_url: { get_param: [ EndpointMap, OctaviaInternal, uri ] }
+          octavia::keystone::auth::admin_url: { get_param: [ EndpointMap, OctaviaAdmin, uri ] }
+          octavia::keystone::auth::password: {get_param: OctaviaPassword}
+          octavia::keystone::auth::region: {get_param: KeystoneRegion}
+        mysql:
+          octavia::db::mysql::password: {get_param: OctaviaPassword}
+          octavia::db::mysql::user: {get_param: OctaviaUserName}
+          octavia::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          octavia::db::mysql::dbname: octavia
+          octavia::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
@@ -102,7 +195,7 @@ outputs:
         step_config:
           list_join:
             - "\n"
-            - - {get_attr: [OctaviaApiPuppetBase, role_data, step_config]}
+            - - "include tripleo::profile::base::octavia::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
@@ -133,7 +226,7 @@ outputs:
           config_volume: octavia
           puppet_tags: nova_flavor
           step_config:
-            get_attr: [OctaviaFlavor, role_data, step_config]
+            get_attr: [OctaviaWorker, role_data, step_config]
           config_image: {get_param: DockerOctaviaConfigImage}
           volumes:
             - /var/lib/config-data/puppet-generated/nova/etc/nova:/etc/nova:ro
@@ -229,7 +322,7 @@ outputs:
           ignore_errors: true
       upgrade_tasks: []
       metadata_settings:
-        get_attr: [OctaviaApiPuppetBase, role_data, metadata_settings]
+        get_attr: [TLSProxyBase, role_data, metadata_settings]
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
