@@ -63,13 +63,21 @@ outputs:
           - include_role:
               name: tripleo-image-serve
       upgrade_tasks:
-        - name: Stop, disable docker-distribution
-          when: step|int == 3
-          systemd:
-            enabled: false
-            state: stopped
-            name: docker-distribution
         - name: Uninstall docker-distribution
           when: step|int == 3
-          package: name=docker-distribution state=absent
-        # TODO(sbaker) migrate docker-distribution data to image-serve
+          block:
+            - name: check if docker-distribution is installed
+              command: /usr/bin/rpm -q docker-distribution
+              failed_when: false
+              register: docker_distribution_installed
+              check_mode: no
+            - name: Stop, disable docker-distribution
+              systemd:
+                enabled: false
+                state: stopped
+                name: docker-distribution
+              when: docker_distribution_installed.rc == 0
+            - name: Uninstall docker-distribution
+              package: name=docker-distribution state=absent
+              when: docker_distribution_installed.rc == 0
+            # TODO(sbaker) migrate docker-distribution data to image-serve
