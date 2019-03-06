@@ -83,17 +83,6 @@ resources:
   MySQLClient:
     type: ../database/mysql-client.yaml
 
-  TLSProxyBase:
-    type: OS::TripleO::Services::TLSProxyBase
-    properties:
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      EndpointMap: {get_param: EndpointMap}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-      EnableInternalTLS: {get_param: EnableInternalTLS}
-
   OctaviaBase:
     type: ./octavia-base.yaml
     properties:
@@ -124,7 +113,6 @@ outputs:
         map_merge:
           - {get_attr: [OctaviaBase, role_data, config_settings]}
           - {get_attr: [OctaviaWorker, role_data, config_settings]}
-          - get_attr: [TLSProxyBase, role_data, config_settings]
           - octavia::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
             octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
             octavia::policy::policies: {get_param: OctaviaApiPolicies}
@@ -132,6 +120,8 @@ outputs:
             octavia::keystone::authtoken::project_name: {get_param: OctaviaProjectName}
             octavia::keystone::authtoken::password: {get_param: OctaviaPassword}
             octavia::api::sync_db: true
+            octavia::api::service_name: 'httpd'
+            octavia::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             tripleo::octavia_api::firewall_rules:
               '120 octavia api':
                 dport:
@@ -142,13 +132,13 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
-            tripleo::profile::base::octavia::api::tls_proxy_bind_ip:
+            octavia::wsgi::apache::bind_host:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
-            tripleo::profile::base::octavia::api::tls_proxy_fqdn:
+            octavia::wsgi::apache::server_name:
               str_replace:
                 template:
                   "%{hiera('fqdn_$NETWORK')}"
@@ -159,14 +149,11 @@ outputs:
             # Bind to localhost if internal TLS is enabled, since we put a TLS
             # proxy in front.
             octavia::api::host:
-              if:
-              - use_tls_proxy
-              - '127.0.0.1'
-              - str_replace:
-                  template:
-                    "%{hiera('$NETWORK')}"
-                  params:
-                    $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_octavia_api:
@@ -200,17 +187,6 @@ outputs:
         config_image: {get_param: DockerOctaviaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
-          command: /usr/bin/octavia-api --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/api.log --config-dir /etc/octavia/conf.d/common --config-dir /etc/octavia/conf.d/octavia-api
-          config_files:
-            - source: "/var/lib/kolla/config_files/src/*"
-              dest: "/"
-              merge: true
-              preserve_properties: true
-          permissions:
-            - path: /var/log/octavia
-              owner: octavia:octavia
-              recurse: true
-        /var/lib/kolla/config_files/octavia_api_tls_proxy.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
@@ -221,6 +197,10 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+          permissions:
+            - path: /var/log/octavia
+              owner: octavia:octavia
+              recurse: true
       container_puppet_tasks:
         step_5:
           config_volume: octavia
@@ -271,6 +251,7 @@ outputs:
                 start_order: 2
                 image: *octavia_api_image
                 net: host
+                user: root
                 privileged: false
                 restart: always
                 healthcheck:
@@ -283,27 +264,18 @@ outputs:
                       - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                       - /var/log/containers/octavia:/var/log/octavia:z
                       - /var/log/containers/httpd/octavia-api:/var/log/httpd:z
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                          - ''
+                      -
+                        if:
+                          - internal_tls_enabled
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                          - ''
                 environment:
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-            - if:
-                - internal_tls_enabled
-                - octavia_api_tls_proxy:
-                    start_order: 2
-                    image: *octavia_api_image
-                    net: host
-                    user: root
-                    restart: always
-                    volumes:
-                      list_concat:
-                        - {get_attr: [ContainersCommon, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/octavia_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                          - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
-                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    environment:
-                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-                - {}
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -321,9 +293,34 @@ outputs:
               Log files from octavia containers can be found under
               /var/log/containers/octavia and /var/log/containers/httpd/octavia-api.
           ignore_errors: true
-      upgrade_tasks: []
-      metadata_settings:
-        get_attr: [TLSProxyBase, role_data, metadata_settings]
+      update_tasks:
+        - name: remove TLS proxy if configured and running
+          when:
+            - step|int == 2
+            - internal_tls_enabled|bool
+          block: &remove_octavia_tls_proxy_tasks
+            - name: stop and remove octavia_api_tls_proxy container if docker
+              docker:
+                name: octavia_api_tls_proxy
+                state: absent
+              when: container_cli == 'docker'
+            - name: stop and disable octavia_api_tls_proxy container if podman
+              service:
+                name: tripleo_octavia_api_tls_proxy
+                state: stopped
+                enabled: no
+              when: container_cli == 'podman'
+            - name: clean up tripleo service file for octavia_api_tls_proxy
+              file:
+                state: absent
+                path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy"
+              when: container_cli == 'podman'
+      upgrade_tasks:
+        - name: remove TLS proxy if configured and running
+          when:
+            - step|int == 2
+            - internal_tls_enabled|bool
+          block: *remove_octavia_tls_proxy_tasks
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
