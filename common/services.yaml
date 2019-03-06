@@ -289,6 +289,7 @@ resources:
           expression: coalesce($.data.role_data, []).where($ != null).select($.get('kolla_config')).where($ != null).reduce($1.mergeWith($2), {})
           data: {role_data: {get_attr: [ServiceChain, role_data]}}
 
+  # DEPRECATED in favor of ContainerPuppetTasks.
   DockerPuppetTasks:
     type: OS::Heat::Value
     properties:
@@ -299,6 +300,18 @@ resources:
           # and merges {service_name: the_service} for each item, so we
           # can later filter based on the bootstrap hostname for the service
           expression: dict(coalesce($.data, []).where($ != null).select([$.get('docker_puppet_tasks'), $.get('service_name')]).where($[0] != null).select([$[0], dict($[0].keys().zip(dict(service_name=>$[1]).repeat(len($[0].keys()))))]).select($[0].mergeWith($[1])).selectMany($.items()).groupBy($[0], $[1]))
+          data: {get_attr: [ServiceChain, role_data]}
+
+  ContainerPuppetTasks:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        yaql:
+          # This extracts container_puppet_tasks for each step,
+          # and merges {service_name: the_service} for each item, so we
+          # can later filter based on the bootstrap hostname for the service
+          expression: dict(coalesce($.data, []).where($ != null).select([$.get('container_puppet_tasks'), $.get('service_name')]).where($[0] != null).select([$[0], dict($[0].keys().zip(dict(service_name=>$[1]).repeat(len($[0].keys()))))]).select($[0].mergeWith($[1])).selectMany($.items()).groupBy($[0], $[1]))
           data: {get_attr: [ServiceChain, role_data]}
 
   HostPrepTasks:
@@ -356,5 +369,8 @@ outputs:
       kolla_config: {get_attr: [KollaConfig, value]}
       docker_config: {get_attr: [DockerConfig, value]}
       docker_config_scripts: {get_attr: [DockerConfigScripts, value]}
-      docker_puppet_tasks: {get_attr: [DockerPuppetTasks, value]}
+      container_puppet_tasks:
+        map_merge:
+          - {get_attr: [ContainerPuppetTasks, value]}
+          - {get_attr: [DockerPuppetTasks, value]}
       host_prep_tasks: {get_attr: [HostPrepTasks, value]}
