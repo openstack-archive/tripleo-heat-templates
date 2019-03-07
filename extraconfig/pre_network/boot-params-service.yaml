@@ -1,0 +1,102 @@
+heat_template_version: queens
+
+description: Host config and reboot service which configures Kernel Args and reboot
+
+parameters:
+  RoleNetIpMap:
+    default: {}
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  KernelArgs:
+    default: ""
+    type: string
+    description: Kernel Args to apply to the host
+    tags:
+      - role_specific
+  TunedProfileName:
+    default: ""
+    type: string
+    description: Tuned Profile to apply to the host
+    tags:
+      - role_specific
+  IsolCpusList:
+    default: ""
+    type: string
+    description: >
+      List of logical CPU ids whic need to be isolated from the host processes.
+      This input is provided to the tuned profile cpu-partitioning to configure
+      systemd and repin interrupts (IRQ repinning).
+    tags:
+      - role_specific
+  NodeRebootWaitTimeout:
+    default: 900
+    type: number
+    description: Timeout in seconds to specify the wait time for ansible node reboot
+
+conditions:
+  is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
+
+outputs:
+  role_data:
+    description: Role data for the Host Config Service
+    value:
+      service_name: boot_params_service
+      deploy_steps_tasks:
+        - if:
+          - is_host_config_required
+          - - name: Configure kernel args, tuned and reboot
+              when: step == 0
+              vars:
+                _KERNEL_ARGS_: {get_param: [RoleParameters, KernelArgs]}
+                _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
+                _TUNED_CORES_: {get_param: [RoleParameters, IsolCpusList]}
+              block:
+                - import_tasks: ../boot_param_tasks.yaml
+
+                # Reboot the node
+                - name: Reboot after kernel args update
+                  shell: "sleep 2 && /sbin/shutdown -r now"
+                  async: 1
+                  poll: 0
+                  ignore_errors: true
+                  become: yes
+                  when: reboot_required is defined and reboot_required
+
+                - name:  Wait for the ssh port to be ready on the restarted node
+                  local_action: wait_for
+                  become: no
+                  args:
+                    host: "{{ inventory_hostname }}"
+                    port: 22
+                    state: started
+                    delay: 30
+                    timeout:
+                      get_param: NodeRebootWaitTimeout
+                  when: reboot_required is defined and reboot_required
+          - null
+
