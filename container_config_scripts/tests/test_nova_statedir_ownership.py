@@ -20,9 +20,9 @@ import stat
 
 from oslotest import base
 
-from docker_config_scripts.nova_statedir_ownership import \
+from container_config_scripts.nova_statedir_ownership import \
     NovaStatedirOwnershipManager
-from docker_config_scripts.nova_statedir_ownership import PathManager
+from container_config_scripts.nova_statedir_ownership import PathManager
 
 # Real chown would require root, so in order to test this we need to fake
 # all of the methods that interact with the filesystem
