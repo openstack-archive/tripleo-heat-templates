@@ -205,6 +205,7 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     segment = _get_segment(sdk, CONF['physical_network'], ctlplane_id)
     host_routes = [{'destination': '169.254.169.254/32',
                     'nexthop': CONF['local_ip']}]
+    host_routes += s['HostRoutes']
     if subnet:
         if CONF['enable_routed_networks'] and subnet.segment_id == None:
             # The subnet exists and does not have a segment association. Since
@@ -245,6 +246,7 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
         metadata_nexthop = s['NetworkGateway']
         host_routes = [{'destination': '169.254.169.254/32',
                         'nexthop': metadata_nexthop}]
+        host_routes += s['HostRoutes']
         subnet = _get_subnet(sdk, s['NetworkCidr'], ctlplane_id)
         segment = _get_segment(sdk, phynet, ctlplane_id)
         if subnet:
