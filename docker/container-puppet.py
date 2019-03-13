@@ -490,9 +490,9 @@ def mp_puppet_config(*args):
                 rm_container(uname)
                 break
             time.sleep(3)
-            log.warning('%s run failed after %s attempt(s): %s' % (cmd,
-                                                                   cmd_stderr,
-                                                                   count))
+            log.error('%s run failed after %s attempt(s): %s' % (cmd,
+                                                                 cmd_stderr,
+                                                                 count))
             log.warning('Retrying running container: %s' % config_volume)
         else:
             if cmd_stdout:
