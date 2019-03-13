@@ -306,6 +306,47 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
+        - name: Create hiera data to upgrade rabbitmq in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set rabbitmq upgrade node facts in a single-node environment
+              set_fact:
+                rabbitmq_short_node_names_upgraded: "{{ rabbitmq_short_node_names }}"
+                cacheable: no
+              when: groups['rabbitmq'] | length == 1
+            - name: set rabbitmq upgrade node facts from the limit option
+              set_fact:
+                rabbitmq_short_node_names_upgraded: "{{ rabbitmq_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cacheable: no
+              when: item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ rabbitmq_short_node_names }}"
+
+            - debug:
+                msg: "Prepare rabbitmq upgrade for {{ rabbitmq_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade rabbitmq without staged
+                  upgrade. You need to use the limit option in order
+                  to do so.
+              when: >-
+                rabbitmq_short_node_names_upgraded is not defined or
+                rabbitmq_short_node_names_upgraded | length == 0
+
+            - name: add the rabbitmq short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: rabbitmq_short_node_names_override
+                tripleo_upgrade_value: "{{rabbitmq_short_node_names_upgraded}}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: rabbitmq_short_node_names_override
+              when: rabbitmq_short_node_names_upgraded | length == rabbitmq_short_node_names | length
         - name: Get docker Rabbitmq image
           set_fact:
             rabbitmq_docker_image_latest: *rabbitmq_image_pcmklatest
