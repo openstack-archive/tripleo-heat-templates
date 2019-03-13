@@ -39,25 +39,9 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  OpenShiftAnsiblePlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/deploy_cluster.yml'
-    description: Path to OpenShift-Ansible deploy playbook.
-    type: string
-  OpenShiftPrerequisitesPlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/prerequisites.yml'
-    description: Path to OpenShift-Ansible prerequisites playbook.
-    type: string
-  OpenShiftMasterScaleupPlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-master/scaleup.yml'
-    description: Path to OpenShift-Ansible master scale-up playbook.
-    type: string
-  OpenShiftEtcdScaleupPlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-etcd/scaleup.yml'
-    description: Path to OpenShift-Ansible etcd scale-up playbook.
-    type: string
-  OpenShiftWorkerScaleupPlaybook:
-    default: '/usr/share/ansible/openshift-ansible/playbooks/openshift-node/scaleup.yml'
-    description: Path to OpenShift-Ansible node scale-up playbook.
+  OpenShiftAnsiblePath:
+    default: '/usr/share/ansible/openshift-ansible/'
+    description: Path to OpenShift-Ansible.
     type: string
   OpenShiftGlobalVariables:
     default: {}
@@ -361,13 +345,17 @@ outputs:
                     dest: "{{playbook_dir}}/openshift/global_vars.yml"
                     content: "{{openshift_global_vars|to_nice_yaml}}"
 
+                - name: set openshift ansible path
+                  set_fact:
+                    openshift_ansible_path: {get_param: OpenShiftAnsiblePath}
+
                 - name: set openshift ansible playbook paths
                   set_fact:
-                    openshift_ansible_playbook_path: {get_param: OpenShiftAnsiblePlaybook}
-                    openshift_prerequisites_playbook_path: {get_param: OpenShiftPrerequisitesPlaybook}
-                    openshift_master_scaleup_playbook_path: {get_param: OpenShiftMasterScaleupPlaybook}
-                    openshift_etcd_scaleup_playbook_path: {get_param: OpenShiftEtcdScaleupPlaybook}
-                    openshift_worker_scaleup_playbook_path: {get_param: OpenShiftWorkerScaleupPlaybook}
+                    openshift_ansible_deploy_playbook_path: "{{ openshift_ansible_path }}/playbooks/deploy_cluster.yml"
+                    openshift_prerequisites_playbook_path: "{{ openshift_ansible_path }}/playbooks/prerequisites.yml"
+                    openshift_master_scaleup_playbook_path: "{{ openshift_ansible_path }}/playbooks/openshift-master/scaleup.yml"
+                    openshift_etcd_scaleup_playbook_path: "{{ openshift_ansible_path }}/playbooks/openshift-etcd/scaleup.yml"
+                    openshift_worker_scaleup_playbook_path: "{{ openshift_ansible_path }}/playbooks/openshift-node/scaleup.yml"
                     openshift_ansible_image: {get_param: DockerOpenShiftAnsibleImage}
 
                 # NOTE(flaper87): We'll use openshift_ansible_scaleup_playbook_path
@@ -420,7 +408,7 @@ outputs:
                       # Prerequisites playbook is explicitly needed only for
                       # initial install
                       - import_playbook: "{{openshift_prerequisites_playbook_path}}"
-                      - import_playbook: "{{openshift_ansible_playbook_path}}"
+                      - import_playbook: "{{openshift_ansible_deploy_playbook_path}}"
 
                       {% elif tripleo_stack_action == 'UPDATE' %}
                       {% if has_new_nodes %}
@@ -552,13 +540,13 @@ outputs:
                       content: |
                         # Re-run the deploy playbook to apply potential change
                         # changes to existing nodes
-                        - import_playbook: "{{openshift_ansible_playbook_path}}"
+                        - import_playbook: "{{openshift_ansible_deploy_playbook_path}}"
                         - name: Restart masters
                           hosts: masters
                           serial: 1
                           tasks:
                           - import_role:
-                              name: /usr/share/ansible/openshift-ansible/roles/openshift_control_plane
+                              name: "{{ openshift_ansible_path }}/roles/openshift_control_plane"
                               tasks_from: restart.yml
 
                   - name: print openshift command
