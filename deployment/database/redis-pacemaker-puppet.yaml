@@ -348,6 +348,46 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
+        - when:
+            - step|int == 1
+          block:
+            - name: set redis upgrade node facts in a single-node environment
+              set_fact:
+                redis_short_node_names_upgraded: "{{ redis_short_node_names }}"
+                cacheable: no
+              when: groups['redis'] | length == 1
+            - name: set redis upgrade node facts from the limit option
+              set_fact:
+                redis_short_node_names_upgraded: "{{ redis_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cacheable: no
+              when: item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ redis_short_node_names }}"
+
+            - debug:
+                msg: "Prepare redis upgrade for {{ redis_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade redis without staged
+                  upgrade. You need to use the limit option in order
+                  to do so.
+              when: >-
+                redis_short_node_names_upgraded is not defined or
+                redis_short_node_names_upgraded | length == 0
+
+            - name: add the redis short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: redis_short_node_names_override
+                tripleo_upgrade_value: "{{redis_short_node_names_upgraded}}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: redis_short_node_names_override
+              when: redis_short_node_names_upgraded | length == redis_short_node_names | length
         - when: step|int == 0
           tags: common
           block:
@@ -409,14 +449,6 @@ outputs:
                       command: pcs resource bundle update redis-bundle storage-map add id=redis-log source-dir=/var/log/containers/redis target-dir=/var/log/redis options=rw
             - name: Update the redis bundle to use the new container image name
               command: "pcs resource bundle update redis-bundle container image={{redis_docker_image_latest}}"
-            - name: Enable the redis cluster resource
-              pacemaker_resource:
-                resource: redis-bundle
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
