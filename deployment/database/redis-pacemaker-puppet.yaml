@@ -354,17 +354,9 @@ outputs:
             - name: Get docker redis image
               set_fact:
                 redis_docker_image_latest: *redis_image_pcmklatest
-            - name: Check for redis Kolla configuration
-              stat:
-                path: /var/lib/config-data/puppet-generated/redis
-              register: redis_kolla_config
-            - name: Check if redis is already containerized
-              set_fact:
-                redis_containerized: "{{redis_kolla_config.stat.isdir | default(false)}}"
             - name: set is_redis_bootstrap_node fact
               set_fact: is_redis_bootstrap_node={{redis_short_bootstrap_node_name|lower == ansible_hostname|lower}}
             - name: Prepare the switch to new redis container image name in pacemaker
-              when: redis_containerized|bool
               block:
                 - name: Get redis image id currently used by pacemaker
                   shell: "{{container_cli}} images | awk '/redis.* pcmklatest/{print $3}' | uniq"
@@ -387,42 +379,9 @@ outputs:
             - name: Set fact redis_pcs_res
               set_fact:
                 redis_pcs_res: "{{redis_pcs_res_result|succeeded}}"
-        - name: redis baremetal to container upgrade tasks
-          when:
-            - step|int == 1
-            - not redis_containerized|bool
-          block:
-            - name: Check cluster resource status of redis
-              pacemaker_resource:
-                resource: {get_attr: [RedisBase, role_data, service_name]}
-                state: show
-                check_mode: false
-              ignore_errors: true
-              register: redis_res
-            - when: (is_redis_bootstrap_node) and (redis_res|succeeded)
-              block:
-                - name: Disable the redis cluster resource
-                  pacemaker_resource:
-                    resource: {get_attr: [RedisBase, role_data, service_name]}
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-                - name: Delete the stopped redis cluster resource.
-                  pacemaker_resource:
-                    resource: {get_attr: [RedisBase, role_data, service_name]}
-                    state: delete
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-            - name: Disable redis service
-              service: name=redis enabled=no
         - name: Update redis-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
-            - redis_containerized|bool
             - is_redis_bootstrap_node
             - redis_pcs_res|bool
           block:
@@ -461,7 +420,6 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-            - redis_containerized|bool
           block: *redis_fetch_retag_container_tasks
       fast_forward_upgrade_tasks:
         - when:

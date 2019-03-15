@@ -210,19 +210,11 @@ outputs:
           set_fact:
             ovn_dbs_docker_image: {get_param: DockerOvnDbsImage}
             ovn_dbs_docker_image_latest: *ovn_dbs_image_pcmklatest
-        - name: Check for ovn-dbs log file
-          stat:
-            path: /var/log/containers/openvswitch/ovsdb-server-nb.log
-          register: ovn_dbs_log_file
-        - name: Check if ovn-dbs is already containerized
-          set_fact:
-            ovn_dbs_containerized: "{{ovn_dbs_log_file.stat.exists | default(false)}}"
         - name: set is_ovn_dbs_bootstrap_node fact
           set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower}}
         - name: ovn-dbs fetch and retag container image for pacemaker
           when:
             - step|int == 3
-            - ovn_dbs_containerized|bool
           block: &ovn_dbs_fetch_retag_container_tasks
             - name: Get previous ovn-dbs image id
               shell: "{{container_cli}} images | awk '/ovn.* pcmklatest/{print $3}' | uniq"
@@ -257,7 +249,6 @@ outputs:
         - name: Update ovn-dbs-bundle resource to use pcmklatest tag image if not used
           when:
             - step|int == 5
-            - ovn_dbs_containerized|bool
             - is_ovn_dbs_bootstrap_node
           block:
             - name: Get the present image used by ovn-dbs-bundle
@@ -273,13 +264,6 @@ outputs:
           when: step|int == 1
           service: name=ovn-northd state=stopped enabled=no
           ignore_errors: true
-        - name: Check for ovn-dbs log file
-          stat:
-            path: /var/log/containers/openvswitch/ovsdb-server-nb.log
-          register: ovn_dbs_log_file
-        - name: Check if ovn-dbs is already containerized
-          set_fact:
-            ovn_dbs_containerized: "{{ovn_dbs_log_file.stat.exists | default(false)}}"
         - name: Get docker ovn-dbs image
           set_fact:
             ovn_dbs_docker_image: {get_param: DockerOvnDbsImage}
@@ -289,7 +273,6 @@ outputs:
         - name: Prepare the switch to new ovn-dbs container image name in pacemaker
           when:
             - step|int == 0
-            - ovn_dbs_containerized|bool
           block:
             - name: Get ovn-dbs image id currently used by pacemaker
               shell: "{{container_cli}} images | awk '/ovn.* pcmklatest/{print $3}' | uniq"
@@ -329,12 +312,10 @@ outputs:
         - name: Update ovn-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
-            - ovn_dbs_containerized|bool
             - is_ovn_dbs_bootstrap_node
             - ovndbs_pcs_res|succeeded
           block: *ovn_dbs_update_bundle_with_new_image
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-            - ovn_dbs_containerized|bool
           block: *ovn_dbs_fetch_retag_container_tasks

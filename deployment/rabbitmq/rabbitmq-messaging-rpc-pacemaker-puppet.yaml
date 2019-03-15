@@ -309,51 +309,11 @@ outputs:
         - name: Get docker Rabbitmq image
           set_fact:
             rabbitmq_docker_image_latest: *rabbitmq_image_pcmklatest
-        - name: Check for Rabbitmq Kolla configuration
-          stat:
-            path: /var/lib/config-data/puppet-generated/rabbitmq
-          register: rabbit_kolla_config
-        - name: Check if Rabbitmq is already containerized
-          set_fact:
-            rabbit_containerized: "{{rabbit_kolla_config.stat.isdir | default(false)}}"
         - name: set is_rpc_rabbitmq_bootstrap_node fact
           set_fact: is_rpc_rabbitmq_bootstrap_node={{oslo_messaging_rpc_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-        - name: Rabbitmq baremetal to container upgrade tasks
-          when:
-            - step|int == 1
-            - not rabbit_containerized|bool
-          block:
-            - name: Check cluster resource status of rabbitmq
-              pacemaker_resource:
-                resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-                check_mode: false
-                state: show
-              ignore_errors: true
-              register: rabbitmq_res
-            - when: (is_rpc_rabbitmq_bootstrap_node) and (rabbitmq_res|succeeded)
-              block:
-                - name: Disable the rabbitmq cluster resource.
-                  pacemaker_resource:
-                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-                - name: Delete the stopped rabbitmq cluster resource.
-                  pacemaker_resource:
-                    resource: {get_attr: [RabbitmqBase, role_data, service_name]}
-                    state: delete
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-            - name: Disable rabbitmq service
-              service: name=rabbitmq-server enabled=no
         - name: Prepare the switch to new rabbitmq container image name in pacemaker
           when:
             - step|int == 0
-            - rabbit_containerized|bool
           block:
             - name: Get rabbitmq image id currently used by pacemaker
               shell: "{{container_cli}} images | awk '/rabbitmq.* pcmklatest/{print $3}' | uniq"
@@ -376,7 +336,6 @@ outputs:
         - name: Update rabbitmq-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
-            - rabbit_containerized|bool
             - is_rpc_rabbitmq_bootstrap_node
             - rabbit_pcs_res|succeeded
           block:
@@ -411,7 +370,6 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-            - rabbit_containerized|bool
           block: *rabbitmq_fetch_retag_container_tasks
       fast_forward_upgrade_tasks:
         - when:
