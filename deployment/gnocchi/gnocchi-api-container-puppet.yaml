@@ -65,49 +65,166 @@ parameters:
     description: Path to use when file driver is used. This could be NFS or a
       flat file.
     type: string
+  GnocchiPassword:
+    description: The password for the gnocchi service and db account.
+    type: string
+    hidden: true
+  GnocchiBackend:
+    default: swift
+    description: The short name of the Gnocchi backend to use. Should be one
+      of swift, rbd, file or s3.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd', 's3']
+  GnocchiIncomingStorageDriver:
+    default: redis
+    description: Storage driver to use for incoming metric data
+    type: string
+  KeystoneRegion:
+    type: string
+    default: 'regionOne'
+    description: Keystone region for endpoint
+  MonitoringSubscriptionGnocchiApi:
+    default: 'overcloud-gnocchi-api'
+    type: string
+  GnocchiApiLoggingSource:
+    type: json
+    default:
+      tag: openstack.gnocchi.api
+      path: /var/log/gnocchi/app.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  GnocchiApiPolicies:
+    description: |
+      A hash of policies to configure for Gnocchi API.
+      e.g. { gnocchi-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
+    default: {}
+    type: json
+  GnocchiCorsAllowedOrigin:
+    type: string
+    default: ''
+    description: Indicate whether this resource may be shared with the domain received in the request
+                 "origin" header.
 
 conditions:
-
+  cors_allowed_origin_unset: {equals : [{get_param: GnocchiCorsAllowedOrigin}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
+    type: ../../docker/services/containers-common.yaml
 
-  GnocchiApiPuppetBase:
-      type: ../../puppet/services/gnocchi-api.yaml
-      properties:
-        EndpointMap: {get_param: EndpointMap}
-        ServiceData: {get_param: ServiceData}
-        ServiceNetMap: {get_param: ServiceNetMap}
-        DefaultPasswords: {get_param: DefaultPasswords}
-        RoleName: {get_param: RoleName}
-        RoleParameters: {get_param: RoleParameters}
+  GnocchiServiceBase:
+    type: ./gnocchi-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  ApacheServiceBase:
+    type: ../../puppet/services/apache.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   role_data:
     description: Role data for the gnocchi API role.
     value:
-      service_name: {get_attr: [GnocchiApiPuppetBase, role_data, service_name]}
+      service_name: gnocchi_api
+      monitoring_subscription: {get_param: MonitoringSubscriptionGnocchiApi}
       config_settings:
         map_merge:
-          - get_attr: [GnocchiApiPuppetBase, role_data, config_settings]
+          - get_attr: [GnocchiServiceBase, role_data, config_settings]
+          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - apache::default_vhost: false
+          -
+            if:
+            - cors_allowed_origin_unset
+            - {}
+            - gnocchi::cors::allowed_origin: {get_param: GnocchiCorsAllowedOrigin}
+              gnocchi::api::middlewares: 'oslo_middleware.cors.CORS'
+          - tripleo::gnocchi_api::firewall_rules:
+              '129 gnocchi-api':
+                dport:
+                  - 8041
+                  - 13041
+            gnocchi::api::enabled: true
+            gnocchi::api::enable_proxy_headers_parsing: true
+            gnocchi::api::service_name: 'httpd'
+            gnocchi::policy::policies: {get_param: GnocchiApiPolicies}
+            gnocchi::cors::max_age: 3600
+            gnocchi::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
+            gnocchi::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
+            gnocchi::cors::allow_methods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH'
+            gnocchi::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            gnocchi::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            gnocchi::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            gnocchi::keystone::authtoken::password: {get_param: GnocchiPassword}
+            gnocchi::keystone::authtoken::project_name: 'service'
+            gnocchi::keystone::authtoken::user_domain_name: 'Default'
+            gnocchi::keystone::authtoken::project_domain_name: 'Default'
+            gnocchi::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            gnocchi::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, GnocchiApiNetwork]}
+            tripleo::profile::base::gnocchi::api::gnocchi_backend: {get_param: GnocchiBackend}
+            tripleo::profile::base::gnocchi::api::incoming_storage_driver: {get_param: GnocchiIncomingStorageDriver}
+            # NOTE: bind IP is found in hiera replacing the network name with the
+            # local node IP for the given network; replacement examples
+            # (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            gnocchi::wsgi::apache::bind_host:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, GnocchiApiNetwork]}
+            gnocchi::wsgi::apache::wsgi_process_display_name: 'gnocchi_wsgi'
       service_config_settings:
         map_merge:
-          - get_attr: [GnocchiApiPuppetBase, role_data, service_config_settings]
+          - get_attr: [GnocchiServiceBase, role_data, service_config_settings]
           - fluentd:
               tripleo_fluentd_groups_gnocchi_api:
                 - gnocchi
               tripleo_fluentd_sources_gnocchi_api:
                 - {get_param: GnocchiApiLoggingSource}
+            keystone:
+              gnocchi::keystone::auth::admin_url: { get_param: [ EndpointMap, GnocchiAdmin, uri ] }
+              gnocchi::keystone::auth::internal_url: {get_param: [EndpointMap, GnocchiInternal, uri]}
+              gnocchi::keystone::auth::password: {get_param: GnocchiPassword}
+              gnocchi::keystone::auth::public_url: { get_param: [ EndpointMap, GnocchiPublic, uri ] }
+              gnocchi::keystone::auth::region: {get_param: KeystoneRegion}
+              gnocchi::keystone::auth::tenant: 'service'
+            mysql:
+              gnocchi::db::mysql::password: {get_param: GnocchiPassword}
+              gnocchi::db::mysql::user: gnocchi
+              gnocchi::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+              gnocchi::db::mysql::dbname: gnocchi
+              gnocchi::db::mysql::allowed_hosts:
+                - '%'
+                - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: gnocchi
         puppet_tags: gnocchi_api_paste_ini,gnocchi_config
-        step_config:
-          get_attr: [GnocchiApiPuppetBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::profile::base::gnocchi::api
         config_image: {get_param: DockerGnocchiConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/gnocchi_api.json:
@@ -256,7 +373,7 @@ outputs:
             state: directory
       upgrade_tasks: []
       metadata_settings:
-        get_attr: [GnocchiApiPuppetBase, role_data, metadata_settings]
+        get_attr: [ApacheServiceBase, role_data, metadata_settings]
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
