@@ -263,16 +263,7 @@ outputs:
             - name: Get docker Cinder-Volume image
               set_fact:
                 cinder_volume_docker_image_latest: *cinder_volume_image_pcmklatest
-            - name: Check for Cinder-Volume Kolla configuration
-              command: grep '^volume_driver[ \t]*=' /var/lib/config-data/puppet-generated/cinder/etc/cinder/cinder.conf
-              changed_when: no
-              ignore_errors: true
-              register: cinder_volume_kolla_config
-            - name: Check if Cinder-Volume is already containerized
-              set_fact:
-                cinder_volume_containerized: "{{cinder_volume_kolla_config|succeeded}}"
             - name: Prepare the switch to new cinder_volume container image name in pacemaker
-              when: cinder_volume_containerized|bool
               block:
                 - name: Get cinder_volume image id currently used by pacemaker
                   shell: "{{container_cli}} images | awk '/cinder-volume.* pcmklatest/{print $3}' | uniq"
@@ -298,48 +289,9 @@ outputs:
             - name: set is_cinder_volume_bootstrap_node fact
               tags: common
               set_fact: is_cinder_volume_bootstrap_node={{cinder_volume_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-        - name: Stop cinder_volume service (pacemaker)
-          when: step|int == 1
-          pacemaker_resource:
-            resource: openstack-cinder-volume
-            state: disable
-            wait_for_resource: true
-        - name: Cinder-Volume baremetal to container upgrade tasks
-          when:
-            - step|int == 1
-            - not cinder_volume_containerized|bool
-          block:
-            - name: Check cluster resource status
-              pacemaker_resource:
-                resource: openstack-cinder-volume
-                state: show
-                check_mode: false
-              ignore_errors: true
-              register: cinder_volume_res
-            - when: (is_cinder_volume_bootstrap_node) and (cinder_volume_res|succeeded)
-              block:
-                - name: Disable the openstack-cinder-volume cluster resource
-                  pacemaker_resource:
-                    resource: openstack-cinder-volume
-                    state: disable
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-                - name: Delete the stopped openstack-cinder-volume cluster resource.
-                  pacemaker_resource:
-                    resource: openstack-cinder-volume
-                    state: delete
-                    wait_for_resource: true
-                  register: output
-                  retries: 5
-                  until: output.rc == 0
-            - name: Disable cinder_volume service from boot
-              service: name=openstack-cinder-volume enabled=no
         - name: Update cinder_volume pcs resource bundle for new container image
           when:
             - step|int == 1
-            - cinder_volume_containerized|bool
             - is_cinder_volume_bootstrap_node
             - cinder_volume_pcs_res|bool
           block:
@@ -365,7 +317,6 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-            - cinder_volume_containerized|bool
           block: *cinder_volume_fetch_retag_container_tasks
       post_upgrade_tasks:
         - name: Start cinder_volume service (pacemaker)
