@@ -260,60 +260,63 @@ outputs:
               when:
                 - ovn_dbs_current_image.stdout != ovn_dbs_docker_image_latest
       upgrade_tasks:
-        - name: Stop and disable ovn-northd service
-          when: step|int == 1
-          service: name=ovn-northd state=stopped enabled=no
-          ignore_errors: true
-        - name: Get docker ovn-dbs image
-          set_fact:
-            ovn_dbs_docker_image: {get_param: DockerOvnDbsImage}
-            ovn_dbs_docker_image_latest: *ovn_dbs_image_pcmklatest
-        - name: set is_ovn_dbs_bootstrap_node fact
-          set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-        - name: Prepare the switch to new ovn-dbs container image name in pacemaker
-          when:
-            - step|int == 0
+        - when: step|int == 0
+          tags: common
           block:
-            - name: Get ovn-dbs image id currently used by pacemaker
-              shell: "{{container_cli}} images | awk '/ovn.* pcmklatest/{print $3}' | uniq"
-              register: ovn_dbs_current_pcmklatest_id
-            - name: Temporarily tag the current ovn-dbs pcmklatest image id with the upgraded image name
-              import_role:
-                name: tripleo-container-tag
-              vars:
-                container_image: "{{ovn_dbs_current_pcmklatest_id.stdout}}"
-                container_image_latest: "{{ovn_dbs_docker_image_latest}}"
-                pull_image: false
-              when: ovn_dbs_current_pcmklatest_id.stdout != ''
-            # If ovn-dbs image is not tagged with pcmklatest, then create a new
-            # tag. This could happen if the stack is upgraded without updating the stack before.
-            # In the next step, the block 'ovn_dbs_update_bundle_with_new_image'
-            # will update the ovn-dbs-bundle resource to use the tagged image.
-            # And in step 3, we will fetch the latest image.
-            - block:
-                - name: Get the present image used by ovn-dbs-bundle
-                  shell: "pcs resource show ovn-dbs-bundle | grep image | awk '{ split($2, image, \"=\"); print image[2] }'"
-                  register: ovn_dbs_current_image
-                - name: Tag the current image with pcmklatest tag
+            - name: Get docker ovn-dbs image
+              set_fact:
+                ovn_dbs_docker_image: {get_param: DockerOvnDbsImage}
+                ovn_dbs_docker_image_latest: *ovn_dbs_image_pcmklatest
+            - name: set is_ovn_dbs_bootstrap_node fact
+              set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower}}
+            - name: Check ovn-dbs-bundle cluster resource status
+              pacemaker_resource:
+                resource: ovn-dbs-bundle
+                state: show
+                check_mode: false
+              ignore_errors: true
+              register: ovndbs_pcs_result
+            - name: Set fact ovndbs_pcs_res
+              set_fact:
+                ovndbs_pcs_res: "{{ ovndbs_pcs_result|succeeded }}"
+            - name: Prepare the switch to new ovn-dbs container image name in pacemaker
+              block:
+                - name: Get ovn-dbs image id currently used by pacemaker
+                  shell: "{{container_cli}} images | awk '/ovn.* pcmklatest/{print $3}' | uniq"
+                  register: ovn_dbs_current_pcmklatest_id
+                - name: Temporarily tag the current ovn-dbs pcmklatest image id with the upgraded image name
                   import_role:
                     name: tripleo-container-tag
                   vars:
-                    container_image: "{{ovn_dbs_current_image.stdout}}"
+                    container_image: "{{ovn_dbs_current_pcmklatest_id.stdout}}"
                     container_image_latest: "{{ovn_dbs_docker_image_latest}}"
-              when:
-                - ovn_dbs_current_pcmklatest_id.stdout == ''
-        - name: Check ovn-dbs-bundle cluster resource status
-          pacemaker_resource:
-            resource: ovn-dbs-bundle
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: ovndbs_pcs_res
+                    pull_image: false
+                  when: ovn_dbs_current_pcmklatest_id.stdout != ''
+                # If ovn-dbs image is not tagged with pcmklatest, then create a new
+                # tag. This could happen if the stack is upgraded without updating the stack before.
+                # In the next step, the block 'ovn_dbs_update_bundle_with_new_image'
+                # will update the ovn-dbs-bundle resource to use the tagged image.
+                # And in step 3, we will fetch the latest image. Ensure we run these
+                # steps when the resource is up and running, otherwise the tagging
+                # will fail.
+                - block:
+                    - name: Get the present image used by ovn-dbs-bundle
+                      shell: "pcs resource show ovn-dbs-bundle | grep image | awk '{ split($2, image, \"=\"); print image[2] }'"
+                      register: ovn_dbs_current_image
+                    - name: Tag the current image with pcmklatest tag
+                      import_role:
+                        name: tripleo-container-tag
+                      vars:
+                        container_image: "{{ovn_dbs_current_image.stdout}}"
+                        container_image_latest: "{{ovn_dbs_docker_image_latest}}"
+                  when:
+                    - ovn_dbs_current_pcmklatest_id.stdout == ''
+                    - ovndbs_pcs_res
         - name: Update ovn-bundle pcs resource bundle for new container image
           when:
             - step|int == 1
             - is_ovn_dbs_bootstrap_node
-            - ovndbs_pcs_res|succeeded
+            - ovndbs_pcs_res
           block: *ovn_dbs_update_bundle_with_new_image
         - name: Retag the pacemaker image if containerized
           when:
