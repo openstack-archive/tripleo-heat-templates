@@ -39,11 +39,20 @@ fi
 echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 
-yum -q -y remove openstack-dashboard
+if rpm -q openstack-dashboard; then
+    yum -q -y remove openstack-dashboard
+fi
+
+source /etc/os-release
+# RHEL8.0 does not have epel yet
+if [[ $VERSION_ID == 8* ]]; then
+    PKGS="ipa-server ipa-server-dns rng-tools git"
+else
+    PKGS="ipa-server ipa-server-dns epel-release rng-tools mod_nss git haveged"
+fi
 
 # Install the needed packages
-yum -q install -y ipa-server ipa-server-dns epel-release rng-tools mod_nss git
-yum -q install -y haveged
+yum -q install -y $PKGS
 
 # Prepare hostname
 hostnamectl set-hostname --static $Hostname
@@ -83,11 +92,13 @@ EOF
 iptables-restore < freeipa-iptables-rules.txt
 
 # Entropy generation; otherwise, ipa-server-install will lag.
-chkconfig haveged on
-systemctl start haveged
+if [[ $VERSION_ID != 8* ]]; then
+   chkconfig haveged on
+   systemctl start haveged
 
-# Remove conflicting httpd configuration
-rm -f /etc/httpd/conf.d/ssl.conf
+   # Remove conflicting httpd configuration
+   rm -f /etc/httpd/conf.d/ssl.conf
+fi
 
 # Set up FreeIPA
 ipa-server-install -U -r `hostname -d|tr "[a-z]" "[A-Z]"` \
