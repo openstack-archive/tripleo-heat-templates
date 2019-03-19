@@ -1,0 +1,91 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Neutron ML2/OVN DPDK Configured with puppet
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  VhostuserSocketGroup:
+    default: "qemu"
+    description: >
+      The vhost-user socket directory group name.
+      Defaults to 'qemu'. When vhostuser mode is 'dpdkvhostuserclient'
+      (which is the default mode), the vhost socket is created by qemu.
+    type: string
+    tags:
+      - role_specific
+  VhostuserSocketUser:
+    default: "qemu"
+    description: >
+      The vhost-user socket directory user name.
+      Defaults to 'qemu'. When vhostuser mode is 'dpdkvhostuserclient'
+      (which is the default mode), the vhost socket is created by qemu.
+    type: string
+    tags:
+      - role_specific
+
+resources:
+
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - vhostuser_socket_group: VhostuserSocketGroup
+              vhostuser_socket_user: VhostuserSocketUser
+            - values: {get_param: [RoleParameters]}
+          - values:
+              VhostuserSocketGroup: {get_param: VhostuserSocketGroup}
+              VhostuserSocketUser: {get_param: VhostuserSocketUser}
+
+  Ovs:
+    type: ../../puppet/services/openvswitch.yaml
+    properties:
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for Neutron ML2/OVN DPDK config
+    value:
+      service_name: neutron_ovn_dpdk
+      config_settings:
+        map_merge:
+          - ovn::controller::enable_dpdk: true
+            ovn::controller::datapath_type: "netdev"
+            nova::compute::libvirt::qemu::group: {get_attr: [RoleParametersValue, value, vhostuser_socket_group]}
+          - get_attr: [RoleParametersValue, value]
+          - get_attr: [Ovs, role_data, config_settings]
+
