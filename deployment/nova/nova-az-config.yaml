@@ -1,0 +1,91 @@
+heat_template_version: rocky
+
+description: >
+  Configuration of Nova Availability Zones in the overcloud
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
+  NovaComputeAvailabilityZone:
+    description: The availability zone where new Nova compute nodes will be
+                 added. If the zone does not already exist, it will be created.
+    default: ""
+    type: string
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
+
+resources:
+
+  NovaComputeAvailabilityZoneValue:
+    type: OS::Heat::Value
+    properties:
+      value:
+        if:
+          - equals:
+              - {get_param: NovaComputeAvailabilityZone}
+              - ""
+          - {get_param: RootStackName}
+          - {get_param: NovaComputeAvailabilityZone}
+
+outputs:
+  role_data:
+    description: Role data for the Nova Availability Zone configuration service
+    value:
+      service_name: nova_az_config
+      deploy_steps_tasks:
+        # Step0: Set the hieradata nova::host as a ansible fact so that we can
+        # use it later in the tasks in external_post_deploy_tasks
+        - name: Get nova::host value
+          shell: hiera -c /etc/puppet/hiera.yaml nova::host
+          register: nova_host_result
+          when: "step|int == 1"
+        - name: Set nova_host fact
+          set_fact:
+            nova_host: "{{ nova_host_result.stdout }}"
+          when: "step|int == 1"
+      external_post_deploy_tasks:
+        - name: "Nova: Manage aggregate and availability zone and add hosts to the zone"
+          environment:
+            # Force openstackclient to not try and read a clouds.yaml as none
+            # exists for the tripleo-admin user.
+            OS_CLIENT_CONFIG_FILE: /dev/null
+          os_nova_host_aggregate:
+            name: {get_attr: [NovaComputeAvailabilityZoneValue, value]}
+            availability_zone: {get_attr: [NovaComputeAvailabilityZoneValue, value]}
+            hosts: "{{ groups['nova_compute'] | default([]) | map('extract', hostvars, 'nova_host') | list }}"
+            auth:
+              username: admin
+              password: {get_param: AdminPassword}
+              project_name: admin
+              project_domain_name: Default
+              user_domain_name: Default
+              auth_url: { get_param: [EndpointMap, KeystoneV3Public, uri] }
