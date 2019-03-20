@@ -32,6 +32,10 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  PythonInterpreter:
+    type: string
+    description: The python interpreter to use for python and ansible actions
+    default: /usr/bin/python
 
 outputs:
   role_data:
@@ -43,6 +47,8 @@ outputs:
       host_prep_tasks:
         - name: enroll client in ipa and get metadata
           become: yes
+          vars:
+            python_interpreter: {get_param: PythonInterpreter}
           block:
           - name: install needed packages
             package:
@@ -67,7 +73,7 @@ outputs:
                     if [ -f /run/cloud-init/status.json ]; then
                     # Get metadata from config drive
                     data=`cat /run/cloud-init/status.json`
-                    config_drive=`echo $data | python -c 'import json,re,sys;obj=json.load(sys.stdin);ds=obj.get("v1", {}).get("datasource"); print re.findall(r"source=(.*)]", ds)[0]'`
+                    config_drive=`echo $data | {{ python_interpreter }} -c 'import json,re,sys;obj=json.load(sys.stdin);ds=obj.get("v1", {}).get("datasource"); print(re.findall(r"source=(.*)]", ds)[0])'`
                     if [[ -b $config_drive ]]; then
                   temp_dir=`mktemp -d`
                   mount $config_drive $temp_dir
@@ -109,15 +115,15 @@ outputs:
                 fi
 
                 # Get the instance hostname out of the metadata
-                fqdn=`echo $data | python -c 'import json,sys;obj=json.load(sys.stdin);print obj.get("join", {}).get("hostname", "")'`
+                fqdn=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("hostname", ""))'`
 
                 if [ -z "$fqdn" ]; then
                     echo "Unable to determine hostname"
                     exit 1
                 fi
 
-                realm=`echo $data | python -c 'import json,sys;obj=json.load(sys.stdin);print obj.get("join", {}).get("krb_realm", "")'`
-                otp=`echo $data | python -c 'import json,sys;obj=json.load(sys.stdin);print obj.get("join", {}).get("ipaotp", "")'`
+                realm=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("krb_realm", ""))'`
+                otp=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("ipaotp", ""))'`
 
                 hostname=`/bin/hostname -f`
 
