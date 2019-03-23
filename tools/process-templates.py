@@ -328,9 +328,16 @@ def clean_templates(base_path, role_data_path, network_data_path):
         host_config_and_reboot_path = os.path.join(
             'extraconfig', 'pre_network',
             '%s-host_config_and_reboot.yaml' % role['name'].lower())
+        krb_service_principals_path = os.path.join(
+            'extraconfig', 'nova_metadata', 'krb-service-principals',
+            '%s-role.yaml' % role['name'].lower())
+        common_services_path = os.path.join(
+            'common', 'services', '%s-role.yaml' % role['name'].lower())
 
         delete(role_path)
         delete(host_config_and_reboot_path)
+        delete(krb_service_principals_path)
+        delete(common_services_path)
 
         nic_config_dir = os.path.join(base_path, 'network', 'config')
         for sample_nic_config_dir in os.listdir(nic_config_dir):
