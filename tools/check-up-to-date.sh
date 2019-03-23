@@ -17,7 +17,7 @@ cd $tmpdir
 
 file_list=$(find environments -type f)
 for f in $file_list; do
-    if ! diff -q $f $base/$f; then
+    if ! $base/tools/yaml-diff.py $f $base/$f; then
         echo "ERROR: $base/$f is not up to date"
         diff $f $base/$f
         retval=1
