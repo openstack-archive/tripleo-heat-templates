@@ -260,15 +260,15 @@ CONFIG_RESOURCE_TYPES = [
 
 WORKFLOW_TASKS_EXCLUSIONS = [
     './deployment/octavia/octavia-deployment-config.yaml',
-    './docker/services/ceph-ansible/ceph-external.yaml',
-    './docker/services/ceph-ansible/ceph-osd.yaml',
-    './docker/services/ceph-ansible/ceph-rbdmirror.yaml',
-    './docker/services/ceph-ansible/ceph-client.yaml',
-    './docker/services/ceph-ansible/ceph-mds.yaml',
-    './docker/services/ceph-ansible/ceph-rgw.yaml',
-    './docker/services/ceph-ansible/ceph-base.yaml',
-    './docker/services/ceph-ansible/ceph-mon.yaml',
-    './docker/services/ceph-ansible/ceph-mgr.yaml',
+    './deployment/ceph-ansible/ceph-external.yaml',
+    './deployment/ceph-ansible/ceph-osd.yaml',
+    './deployment/ceph-ansible/ceph-rbdmirror.yaml',
+    './deployment/ceph-ansible/ceph-client.yaml',
+    './deployment/ceph-ansible/ceph-mds.yaml',
+    './deployment/ceph-ansible/ceph-rgw.yaml',
+    './deployment/ceph-ansible/ceph-base.yaml',
+    './deployment/ceph-ansible/ceph-mon.yaml',
+    './deployment/ceph-ansible/ceph-mgr.yaml',
     './docker/services/skydive/skydive-base.yaml',
     './docker/services/skydive/skydive-agent.yaml',
     './docker/services/skydive/skydive-analyzer.yaml',
@@ -602,7 +602,7 @@ def validate_docker_service(filename, tpl):
         for section_name in REQUIRED_DOCKER_SECTIONS:
             if section_name not in role_data:
                 # add an exception if both step_config is used in docker
-                # service, docker/services/ceph-ansible/ceph-nfs.yaml uses
+                # service, deployment/ceph-ansible/ceph-nfs.yaml uses
                 # additional step_config to add pacemaker resources
                 if (section_name == 'docker_config' and
                         role_data.get('step_config', '')):
