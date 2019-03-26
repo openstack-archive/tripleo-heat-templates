@@ -68,9 +68,8 @@ if not os.path.exists(config_volume_prefix):
 if container_cli == 'docker':
     cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
     env = {}
-    # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
     RUNNER = containers_runner.DockerRunner(
-        'container-puppet', cont_cmd='docker')
+        'container-puppet', cont_cmd='docker', log=log)
 elif container_cli == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
@@ -78,9 +77,8 @@ elif container_cli == 'podman':
                 '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
     # podman need to find dependent binaries that are in environment
     env = {'PATH': os.environ['PATH']}
-    # FIXME: add log=log once we have paunch 4.0.1 in Pypi and promoted in RDO
     RUNNER = containers_runner.PodmanRunner(
-        'container-puppet', cont_cmd='podman')
+        'container-puppet', cont_cmd='podman', log=log)
 else:
     log.error('Invalid container_cli: %s' % container_cli)
     sys.exit(1)
