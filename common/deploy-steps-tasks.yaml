@@ -230,8 +230,16 @@
             - container_config_scripts
 
         # The container config files
-        # /var/lib/docker-container-startup-configs.json is removed as we now write
+        # /var/lib/container-startup-configs.json is removed as we now write
         # per-step files instead
+        - name: Clean old /var/lib/container-startup-configs.json file
+          file:
+            path: /var/lib/container-startup-configs.json
+            state: absent
+          tags:
+            - container_startup_configs
+
+        # For legacy, can be removed in Train cycle
         - name: Clean old /var/lib/docker-container-startup-configs.json file
           file:
             path: /var/lib/docker-container-startup-configs.json
@@ -239,7 +247,8 @@
           tags:
             - container_startup_configs
 
-        - name: Write docker config scripts
+
+        - name: Write container config scripts
           no_log: True
           copy:
             content: "{{ item[1].content }}"
@@ -255,47 +264,47 @@
           tags:
             - container_config_scripts
 
-        # Here we are dumping all the docker container startup configuration data
+        # Here we are dumping all the container startup configuration data
         # so that we can have access to how they are started outside of heat
-        # and docker-cmd. This lets us create command line tools to test containers.
+        # and container cmd. This lets us create command line tools to test containers.
         # FIXME We need to update the defaults, e.g in docker-tool, so we can remove the
-        # docker-container-startup-configs.json and use per-step configs instead
-        - name: Set docker_config_default fact
+        # container-startup-configs.json and use per-step configs instead
+        - name: Set container_config_default fact
           no_log: True
           set_fact:
-            docker_config_default: "{{ docker_config_default | default({}) | combine( {'step_' + item: {}} ) }}"
+            container_config_default: "{{ container_config_default | default({}) | combine( {'step_' + item: {}} ) }}"
           with_sequence: count={{ deploy_steps_max }}
           tags:
             - container_startup_configs
 
-        - name: Set docker_startup_configs_with_default fact
+        - name: Set container_startup_configs_with_default fact
           no_log: True
           set_fact:
-            docker_config_with_default: "{{ docker_config_default | combine(role_data_docker_config) }}"
+            container_config_with_default: "{{ container_config_default | combine(role_data_container_config) }}"
           vars:
-            role_data_docker_config: "{{ lookup('file', tripleo_role_name + '/docker_config.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+            role_data_container_config: "{{ lookup('file', tripleo_role_name + '/docker_config.yaml', errors='ignore') | default({}, True) | from_yaml }}"
           tags:
             - container_startup_configs
 
-        - name: Write docker-container-startup-configs
+        - name: Write container-startup-configs
           no_log: True
           copy:
-            content: "{{ docker_config_with_default | to_nice_json }}"
-            dest: /var/lib/docker-container-startup-configs.json
+            content: "{{ container_config_with_default | to_nice_json }}"
+            dest: /var/lib/container-startup-configs.json
             force: yes
             mode: '0600'
           tags:
             - container_startup_configs
           diff: no
 
-        - name: Write per-step docker-container-startup-configs
+        - name: Write per-step container-startup-configs
           no_log: True
           copy:
             content: "{{ item[1] | to_nice_json }}"
-            dest: /var/lib/tripleo-config/docker-container-startup-config-{{ item[0] }}.json
+            dest: /var/lib/tripleo-config/container-startup-config-{{ item[0] }}.json
             force: yes
             mode: '0600'
-          loop: "{{ docker_config_with_default | dictsort }}"
+          loop: "{{ container_config_with_default | dictsort }}"
           loop_control:
             label: "{{ item[0] }}"
           tags:
@@ -437,7 +446,7 @@
         CONFIG: '/var/lib/container-puppet/{{ ansible_check_mode | ternary("check-mode/", "") }}container-puppet.json'
         CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | ternary("/check-mode", "") }}'
         CHECK_MODE: '{{ ansible_check_mode | ternary(1, 0) }}'
-        STARTUP_CONFIG_PATTERN: '/var/lib/tripleo-config/{{ ansible_check_mode | ternary("check-mode/", "") }}docker-container-startup-config-step_*.json'
+        STARTUP_CONFIG_PATTERN: '/var/lib/tripleo-config/{{ ansible_check_mode | ternary("check-mode/", "") }}container-startup-config-step_*.json'
         MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet | default(true)}}'
         CONTAINER_LOG_STDOUT_PATH: "{{ container_log_stdout_path }}"
       when: step == "1"
@@ -498,7 +507,7 @@
         paunch {% if enable_debug|bool %}--debug{% else %}-v{% endif %} apply
         --default-runtime "{{ container_cli }}"
         --container-log-path "{{ container_log_stdout_path }}"
-        --file /var/lib/tripleo-config/hashed-docker-container-startup-config-step_{{ step }}.json
+        --file /var/lib/tripleo-config/hashed-container-startup-config-step_{{ step }}.json
         --config-id tripleo_step{{ step }} --managed-by tripleo-{{ tripleo_role_name }}
       changed_when: false
       register: outputs
