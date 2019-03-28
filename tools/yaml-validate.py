@@ -351,7 +351,7 @@ def validate_controller_no_ceph_role(filename, tpl):
                 return 1
     return 0
 
-def validate_with_compute_role_services(role_filename, role_tpl, exclude_service):
+def validate_with_compute_role_services(role_filename, role_tpl, exclude_service=()):
     cmpt_filename = os.path.join(os.path.dirname(role_filename),
                                  './Compute.yaml')
     cmpt_tpl = yaml.load(open(cmpt_filename).read())
@@ -776,6 +776,10 @@ def validate(filename, param_map):
 
         if filename.startswith('./roles/ControllerNoCeph.yaml'):
             retval = validate_controller_no_ceph_role(filename, tpl)
+
+        if filename in ('./roles/ComputeLocalEphemeral.yaml',
+                        './roles/ComputeRBDEphemeral.yaml'):
+            retval |= validate_with_compute_role_services(filename, tpl)
 
         if filename.startswith('./network_data_'):
             retval = validate_network_data_file(filename)
