@@ -35,34 +35,59 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  LiquidioSriovVfNum:
+    type: number
+    description: Number of vf interfaces to be created on Compute nodes
+    default: 4
+    constraints:
+      - range: { min: 1, max: 64 }
+        description: Vfs should be between 1 and 64
+  LiquidioConfigureMode:
+    type: string
+    description: Mode of installation, either odl, ovn or ovs
+    default: ml2-odl
+    constraints:
+      - allowed_values: [ 'ml2-odl', 'ml2-ovn', 'ml2-ovs' ]
+        description: ConfigureMode for Liquidio service
+  LiquidioEnableBonding:
+    type: boolean
+    description: DVR Enabled or not
+    default: true
+  LiquidioBondingOptions:
+    type: string
+    description: Bonding options for Liquido interfaces
+    default: active-backup
+    constraints:
+      - allowed_values:
+        - active-backup
+        - balance-tcp
+        - balance-slb
+  LiquidioProviderMappings:
+    type: string
+    description: BridgeMappings used in ODL/OVN Deployments
+    default: 'datacentre:eth1'
 
 resources:
 
   ContainersCommon:
-    type: ./containers-common.yaml
-
-  LiquidioBase:
-    type: ../../puppet/services/liquidio-compute-config.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceData: {get_param: ServiceData}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      DefaultPasswords: {get_param: DefaultPasswords}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
+    type: ../../docker/services/containers-common.yaml
 
 outputs:
   role_data:
     description: Role data for Liquidio compute service.
     value:
-      service_name: {get_attr: [LiquidioBase, role_data, service_name]}
+      service_name: liquidio_compute_config
       config_settings:
-        get_attr: [LiquidioBase, role_data, config_settings]
+        tripleo::host::liquidio::compute::vf_nums: {get_param: LiquidioSriovVfNum}
+        tripleo::host::liquidio::compute::configure_mode: {get_param: LiquidioConfigureMode}
+        tripleo::host::liquidio::compute::enable_bonding: {get_param: LiquidioEnableBonding}
+        tripleo::host::liquidio::compute::bonding_options: {get_param: LiquidioBondingOptions}
+        tripleo::host::liquidio::compute::provider_mappings: {get_param: LiquidioProviderMappings}
       puppet_config:
         config_volume: liquidio
         puppet_tags: liquidio_config
-        step_config:
-          get_attr: [LiquidioBase, role_data, step_config]
+        step_config: |
+          include ::tripleo::host::liquidio::compute
         config_image: {get_param: DockerLiquidioConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/liquidio_config.json:
