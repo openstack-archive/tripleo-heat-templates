@@ -70,6 +70,7 @@ if __name__ == '__main__':
             # get placement endpoint (valid_interfaces)
             placement_endpoint_url = keystone.endpoints.list(
                 service=placement_service_id,
+                region=config.get('placement', 'region_name'),
                 interface=config.get('placement', 'valid_interfaces'))[0].url
             if not placement_endpoint_url:
                 LOG.error('Failed to get placement service endpoint!')
