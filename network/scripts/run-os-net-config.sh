@@ -122,6 +122,12 @@ if [ -n '$network_config' ]; then
         trap configure_safe_defaults EXIT
     fi
 
+    # Backup the old /etc/os-net-config/config.json, if it exists
+    DATETIME=`date +"%Y-%m-%dT%H:%M:%S"`
+    if [ -f /etc/os-net-config/config.json ]; then
+        mv /etc/os-net-config/config.json /etc/os-net-config/config.json.$DATETIME
+    fi
+
     mkdir -p /etc/os-net-config
     # Note these variables come from the calling heat SoftwareConfig
     echo '$network_config' > /etc/os-net-config/config.json
@@ -156,9 +162,9 @@ if [ -n '$network_config' ]; then
 
     # Remove files used by os-apply-config for old style configs
     if [ -f /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json ]; then
-        rm /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json
+        mv /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json /usr/libexec/os-apply-config/templates/etc/os-net-config/config.json.$DATETIME
     fi
     if [ -f /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json ]; then
-        rm /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json
+        mv /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json /usr/libexec/os-apply-config/templates/etc/os-net-config/element_config.json.$DATETIME
     fi
 fi
