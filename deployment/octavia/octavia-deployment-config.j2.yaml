@@ -289,25 +289,33 @@ outputs:
             - name: Check for ssh_private_key in working directory
               stat:
                 path: "{{playbook_dir}}/ssh_private_key"
-              register: st
+              register: detect_private_key_file
             - name: Set private key location
               set_fact:
-                ansible_ssh_key: "{{ playbook_dir+'/ssh_private_key' if st.stat.exists else '~/.ssh/id_rsa' }}"
+                octavia_ansible_ssh_key: "{{ playbook_dir }}/ssh_private_key"
+              when: octavia_ansible_ssh_key is not defined and detect_private_key_file.stat.exists
             - name: Configure octavia command
               set_fact:
-                config_octavia_cmd: ansible-playbook -i "{{playbook_dir}}/octavia-ansible/inventory.yaml" --extra-vars @"{{ octavia_ansible_group_vars.octavia_group_vars_dir }}"/octavia_vars.yaml "{{ octavia_ansible_group_vars.octavia_ansible_playbook }}" --private-key "{{ ansible_ssh_key }}"
+                config_octavia_cmd:
+                  list_join:
+                    - ' '
+                    - -  ansible-playbook -i "{{playbook_dir}}/octavia-ansible/inventory.yaml"
+                      - '--extra-vars @{{ octavia_ansible_group_vars.octavia_group_vars_dir }}/octavia_vars.yaml'
+                      - '{% if octavia_ansible_ssh_key is defined %}--private-key {{octavia_ansible_ssh_key}}{% endif %}'
+                      - '{{ octavia_ansible_group_vars.octavia_ansible_playbook }}'
             - set_fact:
                 octavia_log_dir: "{{playbook_dir}}/octavia-ansible/"
             - debug:
                 msg: "Configure Octavia command is: {{ config_octavia_cmd }}"
             - name: Configure octavia on overcloud
+              become: true
               environment:
                 ANSIBLE_HOST_KEY_CHECKING: False
                 ANSIBLE_SSH_RETRIES: 3
                 ANSIBLE_RETRY_FILES_ENABLED: false
                 ANSIBLE_LOCAL_TEMP: "{{ octavia_ansible_group_vars.octavia_local_tmpdir }}"
                 ANSIBLE_LOG_PATH:  "{{ octavia_log_dir }}/octavia-ansible.log"
-              shell: "{{ config_octavia_cmd }}"
+              shell:  "{{ config_octavia_cmd }}"
             - name: Purge temp dirs
               file:
                 state: absent
