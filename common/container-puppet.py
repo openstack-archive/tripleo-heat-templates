@@ -32,7 +32,7 @@ from paunch import runner as containers_runner
 
 logger = None
 sh_script = '/var/lib/container-puppet/container-puppet.sh'
-container_cli = os.environ.get('CONTAINER_CLI', 'docker')
+container_cli = os.environ.get('CONTAINER_CLI', 'podman')
 container_log_stdout_path = os.environ.get('CONTAINER_LOG_STDOUT_PATH',
                                            '/var/log/containers/stdouts')
 cli_cmd = '/usr/bin/' + container_cli
