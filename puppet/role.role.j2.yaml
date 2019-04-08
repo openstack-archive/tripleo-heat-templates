@@ -269,8 +269,7 @@ parameters:
       If not set the nameservers configured in the ctlplane subnet's
       dns_nameservers attribute will be used.
     type: comma_delimited_list
-{%- for network in networks %}
-{%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
   {{network.name}}InterfaceRoutes:
     default: []
     description: >
@@ -279,7 +278,28 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
-{%- endif %}
+  {%- if role.networks is mapping %}
+  {%-   set _subnets = network.get('subnets') %}
+  {%-   set _role_net_subnet = role.networks[network.name].get('subnet') %}
+  {%-   if _subnets and _role_net_subnet and _role_net_subnet in _subnets %}
+  {{network.name}}NetworkVlanID_{{_role_net_subnet}}:
+    default: {{_role_net_subnet.vlan|default(1)}}
+    description: >
+      Vlan ID for the {{network.name_lower}} network traffic for subnet
+      {{_role_net_subnet}}.
+    type: number
+  {%-   elif network.vlan|default(false) %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan|default(1)}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {%-   endif %}
+  {%- elif network.vlan|default(false) %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan|default(1)}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+  {%- endif %}
 {%- endfor %}
 
   ServerDeletionPolicy:
@@ -544,6 +564,17 @@ resources:
       {{network.name}}Mtu: {get_attr: [{{network.name}}Port, mtu]}
     {%- if network.name in role.default_route_networks %}
       {{network.name}}InterfaceDefaultRoute: {get_attr: [{{network.name}}Port, gateway_ip]}
+    {%- endif %}
+    {%- if role.networks is mapping %}
+      {%- set _subnets = network.get('subnets') %}
+      {%- set _role_net_subnet = role.networks[network.name].get('subnet') %}
+      {%- if _subnets and _role_net_subnet and _role_net_subnet in _subnets %}
+      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID_{{_role_net_subnet}}}
+      {%- elif network.vlan|default(false) %}
+      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID}
+      {%- endif %}
+    {%- elif network.vlan|default(false) %}
+      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID}
     {%- endif %}
   {%- endif %}
   {%- endfor %}
