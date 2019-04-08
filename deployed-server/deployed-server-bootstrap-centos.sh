@@ -28,3 +28,7 @@ else
         ln -s -f /usr/bin/ansible-playbook /usr/local/bin/ansible-playbook-3
     fi
 fi
+
+# https://launchpad.net/bugs/1823353
+systemctl enable network
+systemctl start network
