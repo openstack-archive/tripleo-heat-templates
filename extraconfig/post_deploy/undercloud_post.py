@@ -84,7 +84,7 @@ def _create_default_keypair(sdk):
                                        public_key=pub_key_file.read())
 
 
-def _configure_wrokbooks_and_workflows(mistral):
+def _configure_workbooks_and_workflows(mistral):
     for workbook in [w for w in mistral.workbooks.list()
                      if w.name.startswith('tripleo')]:
         mistral.workbooks.delete(workbook.name)
@@ -179,14 +179,14 @@ try:
     if mistral_api_enabled:
         mistral = mistralclient.client(mistral_url=sdk.workflow.get_endpoint(),
                                        session=sdk.session)
-        _configure_wrokbooks_and_workflows(mistral)
+        _configure_workbooks_and_workflows(mistral)
         _create_logging_cron(mistral)
         _store_passwords_in_mistral_env(mistral)
         _create_default_plan(mistral)
         if tripleo_validations_enabled:
             _prepare_ssh_environment(mistral)
             _upload_validations_to_swift(mistral)
-            print('INFO: Undercloud post - Validations execututed and '
+            print('INFO: Undercloud post - Validations executed and '
                   'uploaded to Swift.')
 except Exception:
     print('ERROR: Undercloud Post - Failed.')
