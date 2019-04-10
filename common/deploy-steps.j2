@@ -24,6 +24,7 @@
 {% set fast_forward_upgrade_steps_max = 9 -%}
 {% set fast_forward_upgrade_prep_steps_max = 3 -%}
 {% set post_update_steps_max = 4 -%}
+{% set scale_steps_max = 1 -%}
 
 heat_template_version: rocky
 
@@ -146,6 +147,19 @@ resources:
           data:
           {%- for role in enabled_roles %}
             - get_param: [role_data, {{role.name}}, external_post_deploy_tasks]
+          {%- endfor %}
+
+  ScaleTasks:
+    type: OS::Heat::Value
+    properties:
+      type: comma_delimited_list
+      value:
+        yaql:
+          # processing from per-role unique tasks into globally unique tasks
+          expression: coalesce($.data, []).flatten().distinct()
+          data:
+          {%- for role in enabled_roles %}
+            - get_param: [role_data, {{role.name}}, scale_tasks]
           {%- endfor %}
 
   ExternalUpdateTasks:
@@ -823,6 +837,89 @@ outputs:
               tags:
                 - external
                 - external_deploy_steps
+      scale_steps_tasks: {get_attr: [ScaleTasks, value]}
+      scale_playbook:
+        str_replace:
+          params:
+            DEPLOY_SOURCE_HOST: {get_param: deployment_source_hosts}
+            DEPLOY_TARGET_HOST: {get_param: deployment_target_hosts}
+            DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            BOOTSTRAP_SERVER_ID: {get_attr: [BootstrapServerId, value]}
+            ENABLE_DEBUG: {get_param: ConfigDebug}
+            ENABLE_PUPPET: {get_param: EnablePuppet}
+            DOCKER_PUPPET_DEBUG: {get_param: DockerPuppetDebug}
+            DOCKER_PUPPET_PROCESS_COUNT: {get_param: DockerPuppetProcessCount}
+            DOCKER_PUPPET_MOUNT_HOST_PUPPET: {get_param: DockerPuppetMountHostPuppet}
+            CONTAINER_CLI: {get_param: ContainerCli}
+            CONTAINER_LOG_STDOUT_PATH: {get_param: ContainerLogStdoutPath}
+          template: |
+            - hosts: DEPLOY_SOURCE_HOST
+              name: Gather facts from undercloud
+              gather_facts: yes
+              become: false
+              tags:
+                - always
+                - facts
+            # Collect the facts from the overcloud nodes but ignore unreachable
+            # nodes in the case of a dead node which needs to be part of the
+            # scale-down operation.
+            - hosts: DEPLOY_TARGET_HOST
+              name: Gather facts from overcloud
+              gather_facts: yes
+              ignore_unreachable: True
+              tags:
+                - always
+                - facts
+            - hosts: all
+              name: Load global variables
+              gather_facts: no
+              tasks:
+                - include_vars: global_vars.yaml
+              tags:
+                - always
+            - hosts: DEPLOY_TARGET_HOST
+              name: Scaling
+              gather_facts: no
+              any_errors_fatal: yes
+              become: false
+              vars:
+                bootstrap_server_id: BOOTSTRAP_SERVER_ID
+                deploy_identifier: DEPLOY_IDENTIFIER
+                enable_debug: ENABLE_DEBUG
+                enable_puppet: ENABLE_PUPPET
+                container_cli: CONTAINER_CLI
+                container_log_stdout_path: CONTAINER_LOG_STDOUT_PATH
+                docker_puppet_debug: DOCKER_PUPPET_DEBUG
+                docker_puppet_process_count: DOCKER_PUPPET_PROCESS_COUNT
+                docker_puppet_mount_host_puppet: DOCKER_PUPPET_MOUNT_HOST_PUPPET
+              tasks:
+                # Only run the scale tasks on the nodes that are alive.
+                # We expect the tasks to work on the nodes that are alive.
+                # If a task is allowed to fail, it needs to be configured at
+                # the task definition level but not here.
+                - include_tasks: scale_steps_tasks.yaml
+                  with_sequence: start=0 end={{scale_steps_max}}
+                  loop_control:
+                    loop_var: step
+                  tags: always
+                  # we use ansible_hostname to determine if the host is alive
+                  # or not.
+                  when: ansible_hostname is defined
+                # We don't want to run the scale tasks on dead nodes, to allow
+                # the operator to scale down the cloud no matter the state of
+                # the servers.
+                # However, we notify the operator if the node wasn't reachable.
+                # Using fail and not debug module to make it more visible
+                # in the logs.
+                - fail:
+                    msg: "Node is unreachable. No scale tasks will be run."
+                  ignore_errors: True
+                  tags: always
+                  # we use ansible_hostname to determine if the host is alive
+                  # or not.
+                  when: ansible_hostname is not defined
+              tags:
+                - scale
       fast_forward_upgrade_playbook:
         str_replace:
           params:
