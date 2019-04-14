@@ -63,14 +63,20 @@ parameters:
     default: false
     description: Whether to enable or not the NFS backend for Nova
     type: boolean
+    tags:
+      - role_specific
   NovaNfsShare:
     default: ''
     description: NFS share to mount for nova storage (when NovaNfsEnabled is true)
     type: string
+    tags:
+      - role_specific
   NovaNfsOptions:
     default: 'context=system_u:object_r:nfs_t:s0'
     description: NFS mount options for nova storage (when NovaNfsEnabled is true)
     type: string
+    tags:
+      - role_specific
   NovaNfsVersion:
     default: '4'
     description: >
@@ -81,6 +87,8 @@ parameters:
     type: string
     constraints:
       - allowed_pattern: "^4.?[0-9]?"
+    tags:
+      - role_specific
   CinderEnableRbdBackend:
     default: false
     description: Whether to enable or not the Rbd backend for Cinder
@@ -217,6 +225,7 @@ conditions:
   enable_live_migration_tunnelled:
     or:
       - equals: [{get_param: NovaNfsEnabled}, true]
+      - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
       - equals: [{get_param: NovaEnableRbdBackend}, true]
 
 resources:
@@ -249,6 +258,10 @@ resources:
               nova::compute::libvirt::tx_queue_size: NovaLibvirtTxQueueSize
               nova::compute::libvirt::volume_use_multipath: NovaLibvirtVolumeUseMultipath
               nova::compute::rbd::libvirt_images_rbd_pool: NovaRbdPoolName
+              tripleo::profile::base::nova::compute::nova_nfs_enabled: NovaNfsEnabled
+              nfs_share: NovaNfsShare
+              nfs_options: NovaNfsOptions
+              nfs_vers: NovaNfsVersion
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -261,6 +274,10 @@ resources:
               NovaLibvirtTxQueueSize: {get_param: NovaLibvirtTxQueueSize}
               NovaLibvirtVolumeUseMultipath: {get_param: NovaLibvirtVolumeUseMultipath}
               NovaRbdPoolName: {get_param: NovaRbdPoolName}
+              NovaNfsEnabled: {get_param: NovaNfsEnabled}
+              NovaNfsShare: {get_param: NovaNfsShare}
+              NovaNfsOptions: {get_param: NovaNfsOptions}
+              NovaNfsVersion: {get_param: NovaNfsVersion}
 
 outputs:
   role_data:
@@ -301,7 +318,6 @@ outputs:
               - - 'client'
                 - {get_param: CephClientUserName}
             tripleo::profile::base::nova::compute::cinder_nfs_backend: {get_param: CinderEnableNfsBackend}
-            tripleo::profile::base::nova::compute::nova_nfs_enabled: {get_param: NovaNfsEnabled}
             rbd_persistent_storage: {get_param: CinderEnableRbdBackend}
             nova::compute::rbd::libvirt_rbd_secret_key: {get_param: CephClientKey}
             nova::compute::rbd::libvirt_rbd_secret_uuid: {get_param: CephClusterFSID}
@@ -357,10 +373,10 @@ outputs:
       host_prep_tasks:
         - name: Mount Nova NFS Share
           vars:
-            nfs_backend_enable: {get_param: NovaNfsEnabled}
-            nfs_share: {get_param: NovaNfsShare}
-            nfs_options: {get_param: NovaNfsOptions}
-            nfs_vers: {get_param: NovaNfsVersion}
+            nfs_backend_enable: {get_attr: [RoleParametersValue, value, nfs_backend_enable]}
+            nfs_share: {get_attr: [RoleParametersValue, value, nfs_share]}
+            nfs_options: {get_attr: [RoleParametersValue, value, nfs_options]}
+            nfs_vers: {get_attr: [RoleParametersValue, value, nfs_vers]}
           mount: name=/var/lib/nova/instances src="{{nfs_share}}" fstype=nfs4 opts="_netdev,bg,{{nfs_options}},vers={{nfs_vers}},nfsvers={{nfs_vers}}" state=mounted
           when: nfs_backend_enable|bool
         - name: is Nova Resume Guests State On Host Boot enabled
