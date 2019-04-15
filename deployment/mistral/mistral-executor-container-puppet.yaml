@@ -72,7 +72,6 @@ parameters:
     type: string
 
 conditions:
-  undercloud_config_file_path_unset: {equals : [{get_param: UndercloudConfigFilePath}, '']}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
 
 resources:
@@ -135,13 +134,6 @@ outputs:
                   dest: "/"
                   merge: true
                   preserve_properties: true
-              - if:
-                - undercloud_config_file_path_unset
-                - null
-                - - source: '/var/lib/undercloud.conf'
-                    dest: '/var/lib/mistral/undercloud.conf'
-                    merge: true
-                    preserve_properties: true
           permissions:
             - path: /var/log/mistral
               owner: mistral:mistral
@@ -181,14 +173,6 @@ outputs:
                   - /usr/share/openstack-tripleo-heat-templates:/usr/share/openstack-tripleo-heat-templates:ro
                 - {get_param: MistralExecutorVolumes}
                 - {get_param: MistralExecutorExtraVolumes}
-                - if:
-                  - undercloud_config_file_path_unset
-                  - null
-                  - - list_join:
-                        - ':'
-                        - - {get_param: UndercloudConfigFilePath}
-                          - '/var/lib/undercloud.conf'
-                          - 'ro,z'
                 - - str_replace:
                       template:
                         '/home/tripleo-admin:/home/tripleo-admin'
@@ -200,6 +184,7 @@ outputs:
       host_prep_tasks:
         - set_fact:
             tripleo_admin_user: {get_param: TripleoAdminUser}
+            undercloud_cfg_file: {get_param: UndercloudConfigFilePath}
         - import_role:
             name: tripleo-create-admin
             tasks_from: create_user.yml
@@ -225,6 +210,13 @@ outputs:
             src: /home/{{ tripleo_admin_user }}/.ssh/id_rsa
             dest: /var/lib/mistral/.ssh/{{ tripleo_admin_user }}-rsa
             mode: 0600
+        - name: copy undercloud.conf to /var/lib/mistral/
+          when: undercloud_cfg_file != ''
+          copy:
+            src: "{{ undercloud_cfg_file }}"
+            dest: /var/lib/mistral/undercloud.conf
+            mode: 0444
+            setype: svirt_sandbox_file_t
         - name: mistral logs readme
           copy:
             dest: /var/log/mistral/readme.txt
