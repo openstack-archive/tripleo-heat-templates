@@ -181,7 +181,10 @@ def _generate_environment(input_env, output_path, parent_env=None):
         env_desc = env.get('description', '')
         env_file.write(u'# description: |\n')
         for line in env_desc.splitlines():
-            env_file.write(u'#   %s\n' % line)
+            if line:
+                env_file.write(u'#   %s\n' % line)
+            else:
+                env_file.write('#\n')
         if parameter_defaults or static_defaults:
             env_file.write(u'parameter_defaults:\n')
             write_params_entry(env_file, parameter_defaults[_PARAMETERS],
