@@ -13,13 +13,10 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-from __future__ import print_function
-
 import logging
 from optparse import OptionParser
 import os
 import socket
-import subprocess
 import sys
 import time
 
@@ -32,8 +29,10 @@ from novaclient import client
 from six.moves.configparser import SafeConfigParser
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-LOG = logging.getLogger('nova_cell_v2_discover_host')
+LOG = logging.getLogger('nova_wait_for_compute_service')
 
+iterations = 60
+timeout = 10
 nova_cfg = '/etc/nova/nova.conf'
 
 if __name__ == '__main__':
@@ -77,33 +76,21 @@ if __name__ == '__main__':
     sess = session.Session(auth=auth, verify=options.insecure)
     nova = client.Client('2.11', session=sess, endpoint_type='internal')
 
-    # Wait until this host is listed in the service list then
-    # run cellv2 host discovery
-    retries = 10
-    for i in range(retries):
+    # Wait until this host is listed in the service list
+    for i in range(iterations):
         try:
             service_list = nova.services.list(binary='nova-compute')
             for entry in service_list:
                 host = getattr(entry, 'host', '')
                 zone = getattr(entry, 'zone', '')
                 if host == my_host and zone != 'internal':
-                    LOG.info('(cellv2) Service registered, running discovery')
-                    sys.exit(subprocess.call([
-                        '/usr/bin/nova-manage',
-                        'cell_v2',
-                        'discover_hosts',
-                        '--by-service',
-                        '--verbose'
-                    ]))
-                if len(service_list) == 0:
-                    LOG.warning('(cellv2) no nova-compute service registered' +
-                                ' after %i checks', i)
-            LOG.info('(cellv2) Waiting for service to register')
-        except subprocess.CalledProcessError:
-            LOG.info('(cellv2) Retrying')
+                    LOG.info('Nova-compute service registered')
+                    sys.exit(0)
+            LOG.info('Waiting for nova-compute service to register')
         except Exception as e:
-            LOG.exception('Error during host discovery:')
-        time.sleep(30)
+            LOG.exception(
+                'Error while waiting for nova-compute service to register')
+        time.sleep(timeout)
 sys.exit(1)
 
 # vim: set et ts=4 sw=4 :
