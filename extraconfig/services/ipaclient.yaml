@@ -106,34 +106,32 @@ outputs:
                     fi
                 }
 
-                if ! get_metadata_config_drive; then
-                   if ! get_metadata_network; then
-                       echo "FATAL: No metadata available"
+                function get_fqdn {
+                    # Get the instance hostname out of the metadata
+                    fqdn=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("hostname", ""))'`
+                    if [ -z "$fqdn"]; then
+                        echo "Unable to determine hostname"
+                        return 1
+                    fi
+                    return 0
+                }
+
+                if ! get_metadata_config_drive || ! get_fqdn; then
+                   if ! get_metadata_network || ! get_fqdn; then
+                       echo "FATAL: No metadata available or could not read the hostname from the metadata"
                        exit 1
                    fi
-                fi
-
-                # Get the instance hostname out of the metadata
-                fqdn=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("hostname", ""))'`
-
-                if [ -z "$fqdn" ]; then
-                    echo "Unable to determine hostname"
-                    exit 1
                 fi
 
                 realm=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("krb_realm", ""))'`
                 otp=`echo $data | {{ python_interpreter }} -c 'import json,sys;obj=json.load(sys.stdin);print(obj.get("join", {}).get("ipaotp", ""))'`
 
-                hostname=`/bin/hostname -f`
-
                 # Force hostname to use the FQDN
                 hostnamectl set-hostname $fqdn
 
                 # run ipa-client-install
-                OPTS="-U -w $otp"
-                if [ $hostname != $fqdn ]; then
-                    OPTS="$OPTS --hostname $fqdn"
-                fi
+                OPTS="-U -w $otp --hostname $fqdn"
+
                 if [ -n "$realm" ]; then
                     OPTS="$OPTS --realm=$realm"
                 fi
