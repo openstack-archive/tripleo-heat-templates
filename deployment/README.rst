@@ -158,7 +158,7 @@ Then the usual deploy steps are run which pull in the latest image for
 all containerized services and the updated configuration if any.
 
 Note: as pacemaker is not containerized, the points 1 and 4 happen in
-puppet/services/pacemaker.yaml.
+deployment/pacemaker/pacemaker-baremetal-puppet.yaml.
 
 Fast-forward Upgrade Steps
 --------------------------
