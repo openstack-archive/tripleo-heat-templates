@@ -207,60 +207,76 @@ outputs:
                   - - 'TRIPLEO_DEPLOY_IDENTIFIER='
                     - {get_param: DeployIdentifier}
         step_4:
-          nova_wait_for_placement_service:
-            start_order: 2
-            image: *nova_compute_image
-            user: root
-            net: host
-            privileged: false
-            detach: false
-            volumes:
-              - /var/lib/docker-config-scripts/:/docker-config-scripts/
-              - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
-            command: "/docker-config-scripts/nova_wait_for_placement_service.py"
-          nova_compute:
-            start_order: 3
-            image: *nova_compute_image
-            ulimit: {get_param: DockerNovaComputeUlimit}
-            ipc: host
-            net: host
-            privileged: true
-            user: nova
-            restart: always
-            healthcheck:
-              test:
-                list_join:
-                  - ' '
-                  - - '/openstack/healthcheck'
-                    - yaql:
-                        expression: str($.data.port)
-                        data:
-                          port: {get_attr: [NovaComputeBase, role_data, config_settings, 'nova::rabbit_port']}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaLogging, volumes]}
-                - {get_param: NovaComputeOptVolumes}
-                -
-                  - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
-                  - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
-                  - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
-                  - /dev:/dev
-                  - /lib/modules:/lib/modules:ro
-                  - /run:/run
-                  - /var/lib/iscsi:/var/lib/iscsi
-                  - /var/lib/nova:/var/lib/nova:shared
-                  - /var/lib/libvirt:/var/lib/libvirt
-                  - /sys/class/net:/sys/class/net
-                  - /sys/bus/pci:/sys/bus/pci
-            environment:
-              list_concat:
-                - {get_param: NovaComputeOptEnvVars}
-                -
-                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          map_merge:
+            - nova_wait_for_placement_service:
+                start_order: 2
+                image: *nova_compute_image
+                user: nova
+                net: host
+                privileged: false
+                detach: false
+                volumes:
+                  - /var/lib/docker-config-scripts/:/docker-config-scripts/
+                  - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
+                command: "/docker-config-scripts/nova_wait_for_placement_service.py"
+            - nova_compute:
+                start_order: 3
+                image: *nova_compute_image
+                ulimit: {get_param: DockerNovaComputeUlimit}
+                ipc: host
+                net: host
+                privileged: true
+                user: nova
+                restart: always
+                healthcheck:
+                  test:
+                    list_join:
+                      - ' '
+                      - - '/openstack/healthcheck'
+                        - yaql:
+                            expression: str($.data.port)
+                            data:
+                              port: {get_attr: [NovaComputeBase, role_data, config_settings, 'nova::rabbit_port']}
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NovaLogging, volumes]}
+                    - {get_param: NovaComputeOptVolumes}
+                    -
+                      - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
+                      - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
+                      - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
+                      - /dev:/dev
+                      - /lib/modules:/lib/modules:ro
+                      - /run:/run
+                      - /var/lib/iscsi:/var/lib/iscsi
+                      - /var/lib/nova:/var/lib/nova:shared
+                      - /var/lib/libvirt:/var/lib/libvirt
+                      - /sys/class/net:/sys/class/net
+                      - /sys/bus/pci:/sys/bus/pci
+                environment:
+                  list_concat:
+                    - {get_param: NovaComputeOptEnvVars}
+                    -
+                      - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            - nova_wait_for_compute_service:
+                start_order: 4
+                image: *nova_compute_image
+                net: host
+                detach: false
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/nova_libvirt/etc/my.cnf.d/:/etc/my.cnf.d/:ro
+                      - /var/lib/config-data/nova_libvirt/etc/nova/:/etc/nova/:ro
+                      - /var/log/containers/nova:/var/log/nova
+                      - /var/lib/docker-config-scripts/:/docker-config-scripts/
+                user: nova
+                command: "/docker-config-scripts/nova_wait_for_compute_service.py"
         step_5:
-          nova_cellv2_discover_hosts:
+          nova_cell_v2_discover_hosts:
             start_order: 0
             image: *nova_compute_image
             net: host
@@ -274,7 +290,7 @@ outputs:
                   - /var/log/containers/nova:/var/log/nova
                   - /var/lib/docker-config-scripts/:/docker-config-scripts/
             user: root
-            command: "/docker-config-scripts/nova_cell_v2_discover_host.py"
+            command: "su nova -s /bin/bash -c '/docker-config-scripts/nova_cell_v2_discover_hosts.py'"
       host_prep_tasks:
         list_concat:
         - {get_attr: [NovaLogging, host_prep_tasks]}
