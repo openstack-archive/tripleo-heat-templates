@@ -169,6 +169,25 @@ outputs:
               Log files from redis containers can be found under
               /var/log/containers/redis.
           ignore_errors: true
+      update_tasks:
+        - when: step|int == 0
+          tags: common
+          block:
+            - name: Check if redis is  deployed
+              command: systemctl is-enabled --quiet redis
+              ignore_errors: True
+              register: redis_enabled_result
+            - name: Set fact redis_enabled
+              set_fact:
+                redis_enabled: "{{ redis_enabled_result.rc == 0 }}"
+        - when: step|int == 1
+          tags: common
+          block:
+            - name: Ensure redis is uninstalled on container host
+              when: redis_enabled|bool == false
+              package:
+                name: redis
+                state: absent
       upgrade_tasks:
         - when: step|int == 0
           tags: common
@@ -184,8 +203,13 @@ outputs:
               command: systemctl is-active --quiet redis
               when: redis_enabled|bool
               tags: validation
-        - when: step|int == 2
+        - when:
+            - step|int == 2
+            - redis_enabled|bool
           block:
             - name: Stop and disable redis service
-              when: redis_enabled|bool
               service: name=redis state=stopped enabled=no
+            - name: Ensure redis is uninstalled on container host
+              package:
+                name: redis
+                state: absent
