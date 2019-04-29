@@ -38,6 +38,10 @@ parameters:
     type: string
     default: 'regionOne'
     description: Keystone region for endpoint
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
 
 resources:
   CephBase:
@@ -74,6 +78,55 @@ outputs:
               radosgw_keystone_ssl: false
               radosgw_address_block: {get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephRgwNetwork]}]}
               radosgw_civetweb_port: {get_param: [EndpointMap, CephRgwInternal, port]}
+      update_tasks: &endpoint_update_tasks
+        - name: get bootstrap nodeid
+          tags: common
+          command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+          register: bootstrap_node
+        - name: set is_bootstrap_node fact
+          tags: common
+          set_fact: is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+          when: bootstrap_node.rc == 0
+        - name: update rgw endpoints
+          when:
+            - step|int == 5
+            - is_bootstrap_node|bool
+          block:
+            - name: set openstack command
+              set_fact:
+                oc_openstack_cmd:
+                  - openstack
+                  - '--os-username admin'
+                  - '--os-password'
+                  - {get_param: AdminPassword}
+                  - '--os-identity-api-version 3'
+                  - '--os-project-name admin'
+                  - '--os-project-domain-name Default'
+                  - '--os-region-name'
+                  - {get_param: KeystoneRegion}
+                  - '--os-user-domain-name Default'
+                  - '--os-auth-type password'
+                  - '--os-auth-url'
+                  - {get_param: [EndpointMap, KeystoneV3Internal, uri]}
+            - name: get endpoint IDs
+              command: "{{ oc_openstack_cmd|join(' ') }} endpoint list --service object-store --interface {{ item }} -f json"
+              loop:
+                - 'internal'
+                - 'public'
+                - 'admin'
+              register: endpoint_ids
+            - name: update keystone endpoint
+              command: "{{ oc_openstack_cmd|join(' ') }} endpoint set --url {{ item }} {{ (endpoint_ids.results[idx].stdout|from_json)[0]['ID'] }}"
+              when:
+                - endpoint_ids.results[idx].rc == 0
+                - (endpoint_ids.results[idx].stdout|from_json)[0]['URL'] != item
+              loop:
+                - {get_param: [EndpointMap, CephRgwInternal, uri]}
+                - {get_param: [EndpointMap, CephRgwPublic, uri]}
+                - {get_param: [EndpointMap, CephRgwAdmin, uri]}
+              loop_control:
+                index_var: idx
+      upgrade_tasks: *endpoint_update_tasks
       service_config_settings:
         keystone:
           ceph::rgw::keystone::auth::public_url: {get_param: [EndpointMap, CephRgwPublic, uri]}
