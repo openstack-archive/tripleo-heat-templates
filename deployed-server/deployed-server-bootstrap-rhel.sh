@@ -4,11 +4,11 @@ set -eux
 
 yum install -y \
     jq \
-    python-ipaddress \
     puppet-tripleo\
     os-net-config \
     openvswitch \
-    python-heat-agent* \
+    python3-heat-agent* \
+    lvm2 \
     openstack-selinux
 
 ln -s -f /usr/share/openstack-puppet/modules/* /etc/puppet/modules
