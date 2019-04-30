@@ -32,7 +32,14 @@ import requests
 from six.moves.configparser import SafeConfigParser
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+debug = os.getenv('__OS_DEBUG', 'false')
+
+if debug.lower() == 'true':
+    loglevel = logging.DEBUG
+else:
+    loglevel = logging.INFO
+
+logging.basicConfig(stream=sys.stdout, level=loglevel)
 LOG = logging.getLogger('nova_wait_for_placement_service')
 
 iterations = 60
