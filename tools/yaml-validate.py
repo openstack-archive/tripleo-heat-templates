@@ -66,7 +66,7 @@ OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
                             'kolla_config', 'global_config_settings',
                             'external_deploy_tasks', 'external_post_deploy_tasks',
                             'container_config_scripts', 'step_config',
-                            'monitoring_subscription',
+                            'monitoring_subscription', 'scale_tasks',
                             'external_update_tasks', 'external_upgrade_tasks']
 # ansible tasks cannot be an empty dict or ansible is unhappy
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
