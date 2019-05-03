@@ -20,7 +20,14 @@ import pwd
 import stat
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+debug = os.getenv('__OS_DEBUG', 'false')
+
+if debug.lower() == 'true':
+    loglevel = logging.DEBUG
+else:
+    loglevel = logging.INFO
+
+logging.basicConfig(stream=sys.stdout, level=loglevel)
 LOG = logging.getLogger('nova_statedir')
 
 
