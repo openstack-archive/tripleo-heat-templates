@@ -552,6 +552,11 @@ for infile in infiles:
     with open(infile) as f:
         infile_data = json.load(f)
 
+    # if the contents of the file is None, we need should just create an empty
+    # data set see LP#1828295
+    if not infile_data:
+        infile_data = {}
+
     for k, v in iter(infile_data.items()):
         config_volumes = match_config_volumes(config_volume_prefix, v)
         config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
