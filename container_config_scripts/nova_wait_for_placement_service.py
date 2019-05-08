@@ -22,6 +22,7 @@ from __future__ import print_function
 import logging
 import os
 import re
+import six
 import sys
 import time
 
@@ -29,7 +30,18 @@ from keystoneauth1.identity import v3
 from keystoneauth1 import session
 from keystoneclient.v3 import client
 import requests
-from six.moves.configparser import SafeConfigParser
+
+# In python3 SafeConfigParser was renamed to ConfigParser and the default
+# for duplicate options default to true. In case of nova it is valid to
+# have duplicate option lines, e.g. passthrough_whitelist which leads to
+# issues reading the nova.conf
+# https://bugs.launchpad.net/tripleo/+bug/1827775
+if six.PY3:
+    from six.moves.configparser import ConfigParser
+    config = ConfigParser(strict=False)
+else:
+    from six.moves.configparser import SafeConfigParser
+    config = SafeConfigParser()
 
 
 debug = os.getenv('__OS_DEBUG', 'false')
@@ -48,8 +60,10 @@ nova_cfg = '/etc/nova/nova.conf'
 
 if __name__ == '__main__':
     if os.path.isfile(nova_cfg):
-        config = SafeConfigParser()
-        config.read(nova_cfg)
+        try:
+            config.read(nova_cfg)
+        except Exception as e:
+            LOG.exception('Error while reading nova.conf:')
     else:
         LOG.error('Nova configuration file %s does not exist', nova_cfg)
         sys.exit(1)
