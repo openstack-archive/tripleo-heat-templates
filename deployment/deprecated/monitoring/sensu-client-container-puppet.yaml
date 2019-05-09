@@ -51,6 +51,27 @@ parameters:
       if [ ! -z "${output}" ]; then
         echo ${output:3} && exit 2;
       fi
+  SensuPodmanCheckCommand:
+    type: string
+    default: |
+      output=''
+      for i in $(systemctl list-timers --no-pager --no-legend "tripleo*healthcheck.timer" | awk '{print $14}'); do
+        i=${i%.timer}
+        if result=$(systemctl show $i --property=ActiveState | awk '{split($0,a,/=/); print a[2]}'); then
+          if [ "$result" == 'failed' ]; then
+            timestamp=$(systemctl show $i --property=InactiveEnterTimestamp | awk '{print $2, $3}' )
+            log=$(journalctl -u $i -t podman --since "${timestamp}" --no-pager --output=cat --directory /var/log/journal)
+            if [ !  -z  "$output" ]; then
+              output="$i: $log ; $output"
+            else
+              output="$i: $log"
+            fi
+          fi
+        fi
+      done
+      if [ ! -z "${output}" ]; then
+        echo ${output:3} && exit 2;
+      fi
   SensuDockerCheckInterval:
     type: number
     description: The frequency in seconds the docker health check is executed.
@@ -93,7 +114,7 @@ conditions:
 
 resources:
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../../../docker/services/containers-common.yaml
 
   SensuBase:
     type: ./sensu-base.yaml
@@ -126,9 +147,13 @@ outputs:
                     tenant_name: 'admin'
                     region: {get_param: KeystoneRegion}
           - sensu::checks:
-              check-docker-health:
+              check-container-health:
                 standalone: true
-                command: {get_param: SensuDockerCheckCommand}
+                command:
+                  if:
+                    - docker_enabled
+                    - {get_param: SensuDockerCheckCommand}
+                    - {get_param: SensuPodmanCheckCommand}
                 interval: {get_param: SensuDockerCheckInterval}
                 handlers: {get_param: SensuDockerCheckHandlers}
                 occurrences: {get_param: SensuDockerCheckOccurrences}
@@ -175,18 +200,19 @@ outputs:
                           cluster: {get_attr: [SensuBase, role_data, config_settings, 'sensu::rabbitmq_cluster']}
                           single_node: [{port: {get_attr: [SensuBase, role_data, config_settings, 'sensu::rabbitmq_port']}}]
             volumes:
-
-
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   if:
                     - docker_enabled
                     - - /var/run/docker.sock:/var/run/docker.sock:rw
-                    - null
-                - /var/lib/kolla/config_files/sensu-client.json:/var/lib/kolla/config_files/config.json:ro
-                - /var/lib/config-data/puppet-generated/sensu/:/var/lib/kolla/config_files/src:ro
-                - /var/log/containers/sensu:/var/log/sensu:rw
+                    - - /var/log/journal:/var/log/journal:ro
+                      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+                      - /run:/run:rw
+                      - /usr/lib/systemd/system:/usr/lib/systemd/system:ro
+                - - /var/lib/kolla/config_files/sensu-client.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/sensu/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/sensu:/var/log/sensu:rw
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
