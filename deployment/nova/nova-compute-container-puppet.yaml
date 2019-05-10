@@ -271,6 +271,10 @@ parameters:
     type: boolean
     tags:
       - role_specific
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
 
 resources:
 
@@ -839,6 +843,51 @@ outputs:
           vars:
             containers_to_rm:
               - nova_compute
+      scale_tasks:
+        - when: step|int == 1
+          tags: down
+          environment:
+            OS_USERNAME: admin
+            OS_USER_DOMAIN_NAME: "Default"
+            OS_PROJECT_DOMAIN_NAME: "Default"
+            OS_PROJECT_NAME: admin
+            OS_PASSWORD: { get_param: AdminPassword }
+            OS_AUTH_URL: { get_param: [EndpointMap, KeystoneV3Public, uri] }
+            OS_IDENTITY_API_VERSION: 3
+            OS_AUTH_TYPE: password
+          block:
+            # Some tasks are running from the Undercloud which has
+            # the OpenStack clients installed.
+            - name: Get nova-compute service ID
+              shell: openstack compute service list --service nova-compute --host {{ ansible_fqdn }} --column ID --format value
+              register: nova_compute_service_result
+              delegate_to: localhost
+              check_mode: no
+            - name: Set fact nova_compute_service_id
+              set_fact:
+                nova_compute_service_id: "{{ nova_compute_service_result.stdout }}"
+              delegate_to: localhost
+              check_mode: no
+            - name: Disable nova-compute service
+              command: openstack compute service set {{ ansible_fqdn }} nova-compute --disable
+              delegate_to: localhost
+              check_mode: no
+            - name: Stop nova-compute healthcheck container
+              service:
+                name: tripleo_nova_compute_healthcheck
+                state: stopped
+                enabled: no
+              become: true
+            - name: Stop nova-compute container
+              service:
+                name: tripleo_nova_compute
+                state: stopped
+                enabled: no
+              become: true
+            - name: Delete nova-compute service
+              command: openstack compute service delete {{ nova_compute_service_id }}
+              delegate_to: localhost
+              check_mode: no
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
