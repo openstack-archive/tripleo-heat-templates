@@ -1,0 +1,229 @@
+heat_template_version: rocky
+
+description: >
+  Containerized rsyslogd service for purposes of centralized log collection
+  of OpenStack services' logs.
+
+parameters:
+  DockerRsyslogImage:
+    description: The container image to use for container
+    type: string
+  DockerRsyslogConfigImage:
+    description: The container image to use for the rsyslog config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  RsyslogElasticsearchSetting:
+    default: {}
+    description: Configuration for rsyslog-elasticsearch plugin
+    type: json
+  RsyslogElasticsearchTlsCACert:
+    default: ''
+    description: Contains content of the CA cert for the CA that issued Elasticsearch server cert.
+    type: string
+  RsyslogElasticsearchTlsClientCert:
+    default: ''
+    description: Contains content of the client cert for doing client cert auth against Elasticsearch.
+    type: string
+  RsyslogElasticsearchTlsClientKey:
+    default: ''
+    description: Contains content of the private key corresponding to the cert RsyslogElasticsearchTlsClientCert.
+    type: string
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+conditions:
+  use_tls:
+    not:
+      and:
+        - equals: [{get_param: RsyslogElasticsearchTlsCACert}, '']
+        - equals: [{get_param: RsyslogElasticsearchTlsClientCert}, '']
+        - equals: [{get_param: RsyslogElasticsearchTlsClientKey}, '']
+
+outputs:
+  role_data:
+    description: Role data for the rsyslog role.
+    value:
+      service_name: rsyslog
+      config_settings:
+        map_merge:
+            # puppet-rsyslog does not have params.pp with deault values for parameters
+            # so we need to add those here or include module's data/common.yaml in hiera
+          - rsyslog::confdir: /etc/rsyslog.d
+            rsyslog::package_name: rsyslog
+            rsyslog::package_version: installed
+            rsyslog::manage_package: true
+            rsyslog::manage_confdir: true
+            rsyslog::purge_config_files: true
+            rsyslog::override_default_config: true
+            rsyslog::config_file: /etc/rsyslog.conf
+            rsyslog::manage_service: true
+            rsyslog::service_name: rsyslog
+            rsyslog::service_status: running
+            rsyslog::service_enabled: true
+            rsyslog::external_service: false
+            rsyslog::use_upstream_repo: false
+            rsyslog::feature_packages:
+              - rsyslog-elasticsearch
+              - rsyslog-mmnormalize
+            rsyslog::global_config_priority: 10
+            rsyslog::module_load_priority: 20
+            rsyslog::input_priority: 30
+            rsyslog::main_queue_priority: 40
+            rsyslog::parser_priority: 45
+            rsyslog::template_priority: 50
+            rsyslog::filter_priority: 55
+            rsyslog::action_priority: 60
+            rsyslog::ruleset_priority: 65
+            rsyslog::lookup_table_priority: 70
+            rsyslog::legacy_config_priority: 80
+            rsyslog::custom_priority: 90
+            rsyslog::target_file: 50_openstack_logs.conf
+            rsyslog::server::modules:
+              imfile: {}
+              omelasticsearch: {}
+            # output setting
+            rsyslog::server::templates:
+              rsyslog-node-index:
+                type: list
+                list_descriptions:
+                - constant:
+                    value: "%{hiera('fqdn_canonical')}-"
+                - property:
+                    name: timereported
+                    dateFormat: year
+                - constant:
+                    value: '.'
+                - property:
+                    name: timereported
+                    dateFormat: month
+                - constant:
+                    value: '.'
+                - property:
+                    name: timereported
+                    dateFormat: day
+              rsyslog-record:
+                type: list
+                options:
+                  jsonf: 'on'
+                list_descriptions:
+                - property:
+                    outname: '@timestamp'
+                    name: timereported
+                    format: jsonf
+                - property:
+                    outname: host
+                    name: hostname
+                    format: jsonf
+                - property:
+                    outname: severity
+                    name: syslogseverity-text
+                    format: jsonf
+                - property:
+                    outname: facility
+                    name: syslogfacility-text
+                    format: jsonf
+                - property:
+                    outname: tag
+                    name: syslogtag
+                    format: jsonf
+                - property:
+                    outname: source
+                    name: app-name
+                    format: jsonf
+                - property:
+                    outname: message
+                    name: msg
+                    format: jsonf
+            tripleo::profile::base::logging::rsyslog::elasticsearch:
+              map_merge:
+                - {get_param: RsyslogElasticsearchSetting}
+                - template: rsyslog-record
+                  searchIndex: rsyslog-node-index
+                  dynSearchIndex: on
+                  errorfile: '/var/log/rsyslog-omelasticsearch.log'
+          - if:
+            - use_tls
+            - tripleo::profile::base::logging::rsyslog::elasticsearch_tls_ca_cert: {get_param: RsyslogElasticsearchTlsCACert}
+              tripleo::profile::base::logging::rsyslog::elasticsearch_tls_client_cert: {get_param: RsyslogElasticsearchTlsClientCert}
+              tripleo::profile::base::logging::rsyslog::elasticsearch_tls_client_key: {get_param: RsyslogElasticsearchTlsClientKey}
+            - {}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: rsyslog
+        puppet_tags: 'rsyslog::generate_concat,concat::fragment'
+        step_config: include ::tripleo::profile::base::logging::rsyslog
+        config_image: {get_param: DockerRsyslogConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/rsyslog.json:
+          command: /usr/sbin/rsyslogd -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/rsyslog
+              owner: root:root
+              recurse: true
+            - path: /var/log/rsyslog
+              owner: root:root
+              recurse: true
+      docker_config:
+        step_3:
+          rsyslog:
+            image: {get_param: DockerRsyslogImage}
+            net: host
+            privileged: true
+            user: root
+            restart: always
+            security_opt: 'label=disable'
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/rsyslog.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/rsyslog/:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers:/var/log/containers:ro
+                  - /var/log/containers/rsyslog:/var/log/rsyslog:rw,z
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory for rsyslog
+          file:
+            path: /var/log/containers/rsyslog
+            state: directory
+            setype: svirt_sandbox_file_t
+        - name: rsyslog logs readme
+          copy:
+            dest: /var/log/rsyslog/readme.txt
+            content: |
+              Log files from rsyslog containers can be found under
+              /var/log/containers/rsyslog.
+          ignore_errors: true
