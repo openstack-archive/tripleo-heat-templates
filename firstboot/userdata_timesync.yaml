@@ -1,0 +1,97 @@
+heat_template_version: rocky
+
+parameters:
+  NtpServer:
+    default: ['0.pool.ntp.org', '1.pool.ntp.org', '2.pool.ntp.org', '3.pool.ntp.org']
+    description: NTP servers list. Defaulted to a set of pool.ntp.org servers
+                 in order to have a sane default for Pacemaker deployments when
+                 not configuring this parameter by default.
+    type: comma_delimited_list
+  NtpPool:
+    default: []
+    description: NTP pool list.  Defaults to [], so only NtpServer is used by
+                 default.
+    type: comma_delimited_list
+  NtpService:
+    default: chrony
+    description: NTP Service to use for the timesync bootstrap.
+    type: string
+
+
+description: >
+  Uses cloud-init to bootstrap timesync configuration to ensure it is done
+  as soon as possible. We do additional and more complex configurations as
+  part of the deployment itself.
+
+conditions:
+  use_chrony: {equals: [{get_param: NtpService}, 'chrony']}
+
+resources:
+  userdata:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+        - config: {get_resource: timesync_chrony}
+        - config: {get_resource: timesync_sync}
+
+  # chrony sync needs chrony to be configured, if not chrony just exit
+  timesync_chrony:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            if [ "$service" != "chrony" ]; then
+              exit 0
+            fi
+            set -x
+            SERVERS="$ntp_servers"
+            POOLS="$ntp_pools"
+            systemctl is-active --quiet chronyd || systemctl start chronyd
+            for server in $SERVERS; do
+              chronyc add server "${server}" iburst
+            done
+            for pool in $POOLS; do
+              chronyc add server "${pool}" iburst
+            done
+            chronyc sources
+          params:
+            $ntp_servers:
+              list_join: [' ', {get_param: NtpServer}]
+            $ntp_pools:
+              list_join: [' ', {get_param: NtpPool}]
+            $service: {get_param: NtpService}
+
+  # attempt a timesync on boot to ensure the time has been synced
+  timesync_sync:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      config:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -x
+            if [ "$service" = "chrony" ]; then
+                if command -v chronyc >/dev/null; then
+                    chronyc waitsync 20
+                else
+                    echo "No chronyc available, skipping sync"
+                fi
+            elif [ "$service" = "ntp" ]; then
+                if command -v ntpdate >/dev/null; then
+                    ntpdate -u $ntp_servers
+                else
+                    echo "No ntpdate available, skipping sync"
+                fi
+            fi
+            hwclock --systohc --utc
+          params:
+            $service: {get_param: NtpService}
+            $ntp_servers:
+                list_join: [' ', {get_param: NtpServer}]
+
+
+outputs:
+  OS::stack_id:
+    value: {get_resource: userdata}
