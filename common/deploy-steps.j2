@@ -115,6 +115,11 @@ parameters:
     description: Mapping of service name to network name
     type: json
     default: {}
+{%- for role in roles %}
+  {{role.name}}AllNodesDeploymentHieradata:
+    type: json
+    default: {}
+{%- endfor %}
 
 conditions:
 {% for role in enabled_roles %}
@@ -349,6 +354,25 @@ outputs:
                 - step0
 
             - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
+              name: Server pre deployment steps
+              gather_facts: no
+              any_errors_fatal: yes
+              tasks:
+{%- for role in roles %}
+                - name: AllNodesDeployment hieradata
+                  include_role:
+                    name: tripleo-hieradata
+                  vars:
+                    hieradata_template: "{{role.name}}/all-nodes-deployment-hieradata.j2.yaml"
+                    hieradata_variable_start_string: $$
+                    hieradata_variable_end_string: $$
+                  when: tripleo_role_name == '{{role.name}}'
+{%- endfor %}
+              tags:
+                - overcloud
+                - pre_deploy_steps
+
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               name: Server deployments
               gather_facts: no
               any_errors_fatal: yes
@@ -514,6 +538,9 @@ outputs:
 
       external_deploy_steps_tasks: {get_attr: [ExternalDeployTasks, value]}
       external_post_deploy_steps_tasks: {get_attr: [ExternalPostDeployTasks, value]}
+{%- for role in roles %}
+      {{role.name}}/all-nodes-deployment-hieradata.j2: {get_param: {{role.name}}AllNodesDeploymentHieradata}
+{%- endfor %}
       update_steps_tasks: |
 {%- for role in roles %}
             - import_tasks: {{role.name}}/update_tasks.yaml
