@@ -112,6 +112,33 @@ parameters:
     default: '500'
     type: string
     description: Number of ports allowed per tenant, and minus means unlimited.
+  # TODO(bogdando): Right now OVN doesn't support AZ aware routing scheduling.
+  # Later in Train cycle OVN ml2 driver will be extended to support it.
+  # Until then, we have to determine if NeutronMechanismDrivers is OVN or OVS.
+  NeutronMechanismDrivers:
+    default: 'ovn'
+    description: |
+        The mechanism drivers for the Neutron tenant network.
+    type: comma_delimited_list
+  NeutronDefaultAvailabilityZones:
+    description: Comma-separated list of default network availability zones to
+                 be used by Neutron if its resource is created without
+                 availability zone hints. If not set, no AZs will be configured
+                 for Neutron network services.
+    default: ''
+    type: comma_delimited_list
+  NeutronNetworkSchedulerDriver:
+    description: The network schedule driver to use for avialability zones.
+    default: neutron.scheduler.dhcp_agent_scheduler.AZAwareWeightScheduler
+    type: string
+  NeutronRouterSchedulerDriver:
+    description: The router schedule driver to use for avialability zones.
+    default: neutron.scheduler.l3_agent_scheduler.AZLeastRoutersScheduler
+    type: string
+  NeutronDhcpLoadType:
+    description: Additional to the availability zones aware network scheduler.
+    default: networks
+    type: string
   # DEPRECATED: the following options are deprecated and are currently maintained
   # for backwards compatibility. They will be removed in the Ocata cycle.
   NeutronL3HA:
@@ -142,6 +169,9 @@ conditions:
   neutron_ovs_int_br_unset: {equals : [{get_param: NeutronOvsIntegrationBridge}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   neutron_dvr_unset: {equals : [{get_param: NeutronEnableDVR}, '']}
+  ovn_enabled: {equals: [{get_param: NeutronMechanismDrivers}, 'ovn']}
+  az_unset: {equals: [{get_param: NeutronDefaultAvailabilityZones}, '']}
+  omit_az_configs: {or: [ovn_enabled, az_unset]}
 
 resources:
 
@@ -276,6 +306,18 @@ outputs:
             - neutron_ovs_int_br_unset
             - {}
             - neutron::server::ovs_integration_bridge: {get_param: NeutronOvsIntegrationBridge}
+          -
+            if:
+            - omit_az_configs
+            - {}
+            -
+              neutron::server::dhcp_load_type: {get_param: NeutronDhcpLoadType}
+              neutron::server::network_scheduler_driver:
+                {get_param: NeutronNetworkSchedulerDriver}
+              neutron::server::router_scheduler_driver:
+                {get_param: NeutronRouterSchedulerDriver}
+              neutron::server::default_availability_zones:
+                {get_param: NeutronDefaultAvailabilityZones}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_neutron_api:
