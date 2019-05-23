@@ -40,6 +40,16 @@ parameters:
     type: boolean
     description: Configure PAM to create a users home directory if it does not exist.
     default: False
+  IdMDomain:
+    default: ''
+    description: IDM domain to register IDM client. Typically, this is discovered
+                 through DNS and does not have to be set explicitly.
+    type: string
+  IdMNoNtpSetup:
+    default: False
+    description: Set to true to add --no-ntp to the IDM client install call.
+                 This will cause IDM client install not to set up NTP.
+    type: boolean
 
 outputs:
   role_data:
@@ -54,6 +64,8 @@ outputs:
           vars:
             python_interpreter: {get_param: PythonInterpreter}
             makehomedir: {get_param: MakeHomeDir}
+            idm_domain: {get_param: IdMDomain}
+            idm_no_ntp: {get_param: IdMNoNtpSetup}
           block:
           - name: install needed packages
             package:
@@ -140,12 +152,22 @@ outputs:
                 if [ -n "$realm" ]; then
                     OPTS="$OPTS --realm=$realm"
                 fi
+                if [ -n "$idm_domain" ]; then
+                    OPTS="$OPTS --domain=$idm_domain"
+                fi
                 if [ "${makehomedir,,}" = "true" ]; then
                     OPTS="$OPTS --mkhomedir"
                 fi
+                if [ "${idm_no_ntp,,}" = "true" ]; then
+                    OPTS="$OPTS --no-ntp"
+                fi
+
 
                 # Ensure we have the proper domain in /etc/resolv.conf
                 domain=$(hostname -d)
+                if [ -n "$idm_domain" ]; then
+                    domain = "$domain $idm_domain"
+                fi
                 if ! grep -q ${domain} /etc/resolv.conf ; then
                     sed -i "0,/nameserver/s/\(nameserver.*\)/search ${domain}\n\1/" /etc/resolv.conf
                 fi
