@@ -240,13 +240,20 @@ resources:
       type: json
       value:
         vars:
+          docker: true
+          containerized_deployment: true
+          user_config: true
+          ceph_stable: true
+          ceph_origin: distro
+          openstack_config: true
+          pools: []
+          ntp_service_enabled: true
+          generate_fsid: false
           fsid: { get_param: CephClusterFSID }
           cluster: { get_param: CephClusterName }
-          docker: true
           ceph_docker_registry: {get_attr: [ContainerImageUrlParts, value, host]}
           ceph_docker_image: {get_attr: [ContainerImageUrlParts, value, image]}
           ceph_docker_image_tag: {get_attr: [ContainerImageUrlParts, value, image_tag]}
-          containerized_deployment: true
           public_network:
             list_join:
               - ','
@@ -259,10 +266,6 @@ resources:
             list_join:
               - ','
               - get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephClusterNetwork]}]
-          user_config: true
-          ceph_stable: true
-          ceph_origin: distro
-          openstack_config: true
           openstack_pools:
             yaql:
               expression: $.data.toDict($.get('name')).values()
@@ -353,7 +356,6 @@ resources:
               osd: "allow rwx"
             mode: "0600"
           keys: *openstack_keys
-          pools: []
           ceph_conf_overrides:
             global:
               map_merge:
@@ -374,8 +376,6 @@ resources:
                   rgw_swift_versioning_enabled: 'true'
                   rgw_swift_account_in_url: 'true'
                 - {get_param: CephConfigOverrides}
-          ntp_service_enabled: false
-          generate_fsid: false
           ip_version:
             if:
             - {get_param: CephIPv6}
@@ -408,277 +408,63 @@ outputs:
               tags:
                 - opendev-validation
                 - opendev-validation-ceph
-            - name: set blacklisted_hostnames
+            - name: set ceph-ansible facts
               set_fact:
                 blacklisted_hostnames: {get_param: DeploymentServerBlacklist}
-            - name: create ceph-ansible temp dirs
-              become: true
-              file:
-                path: "{{ item }}"
-                state: directory
-                owner: "{{ ansible_user }}"
-              with_items:
-                - "{{playbook_dir}}/ceph-ansible"
-                - "{{playbook_dir}}/ceph-ansible/group_vars"
-                - "{{playbook_dir}}/ceph-ansible/host_vars"
-                - "{{playbook_dir}}/ceph-ansible/fetch_dir"
-            - name: symbolic link to tripleo inventory from ceph-ansible work directory
-              # If we call ceph-ansible with the same inventory as the calling
-              # playbook, then config-download/groups_vars will be used instead
-              # of config-download/ceph-ansible/group_vars.
-              file:
-                src: "{{inventory_file}}"
-                dest: "{{playbook_dir}}/ceph-ansible/inventory.yml"
-                state: link
-            - name: set ceph-ansible group vars all
-              set_fact:
                 ceph_ansible_group_vars_all: {get_attr: [CephBaseAnsibleVars, value, vars]}
-            - name: generate ceph-ansible group vars all
-              copy:
-                dest: "{{playbook_dir}}/ceph-ansible/group_vars/all.yml"
-                content: "{{ceph_ansible_group_vars_all|to_nice_yaml}}"
-            - name: set ceph-ansible extra vars
-              set_fact:
                 ceph_ansible_extra_vars:
                   map_merge:
                   - {get_param: CephAnsibleExtraConfig}
                   - ireallymeanit: "yes"
                     fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
                     container_binary: {get_param: ContainerCli}
-            - name: generate ceph-ansible extra vars
-              copy:
-                dest: "{{playbook_dir}}/ceph-ansible/extra_vars.yml"
-                content: "{{ceph_ansible_extra_vars|to_nice_yaml}}"
-            - name: generate nodes-uuid data file
-              copy:
-                dest: "{{playbook_dir}}/ceph-ansible/nodes_uuid_data.json"
-                content:
+                uuid_content:
                   yaql:
                     expression: dict($.data.keys().select($.toLower()).zip($.data.values()))
                     data: {get_param: NodeDataLookup}
-            - name: generate nodes-uuid playbook
-              copy:
-                dest: "{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml"
-                content: |
-                  - hosts: all
-                    gather_facts: no
-                    tasks:
-                      - name: set nodes data
-                        set_fact:
-                          nodes_data: "{% raw %}{{ lookup('file','./nodes_uuid_data.json') | from_json  }}{% endraw %}"
-                      - name: register machine id
-                        become: true
-                        # awk strips unwanted output, see LP bug #1762460
-                        shell: dmidecode -s system-uuid | awk 'match($0, /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/) { print substr($0, RSTART, RLENGTH) }' | tr A-F a-f
-                        register: machine_uuid
-                        # NOTE(tonyb): 0 == no error, 1 == -EPERM or bad data and 2 == Command not found
-                        # 1 and 2 aren't great but shouldn't cause the deploy to fail.  If we're using
-                        # the node specific data we'll fail then.  If we aren't then lets keep moving
-                        failed_when: machine_uuid.rc not in [0, 1, 2]
-                      - name: generate host vars from nodes data
-                        local_action:
-                          module: copy
-                          content: "{% raw %}{{nodes_data[machine_uuid.stdout|default('')]|default({})|to_nice_yaml}}{% endraw %}"
-                          dest: "{{playbook_dir}}/ceph-ansible/host_vars/{% raw %}{{inventory_hostname}}{% endraw %}.yml"
+            - name: create ceph-ansible working direcotry
+              include_role:
+                name: tripleo-ceph-work-dir
+                tasks_from: prepare
+            - name: prepare for ceph-ansible uuid gathering
+              include_role:
+                name: tripleo-ceph-uuid
+                tasks_from: prepare
         - name: ceph_base_external_deploy_task
           when: step|int == 2
           tags: ceph
           block:
-            - name: detect private key file
-              stat:
-                path: "{{playbook_dir}}/ssh_private_key"
-              register: detect_private_key_file
-            - name: set private key file
-              set_fact:
-                ceph_ansible_private_key_file: "{{playbook_dir}}/ssh_private_key"
-              when: ceph_ansible_private_key_file is not defined and detect_private_key_file.stat.exists
-            - name: run nodes-uuid
-              # needs become to be able to read the ssh private key
-              become: true
-              shell:
-                list_join:
-                - ' '
-                - - ANSIBLE_LOG_PATH="{{playbook_dir}}/ceph-ansible/nodes_uuid_command.log"
-                  - ANSIBLE_SSH_CONTROL_PATH_DIR="{{playbook_dir}}/ceph-ansible/"
-                  - ANSIBLE_CONFIG="{{playbook_dir}}/ansible.cfg"
-                  - ANSIBLE_REMOTE_TEMP=/tmp/nodes_uuid_tmp
-                  - yaql:
-                      data: {get_param: CephAnsibleEnvironmentVariables}
-                      expression: $.data.items().select($[0] + '=' + $[1]).join(' ')
-                  - ansible-playbook
-                  - '{% if ceph_ansible_private_key_file is defined %}--private-key {{ceph_ansible_private_key_file}}{% endif %}'
-                  - '-i'
-                  - '{{playbook_dir}}/ceph-ansible/inventory.yml'
-                  - '{% if ansible_python_interpreter is defined %}-e ansible_python_interpreter={{ansible_python_interpreter}}{% endif %}'
-                  - '{{playbook_dir}}/ceph-ansible/nodes_uuid_playbook.yml'
-            - name: set ceph-ansible params from Heat
+            - name: set ceph-ansible facts
               set_fact:
                 ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
                 ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
-            - name: set ceph-ansible playbooks
-              set_fact:
-                ceph_ansible_playbooks: >
-                  {%- if ceph_ansible_playbooks_param != ['default'] -%}
-                    {{ ceph_ansible_playbooks_param }}
-                  {%- else -%}
-                    {{ ceph_ansible_playbooks_default|default(['/usr/share/ceph-ansible/site-container.yml.sample']) }}
-                  {%- endif -%}
-            - name: was path for local ceph-ansible fetch directory backups set?
-              set_fact:
                 local_ceph_ansible_fetch_directory_backup: {get_param: LocalCephAnsibleFetchDirectoryBackup}
-                ceph_ansible_tarball_name: "temporary_dir.tar.gz"
-            - block: # local backup
-              - name: look for requested ceph-ansible fetch directory for local backup
-                stat: path="{{local_ceph_ansible_fetch_directory_backup}}"
-                register: local_backup_directory
-                ignore_errors: True
-              - name: autocreate new directory for ceph-ansible fetch directory backup
-                become: true
-                file:
-                  path: "{{local_ceph_ansible_fetch_directory_backup}}"
-                  state: directory
-                  owner: "{{ ansible_user }}"
-                  mode: 0700
-                when: local_backup_directory.stat.exists == False
-              - name: look for tarball of ceph-ansible fetch directory in local backup
-                stat: path="{{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}}"
-                register: local_backup_file
-                ignore_errors: True
-              - name: untar local backup of ceph-ansible fetch directory
-                # unarchive module hit https://github.com/ansible/ansible/issues/35645
-                shell: "/usr/bin/gtar --gzip --extract --file {{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
-                when: local_backup_file.stat.exists == True
-              when: local_ceph_ansible_fetch_directory_backup != ""
-            - block: # swift backup
-              - name: set facts for swift back up of ceph-ansible fetch directory
-                set_fact:
-                  swift_get_url: {get_param: SwiftFetchDirGetTempurl}
-                  swift_put_url: {get_param: SwiftFetchDirPutTempurl}
-                  old_ceph_ansible_tarball_name: "temporary_dir_old.tar.gz"
-                  new_ceph_ansible_tarball_name: "temporary_dir_new.tar.gz"
-              - name: attempt download of fetch directory tarball from swift backup
-                shell: "curl -s -o /tmp/{{old_ceph_ansible_tarball_name}} -w '%{http_code}' -X GET \"{{ swift_get_url }}\""
-                register: curl_get_http_status
-                ignore_errors: True
-              - name: ensure we create a new fetch_directory or use the old fetch_directory
-                fail:
-                  msg: "Received HTTP: {{curl_get_http_status.stdout}} when attempting to GET from {{swift_get_url}}"
-                when:
-                  - curl_get_http_status.changed
-                  - curl_get_http_status.stdout != "200" # deployment update
-                  - curl_get_http_status.stdout != "404" # new deployment
-              - name: unpack downloaded ceph-ansible fetch tarball to fetch directory
-                # unarchive module hit https://github.com/ansible/ansible/issues/35645
-                shell: "/usr/bin/gtar --gzip --extract --file /tmp/{{old_ceph_ansible_tarball_name}} -C {{playbook_dir}}/ceph-ansible/fetch_dir"
-                when:
-                  - curl_get_http_status.changed
-                  - curl_get_http_status.stdout == "200"
-              - name: remove downloaded ceph-ansible fetch directory tarball from filesystem
-                file:
-                  path: "/tmp/{{old_ceph_ansible_tarball_name}}"
-                  state: absent
-                when:
-                  - curl_get_http_status.changed
-                  - curl_get_http_status.stdout == "200"
-              when: local_ceph_ansible_fetch_directory_backup == ""
-            - name: set ceph-ansible command
-              set_fact:
-                ceph_ansible_command:
-                  list_join:
-                  - ' '
-                  - - ANSIBLE_ACTION_PLUGINS=/usr/share/ceph-ansible/plugins/actions/
-                    - ANSIBLE_CALLBACK_PLUGINS=/usr/share/ceph-ansible/plugins/callback/
-                    - ANSIBLE_ROLES_PATH=/usr/share/ceph-ansible/roles/
-                    - ANSIBLE_LOG_PATH="{{playbook_dir}}/ceph-ansible/ceph_ansible_command.log"
-                    - ANSIBLE_LIBRARY=/usr/share/ceph-ansible/library/
-                    - ANSIBLE_CONFIG=/usr/share/ceph-ansible/ansible.cfg
-                    - ANSIBLE_REMOTE_TEMP=/tmp/ceph_ansible_tmp
-                    - ANSIBLE_FORKS=25
-                    - ANSIBLE_GATHER_TIMEOUT=60
-                    - yaql:
-                        data: {get_param: CephAnsibleEnvironmentVariables}
-                        expression: $.data.items().select($[0] + '=' + $[1]).join(' ')
-                    - ansible-playbook
-                    - '{% if ceph_ansible_private_key_file is defined %}--private-key {{ceph_ansible_private_key_file}}{% endif %}'
-                    - '{% if ansible_python_interpreter is defined %}-e ansible_python_interpreter={{ansible_python_interpreter}}{% endif %}'
-                    - '-{%- for number in range(0, ceph_ansible_playbook_verbosity) -%}v{% endfor %}'
-                    - if:
-                      - ceph_ansible_skip_tags_set
-                      - list_join:
-                        - ' '
-                        - - '--skip-tags'
-                          - {get_param:  CephAnsibleSkipTags}
-                      - ''
-                    - '-i'
-                    - '{{playbook_dir}}/ceph-ansible/inventory.yml'
-                    - '--extra-vars'
-                    - '@{{playbook_dir}}/ceph-ansible/extra_vars.yml'
-            - name: run ceph-ansible (immediate log at {{playbook_dir}}/ceph-ansible/ceph_ansible_command.log)
-              # needs become to be able to read the ssh private key
-              become: true
-              shell: |
-                set -e
-                {% for playbook in ceph_ansible_playbooks %}
-                echo "Running ceph-ansible playbook {{playbook}}"
-                {{ceph_ansible_command}} {{playbook}} 2>&1
-                {% endfor %}
-              # We want the output chunked into bits to prevent
-              # overflowing Zaqar message size
-              no_log: true
-              failed_when: false
-              register: outputs
-            - name: print ceph-ansible output in case of failure
-              debug:
-                var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
-              failed_when: outputs.rc != 0
-              when:
-                - outputs.changed
-                - outputs.rc != 0
-            - name: register contents of fetch_directory after ceph-ansible run
-              find:
-                paths: "{{playbook_dir}}/ceph-ansible/fetch_dir/"
-                recurse: true
-              register: ceph_ansible_fetch_dir_contents
-            - name: create ceph-ansible fetch directory tarball in local backup
-              archive:
-                path: "{{playbook_dir}}/ceph-ansible/fetch_dir/*"
-                dest: "{{local_ceph_ansible_fetch_directory_backup}}/{{ceph_ansible_tarball_name}}"
-                exclude_path:
-                    - '{{playbook_dir}}/ceph-ansible/fetch_dir/fetch_dir'
-              when:
-                - local_ceph_ansible_fetch_directory_backup != ""
-                - ceph_ansible_fetch_dir_contents.matched|int != 0
-            - block: # swift backup
-              - name: create temporary ceph-ansible fetch directory tarball for swift backup
-                archive:
-                  path: "{{playbook_dir}}/ceph-ansible/fetch_dir/*"
-                  dest: "/tmp/{{new_ceph_ansible_tarball_name}}"
-                  exclude_path:
-                      - '{{playbook_dir}}/ceph-ansible/fetch_dir/fetch_dir'
-              - name: backup temporary ceph-ansible fetch directory tarball in swift
-                shell: "curl  -s -o /dev/null -w '%{http_code}' -X PUT -T /tmp/{{new_ceph_ansible_tarball_name}} \"{{ swift_put_url }}\""
-                register: curl_put_http_status
-              - fail:
-                  msg: 'Received HTTP: {{curl_put_http_status.stdout}} when attempting to PUT to {{swift_put_url}}'
-                name: ensure we were able to backup temporary fetch directory to swift
-                when:
-                  - curl_put_http_status.changed
-                  - curl_put_http_status.stdout != "200"
-                  - curl_put_http_status.stdout != "201"
-              - name: clean temporary fetch directory after swift backup
-                file:
-                  path: "/tmp/{{new_ceph_ansible_tarball_name}}"
-                  state: absent
-                when: (curl_put_http_status.changed and (curl_put_http_status.stdout == "200" or
-                       curl_put_http_status.stdout == "201"))
-              when:
-                - local_ceph_ansible_fetch_directory_backup == ""
-                - ceph_ansible_fetch_dir_contents.matched|int != 0
-            - name: Remove ceph-ansible fetch directory
-              become: true
-              file:
-                path: "{{playbook_dir}}/ceph-ansible/fetch_dir/"
-                state: absent
+                swift_get_url: {get_param: SwiftFetchDirGetTempurl}
+                swift_put_url: {get_param: SwiftFetchDirPutTempurl}
+                ceph_ansible_environment_variables:
+                  - yaql:
+                      data: {get_param: CephAnsibleEnvironmentVariables}
+                      expression: $.data.items().select($[0] + '=' + $[1]).join(' ')
+                ceph_ansible_skip_tags: {get_param:  CephAnsibleSkipTags}
+            - name: get ssh private key
+              include_role:
+                name: tripleo-ceph-work-dir
+                tasks_from: get_ssh_private_key
+            - name: run nodes-uuid
+              include_role:
+                name: tripleo-ceph-uuid
+                tasks_from: gather
+            - name: create copy of ceph-ansible fetch directory
+              include_role:
+                name: tripleo-ceph-fetch-dir
+                tasks_from: create
+            - name: run ceph-ansible
+              include_role:
+                name: tripleo-ceph-run-ansible
+            - name: backup and clean fetch directory
+              include_role:
+                name: tripleo-ceph-fetch-dir
+                tasks_from: backup_and_clean
             - name: ensure ceph health is OK before proceeding
               import_role:
                 role: ceph
