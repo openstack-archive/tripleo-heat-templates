@@ -1,0 +1,198 @@
+heat_template_version: rocky
+description: >
+  Aide service configured with Ansible
+
+parameters:
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation at deploy time
+    type: boolean
+  AideConfPath:
+    description: Aide configuration file
+    type: string
+    default: '/etc/aide.conf'
+  AideDBPath:
+    description: Aide integrity database location
+    type: string
+    default: '/var/lib/aide/aide.db'
+  AideDBTempPath:
+    description: Aide integrity database temp location
+    type: string
+    default: '/var/lib/aide/aide.db.new'
+  AideHour:
+    description: Hour value for Cron Job
+    type: number
+    default: 11
+  AideCronUser:
+    description: User which creates and runs the cron job for aide
+    type: string
+    default: 'root'
+  AideMinute:
+    description: Minute value for Cron Job
+    type: number
+    default: 30
+  AideEmail:
+    description: Email address to send reports on Cron Job
+    type: string
+    default: ''
+  AideMuaPath:
+    description: Full POSIX path to mail binary
+    type: string
+    default: '/bin/mail'
+  AideRules:
+    description: A hash of Aide rules
+    type: json
+    default: {}
+
+outputs:
+  role_data:
+    description: Role data for the aide service
+    value:
+      service_name: aide
+      host_prep_tasks:
+        - name: Ensure Aide is installed
+          package:
+            name: aide
+            state: present
+          when:
+            - EnablePackageInstall | default(false) | bool
+
+        - name: Check for aide db
+          stat:
+            path: "{{ aide_db_path }}"
+          register: aide_db_path_check
+
+        - name: Ensure aide DB config is set
+          lineinfile:
+            path: "{{ aide_conf_path }}"
+            line: "{{ item.line }}"
+            create: true
+          when:
+            - item.condition | bool
+          with_items:
+            - line: "database=file:{{ aide_db_path }}"
+              condition: true
+            - line: "database_out=file:{{ aide_db_temp_path }}"
+              condition: "{{ not (aide_db_path_check.stat.exists | bool) }}"
+            - line: "database_new=file:{{ aide_db_temp_path }}"
+              condition: "{{ not (aide_db_path_check.stat.exists | bool) }}"
+
+        - name: Initialize aide database
+          command: >-
+            /usr/sbin/aide --init --config {{ aide_conf_path }}
+          no_log: true
+          args:
+            creates: "{{ aide_db_path }}"
+
+        - name: Check for tmp aide db
+          stat:
+            path: "{{ aide_db_temp_path }}"
+          register: aide_db_temp_path_check
+
+        - name: Copy aide db
+          copy:
+            src: "{{ aide_db_temp_path }}"
+            dest: "{{ aide_db_path }}"
+            remote_src: yes
+          when:
+            - aide_db_temp_path_check.stat.exists | bool
+            - not (aide_db_path_check.stat.exists | bool)
+
+        - name: Set aide command fact with email
+          set_fact:
+            aide_command: >-
+              /usr/sbin/aide
+              --check
+              --config {{ aide_conf_path }}
+              | {{ aide_mua_path }}
+              -s '{{ ansible_fqdn }} - AIDE integrity check' {{ aide_email }}
+          when:
+            - aide_email.find("v=" ~ "@") == -1
+
+        - name: Email aide block
+          when:
+            - aide_email.find("v=" ~ "@") != -1
+          block:
+            - name: Ensure audit directory exists
+              file:
+                path: "/var/log/audit"
+                state: directory
+
+            - name: Set aide command fact
+              set_fact:
+                aide_command: >-
+                  /usr/sbin/aide
+                  --check
+                  --config {{ aide_conf_path }}
+                  > /var/log/audit/aide_$(date +%Y-%m-%d).log
+
+        - name: Create aide cron entry
+          cron:
+            name: "aide"
+            job: "{{ aide_command }}"
+            user: "{{ aide_cron_user }}"
+            hour: "{{ aide_hour | string }}"
+            minute: "{{ aide_minute | string }}"
+
+      upgrade_tasks:
+        - name: Ensure Aide is installed and updated
+          package:
+            name: aide
+            state: latest
+          when:
+            - EnablePackageInstall | default(false) | bool
+
+        - name: Initialize aide database
+          command: >-
+            /usr/sbin/aide --init --config {{ aide_conf_path }}
+
+        - name: Check for tmp aide db
+          stat:
+            path: "{{ aide_db_temp_path }}"
+          register: aide_db_temp_path_check
+
+        - name: Copy new aide db
+          copy:
+            src: "{{ aide_db_temp_path }}"
+            dest: "{{ aide_db_path }}"
+            remote_src: yes
+          when:
+            - aide_db_temp_path_check.stat.exists | bool
+
+      ansible_group_vars:
+        aide_rules: {get_param: AideRules}
+        aide_conf_path: {get_param: AideConfPath}
+        aide_db_path: {get_param: AideDBPath}
+        aide_db_temp_path: {get_param: AideDBTempPath}
+        aide_cron_user: {get_param: AideCronUser}
+        aide_hour: {get_param: AideHour}
+        aide_minute: {get_param: AideMinute}
+        aide_email: {get_param: AideEmail}
+        aide_mua_path: {get_param: AideMuaPath}
+        EnablePackageInstall: {get_param: EnablePackageInstall}
