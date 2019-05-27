@@ -1,5 +1,17 @@
     # Note the indentation here is required as it's joined
     # to create a playbook in deploy-steps.j2
+
+    # Identify if we are bootstrap node of this role
+    # We expect hieradata was already written in pre_deployments
+    - name: get bootstrap nodeid
+      tags: common
+      command: hiera -c /etc/puppet/hiera.yaml bootstrap_nodeid
+      register: bootstrap_node
+    - name: set is_bootstrap_node fact
+      tags: common
+      set_fact:
+        is_bootstrap_node={{bootstrap_node.stdout|lower == ansible_hostname|lower}}
+
     ##################################################
     # Step 1 block, write data for subsequent steps
     ##################################################
@@ -201,9 +213,9 @@
           tags:
             - container_startup_configs
 
-        ########################################################
-        # Bootstrap tasks, only performed on bootstrap_server_id
-        ########################################################
+        ###############################################################
+        # Bootstrap tasks, only performed on bootstrap node of the role
+        ###############################################################
 
         - name: Clean /var/lib/docker-puppet/docker-puppet-tasks*.json files
           file:
@@ -211,7 +223,7 @@
             state: absent
           with_fileglob:
             - /var/lib/docker-puppet/docker-puppet-tasks*.json
-          when: deploy_server_id == bootstrap_server_id
+          when: is_bootstrap_node|bool
           tags:
             - container_config_tasks
 
@@ -237,7 +249,7 @@
           loop: "{{ role_data_docker_puppet_tasks | dictsort }}"
           loop_control:
             label: "{{ item[0] }}"
-          when: deploy_server_id == bootstrap_server_id
+          when: is_bootstrap_node|bool
           tags:
             - container_config_tasks
 
@@ -339,9 +351,9 @@
       tags:
         - container_startup_configs
 
-    ########################################################
-    # Bootstrap tasks, only performed on bootstrap_server_id
-    ########################################################
+    ###############################################################
+    # Bootstrap tasks, only performed on bootstrap node of the role
+    ###############################################################
 
     - name: Check if /var/lib/docker-puppet/docker-puppet-tasks{{step}}.json exists
       stat:
@@ -358,7 +370,7 @@
         NET_HOST: "true"
         NO_ARCHIVE: "true"
         STEP: "{{step}}"
-      when: deploy_server_id == bootstrap_server_id and docker_puppet_tasks_json.stat.exists
+      when: is_bootstrap_node|bool and docker_puppet_tasks_json.stat.exists
       changed_when: false
       check_mode: no
       register: outputs
