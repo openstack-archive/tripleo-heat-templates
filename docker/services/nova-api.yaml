@@ -339,6 +339,14 @@ outputs:
               file:
                 path: /var/spool/cron/nova
                 state: absent
+      update_tasks:
+        # Some environments will have wrong cell0 database url after FFWD - rhbz#1614478
+        - name: Validate and fix wrong cell0 database url
+          shell:
+            str_replace:
+              template: nova-manage cell_v2 list_cells --verbose | grep 'CELL' || nova-manage cell_v2 update_cell --cell_uuid 00000000-0000-0000-0000-000000000000 --transport-url 'none:///' --database_connection='CELL'
+              params:
+                CELL: {get_attr: [NovaApiBase, role_data, config_settings, "nova::cell0_database_connection"]}
       fast_forward_upgrade_tasks:
         - name: Check if nova-api is deployed
           command: systemctl is-enabled --quiet openstack-nova-api
@@ -401,15 +409,9 @@ outputs:
             - name: Setup cell_v2 (map cell0)
               shell:
                 str_replace:
-                  template: nova-manage cell_v2 map_cell0 --database_connection=CELL
+                  template: nova-manage cell_v2 map_cell0 --database_connection='CELL'
                   params:
-                    CELL:
-                      make_url:
-                        scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
-                        username: nova
-                        password: {get_param: NovaPassword}
-                        host: {get_param: [EndpointMap, MysqlInternal, host]}
-                        path: /nova_cell0
+                    CELL: {get_attr: [NovaApiBase, role_data, config_settings, "nova::cell0_database_connection"]}
             - name: Setup cell_v2 (create default cell)
               # (owalsh) puppet-nova expects the cell name 'default'
               # (owalsh) pass the db uri explicitly to avoid https://bugs.launchpad.net/tripleo/+bug/1662344
