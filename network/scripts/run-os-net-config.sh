@@ -43,8 +43,9 @@ function ping_metadata_ip() {
 
     echo -n "Trying to ping metadata IP ${METADATA_IP}..."
 
+    _IP="$(getent hosts $METADATA_IP | awk '{ print $1 }')"
     _ping=ping
-    if [[ "$METADATA_IP" =~ ":" ]] ; then
+    if [[ "$_IP" =~ ":" ]] ; then
         _ping=ping6
     fi
 
