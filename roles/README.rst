@@ -60,6 +60,9 @@ Role Options
   with both 'primary' and 'controller' is used as the primary role for the
   deployment process. If no roles have 'primary' and 'controller', the
   first role in this file is used as the primary role.
+  The third tag that can be defined here is external_bridge, which is used
+  to define which node must have a bridge created in a multiple-nic network
+  config.
 
 * description: (string) as few sentences describing the role and information
   pertaining to the usage of the role.
