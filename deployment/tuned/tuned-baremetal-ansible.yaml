@@ -1,0 +1,111 @@
+heat_template_version: rocky
+
+description: >
+  Configure tuned
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation at deploy time
+    type: boolean
+  TunedCustomProfile:
+    default: ''
+    description: The definition of a new tuned profile in INI format which
+                 will be named after the TunedProfileName and applied to the
+                 host. E.g. if TunedProfileName is 'my_profile', it creates
+                 the file '/etc/tuned/my_profile/tuned.conf' on host whose
+                 content is the value of TunedCustomProfile, e.g. "[main]\n
+                 include=throughput-performance\n[sysctl]\nvm.dirty_ratio=10"
+    type: string
+    tags:
+      - role_specific
+  TunedProfileName:
+    default: 'throughput-performance'
+    description: Tuned Profile to apply to the host
+    type: string
+    tags:
+      - role_specific
+
+outputs:
+  role_data:
+    description: Role data for tuned
+    value:
+      service_name: tuned
+      host_prep_tasks:
+        - name: Install tuned
+          package:
+            name: tuned
+            state: present
+          when:
+            - EnablePackageInstall | default(false) | bool
+
+        - name: Check for tuned-adm
+          command: >-
+            which tuned-adm
+          environment:
+            PATH: "/bin:/usr/bin:/sbin:/usr/sbin"
+          changed_when: false
+          failed_when: false
+          register: tuned_check
+
+        - name: Run tuned setup
+          when:
+            - tuned_check.rc == 0
+          block:
+            - name: Ensure profile directory exists
+              file:
+                path: "/etc/tuned/{{ tuned_profile }}"
+                state: directory
+              when:
+                - (custom_profile is defined) and (custom_profile != '')
+
+            - name: Create custom tuned profile
+              copy:
+                content: "{{ custom_profile }}"
+                dest: "/etc/tuned/{{ tuned_profile }}/tuned.conf"
+              when:
+                - (custom_profile is defined) and (custom_profile != '')
+
+            - name: Check tuned active profile
+              slurp:
+                src: "/etc/tuned/active_profile"
+              register: tuned_active_profile
+
+            - name: Enable tuned profile
+              command: >-
+                tuned-adm profile {{ tuned_profile }}
+              environment:
+                PATH: "/bin:/usr/bin:/sbin:/usr/sbin"
+              when:
+                - ((tuned_active_profile['content'] | b64decode).strip()) != tuned_profile
+
+      ansible_group_vars:
+        tuned_profile: {get_param: TunedProfileName}
+        custom_profile: {get_param: TunedCustomProfile}
+        EnablePackageInstall: {get_param: EnablePackageInstall}

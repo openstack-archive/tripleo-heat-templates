@@ -2,9 +2,9 @@
       command: cat /proc/cmdline
       register: cmdline
 
-    - name: Get the active tuned profile
-      command: tuned-adm active
-      become: true
+    - name: Check tuned active profile
+      slurp:
+        src: "/etc/tuned/active_profile"
       register: tuned_active_profile
 
     # Kernel Args Configuration
@@ -34,24 +34,27 @@
     - block:
         - name: Check Tune-d Configuration file exists
           stat:
-            path: /etc/tuned/{{ _TUNED_PROFILE_NAME_ }}-variables.conf
+            path: "/etc/tuned/{{ _TUNED_PROFILE_NAME_ }}-variables.conf"
           register: tuned_conf_stat_result
+
         - name: Tune-d Configuration
           lineinfile:
-            dest: /etc/tuned/{{ _TUNED_PROFILE_NAME_ }}-variables.conf
+            dest: "/etc/tuned/{{ _TUNED_PROFILE_NAME_ }}-variables.conf"
             regexp: '^isolated_cores=.*'
             line: 'isolated_cores={{ _TUNED_CORES_ }}'
           when: tuned_conf_stat_result.stat.exists and _TUNED_CORES_|default("") != ""
 
         - name: Tune-d profile activation
-          shell: tuned-adm profile {{ _TUNED_PROFILE_NAME_ }}
+          command: >-
+            tuned-adm profile {{ _TUNED_PROFILE_NAME_ }}
+
         - name: Set reboot required fact
           set_fact:
             reboot_required: true
       become: true
       when:
-        - _TUNED_PROFILE_NAME_|default("") != ""
-        - _TUNED_PROFILE_NAME_|default("") not in tuned_active_profile.stdout_lines[0]
+        - (_TUNED_PROFILE_NAME_ | default("")) != ""
+        - (_TUNED_PROFILE_NAME_ | default("")) != (tuned_active_profile['content'] | b64decode).strip()
 
     # Check if os-net-config has run once, if yes, no need for the below workaround
     - find:
