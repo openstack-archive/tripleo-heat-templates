@@ -51,6 +51,18 @@ parameters:
       echo "and passed the upstream name (ocata, pike, queens) of the release as first argument"
       exit 1
     type: string
+  UpgradeLeappEnabled:
+    description: Use Leapp for operating system upgrade
+    type: boolean
+    default: true
+  UpgradeLeappDebug:
+    description: Print debugging output when running Leapp
+    type: boolean
+    default: true
+  UpgradeLeappRebootTimeout:
+    description: Timeout (seconds) for the OS upgrade phase via Leapp
+    type: number
+    default: 1800
   UpgradeInitCommand:
     type: string
     description: |
@@ -76,6 +88,37 @@ outputs:
       step_config: |
         include ::tripleo::packages
       upgrade_tasks:
+        - name: set leapp facts
+          tags: always
+          set_fact:
+            upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
+            upgrade_leapp_debug: {get_param: UpgradeLeappDebug}
+            upgrade_leapp_reboot_timeout: {get_param: UpgradeLeappRebootTimeout}
+        - name: system_upgrade_prepare step 3
+          tags:
+            - never
+            - system_upgrade_prepare
+          when: step|int == 3
+          block:
+            - name: install leapp
+              package:
+                name: leapp
+                state: latest
+              when: upgrade_leapp_enabled
+            - name: run leapp upgrade (download packages)
+              shell: |
+                leapp upgrade {{ '--debug' if upgrade_leapp_debug|default(true) else '' }}
+              when: upgrade_leapp_enabled
+        - name: system_upgrade_run step 5
+          tags:
+            - never
+            - system_upgrade_run
+          when: step|int == 5
+          block:
+            - name: reboot to perform the upgrade
+              reboot:
+                reboot_timeout: "{{upgrade_leapp_reboot_timeout}}"
+              when: upgrade_leapp_enabled
         - name: Package and repo update tasks
           when: step|int == 0
           block:
