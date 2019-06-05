@@ -145,7 +145,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
                                    'PlacementLoggingSource': ['default'],
                                    'SaharaApiLoggingSource': ['default'],
                                    'SaharaEngineLoggingSource': ['default'],
-                                   'TripleoUILoggingSource': ['default'],
                                    # There's one template that defines this
                                    # differently, and I'm not sure if we can
                                    # safely change it.
@@ -212,7 +211,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
 PREFERRED_CAMEL_CASE = {
     'ec2api': 'Ec2Api',
     'haproxy': 'HAProxy',
-    'tripleo-ui': 'TripleoUI',
     'metrics-qdr': 'MetricsQdr'
 }
 
