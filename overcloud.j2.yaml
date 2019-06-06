@@ -584,18 +584,8 @@ resources:
 {%- endfor %}
     properties:
       name: {{role.name}}AllNodesDeployment
-      config: {get_attr: [allNodesConfig, config_id]}
+      config: {get_attr: [{{role.name}}allNodesConfig, config_id]}
       servers: {get_attr: [{{role.name}}Servers, value]}
-      input_values:
-        # Note we have to use yaql to look up the first hostname/ip in the
-        # list because heat path based attributes operate on the attribute
-        # inside the ResourceGroup, not the exposed list ref discussion in
-        # https://bugs.launchpad.net/heat/+bug/1640488
-        # The coalesce is needed because $.data is None during heat validation
-        bootstrap_nodeid:
-          yaql:
-            expression: coalesce($.data, []).first(null)
-            data: {get_attr: [{{role.name}}, hostname]}
 
   {{role.name}}AllNodesValidationDeployment:
     type: OS::Heat::StructuredDeployments
@@ -758,7 +748,8 @@ resources:
 {%- endfor %}
         - {get_param: ExtraHostFileEntries}
 
-  allNodesConfig:
+{%- for outer_role in roles %}
+  {{outer_role.name}}allNodesConfig:
     type: OS::TripleO::AllNodes::SoftwareConfig
     properties:
 {%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
@@ -826,6 +817,11 @@ resources:
       ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
       DeployIdentifier: {get_param: DeployIdentifier}
       UpdateIdentifier: {get_param: UpdateIdentifier}
+      bootstrap_nodeid:
+        yaql:
+          expression: coalesce($.data, []).first(null)
+          data: {get_attr: [{{outer_role.name}}, hostname]}
+{%- endfor %}
 
   GlobalConfig:
     type: OS::Heat::Value
@@ -1036,6 +1032,7 @@ resources:
       ssh_known_hosts_hostnames: {get_attr: [SshKnownHostsHostnames, value]}
 {%- for role in roles %}
       {{role.name}}Count: {get_param: {{role.name}}Count}
+      {{role.name}}AllNodesDeploymentHieradata: {get_attr: [{{role.name}}allNodesConfig, all_nodes_config_hieradata]}
 {%- endfor %}
       ServiceNetMapLower: {get_attr: [ServiceNetMap, service_net_map_lower]}
 
@@ -1177,9 +1174,11 @@ outputs:
   BlacklistedIpAddresses:
     description: List of blacklisted ctlplane IP addresses
     value: {get_attr: [BlacklistedIpAddresses, value]}
+  # We can use the AllNodesConfig from the primary role here as this part of
+  # the allNodesConfig is the same for all roles.
   AllNodesConfig:
     description: The config (hieradata) for all nodes.
-    value: {get_attr: [allNodesConfig, all_nodes_config]}
+    value: {get_attr: [{{primary_role_name}}allNodesConfig, all_nodes_config]}
   GlobalConfig:
     description: The global_config (hieradata).
     value: {get_attr: [GlobalConfig, value]}
