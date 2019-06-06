@@ -129,7 +129,7 @@ if [[ $validate_gateways_icmp == "True" ]];then
   ping_default_gateways
 fi
 if [[ $validate_controllers_icmp == "True" ]];then
-  ping_controller_ips "$ping_test_ips"
+  ping_controller_ips $(echo "$ping_test_ips" | jq -r ".$tripleo_role_name")
 fi
 if [[ $validate_fqdn == "True" ]];then
   fqdn_check

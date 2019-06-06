@@ -120,6 +120,26 @@ parameters:
     type: json
     default: {}
 {%- endfor %}
+  ValidateControllersIcmp:
+    default: true
+    description: Validation to ensure that all controllers can be reached with ICMP
+    type: boolean
+  ValidateGatewaysIcmp:
+    default: true
+    description: Validation to ensure that all gateways can be reached with ICMP
+    type: boolean
+  ValidateFqdn:
+    default: false
+    description: Optional validation to ensure FQDN as set by Nova matches the name set in /etc/hosts.
+    type: boolean
+  ValidateNtp:
+    default: true
+    description: Validation to ensure at least one time source is accessible.
+    type: boolean
+  PingTestIpsMap:
+    default: ''
+    description: A map of role name to a space separated list of IP addresses used to ping test each available network interface.
+    type: json
 
 conditions:
 {% for role in enabled_roles %}
@@ -262,8 +282,14 @@ outputs:
         deploy_steps_max: {{deploy_steps_max}}
         ssh_known_hosts: {get_param: ssh_known_hosts_hostnames}
         service_net_map: {get_param: ServiceNetMapLower}
+        validate_controllers_icmp: {get_param: ValidateControllersIcmp}
+        validate_gateways_icmp: {get_param: ValidateGatewaysIcmp}
+        validate_fqdn: {get_param: ValidateFqdn}
+        validate_ntp: {get_param: ValidateNtp}
+        ping_test_ips: {get_param: PingTestIpsMap}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
+      all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
       deploy_steps_playbook:
         str_replace:
           params:
@@ -381,6 +407,17 @@ outputs:
                   vars:
                     force: false
                   with_items: "{{ '{{' }} lookup('vars', tripleo_role_name + '_pre_deployments')|default([]) {{ '}}' }}"
+
+                - name: AllNodesValidationConfig
+                  script: all_nodes_validation_script.sh
+                  environment:
+                    validate_controllers_icmp: {{ '"{{' }} validate_controllers_icmp  {{ '}}"' }}
+                    validate_gateways_icmp: {{ '"{{' }} validate_gateways_icmp {{ '}}"' }}
+                    validate_fqdn: {{ '"{{' }} validate_fqdn {{ '}}"' }}
+                    validate_ntp: {{ '"{{' }} validate_ntp {{ '}}"' }}
+                    ping_test_ips: {{ '"{{' }} ping_test_ips | to_json {{ '}}"' }}
+                    tripleo_role_name: {{ '"{{' }} tripleo_role_name {{ '}}"' }}
+
               tags:
                 - overcloud
                 - pre_deploy_steps
