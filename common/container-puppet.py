@@ -300,13 +300,12 @@ if not os.path.exists(sh_script):
         /usr/bin/puppet apply --summarize \
                 --detailed-exitcodes \
                 --color=false \
-                --logdest syslog \
-                --logdest console \
                 --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
                 $TAGS \
                 $CHECK_MODE \
-                /etc/config.pp
-        rc=$?
+                /etc/config.pp \
+                2>&1 | logger -s -t puppet-user
+        rc=${PIPESTATUS[0]}
         set -e
         if [ $rc -ne 2 -a $rc -ne 0 ]; then
             exit $rc
