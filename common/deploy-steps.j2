@@ -147,6 +147,11 @@ parameters:
       set to UPGRADE when a major-version upgrade is in progress.
     constraints:
     - allowed_values: ['CREATE', 'UPDATE']
+  DeployArtifactURLs:
+    default: []
+    description: A list of HTTP URLs containing deployment artifacts.
+     Currently supports tarballs and RPM packages.
+    type: comma_delimited_list
 
 conditions:
 {% for role in enabled_roles %}
@@ -236,23 +241,6 @@ resources:
           expression: switch($.data = {} => "no_bootstrap_server", $.data != {} => $.data.items().orderBy($[0]).first()[1])
           data: {get_param: [servers, {{primary_role_name}}]}
 
-# Artifacts config is done on all roles, not only
-# enabled_roles, because on upgrade we need to write the json files
-# for the operator driven upgrade scripts (the ansible steps consume them)
-{% for role in roles %}
-  # Prepare host tasks for {{role.name}}
-  {{role.name}}ArtifactsConfig:
-    type: ../puppet/deploy-artifacts.yaml
-
-  {{role.name}}ArtifactsDeploy:
-    type: OS::Heat::StructuredDeploymentGroup
-    condition: {{role.name}}NonZero
-    properties:
-      name: {{role.name}}ArtifactsDeploy
-      servers:  {get_param: [servers, {{role.name}}]}
-      config: {get_resource: {{role.name}}ArtifactsConfig}
-{% endfor %}
-
   # BEGIN CONFIG STEPS, only on enabled_roles
 {%- for role in enabled_roles %}
   # Note, this should be the last step to execute configuration changes.
@@ -295,9 +283,11 @@ outputs:
         validate_ntp: {get_param: ValidateNtp}
         ping_test_ips: {get_param: PingTestIpsMap}
         stack_action: {get_param: StackAction}
+        deploy_artifact_urls: {list_join: [' ', {get_param: DeployArtifactURLs}]}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
       all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
+      deploy-artifacts.sh : {get_file: ../puppet/deploy-artifacts.sh}
       deploy_steps_playbook:
         str_replace:
           params:
@@ -483,6 +473,11 @@ outputs:
                     validate_ntp: {{ '"{{' }} validate_ntp {{ '}}"' }}
                     ping_test_ips: {{ '"{{' }} ping_test_ips | to_json {{ '}}"' }}
                     tripleo_role_name: {{ '"{{' }} tripleo_role_name {{ '}}"' }}
+
+                - name: ArtifactsConfig
+                  script: deploy-artifacts.sh
+                  environment:
+                    artifact_urls: {{ '"{{' }} deploy_artifact_urls {{ '}}"' }}
 
               tags:
                 - overcloud
