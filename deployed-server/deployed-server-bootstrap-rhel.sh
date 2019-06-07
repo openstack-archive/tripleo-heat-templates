@@ -1,3 +1,7 @@
+# DEPRECATED. This script is deprecated in train and will be removed in a
+# future release. The functionality of the bootstrap scripts has been moved to
+# the tripleo-bootstrap ansible role provided by tripleo-common.
+#
 #!/bin/bash
 
 set -eux
