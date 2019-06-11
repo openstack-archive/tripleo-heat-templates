@@ -30,10 +30,6 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  EnablePackageInstall:
-    default: 'false'
-    description: Set to true to enable package installation at deploy time
-    type: boolean
   TunedCustomProfile:
     default: ''
     description: The definition of a new tuned profile in INI format which
@@ -58,54 +54,8 @@ outputs:
     value:
       service_name: tuned
       host_prep_tasks:
-        - name: Install tuned
-          package:
+        - include_role:
             name: tuned
-            state: present
-          when:
-            - EnablePackageInstall | default(false) | bool
-
-        - name: Check for tuned-adm
-          command: >-
-            which tuned-adm
-          environment:
-            PATH: "/bin:/usr/bin:/sbin:/usr/sbin"
-          changed_when: false
-          failed_when: false
-          register: tuned_check
-
-        - name: Run tuned setup
-          when:
-            - tuned_check.rc == 0
-          block:
-            - name: Ensure profile directory exists
-              file:
-                path: "/etc/tuned/{{ tuned_profile }}"
-                state: directory
-              when:
-                - (custom_profile is defined) and (custom_profile != '')
-
-            - name: Create custom tuned profile
-              copy:
-                content: "{{ custom_profile }}"
-                dest: "/etc/tuned/{{ tuned_profile }}/tuned.conf"
-              when:
-                - (custom_profile is defined) and (custom_profile != '')
-
-            - name: Check tuned active profile
-              slurp:
-                src: "/etc/tuned/active_profile"
-              register: tuned_active_profile
-
-            - name: Enable tuned profile
-              command: >-
-                tuned-adm profile {{ tuned_profile }}
-              environment:
-                PATH: "/bin:/usr/bin:/sbin:/usr/sbin"
-              when:
-                - ((tuned_active_profile['content'] | b64decode).strip()) != tuned_profile
-
       ansible_group_vars:
         tuned_profile: {get_param: TunedProfileName}
-        custom_profile: {get_param: TunedCustomProfile}
-        EnablePackageInstall: {get_param: EnablePackageInstall}
+        tuned_custom_profile: {get_param: TunedCustomProfile}
