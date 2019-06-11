@@ -604,6 +604,7 @@ outputs:
                 privileged: true
                 user: nova
                 restart: always
+                depends_on: tripleo_nova_libvirt
                 healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
                 volumes:
                   list_concat:
@@ -701,10 +702,17 @@ outputs:
           - name: is Nova Resume Guests State On Host Boot enabled
             set_fact:
               resume_guests_state_on_host_boot_enabled: {get_param: NovaResumeGuestsStateOnHostBoot}
-          - name: install libvirt-guests systemd unit file
-            when: resume_guests_state_on_host_boot_enabled|bool
+          - name: install libvirt-guests systemd unit file (docker)
+            when:
+              - resume_guests_state_on_host_boot_enabled|bool
+              - container_cli == 'docker'
             block:
-              - name: libvirt-guests unit to stop nova_api container before shutdown VMs
+              - name: make sure libvirt-client is installed
+                when: resume_guests_state_on_host_boot_enabled|bool
+                package:
+                  name: libvirt-client
+                  state: present
+              - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
                 copy:
                   dest: /etc/systemd/system/libvirt-guests.service
                   content: |
@@ -737,6 +745,47 @@ outputs:
               - name: libvirt-guests enable VM shutdown on compute reboot/shutdown
                 systemd:
                   name: libvirt-guests
+                  enabled: yes
+                  daemon_reload: yes
+          - name: install tripleo_nova_libvirt_guests systemd unit file (podman)
+            when:
+              - resume_guests_state_on_host_boot_enabled|bool
+              - container_cli == 'podman'
+            block:
+              - name: make sure default libvirt-guests is disabled
+                systemd:
+                  name: libvirt-guests
+                  enabled: no
+                  state: stopped
+                  masked: yes
+                  daemon_reload: yes
+              - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
+                copy:
+                  dest: /etc/systemd/system/tripleo_nova_libvirt_guests.service
+                  content: |
+                    [Unit]
+                    Description=Suspend libvirt Guests in tripleo
+                    Requires=virt-guest-shutdown.target
+                    After=systemd-machined.service
+                    After=tripleo_nova_libvirt.service
+                    Before=tripleo_nova_compute.service
+                    Documentation=man:libvirtd(8)
+                    Documentation=https://libvirt.org
+
+                    [Service]
+                    EnvironmentFile=-/etc/sysconfig/libvirt-guests
+                    ExecStart=/usr/bin/podman exec nova_libvirt /bin/rm -f /var/lib/libvirt/libvirt-guests
+                    ExecStop=/usr/bin/podman exec nova_libvirt /bin/sh -x /usr/libexec/libvirt-guests.sh shutdown
+                    Type=oneshot
+                    RemainAfterExit=yes
+                    StandardOutput=journal+console
+                    TimeoutStopSec=0
+
+                    [Install]
+                    WantedBy=multi-user.target
+              - name: tripleo_nova_libvirt_guests enable VM shutdown on compute reboot/shutdown
+                systemd:
+                  name: tripleo_nova_libvirt_guests
                   enabled: yes
                   daemon_reload: yes
           - name: create persistent directories
