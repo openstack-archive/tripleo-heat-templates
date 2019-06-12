@@ -186,6 +186,13 @@ parameters:
                  config-download, e.g. the mistral user in the mistral-executor
                  container is able to read/write to /var/lib/mistral/ceph_fetch
     type: string
+  CephOsdPercentageMin:
+    default: 66
+    description: The minimum percentage of Ceph OSDs which must be running and
+                 in the Ceph cluster, according to ceph osd stat, for the
+                 deployment not to fail. Used to catch deployment errors early.
+                 Set this value to 0 to disable this check.
+    type: number
 
 conditions:
   custom_registry_host:
@@ -688,6 +695,17 @@ outputs:
               file:
                 path: "{{playbook_dir}}/ceph-ansible/fetch_dir/"
                 state: absent
+            - name: ensure ceph health is OK before proceeding
+              import_role:
+                role: ceph
+                tasks_from: ceph-health
+              vars:
+                fail_on_ceph_health_err: true
+                osd_percentage_min: {get_param: CephOsdPercentageMin}
+              delegate_to: "{{ groups['ceph_mon'][0] }}"
+              tags:
+                - opendev-validation
+                - opendev-validation-ceph
       external_update_tasks:
         - when: step|int == 0
           tags: ceph
