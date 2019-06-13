@@ -171,6 +171,23 @@ parameters:
   AnsibleHostVarsMap:
     type: json
     default: {}
+  StackUpdateType:
+    type: string
+    description: >
+      Type of update, to differentiate between UPGRADE and UPDATE cases
+      when StackAction is UPDATE (both are the same stack action).
+    constraints:
+    - allowed_values: ['', 'UPGRADE', 'FASTFORWARDUPGRADE']
+    default: ''
+  ContainerCli:
+    type: string
+    default: 'podman'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
+  EnabledServices:
+    default: []
+    type: comma_delimited_list
 
 conditions:
 {% for role in enabled_roles %}
@@ -304,6 +321,11 @@ outputs:
         stack_action: {get_param: StackAction}
         deploy_artifact_urls: {list_join: [' ', {get_param: DeployArtifactURLs}]}
         hosts_entry: {get_param: HostsEntry}
+        primary_role_name: {{ primary_role_name }}
+        deploy_identifier: {get_param: DeployIdentifier}
+        stack_update_type: {get_param: StackUpdateType}
+        container_cli: {get_param: ContainerCli}
+        enabled_services: {get_param: EnabledServices}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
       all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
@@ -346,6 +368,36 @@ outputs:
                 - include_vars: global_vars.yaml
               tags:
                 - always
+
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
 
             - hosts: all
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
@@ -413,6 +465,7 @@ outputs:
                     hieradata_variable_end_string: $$
                     hieradata_files: "{{ '{{' }} lookup('file', '{{role.name}}/deployment-hierarchy.yaml') {{ '}}' }}"
                   when: tripleo_role_name == '{{role.name}}'
+
                 - name: Deployment hieradata
                   include_role:
                     name: tripleo-hieradata
@@ -451,6 +504,7 @@ outputs:
                   vars:
                     hieradata_templates_list:
                       - bootstrap_node
+                      - all_nodes
                   when: tripleo_role_name == '{{role.name}}'
               tags:
                 - overcloud
@@ -745,6 +799,34 @@ outputs:
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               tasks:
                 - include_vars: global_vars.yaml
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
 {%- for role in roles %}
             - hosts: {{role.name}}
               name: Run update
@@ -807,6 +889,34 @@ outputs:
                 - include_vars: global_vars.yaml
               tags:
                 - always
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
             - hosts: DEPLOY_SOURCE_HOST
               name: External update steps
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
@@ -860,6 +970,34 @@ outputs:
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               tasks:
                 - include_vars: global_vars.yaml
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
             - hosts: {{role.name}}
               name: Run pre-upgrade rolling tasks
               serial:  {{ role.deploy_serial | default(1) }}
@@ -907,9 +1045,35 @@ outputs:
                     warn: no
               tags:
                 - always
-
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
 {%- for step in range(0,upgrade_steps_max) %}
-
             - hosts: DEPLOY_TARGET_HOST
               name: Upgrade tasks for step {{step}}
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
@@ -1009,6 +1173,34 @@ outputs:
                 - include_vars: global_vars.yaml
               tags:
                 - always
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
             - hosts: DEPLOY_SOURCE_HOST
               name: External upgrade
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
@@ -1108,6 +1300,34 @@ outputs:
                 - include_vars: global_vars.yaml
               tags:
                 - always
+            - hosts: DEPLOY_TARGET_HOST
+              name: Render all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Render all_nodes data as group_vars for overcloud
+                  delegate_to: localhost
+                  become: false
+                  run_once: true
+                  block:
+                  - name: Get current user
+                    command: whoami
+                    register: whoami
+                  - name: render all_nodes data as group_vars for overcloud
+                    template:
+                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
+                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
+                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
+              tags:
+                - facts
+            - hosts: DEPLOY_TARGET_HOST
+              name: Set all_nodes data as group_vars for overcloud
+              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
+              tasks:
+                - name: Set all_nodes data as group_vars for overcloud
+                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
+              tags:
+                - facts
             - hosts: DEPLOY_TARGET_HOST
               name: Scaling
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
