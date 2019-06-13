@@ -203,9 +203,6 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     name = CONF['local_subnet']
     subnet = _get_subnet(sdk, s['NetworkCidr'], ctlplane_id)
     segment = _get_segment(sdk, CONF['physical_network'], ctlplane_id)
-    host_routes = [{'destination': '169.254.169.254/32',
-                    'nexthop': CONF['local_ip']}]
-    host_routes += s['HostRoutes']
     if subnet:
         if CONF['enable_routed_networks'] and subnet.segment_id == None:
             # The subnet exists and does not have a segment association. Since
@@ -215,8 +212,9 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             # subnet.
             _neutron_add_subnet_segment_association(sdk, subnet.id, segment.id)
         _neutron_subnet_update(
-            sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'], host_routes,
-            s.get('AllocationPools'), name, s['DnsNameServers'])
+            sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'],
+            s['HostRoutes'], s.get('AllocationPools'), name,
+            s['DnsNameServers'])
     else:
         if CONF['enable_routed_networks']:
             segment_id = segment.id
@@ -224,7 +222,7 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             segment_id = None
         subnet = _neutron_subnet_create(
             sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
-            host_routes, s.get('AllocationPools'), name, segment_id,
+            s['HostRoutes'], s.get('AllocationPools'), name, segment_id,
             s['DnsNameServers'])
         # If the subnet is IPv6 we need to start a router so that router
         #  advertisments are sent out for stateless IP addressing to work.
@@ -243,17 +241,13 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
         if name == CONF['local_subnet']:
             continue
         phynet = name
-        metadata_nexthop = s['NetworkGateway']
-        host_routes = [{'destination': '169.254.169.254/32',
-                        'nexthop': metadata_nexthop}]
-        host_routes += s['HostRoutes']
         subnet = _get_subnet(sdk, s['NetworkCidr'], ctlplane_id)
         segment = _get_segment(sdk, phynet, ctlplane_id)
         if subnet:
             _neutron_segment_update(sdk, subnet.segment_id, name)
             _neutron_subnet_update(
                 sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'],
-                host_routes, s.get('AllocationPools'), name,
+                s['HostRoutes'], s.get('AllocationPools'), name,
                 s['DnsNameServers'])
         else:
             if segment:
@@ -263,7 +257,7 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
                                                   phynet)
             subnet = _neutron_subnet_create(
                 sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
-                host_routes, s.get('AllocationPools'), name, segment.id,
+                s['HostRoutes'], s.get('AllocationPools'), name, segment.id,
                 s['DnsNameServers'])
             # If the subnet is IPv6 we need to start a router so that router
             # advertisments are sent out for stateless IP addressing to work.

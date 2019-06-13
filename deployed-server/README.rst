@@ -67,7 +67,6 @@ example:
 parameter_defaults:
   ControlPlaneDefaultRoute: 192.168.122.130
   ControlPlaneSubnetCidr: "24"
-  EC2MetadataIp: "192.168.24.1"
 
 In this example, 192.168.122.130 is the external management IP of an
 undercloud, thus it is the default route for the configured local_ip value of

@@ -148,8 +148,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
                                    # There's one template that defines this
                                    # differently, and I'm not sure if we can
                                    # safely change it.
-                                   'EC2MetadataIp': ['default'],
-                                   # Same as EC2MetadataIp
                                    'ControlPlaneDefaultRoute': ['default'],
                                    # TODO(bnemec): Address these existing
                                    # inconsistencies.
