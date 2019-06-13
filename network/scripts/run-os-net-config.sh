@@ -12,61 +12,6 @@
 #
 set -eux
 
-function get_metadata_ip() {
-
-  local METADATA_IP
-
-  # Look for a variety of Heat transports
-  # FIXME: Heat should provide a way to obtain this in a single place
-  for URL in os-collect-config.cfn.metadata_url os-collect-config.heat.auth_url os-collect-config.request.metadata_url os-collect-config.zaqar.auth_url; do
-    METADATA_IP=$(os-apply-config --key $URL --key-default '' --type raw 2>/dev/null | sed -e 's|http.*://\[\?\([^]]*\)]\?:.*|\1|')
-    [ -n "$METADATA_IP" ] && break
-  done
-
-  echo $METADATA_IP
-
-}
-
-function is_local_ip() {
-  local IP_TO_CHECK=$1
-  if ip -o a | grep "inet6\? $IP_TO_CHECK/" &>/dev/null; then
-    return 0
-  else
-    return 1
-  fi
-}
-
-function ping_metadata_ip() {
-  local METADATA_IP=$(get_metadata_ip)
-  local METADATA_IP_PING_TIMEOUT=60
-
-  if [ -n "$METADATA_IP" ] && ! is_local_ip $METADATA_IP; then
-
-    echo -n "Trying to ping metadata IP ${METADATA_IP}..."
-
-    _IP="$(getent hosts $METADATA_IP | awk '{ print $1 }')"
-    _ping=ping
-    if [[ "$_IP" =~ ":" ]] ; then
-        _ping=ping6
-    fi
-
-    local COUNT=0
-    until $_ping -c 1 $METADATA_IP &> /dev/null; do
-      COUNT=$(( $COUNT + 1 ))
-      sleep 1
-      if [ $COUNT -eq $METADATA_IP_PING_TIMEOUT ]; then
-        echo "FAILURE"
-        echo "$METADATA_IP is not pingable." >&2
-        exit 1
-      fi
-    done
-    echo "SUCCESS"
-
-  else
-    echo "No metadata IP found. Skipping."
-  fi
-}
-
 function configure_safe_defaults() {
 
 [[ $? == 0 ]] && return 0
@@ -111,9 +56,7 @@ EOF_CAT
     os-net-config -c /etc/os-net-config/dhcp_all_interfaces.yaml -v --detailed-exit-codes --cleanup
     RETVAL=$?
     set -e
-    if [[ $RETVAL == 2 ]]; then
-        ping_metadata_ip
-    elif [[ $RETVAL != 0 ]]; then
+    if [[ $RETVAL != 2 || $RETVAL != 0 ]]; then
         echo "ERROR: configuration of safe defaults failed."
     fi
 }
@@ -146,8 +89,6 @@ if [ -n '$network_config' ]; then
     set -e
 
     if [[ $RETVAL == 2 ]]; then
-        ping_metadata_ip
-
         #NOTE: dprince this udev rule can apparently leak DHCP processes?
         # https://bugs.launchpad.net/tripleo/+bug/1538259
         # until we discover the root cause we can simply disable the
