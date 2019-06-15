@@ -596,14 +596,6 @@ resources:
       config: {get_attr: [{{role.name}}allNodesConfig, config_id]}
       servers: {get_attr: [{{role.name}}Servers, value]}
 
-  {{role.name}}AllNodesValidationDeployment:
-    type: OS::Heat::StructuredDeployments
-    depends_on: {{role.name}}AllNodesDeployment
-    properties:
-      name: {{role.name}}AllNodesValidationDeployment
-      config: {get_resource: {{role.name}}AllNodesValidationConfig}
-      servers: {get_attr: [{{role.name}}Servers, value]}
-
   {{role.name}}IpListMap:
     type: OS::TripleO::Network::Ports::NetIpListMap
     properties:
@@ -966,33 +958,13 @@ resources:
     # ServiceNetMap's attribute values are available.
     depends_on: ServiceNetMap
 
-  # All Nodes Validations
-{%- for role in roles %}
-  {{role.name}}AllNodesValidationConfig:
-    type: OS::TripleO::AllNodes::Validation
-    properties:
-      PingTestIps:
-        list_join:
-        - ' '
-        - - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{role.name}}, ip_address]}
-  {%- for network in networks %}
-    {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-          - yaql:
-              expression: coalesce($.data, []).first(null)
-              data: {get_attr: [{{role.name}}, {{network.name_lower}}_ip_address]}
-    {%- endif %}
-  {%- endfor %}
-{%- endfor %}
-
   # Optional ExtraConfig for all nodes - all roles are passed in here, but
   # the nested template may configure each role differently (or not at all)
   AllNodesExtraConfig:
     type: OS::TripleO::AllNodesExtraConfig
     depends_on:
 {%- for role in roles %}
-      - {{role.name}}AllNodesValidationDeployment
+      - {{role.name}}HostsDeployment
 {%- endfor %}
     properties:
       servers:
@@ -1045,6 +1017,22 @@ resources:
       {{role.name}}AllNodesDeploymentHieradata: {get_attr: [{{role.name}}allNodesConfig, all_nodes_config_hieradata]}
 {%- endfor %}
       ServiceNetMapLower: {get_attr: [ServiceNetMap, service_net_map_lower]}
+      PingTestIpsMap:
+{%- for role in roles %}
+        {{role.name}}:
+          list_join:
+          - ' '
+          - - yaql:
+                expression: coalesce($.data, []).first(null)
+                data: {get_attr: [{{role.name}}, ip_address]}
+    {%- for network in networks %}
+      {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+            - yaql:
+                expression: coalesce($.data, []).first(null)
+                data: {get_attr: [{{role.name}}, {{network.name_lower}}_ip_address]}
+      {%- endif %}
+    {%- endfor %}
+{%- endfor %}
 
   ServerOsCollectConfigData:
     type: OS::Heat::Value
