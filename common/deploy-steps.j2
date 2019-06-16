@@ -140,6 +140,13 @@ parameters:
     default: ''
     description: A map of role name to a space separated list of IP addresses used to ping test each available network interface.
     type: json
+  StackAction:
+    type: string
+    description: >
+      Heat action on performed top-level stack.  Note StackUpdateType is
+      set to UPGRADE when a major-version upgrade is in progress.
+    constraints:
+    - allowed_values: ['CREATE', 'UPDATE']
 
 conditions:
 {% for role in enabled_roles %}
@@ -287,6 +294,7 @@ outputs:
         validate_fqdn: {get_param: ValidateFqdn}
         validate_ntp: {get_param: ValidateNtp}
         ping_test_ips: {get_param: PingTestIpsMap}
+        stack_action: {get_param: StackAction}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
       all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
@@ -407,6 +415,64 @@ outputs:
                   vars:
                     force: false
                   with_items: "{{ '{{' }} lookup('vars', tripleo_role_name + '_pre_deployments')|default([]) {{ '}}' }}"
+
+                - name: Check for previous run of NetworkConfig
+                  stat:
+                    path: /var/lib/tripleo-config/os-net-config.returncode
+                  register: os_net_config_returncode_stat
+
+                - name: Check result of previous run of NetworkConfig
+                  slurp:
+                    path: /var/lib/tripleo-config/os-net-config.returncode
+                  when: os_net_config_returncode_stat.stat.exists
+                  register: os_net_config_returncode_slurp
+
+                - name: NetworkConfig
+                  block:
+                    - name: Create /var/lib/tripleo-config/scripts directory
+                      file:
+                        path: /var/lib/tripleo-config/scripts
+                        state: directory
+                        setype: svirt_sandbox_file_t
+                        selevel: s0
+                        recurse: true
+
+                    - name: Copy NetworkConfig script
+                      copy:
+                        dest: /var/lib/tripleo-config/scripts/run_os_net_config.sh
+                        src: {{ '"{{' }} tripleo_role_name ~ '/' ~ inventory_hostname ~ '/NetworkConfig' {{ '}}"' }}
+                        mode: 0755
+
+                    - name: Run NetworkConfig script
+                      command: /var/lib/tripleo-config/scripts/run_os_net_config.sh
+                      async: {{ '"{{' }} async_timeout | default(300) {{ '}}"' }}
+                      poll: {{ '"{{' }} async_poll | default(3) {{ '}}"' }}
+                      environment:
+                        bridge_name: {{ '"{{' }} neutron_physical_bridge_name {{ '}}"' }}
+                        interface_name: {{ '"{{' }} neutron_public_interface_name {{ '}}"' }}
+                      register: NetworkConfig_result
+                      failed_when: false
+
+                    - name: Write rc of NetworkConfig script
+                      copy:
+                        content: {{ '"{{' }} NetworkConfig_result.rc {{ '}}"' }}
+                        dest: /var/lib/tripleo-config/os-net-config.returncode
+
+                    - name: NetworkConfig stdout
+                      debug:
+                        var: NetworkConfig_result.stderr_lines
+                      failed_when: NetworkConfig_result.rc != 0
+
+                  # The conditions here are when we want to apply the
+                  # NetworkConfig. They are:
+                  # - If the stack_action is CREATE
+                  # - Or UPDATE is in the network_deployment_actions
+                  # - Or the previous run of NetworkConfig failed.
+                  # This will match the prior behavior of when a Heat
+                  # SoftwareDeployment was used.
+                  when: (stack_action == "CREATE") or ("UPDATE" in network_deployment_actions) or
+                        (os_net_config_returncode_stat.stat.exists and
+                         ((os_net_config_returncode_slurp.content | b64decode) != 0))
 
                 - name: AllNodesValidationConfig
                   script: all_nodes_validation_script.sh
