@@ -121,6 +121,21 @@ parameters:
     default: false
     description: Neutron DHCP agent to use broadcast in DHCP replies
     type: boolean
+  # TODO(bogdando): The experimental OVN SRIOV environment includes the
+  # DHCP agent service. We keep it safe to not break it with AZ-related
+  # configurations. Therefore, we have to determine, if
+  # NeutronMechanismDrivers is OVN or not. This may change in future,
+  # when OVN/SRIOV supports Neutron AZ configurations for the agent services.
+  NeutronMechanismDrivers:
+    default: 'ovn'
+    description: |
+        The mechanism drivers for the Neutron tenant network.
+    type: comma_delimited_list
+  NeutronDhcpAgentAvailabilityZone:
+    description: Availability zone for Neutron DHCP agent. If not set,
+                 no AZs will be configured for Neutron network services.
+    default: ''
+    type: string
 
 conditions:
 
@@ -131,6 +146,9 @@ conditions:
   service_wrapper_debug_unset: {equals : [{get_param: NeutronWrapperDebug}, false]}
   service_debug_unset: {equals: [{get_param: NeutronDhcpAgentDebug}, '']}
   dhcp_ovs_intergation_bridge_unset: {equals: [{get_param: NeutronDhcpOvsIntegrationBridge}, '']}
+  ovn_enabled: {equals: [{get_param: NeutronMechanismDrivers}, 'ovn']}
+  az_unset: {equals: [{get_param: NeutronDhcpAgentAvailabilityZone}, '']}
+  omit_az_configs: {or: [ovn_enabled, az_unset]}
 
 resources:
 
@@ -219,6 +237,10 @@ outputs:
               - dhcp_ovs_intergation_bridge_unset
               - {}
               - neutron::agents::dhcp::ovs_integration_bridge: {get_param: NeutronDhcpOvsIntegrationBridge}
+          - if:
+              - omit_az_configs
+              - {}
+              - neutron::agents::dhcp::availability_zone: {get_param: NeutronDhcpAgentAvailabilityZone}
       service_config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, service_config_settings]
