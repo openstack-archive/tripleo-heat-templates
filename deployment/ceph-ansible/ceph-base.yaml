@@ -421,31 +421,14 @@ outputs:
                 - "{{playbook_dir}}/ceph-ansible/group_vars"
                 - "{{playbook_dir}}/ceph-ansible/host_vars"
                 - "{{playbook_dir}}/ceph-ansible/fetch_dir"
-            - name: generate inventory
-              copy:
+            - name: symbolic link to tripleo inventory from ceph-ansible work directory
+              # If we call ceph-ansible with the same inventory as the calling
+              # playbook, then config-download/groups_vars will be used instead
+              # of config-download/ceph-ansible/group_vars.
+              file:
+                src: "{{inventory_file}}"
                 dest: "{{playbook_dir}}/ceph-ansible/inventory.yml"
-                content: |
-                  {%- set ceph_groups = ['mgr', 'mon', 'osd', 'mds', 'rgw', 'nfs', 'rbdmirror', 'client'] -%}
-                  {%- for ceph_group in ceph_groups -%}
-                  {%- if 'ceph_' ~ ceph_group in groups -%}
-                  {%- set ceph_group_hosts = groups['ceph_' ~ ceph_group] | difference(blacklisted_hostnames) -%}
-                  {%- if ceph_group_hosts|length > 0 %}
-
-                  {{ ceph_group ~ 's:' }}
-                    hosts:
-                      {% for host in ceph_group_hosts -%}
-                      {{ host }}:
-                        ansible_user: {{ hostvars.raw_get(host)['ansible_ssh_user'] | default('root') }}
-                        ansible_host: {{ hostvars.raw_get(host)['ansible_host'] | default(host) }}
-                        {% if hostvars.raw_get(host)['ansible_connection'] | default('') == 'local' -%}
-                        ansible_connection: local
-                        {% endif -%}
-                        ansible_become: true
-                      {% endfor -%}
-
-                  {%- endif -%}
-                  {%- endif -%}
-                  {%- endfor %}
+                state: link
             - name: set ceph-ansible group vars all
               set_fact:
                 ceph_ansible_group_vars_all: {get_attr: [CephBaseAnsibleVars, value, vars]}
