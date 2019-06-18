@@ -195,15 +195,15 @@ PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
                                    'image': ['description', 'default'],
                                    'NeutronBigswitchAgentEnabled': ['default'],
                                    'EndpointMap': ['description', 'default'],
-                                   'DockerManilaConfigImage': ['description',
-                                                               'default'],
+                                   'ContainerManilaConfigImage': ['description',
+                                                                  'default'],
                                    'replacement_policy': ['default'],
                                    'CloudDomain': ['description', 'default'],
                                    'EnableLoadBalancer': ['description'],
                                    'ControllerExtraConfig': ['description'],
                                    'NovaComputeExtraConfig': ['description'],
                                    'controllerExtraConfig': ['description'],
-                                   'DockerSwiftConfigImage': ['default'],
+                                   'ContainerSwiftConfigImage': ['default'],
                                    'input_values': ['default'],
                                    'fixed_ips': ['default', 'type']
                                    }
@@ -652,7 +652,7 @@ def validate_docker_service(filename, tpl):
                   return 1
 
             config_volume = puppet_config.get('config_volume')
-            expected_config_image_parameter = "Docker%sConfigImage" % to_camel_case(config_volume)
+            expected_config_image_parameter = "Container%sConfigImage" % to_camel_case(config_volume)
             if config_volume and not expected_config_image_parameter in tpl.get('parameters', []):
                 print('ERROR: Missing %s heat parameter for %s config_volume.'
                       % (expected_config_image_parameter, config_volume))
