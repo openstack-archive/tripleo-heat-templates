@@ -570,13 +570,6 @@ resources:
                 - keystone_admin_api
                 - keystone_public_api
 
-  {{role.name}}HostsDeployment:
-    type: OS::Heat::StructuredDeployments
-    properties:
-      name: {{role.name}}HostsDeployment
-      config: {get_attr: [hostsConfig, config_id]}
-      servers: {get_attr: [{{role.name}}Servers, value]}
-
   {{role.name}}SshKnownHostsDeployment:
     type: OS::TripleO::Ssh::KnownHostsDeployment
     properties:
@@ -588,7 +581,6 @@ resources:
     type: OS::TripleO::AllNodesDeployment
     depends_on:
 {%- for role_inner in roles %}
-      - {{role_inner.name}}HostsDeployment
       - {{role_inner.name}}SshKnownHostsDeployment
 {%- endfor %}
     properties:
@@ -732,10 +724,10 @@ resources:
             for_each:
               hostname: {get_param: DeploymentServerBlacklist}
 
-  hostsConfig:
-    type: OS::TripleO::Hosts::SoftwareConfig
+  HostsValue:
+    type: OS::Heat::Value
     properties:
-      hosts:
+      value:
         list_join:
         - "\n"
         - - if:
@@ -749,6 +741,16 @@ resources:
             - {get_attr: [{{role.name}}, hosts_entry]}
 {%- endfor %}
         - {get_param: ExtraHostFileEntries}
+
+  HostsEntryValue:
+    type: OS::Heat::Value
+    properties:
+      value:
+        list_join:
+          - ' '
+          - str_split:
+            - '\n'
+            - {get_attr: [HostsValue, value]}
 
 {%- for outer_role in roles %}
   {{outer_role.name}}allNodesConfig:
@@ -962,10 +964,6 @@ resources:
   # the nested template may configure each role differently (or not at all)
   AllNodesExtraConfig:
     type: OS::TripleO::AllNodesExtraConfig
-    depends_on:
-{%- for role in roles %}
-      - {{role.name}}HostsDeployment
-{%- endfor %}
     properties:
       servers:
 {%- for role in roles %}
@@ -1033,6 +1031,7 @@ resources:
       {%- endif %}
     {%- endfor %}
 {%- endfor %}
+      HostsEntry: {get_attr: [HostsEntryValue, value]}
 
   ServerOsCollectConfigData:
     type: OS::Heat::Value
@@ -1104,7 +1103,7 @@ outputs:
     value:
       list_join:
       - "\n"
-      - - {get_attr: [hostsConfig, hosts_entries]}
+      - - {get_attr: [HostsEntryValue, value]}
       - - {get_attr: [VipHosts, value]}
   EnabledServices:
     description: The services enabled on each role
