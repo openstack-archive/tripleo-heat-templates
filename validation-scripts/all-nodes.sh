@@ -34,7 +34,7 @@ function ping_controller_ips() {
     fi
     for LOCAL_NETWORK in $networks; do
       in_network=$(python -c "import ipaddress; net=ipaddress.ip_network(unicode('$LOCAL_NETWORK')); addr=ipaddress.ip_address(unicode('$REMOTE_IP')); print(addr in net)")
-      if [[ $in_network == "True" ]]; then
+      if [[ "${in_network,,}" == "true" ]]; then
         echo "Trying to ping $REMOTE_IP for local network ${LOCAL_NETWORK}."
         set +e
         if ! ping_retry $REMOTE_IP; then
@@ -110,15 +110,15 @@ function ntp_check() {
   fi
 }
 
-if [[ $validate_gateways_icmp == "True" ]];then
+if [[ "${validate_gateways_icmp,,}" == "true" ]];then
   ping_default_gateways
 fi
-if [[ $validate_controllers_icmp == "True" ]];then
+if [[ "${validate_controllers_icmp,,}" == "true" ]];then
   ping_controller_ips "$ping_test_ips"
 fi
-if [[ $validate_fqdn == "True" ]];then
+if [[ "${validate_fqdn,,}" == "true" ]];then
   fqdn_check
 fi
-if [[ $validate_ntp == "True" ]];then
+if [[ "${validate_ntp,,}" == "true" ]];then
   ntp_check
 fi
