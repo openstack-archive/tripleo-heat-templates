@@ -424,7 +424,6 @@ def mp_puppet_config(*args):
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
                 '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
-                '--log-driver', 'json-file',
                 '--volume', '/etc/localtime:/etc/localtime:ro',
                 '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
@@ -444,7 +443,8 @@ def mp_puppet_config(*args):
 
         if container_cli == 'podman':
             log_path = os.path.join(container_log_stdout_path, uname)
-            logging = ['--log-opt',
+            logging = ['--log-driver', 'k8s-file',
+                       '--log-opt',
                        'path=%s.log' % log_path]
             common_dcmd.extend(logging)
 
