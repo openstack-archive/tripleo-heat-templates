@@ -408,7 +408,63 @@ outputs:
                 tasks_from: restore.yml
               vars:
                 tripleo_persist_dir: /var/lib/mysql
-        - when: step|int == 0
+        - name: Create hiera data to upgrade mysql in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set mysql upgrade node facts in a single-node environment
+              set_fact:
+                mysql_short_node_names_upgraded: "{{ mysql_short_node_names }}"
+                mysql_node_names_upgraded: "{{ mysql_node_names }}"
+                cacheable: no
+              when: groups['mysql'] | length == 1
+            - name: set mysql upgrade node facts from the limit option
+              set_fact:
+                mysql_short_node_names_upgraded: "{{ mysql_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                mysql_node_names_upgraded: "{{ mysql_node_names_upgraded|default([]) + [item] }}"
+                cacheable: no
+              when: item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ mysql_node_names }}"
+
+            - debug:
+                msg: "Prepare galera upgrade for {{ mysql_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade galera without staged upgrade.
+                  You need to use the limit option in order to do so.
+              when: >-
+                mysql_short_node_names_upgraded is not defined or
+                mysql_short_node_names_upgraded | length == 0 or
+                mysql_node_names_upgraded is not defined or
+                mysql_node_names_upgraded | length == 0
+
+            - name: add the mysql short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: mysql_short_node_names_override
+                tripleo_upgrade_value: "{{mysql_short_node_names_upgraded}}"
+            - name: add the mysql long name to hiera data for the upgrade
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: mysql_node_names_override
+                tripleo_upgrade_value: "{{mysql_node_names_upgraded}}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: "{{item}}"
+              loop:
+                - mysql_short_node_names_override
+                - mysql_node_names_override
+              when: mysql_short_node_names_upgraded | length == mysql_node_names | length
+        # Manage image update for pacemaker managed container.
+        - name: mysql baremetal to container upgrade tasks.
+          when: step|int == 0
           tags: common
           block:
             - name: Get docker Mysql image
