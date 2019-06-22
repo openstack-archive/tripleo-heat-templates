@@ -675,39 +675,47 @@ resources:
 
   {{server_resource_name}}Config:
     type: OS::Heat::StructuredConfig
+    depends_on: {{server_resource_name}}ConfigDatafiles
     properties:
       group: hiera
       config:
-        hierarchy:
-          - '"%{::uuid}"'
-          - docker_puppet # Optionally provided by container-puppet.py
-          - heat_config_%{::deploy_config_name}
-          - config_step
-          - {{role.name.lower()}}_extraconfig
-          - extraconfig
-          - service_names
-          - service_configs
-          - {{role.name.lower()}}
-          - bootstrap_node # provided by allNodesConfig
-          - all_nodes # provided by allNodesConfig
-          - vip_data # provided by allNodesConfig
-          - net_ip_map
-          - '"%{::osfamily}"'
-          # The following are required for compatibility with the Controller role
-          # where some vendor integrations added hieradata via ExtraConfigPre
-          - neutron_bigswitch_data # Optionally provided by Controller/ComputeExtraConfigPre
-          - neutron_cisco_data # Optionally provided by Controller/ComputeExtraConfigPre
-          - cisco_n1kv_data # Optionally provided by Controller/ComputeExtraConfigPre
-          - midonet_data #Optionally provided by AllNodesExtraConfig
-          - cisco_aci_data # Optionally provided by Controller/ComputeExtraConfigPre
-          # Special variable for upgrade
-          - upgrade
-        merge_behavior: deeper
+        map_merge:
+          - hierarchy:
+            - '"%{::uuid}"'
+            - host_extraconfig
+            - docker_puppet # Optionally provided by container-puppet.py
+            - heat_config_%{::deploy_config_name}
+            - config_step
+            - {{role.name.lower()}}_extraconfig
+            - extraconfig
+            - service_names
+            - service_configs
+            - {{role.name.lower()}}
+            - bootstrap_node # provided by allNodesConfig
+            - all_nodes # provided by allNodesConfig
+            - vip_data # provided by allNodesConfig
+            - net_ip_map
+            - '"%{::osfamily}"'
+            # The following are required for compatibility with the Controller role
+            # where some vendor integrations added hieradata via ExtraConfigPre
+            - neutron_bigswitch_data # Optionally provided by Controller/ComputeExtraConfigPre
+            - neutron_cisco_data # Optionally provided by Controller/ComputeExtraConfigPre
+            - cisco_n1kv_data # Optionally provided by Controller/ComputeExtraConfigPre
+            - midonet_data #Optionally provided by AllNodesExtraConfig
+            - cisco_aci_data # Optionally provided by Controller/ComputeExtraConfigPre
+            # Special variable for upgrade
+            - upgrade
+          - merge_behavior: deeper
+
+  {{server_resource_name}}ConfigDatafiles:
+    type: OS::Heat::Value
+    properties:
+      value:
+        type: json
         datafiles:
           service_names:
             service_names: {get_param: ServiceNames}
             sensu::subscriptions: {get_param: MonitoringSubscriptions}
-          net_ip_map: {get_attr: [NetIpMap, net_ip_map]}
           service_configs: {get_param: ServiceConfigSettings}
           {{role.name.lower()}}_extraconfig:
             map_merge:
@@ -718,13 +726,6 @@ resources:
           extraconfig: {get_param: ExtraConfig}
           {{role.name.lower()}}:
             tripleo::clouddomain: {get_param: CloudDomain}
-  {%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-            fqdn_{{network.name_lower}}: {get_attr: [NetHostMap, value, {{network.name_lower}}, fqdn]}
-  {%- endif %}
-  {%- endfor %}
-            fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
-            fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
 
   # Resource for site-specific injection of root certificate
   NodeTLSCAData:
@@ -735,7 +736,6 @@ resources:
 
   # Hook for site-specific additional pre-deployment config, e.g extra hieradata
   {{role.name}}ExtraConfigPre:
-    depends_on: {{server_resource_name}}Deployment
     type: OS::TripleO::{{role.name}}ExtraConfigPre
     # We have to use conditions here so that we don't break backwards
     # compatibility with templates everywhere
@@ -767,7 +767,6 @@ resources:
 
   SshHostPubKey:
     type: OS::TripleO::Ssh::HostPubKey
-    depends_on: {{server_resource_name}}Deployment
     properties:
         server: {get_resource: {{server_resource_name}}}
         deployment_actions: {get_attr: [DeploymentActions, value]}
@@ -803,8 +802,6 @@ resources:
     properties:
       type: json
       value:
-        # These variables aren't used anywhere yet but it's a base so later we can use it to
-        # build the per-host hieradata.
   {%- for network in networks %}
   {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
         fqdn_{{network.name_lower}}: {get_attr: [NetHostMap, value, {{network.name_lower}}, fqdn]}
@@ -812,6 +809,15 @@ resources:
   {%- endfor %}
         fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
         fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
+
+  {{server_resource_name}}PerHostHieradata:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        datafiles:
+          host_extraconfig: {get_attr: [{{server_resource_name}}AnsibleHostVars, value]}
+          net_ip_map: {get_attr: [NetIpMap, net_ip_map]}
 
 
 outputs:
@@ -825,6 +831,17 @@ outputs:
         - host: {get_attr: [{{server_resource_name}}AnsibleHostVars, value]}
         - keys:
             host: {get_attr: [{{server_resource_name}}, name]}
+  per_host_hieradata_map:
+    description: |
+      Map of Hieradata specific per host.
+    value:
+      map_replace:
+        - host: {get_attr: [{{server_resource_name}}PerHostHieradata, value]}
+        - keys:
+            host: {get_attr: [{{server_resource_name}}, name]}
+  config_datafiles:
+    description: The config in the full format with datafiles section.
+    value: {get_attr: [{{server_resource_name}}ConfigDatafiles, value]}
   ip_address:
     description: IP address of the server in the ctlplane network
     value: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
