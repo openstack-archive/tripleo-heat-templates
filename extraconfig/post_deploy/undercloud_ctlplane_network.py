@@ -216,7 +216,7 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             _neutron_add_subnet_segment_association(sdk, subnet.id, segment.id)
         _neutron_subnet_update(
             sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'], host_routes,
-            s.get('AllocationPools'), name, CONF['nameservers'])
+            s.get('AllocationPools'), name, s['DnsNameServers'])
     else:
         if CONF['enable_routed_networks']:
             segment_id = segment.id
@@ -225,7 +225,7 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
         subnet = _neutron_subnet_create(
             sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
             host_routes, s.get('AllocationPools'), name, segment_id,
-            CONF['nameservers'])
+            s['DnsNameServers'])
         # If the subnet is IPv6 we need to start a router so that router
         #  advertisments are sent out for stateless IP addressing to work.
         if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
@@ -254,7 +254,7 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             _neutron_subnet_update(
                 sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'],
                 host_routes, s.get('AllocationPools'), name,
-                CONF['nameservers'])
+                s['DnsNameServers'])
         else:
             if segment:
                 _neutron_segment_update(sdk, segment.id, name)
@@ -264,7 +264,7 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             subnet = _neutron_subnet_create(
                 sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
                 host_routes, s.get('AllocationPools'), name, segment.id,
-                CONF['nameservers'])
+                s['DnsNameServers'])
             # If the subnet is IPv6 we need to start a router so that router
             # advertisments are sent out for stateless IP addressing to work.
             if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
