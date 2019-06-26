@@ -38,18 +38,34 @@ parameters:
   ManilaCephFSDataPoolName:
     default: manila_data
     type: string
-  ManilaCephFSDataPoolPGNum:
-    default: 128
-    type: number
   ManilaCephFSMetadataPoolName:
     default: manila_metadata
     type: string
-  ManilaCephFSMetadataPoolPGNum:
-    default: 128
-    type: number
   ManilaCephFSShareBackendName:
     default: cephfs
     type: string
+  CephPoolDefaultPgNum:
+    description: default pg_num to use for the RBD pools
+    type: number
+    default: 128
+  # DEPRECATED options for compatibility with older versions
+  ManilaCephFSDataPoolPGNum:
+    default: 128
+    type: number
+  ManilaCephFSMetadataPoolPGNum:
+    default: 128
+    type: number
+
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - ManilaCephFSDataPoolPGNum
+  - ManilaCephFSMetadataPoolPGNum
+
+conditions:
+  deprecated_data_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSDataPoolPGNum}, 128]}}
+  deprecated_metadata_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSMetadataPoolPGNum}, 128]}}
 
 resources:
   CephBase:
@@ -71,9 +87,18 @@ resources:
           cephfs_data: {get_param: ManilaCephFSDataPoolName}
           cephfs_metadata: {get_param: ManilaCephFSMetadataPoolName}
           cephfs: {get_param: ManilaCephFSShareBackendName}
-          cephfs_pools:
-          - { name: {get_param: ManilaCephFSDataPoolName}, pgs: {get_param: ManilaCephFSDataPoolPGNum} }
-          - { name: {get_param: ManilaCephFSMetadataPoolName}, pgs: {get_param: ManilaCephFSMetadataPoolPGNum} }
+          # Prefer CephPoolDefaultPgNum unless the (deprecated)
+          # params value is different from their default.
+          if:
+          - or:
+            - deprecated_data_pool_pgnum
+            - deprecated_metadata_pool_pgnum
+          - cephfs_pools:
+            - { name: {get_param: ManilaCephFSDataPoolName}, pgs: {get_param: ManilaCephFSDataPoolPGNum} }
+            - { name: {get_param: ManilaCephFSMetadataPoolName}, pgs: {get_param: ManilaCephFSMetadataPoolPGNum} }
+          - cephfs_pools:
+            - { name: {get_param: ManilaCephFSDataPoolName}, pgs: {get_param: CephPoolDefaultPgNum} }
+            - { name: {get_param: ManilaCephFSMetadataPoolName}, pgs: {get_param: CephPoolDefaultPgNum} }
 
 outputs:
   role_data:
