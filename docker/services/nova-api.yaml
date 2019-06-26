@@ -158,6 +158,13 @@ outputs:
               echo "(cellv2) Creating default cell_v2 cell"
               su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 create_cell --name=default"
             fi
+        nova_api_ensure_cell0_database_url.sh:
+          mode: "0700"
+          content:
+            str_replace:
+              template: su nova -s /bin/bash -c "nova-manage cell_v2 list_cells --verbose | grep 'CELL' || nova-manage cell_v2 update_cell --cell_uuid 00000000-0000-0000-0000-000000000000 --transport-url 'none:///' --database_connection='CELL'"
+              params:
+                CELL: {get_attr: [NovaApiBase, role_data, config_settings, "nova::cell0_database_connection"]}
       docker_config:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
@@ -251,6 +258,20 @@ outputs:
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
         step_5:
+          nova_api_ensure_cell0_database_url:
+            start_order: 1
+            image: *nova_api_image
+            net: host
+            detach: false
+            volumes:
+              list_concat:
+                - *nova_api_bootstrap_volumes
+                -
+                  - /var/log/containers/nova:/var/log/nova
+                  - /var/lib/config-data/puppet-generated/nova/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/docker-config-scripts/nova_api_ensure_cell0_database_url.sh:/nova_api_ensure_cell0_database_url.sh:ro
+            user: root
+            command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_cell0_database_url.sh"
           nova_online_migrations:
             start_order: 2
             image: *nova_api_image
@@ -328,14 +349,6 @@ outputs:
               file:
                 path: /var/spool/cron/nova
                 state: absent
-      update_tasks:
-        # Some environments will have wrong cell0 database url after FFWD - rhbz#1614478
-        - name: Validate and fix wrong cell0 database url
-          shell:
-            str_replace:
-              template: nova-manage cell_v2 list_cells --verbose | grep 'CELL' || nova-manage cell_v2 update_cell --cell_uuid 00000000-0000-0000-0000-000000000000 --transport-url 'none:///' --database_connection='CELL'
-              params:
-                CELL: {get_attr: [NovaApiBase, role_data, config_settings, "nova::cell0_database_connection"]}
       fast_forward_upgrade_tasks:
         - name: Check if nova-api is deployed
           command: systemctl is-enabled --quiet openstack-nova-api
