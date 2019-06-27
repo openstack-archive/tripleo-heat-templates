@@ -102,6 +102,11 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  DockerAdditionalSockets:
+    default: ['/var/lib/openstack/docker.sock']
+    description: Additional domain sockets for the docker daemon to bind to (useful for mounting
+                 into containers that launch other containers)
+    type: comma_delimited_list
 
 conditions:
   haproxy_wrapper_enabled: {equals: [{get_param: OVNEnableHaproxyDockerWrapper}, true]}
@@ -208,6 +213,24 @@ outputs:
               owner: neutron:neutron
               recurse: true
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
+      deploy_steps_tasks:
+        - when: step|int == 1
+          block:
+            - name: set conditions
+              set_fact:
+                haproxy_wrapper_enabled: {get_param: OVNEnableHaproxyDockerWrapper}
+                debug_enabled: {get_param: Debug}
+                docker_additional_sockets: {get_param: DockerAdditionalSockets}
+            - name: create kill_scripts directory within /var/lib/neutron
+              file:
+                state: directory
+                path: /var/lib/neutron/kill_scripts
+            - name: create haproxy kill script
+              when: haproxy_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/haproxy-kill
+                mode: 0755
+                content: {get_file: ../neutron/kill-script}
       docker_config:
         step_2:
           create_haproxy_wrapper:
@@ -269,6 +292,7 @@ outputs:
                   - /run/openvswitch:/run/openvswitch:shared,z
                   - /var/lib/neutron:/var/lib/neutron:shared,z
                   - /run/netns:/run/netns:shared
+                  - /var/lib/neutron/kill_scripts:/etc/neutron/kill_scripts:shared,z
                 -
                   if:
                     - docker_enabled

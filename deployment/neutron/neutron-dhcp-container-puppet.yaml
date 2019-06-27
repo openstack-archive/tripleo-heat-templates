@@ -14,6 +14,11 @@ parameters:
     default: ['nofile=16384']
     description: ulimit for Neutron DHCP Agent Container
     type: comma_delimited_list
+  DockerAdditionalSockets:
+    default: ['/var/lib/openstack/docker.sock']
+    description: Additional domain sockets for the docker daemon to bind to (useful for mounting
+                 into containers that launch other containers)
+    type: comma_delimited_list
   NeutronEnableDnsmasqDockerWrapper:
     description: Generate a dnsmasq wrapper script so that neutron launches
                  dnsmasq in a separate container.
@@ -285,6 +290,31 @@ outputs:
             - path: /etc/pki/tls/private/neutron.key
               owner: neutron:neutron
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
+      deploy_steps_tasks:
+        - when: step|int == 1
+          block:
+            - name: set conditions
+              set_fact:
+                dnsmasq_wrapper_enabled: {get_param: NeutronEnableDnsmasqDockerWrapper}
+                haproxy_wrapper_enabled: {get_param: NeutronEnableHaproxyDockerWrapper}
+                debug_enabled: {get_param: Debug}
+                docker_additional_sockets: {get_param: DockerAdditionalSockets}
+            - name: create kill_scripts directory within /var/lib/neutron
+              file:
+                state: directory
+                path: /var/lib/neutron/kill_scripts
+            - name: create dnsmasq dhcp kill script
+              when: dnsmasq_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/dnsmasq-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
+            - name: create haproxy kill script
+              when: haproxy_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/haproxy-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
       docker_config:
         step_2:
           create_dnsmasq_wrapper:
@@ -331,6 +361,7 @@ outputs:
                   - /run/openvswitch:/run/openvswitch:shared,z
                   - /var/lib/neutron:/var/lib/neutron:shared,z
                   - /run/netns:/run/netns:shared
+                  - /var/lib/neutron/kill_scripts:/etc/neutron/kill_scripts:shared,z
                 -
                   if:
                     - docker_enabled
