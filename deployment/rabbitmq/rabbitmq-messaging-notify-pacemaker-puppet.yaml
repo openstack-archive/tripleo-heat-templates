@@ -314,25 +314,29 @@ outputs:
             - name: set oslo_messaging_notify upgrade node facts in a single-node environment
               set_fact:
                 oslo_messaging_notify_short_node_names_upgraded: "{{ oslo_messaging_notify_short_node_names }}"
+                oslo_messaging_notify_node_names_upgraded: "{{ oslo_messaging_notify_node_names }}"
                 cacheable: no
               when: groups['oslo_messaging_notify'] | length == 1
             - name: set oslo_messaging_notify upgrade node facts from the limit option
               set_fact:
                 oslo_messaging_notify_short_node_names_upgraded: "{{ oslo_messaging_notify_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                oslo_messaging_notify_node_names_upgraded: "{{ oslo_messaging_notify_node_names_upgraded|default([]) + [item] }}"
                 cacheable: no
               when: item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ oslo_messaging_notify_short_node_names }}"
+              loop: "{{ oslo_messaging_notify_node_names }}"
 
             - debug:
                 msg: "Prepare oslo_messaging_notify upgrade for {{ oslo_messaging_notify_short_node_names_upgraded }}"
             - fail:
                 msg: >
-                  You can't upgrade oslo_messaging_notify without staged
-                  upgrade. You need to use the limit option in order
+                  You can't upgrade oslo_messaging_notify without
+                  staged upgrade.  You need to use the limit option in order
                   to do so.
               when: >-
                 oslo_messaging_notify_short_node_names_upgraded is not defined or
-                oslo_messaging_notify_short_node_names_upgraded | length == 0
+                oslo_messaging_notify_short_node_names_upgraded | length == 0 or
+                oslo_messaging_notify_node_names_upgraded is not defined or
+                oslo_messaging_notify_node_names_upgraded | length == 0
 
             - name: add the oslo_messaging_notify short name to hiera data for the upgrade.
               include_role:
@@ -341,13 +345,23 @@ outputs:
               vars:
                 tripleo_upgrade_key: oslo_messaging_notify_short_node_names_override
                 tripleo_upgrade_value: "{{oslo_messaging_notify_short_node_names_upgraded}}"
+            - name: add the oslo_messaging_notify long name to hiera data for the upgrade
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: oslo_messaging_notify_node_names_override
+                tripleo_upgrade_value: "{{oslo_messaging_notify_node_names_upgraded}}"
             - name: remove the extra hiera data needed for the upgrade.
               include_role:
                 name: tripleo-upgrade-hiera
                 tasks_from: remove.yml
               vars:
-                tripleo_upgrade_key: oslo_messaging_notify_short_node_names_override
-              when: oslo_messaging_notify_short_node_names_upgraded | length == oslo_messaging_notify_short_node_names | length
+                tripleo_upgrade_key: "{{item}}"
+              loop:
+                - oslo_messaging_notify_short_node_names_override
+                - oslo_messaging_notify_node_names_override
+              when: oslo_messaging_notify_short_node_names_upgraded | length == oslo_messaging_notify_node_names | length
         - when: step|int == 0
           tags: common
           block:
