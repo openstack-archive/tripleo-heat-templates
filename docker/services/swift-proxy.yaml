@@ -220,6 +220,7 @@ outputs:
                       - /run:/run
                       - /srv/node:/srv/node
                       - /dev:/dev
+                      - /var/log/containers/swift:/var/log/swift
                 environment:
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             - if:
@@ -248,14 +249,7 @@ outputs:
           with_items:
             - /srv/node
             - /var/log/swift
-        - stat: path=/var/log/swift
-          register: swift_log_stat
-        - name: Create swift logging symlink
-          file:
-            src: /var/log/swift
-            dest: /var/log/containers/swift
-            state: link
-          when: swift_log_stat.stat.exists
+            - /var/log/containers/swift
         - name: Check if rsyslog exists
           stat:
             path: /etc/rsyslog.d
@@ -265,7 +259,7 @@ outputs:
               copy:
                 content: |
                   # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
-                  local2.*                 /var/log/swift/swift.log
+                  local2.*                 /var/log/containers/swift/swift.log
                   &                        stop
                 dest: /etc/rsyslog.d/openstack-swift.conf
               register: logconfig
@@ -274,6 +268,16 @@ outputs:
               when:
                 - logconfig|changed
           when: rsyslog_config.stat.exists
+      update_tasks:
+        - name: Check swift containers log folder/symlink exists
+          stat:
+            path: /var/log/containers/swift
+          register: swift_log_link
+        - name: Delete if symlink
+          file:
+            path: /var/log/containers/swift
+            state: absent
+          when: swift_log_link.stat.islnk is defined and swift_log_link.stat.islnk
       upgrade_tasks:
         - when: step|int == 0
           tags: common
