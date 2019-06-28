@@ -10,6 +10,18 @@ parameters:
   ContainerMultipathdConfigImage:
     description: The container image to use for the multipathd config_volume
     type: string
+  MultipathdEnable:
+    default: false
+    description: Whether to enable the multipath daemon
+    type: boolean
+  MultipathdEnableUserFriendlyNames:
+    default: false
+    description: Whether to enable assigning a user friendly name to each path
+    type: boolean
+  MultipathdEnableFindMultipaths:
+    default: true
+    description: Whether to automatically create a multipath device for each path
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -37,6 +49,12 @@ parameters:
     default: {}
     type: json
 
+conditions:
+
+  multipathd_enabled: {equals: [{get_param: MultipathdEnable}, true]}
+  user_friendly_names_enabled: {equals: [{get_param: MultipathdEnableUserFriendlyNames}, true]}
+  find_multipaths_enabled: {equals: [{get_param: MultipathdEnableFindMultipaths}, true]}
+
 resources:
 
   ContainersCommon:
@@ -52,12 +70,38 @@ outputs:
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: multipathd
-        step_config: ''
+        puppet_tags: exec
+        step_config:
+          str_replace:
+            template: |
+              exec { "update multipath.conf":
+                command => "/usr/sbin/mpathconf CMD --with_multipathd n --user_friendly_names UFN --find_multipaths FM"
+              }
+            params:
+              CMD:
+                if:
+                  - multipathd_enabled
+                  - '--enable'
+                  - '--disable'
+              UFN:
+                if:
+                  - user_friendly_names_enabled
+                  - 'y'
+                  - 'n'
+              FM:
+                if:
+                  - find_multipaths_enabled
+                  - 'y'
+                  - 'n'
         config_image: {get_param: ContainerMultipathdConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/multipathd.json:
           command: /usr/sbin/multipathd -d
           config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
             - source: "/var/lib/kolla/config_files/src-iscsid/*"
               dest: "/etc/iscsi/"
               merge: true
@@ -77,22 +121,38 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/kolla/config_files/multipathd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/multipathd/:/var/lib/kolla/config_files/src:ro
                   - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
                   - /dev/:/dev/
                   - /run/:/run/
                   - /sys:/sys
                   - /lib/modules:/lib/modules:ro
-                  - /var/lib/cinder:/var/lib/cinder:z
                   - /var/lib/iscsi:/var/lib/iscsi:z
+                  - /etc/multipath:/etc/multipath:z
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
+        - name: Check if multipathd is deployed on the host
+          command: systemctl is-enabled --quiet multipathd
+          ignore_errors: True
+          register: multipathd_enabled_result
+        - name: Set fact multipathd_enabled
+          set_fact:
+            multipathd_enabled: "{{ multipathd_enabled_result.rc == 0 }}"
+        - name: Stop multipathd on the host
+          service: name=multipathd state=stopped enabled=no
+          when: multipathd_enabled|bool
         - name: load dm-multipath
           import_role:
             name: tripleo-module-load
           vars:
             modules:
               - name: dm-multipath
+        - name: prepare /etc/multipath
+          file:
+            path: /etc/multipath
+            state: directory
+            setype: svirt_sandbox_file_t
       upgrade_tasks: []
       post_upgrade_tasks:
         - when: step|int == 1
