@@ -53,9 +53,20 @@ resources:
         yaql:
           # Filter null values and values that contain don't contain
           # 'metadata_settings', get the values from that key and get the
-          # unique ones.
-          expression: list(coalesce($.data, []).where($ != null).where($.containsKey('metadata_settings')).metadata_settings.flatten().distinct())
-          data: {get_param: RoleData}
+          # unique ones. Also, filter values for networks not associated with
+          # this role.
+          expression: let(role_networks => $.data.role_networks) -> list(coalesce($.data.role_data, []).where($ != null).where($.containsKey('metadata_settings')).metadata_settings.flatten().distinct().where($ != null and $.containsKey('network')).where($role_networks.contains($.network)))
+          data:
+            role_data: {get_param: RoleData}
+            role_networks:
+              - ctlplane
+{%- for network in networks if network.vip|default(false) and network.name in role.networks %}
+  {%- if network.service_net_map_replace is defined %}
+              - {{network.service_net_map_replace}}
+  {%- else %}
+              - {{network.name_lower}}
+  {%- endif %}
+{%- endfor %}
 
   # Generates entries for nova metadata with the following format:
   #   'managed_service_<id>' : <service>/<fqdn>
