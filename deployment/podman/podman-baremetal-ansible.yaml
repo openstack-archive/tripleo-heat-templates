@@ -49,7 +49,7 @@ outputs:
       step_config: ''
       host_prep_tasks:
         - name: Install and configure Podman
-          block:
+          block: &install_and_configure_podman
           - set_fact:
               container_registry_insecure_registries:
                 if:
@@ -86,18 +86,12 @@ outputs:
             - never
             - system_upgrade_prepare
 
-        - name: Install podman packages on upgrade if missing
-          when: step|int == 3
-          package: name=podman state=latest
-        - name: Remove default cni config for cni0 if exists
-          copy:
-            dest: /etc/cni/net.d/87-podman-bridge.conflist
-            content: ''
-            force: yes
-          ignore_errors: True
-        - name: Delete cni0 interface if exists
-          command: ip link delete cni0
-          ignore_errors: True
+        # Upgrade tasks for Pacemaker-managed services tasks pull
+        # container images in step 2, we need insecure registries
+        # configured in step 1.
+        - name: Install and configure Podman
+          when: step|int == 1
+          block: *install_and_configure_podman
       post_upgrade_tasks:
         - name: Purge everything about Docker on the host
           when: step|int == 3
