@@ -116,9 +116,6 @@ parameters:
     type: json
     default: {}
 {%- for role in roles %}
-  {{role.name}}AllNodesDeploymentHieradata:
-    type: json
-    default: {}
   {{role.name}}DeploymentHieradata:
     type: json
     default: {}
@@ -188,6 +185,23 @@ parameters:
   EnabledServices:
     default: []
     type: comma_delimited_list
+  ControlVirtualIP:
+    type: string
+  EnabledNetworks:
+    type: comma_delimited_list
+  NetVipMap:
+    type: json
+{%- for network in networks if network.enabled|default(true) %}
+  {{network.name}}NetName:
+    default: {{network.name_lower}}
+    description: The name of the {{network.name_lower}} network.
+    type: string
+{%- endfor %}
+  CloudNames:
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
 {% for role in enabled_roles %}
@@ -326,6 +340,27 @@ outputs:
         stack_update_type: {get_param: StackUpdateType}
         container_cli: {get_param: ContainerCli}
         enabled_services: {get_param: EnabledServices}
+        control_virtual_ip: {get_param: ControlVirtualIP}
+        enabled_networks: {get_param: EnabledNetworks}
+        net_vip_map: {get_param: NetVipMap}
+{%- for network in networks if network.enabled|default(true) %}
+        {{network.name_lower}}_net_name: {get_param: {{network.name}}NetName}
+{%- endfor %}
+        network_virtual_ips:
+          ctlplane:
+            ip_address: {get_param: [NetVipMap, ctlplane]}
+            index: 1
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+# External virtual ip is currently being handled separately as public_virtual_ip.
+# Likewise, optional StorageNFS virtual ip is handled separately as ganesha_vip.
+{%- if network.name != 'External' and network.name != 'StorageNFS' %}
+          {{network.name_lower}}:
+            ip_address: {get_param: [NetVipMap, {get_param: {{network.name}}NetName}]}
+            index: {{loop.index + 1}}
+{%- endif %}
+{%- endfor %}
+        cloud_names: {get_param: CloudNames}
+        enable_internal_tls: {get_param: EnableInternalTLS}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
       all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
@@ -456,16 +491,6 @@ outputs:
               any_errors_fatal: yes
               tasks:
 {%- for role in roles %}
-                - name: AllNodesDeployment hieradata
-                  include_role:
-                    name: tripleo-hieradata
-                  vars:
-                    hieradata_template: "{{role.name}}/all-nodes-deployment-hieradata.j2.yaml"
-                    hieradata_variable_start_string: $$
-                    hieradata_variable_end_string: $$
-                    hieradata_files: "{{ '{{' }} lookup('file', '{{role.name}}/deployment-hierarchy.yaml') {{ '}}' }}"
-                  when: tripleo_role_name == '{{role.name}}'
-
                 - name: Deployment hieradata
                   include_role:
                     name: tripleo-hieradata
@@ -505,6 +530,7 @@ outputs:
                     hieradata_templates_list:
                       - bootstrap_node
                       - all_nodes
+                      - vip_data
                   when: tripleo_role_name == '{{role.name}}'
               tags:
                 - overcloud
@@ -757,10 +783,6 @@ outputs:
       external_deploy_steps_tasks: {get_attr: [ExternalDeployTasks, value]}
       external_post_deploy_steps_tasks: {get_attr: [ExternalPostDeployTasks, value]}
 {%- for role in roles %}
-      # TODO (slagle): temporarily write the path with a .yaml extension until
-      # https://review.opendev.org/#/c/663736 merges. Once merged, this can be
-      # removed.
-      {{role.name}}/all-nodes-deployment-hieradata.j2.yaml: {get_param: {{role.name}}AllNodesDeploymentHieradata}
       {{role.name}}/deployment-hieradata.j2.yaml: {get_param: {{role.name}}DeploymentHieradata}
       {{role.name}}/deployment-hierarchy.yaml: {get_param: {{role.name}}DeploymentHierarchy}
       {{role.name}}/per-host-hieradata.j2.yaml: {get_param: {{role.name}}PerHostHieradata}

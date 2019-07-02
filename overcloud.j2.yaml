@@ -577,17 +577,6 @@ resources:
       config: {get_resource: SshKnownHostsConfig}
       servers: {get_attr: [{{role.name}}Servers, value]}
 
-  {{role.name}}AllNodesDeployment:
-    type: OS::TripleO::AllNodesDeployment
-    depends_on:
-{%- for role_inner in roles %}
-      - {{role_inner.name}}SshKnownHostsDeployment
-{%- endfor %}
-    properties:
-      name: {{role.name}}AllNodesDeployment
-      config: {get_attr: [{{role.name}}allNodesConfig, config_id]}
-      servers: {get_attr: [{{role.name}}Servers, value]}
-
   {{role.name}}IpListMap:
     type: OS::TripleO::Network::Ports::NetIpListMap
     properties:
@@ -752,6 +741,26 @@ resources:
             - '\n'
             - {get_attr: [HostsValue, value]}
 
+  CloudNames:
+    type: OS::Heat::Value
+    properties:
+      value:
+{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
+  {%- if network.name == 'External' %}
+        # Special case the External hostname param, which is CloudName
+        cloud_name_{{network.name_lower}}: {get_param: CloudName}
+  {%- elif network.name == 'InternalApi' %}
+        # Special case the Internal API hostname param, which is CloudNameInternal
+        cloud_name_{{network.name_lower}}: {get_param: CloudNameInternal}
+  {%- elif network.name == 'StorageMgmt' %}
+        # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
+        cloud_name_{{network.name_lower}}: {get_param: CloudNameStorageManagement}
+  {%- else %}
+        cloud_name_{{network.name_lower}}: {get_param: CloudName{{network.name}}}
+  {%- endif %}
+{%- endfor %}
+        cloud_name_ctlplane: {get_param: CloudNameCtlplane}
+
 {%- for outer_role in roles %}
 
   {{outer_role.name}}HieradataVars:
@@ -762,34 +771,6 @@ resources:
           yaql:
             expression: coalesce($.data, []).first(null)
             data: {get_attr: [{{outer_role.name}}, hostname]}
-
-  {{outer_role.name}}allNodesConfig:
-    type: OS::TripleO::AllNodes::SoftwareConfig
-    properties:
-{%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
-  {%- if network.name == 'External' %}
-  # Special case the External hostname param, which is CloudName
-      cloud_name_{{network.name_lower}}: {get_param: CloudName}
-  {%- elif network.name == 'InternalApi' %}
-  # Special case the Internal API hostname param, which is CloudNameInternal
-      cloud_name_{{network.name_lower}}: {get_param: CloudNameInternal}
-  {%- elif network.name == 'StorageMgmt' %}
-  # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
-      cloud_name_{{network.name_lower}}: {get_param: CloudNameStorageManagement}
-  {%- else %}
-      cloud_name_{{network.name_lower}}: {get_param: CloudName{{network.name}}}
-  {%- endif %}
-{%- endfor %}
-      cloud_name_ctlplane: {get_param: CloudNameCtlplane}
-      enabled_services:
-        list_join:
-          - ','
-{%- for role in roles %}
-          - {get_attr: [{{role.name}}ServiceNames, value]}
-{%- endfor %}
-      NetVipMap: {get_attr: [VipMap, net_ip_map]}
-      RedisVirtualIP: {get_attr: [RedisVirtualIP, ip_address]}
-      ServiceNetMap: {get_attr: [ServiceNetMap, service_net_map_lower]}
 {%- endfor %}
 
   GlobalConfig:
@@ -980,9 +961,9 @@ resources:
         - service_names
         - service_configs
         - {{role.name.lower()}}
-        - bootstrap_node # provided by allNodesConfig
-        - all_nodes # provided by allNodesConfig
-        - vip_data # provided by allNodesConfig
+        - bootstrap_node # provided by tripleo-hieradata
+        - all_nodes # provided by tripleo-hieradata
+        - vip_data # provided by tripleo-hieradata
         - net_ip_map
         - '"%{::osfamily}"'
         # The following are required for compatibility with the Controller role
@@ -1001,9 +982,6 @@ resources:
     type: OS::TripleO::PostDeploySteps
     depends_on:
       - AllNodesExtraConfig
-{%- for role in roles %}
-      - {{role.name}}AllNodesDeployment
-{%- endfor %}
     properties:
       servers:
 {%- for role in roles %}
@@ -1020,7 +998,6 @@ resources:
       ssh_known_hosts_hostnames: {get_attr: [SshKnownHostsHostnames, value]}
 {%- for role in roles %}
       {{role.name}}Count: {get_param: {{role.name}}Count}
-      {{role.name}}AllNodesDeploymentHieradata: {get_attr: [{{role.name}}allNodesConfig, all_nodes_config_hieradata]}
       {{role.name}}DeploymentHieradata:
         map_merge:
           list_concat:
@@ -1058,6 +1035,16 @@ resources:
 {%- for role in roles %}
           - {get_attr: [{{role.name}}ServiceNames, value]}
 {%- endfor %}
+      ControlVirtualIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      EnabledNetworks:
+{%- for network in networks if network.enabled|default(true) %}
+        - {{ network.name }}
+{%- endfor %}
+      NetVipMap:
+        map_merge:
+          - {get_attr: [VipMap, net_ip_map]}
+          - redis: {get_attr: [RedisVirtualIP, ip_address]}
+      CloudNames: {get_attr: [CloudNames, value]}
 
   ServerOsCollectConfigData:
     type: OS::Heat::Value
