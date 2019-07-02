@@ -429,7 +429,50 @@ outputs:
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
       upgrade_tasks:
-        - when: step|int == 0
+        - name: Create hiera data to upgrade haproxy in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set haproxy upgrade node facts in a single-node environment
+              set_fact:
+                haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names }}"
+                cacheable: no
+              when: groups['haproxy'] | length == 1
+            - name: set haproxy upgrade node facts from the limit option
+              set_fact:
+                haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cacheable: no
+              when: item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ haproxy_short_node_names }}"
+
+            - debug:
+                msg: "Prepare haproxy upgrade for {{ haproxy_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade haproxy without staged
+                  upgrade. You need to use the limit option in order
+                  to do so.
+              when: >-
+                haproxy_short_node_names_upgraded is not defined or
+                haproxy_short_node_names_upgraded | length == 0
+
+            - name: add the haproxy short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: haproxy_short_node_names_override
+                tripleo_upgrade_value: "{{haproxy_short_node_names_upgraded}}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: haproxy_short_node_names_override
+              when: haproxy_short_node_names_upgraded | length == haproxy_short_node_names | length
+        - name: upgrade haproxy bundle-init image.
+          when:
+            - step|int == 0
           tags: common
           block:
             - name: Get docker haproxy image

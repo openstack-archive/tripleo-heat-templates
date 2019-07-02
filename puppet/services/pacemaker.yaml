@@ -97,6 +97,10 @@ parameters:
         \[(?<pid>[^ ]*)\]
         (?<host>[^ ]*)
         (?<message>.*)$/
+  UpgradeLeappEnabled:
+    description: Use Leapp for operating system upgrade
+    type: boolean
+    default: true
 
 outputs:
   role_data:
@@ -154,18 +158,93 @@ outputs:
               pacemaker_cluster: state=offline
             - name: destroy pacemaker cluster
               command: /usr/sbin/pcs cluster destroy
-        - name: Check pacemaker cluster running before upgrade
+        - name: upgrade step 0
           when: step|int == 0
-          tags: validation
-          pacemaker_cluster: state=online check_and_fail=true
-          async: 30
-          poll: 4
-        - name: Stop pacemaker cluster
+          vars:
+            upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
+          block:
+            - name: Check pacemaker cluster running before upgrade
+              tags: validation
+              pacemaker_cluster: state=online check_and_fail=true
+              async: 30
+              poll: 4
+              when: not upgrade_leapp_enabled|bool
+        - name: upgrade step 1
+          when:
+            - step|int == 1
+          block:
+            - name: set pacemaker upgrade node facts in a single-node environment
+              set_fact:
+                pacemaker_short_node_names_upgraded: "{{ pacemaker_short_node_names }}"
+                cacheable: no
+              when: groups['pacemaker'] | length == 1
+            - name: set pacemaker upgrade node facts from the limit option
+              set_fact:
+                pacemaker_short_node_names_upgraded: "{{ pacemaker_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cacheable: no
+              when: item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ pacemaker_short_node_names }}"
+
+            - debug:
+                msg: "Prepare pacemaker upgrade for {{ pacemaker_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade pacemaker without staged
+                  upgrade. You need to use the limit option in order
+                  to do so.
+              when: >-
+                pacemaker_short_node_names_upgraded is not defined or
+                pacemaker_short_node_names_upgraded | length == 0
+            - name: set pacemaker node ips fact from the names fact
+              set_fact:
+                # Generate matching IPs for the names, e.g. for these varaible values:
+                #     pacemaker_node_ips: [ "1", "2", "3" ]
+                #     pacemaker_short_node_names: [ "a", "b", "c" ]
+                #     pacemaker_short_node_names_override: [ "b" ]
+                # it will set:
+                #     pacemaker_node_ips_override: [ "2" ]
+                pacemaker_node_ips_upgraded: "{{
+                  dict(pacemaker_short_node_names|zip(pacemaker_node_ips))
+                  | dict2items
+                  | selectattr('key', 'in', pacemaker_short_node_names_upgraded)
+                  | map(attribute='value')
+                  | list }}"
+                cacheable: no
+
+            - name: add the pacemaker short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: pacemaker_short_node_names_override
+                tripleo_upgrade_value: "{{pacemaker_short_node_names_upgraded}}"
+            - name: add the pacemaker ips to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: pacemaker_node_ips_override
+                tripleo_upgrade_value: "{{pacemaker_node_ips_upgraded}}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: "{{item}}"
+              loop:
+                - pacemaker_short_node_names_override
+                - pacemaker_node_ips_override
+              when: pacemaker_short_node_names_upgraded | length == pacemaker_short_node_names | length
+        - name: upgrade step 2
           when: step|int == 2
-          pacemaker_cluster: state=offline
-        - name: Start pacemaker cluster
+          block:
+            - name: Stop pacemaker cluster
+              pacemaker_cluster: state=offline
+        - name: upgrade step 4
           when: step|int == 4
-          pacemaker_cluster: state=online
+          block:
+            - name: Start pacemaker cluster
+              pacemaker_cluster: state=online
       update_tasks:
         - name: Check pacemaker cluster running before the minor update
           when: step|int == 0  # TODO(marios) disabling validations?
