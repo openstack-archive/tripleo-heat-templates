@@ -558,6 +558,13 @@ outputs:
                   when: os_net_config_returncode_stat.stat.exists
                   register: os_net_config_returncode_slurp
 
+                - name: Check NetworkConfig script existence
+                  local_action:
+                    module: stat
+                    path: {{ '"{{' }} tripleo_role_name ~ '/' ~ inventory_hostname ~ '/NetworkConfig' {{ '}}"' }}
+                  become: no
+                  register: NetworkConfig_stat
+
                 - name: NetworkConfig
                   block:
                     - name: Create /var/lib/tripleo-config/scripts directory
@@ -602,10 +609,13 @@ outputs:
                   # - Or it has never run
                   # This will match the prior behavior of when a Heat
                   # SoftwareDeployment was used.
-                  when: (stack_action == "CREATE") or ("UPDATE" in network_deployment_actions) or
+                  # It also ensures the script does exist as a sine qua non
+                  # condition
+                  when: NetworkConfig_stat.stat.exists and
+                        ((stack_action == "CREATE") or ("UPDATE" in network_deployment_actions) or
                         (os_net_config_returncode_stat.stat.exists and
-                         ((os_net_config_returncode_slurp.content | b64decode) != 0)) or
-                        (not os_net_config_returncode_stat.stat.exists)
+                        ((os_net_config_returncode_slurp.content | b64decode) != 0)) or
+                        (not os_net_config_returncode_stat.stat.exists))
 
                 - name: AllNodesValidationConfig
                   script: all_nodes_validation_script.sh
