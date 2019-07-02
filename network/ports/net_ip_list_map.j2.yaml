@@ -72,39 +72,12 @@ resources:
               {{network.name_lower}}: {get_param: {{network.name}}NetName}
 {%- endfor %}
 
-  ServicesIpData:
-    type: OS::Heat::Value
-    depends_on: EnabledServicesValue
-    properties:
-      value:
-        map_merge:
-          repeat:
-            template:
-              # $$ is used here to indicate the start/end of an ansible jinja
-              # expression. we could use {{ and }} but the escaping would make it
-              # difficult to read, and it would still come out surrounded by
-              # quotes. On the ansible side,
-              # we then set variable_start_string/variable_end_string to $$ for
-              # use with the template module
-              SERVICE_node_ips: $$ groups['SERVICE'] | default ([]) | map('extract', hostvars, service_net_map['SERVICE_network'] | default('ctlplane') ~ '_ip') | list | to_json $$
-            for_each:
-              SERVICE:
-                yaql:
-                  expression: let(root => $) -> coalesce($root.data.enabled_services, []).where($root.data.service_net_map.keys().contains($ + "_network"))
-                  data:
-                    service_net_map: {get_param: ServiceNetMap}
-                    enabled_services: {get_attr: [EnabledServicesValue, value]}
-
 outputs:
   net_ip_map:
     description: >
       A Hash containing a mapping of network names to assigned lists
       of IP addresses.
     value: {get_attr: [NetIpMapValue, value]}
-  service_ips:
-    description: >
-      Map of enabled services to a list of their IP addresses
-    value: {get_attr: [ServicesIpData, value]}
   ctlplane_service_ips:
     description: >
       Map of enabled services to a list of their ctlplane IP addresses
@@ -115,90 +88,3 @@ outputs:
             SERVICE_ctlplane_node_ips: $$ groups['SERVICE'] | default ([]) | map('extract', hostvars, 'ctlplane_ip') | list | to_json $$
           for_each:
             SERVICE: {get_attr: [EnabledServicesValue, value]}
-  service_hostnames:
-    description: >
-      Map of enabled services to a list of hostnames where they're running
-    value:
-      map_replace:
-        - yaql:
-            # This filters any entries where the value hasn't been substituted for
-            # a list, e.g it's still $service_network.  This happens when there is
-            # no network defined for the service in the ServiceNetMap, which is OK
-            # as not all services have to be bound to a network, so we filter them
-            expression: dict($.data.map.items().where(not $[1].endsWith("_network")))
-            data:
-              map:
-                map_replace:
-                  - map_merge:
-                      if:
-                        - is_cell
-                        -
-                          repeat:
-                            template:
-                              SERVICE_cell_node_names: SERVICE_network
-                            for_each:
-                              SERVICE: {get_attr: [EnabledServicesValue, value]}
-                        -
-                          repeat:
-                            template:
-                              SERVICE_node_names: SERVICE_network
-                            for_each:
-                              SERVICE: {get_attr: [EnabledServicesValue, value]}
-                  - values: {get_param: ServiceNetMap}
-        - values: {get_param: NetworkHostnameMap}
-  short_service_hostnames:
-    description: >
-      Map of enabled services to a list of hostnames where they're running regardless of the network
-    value:
-      yaql:
-        # If ServiceHostnameList is empty the role is deployed with zero nodes
-        # therefore we don't want to add any *_node_names to the map
-        expression: dict($.data.map.items().where(len($[1]) > 0))
-        data:
-          map:
-            map_merge:
-              repeat:
-                template:
-                  SERVICE_short_node_names: {get_param: ServiceHostnameList}
-                for_each:
-                    SERVICE: {get_attr: [EnabledServicesValue, value]}
-  short_service_bootstrap_hostnames:
-    description: >
-      Map of enabled services to a list of hostnames where they're running regardless of the network
-      Used for bootstrap purposes
-    value:
-      yaql:
-        # If ServiceHostnameList is empty the role is deployed with zero nodes
-        # therefore we don't want to add any *_node_names to the map
-        expression: dict($.data.map.items().where(len($[1]) > 0))
-        data:
-          map:
-            map_merge:
-              repeat:
-                template:
-                  SERVICE_short_bootstrap_node_name: {get_param: ServiceHostnameList}
-                for_each:
-                    SERVICE: {get_attr: [EnabledServicesValue, value]}
-  service_bootstrap_ips:
-    description: >
-      Map of enabled services to a list of their IP addresses
-      Used for bootstrap purposes
-    value:
-      yaql:
-        # This filters any entries where the value hasn't been substituted for
-        # a list, e.g it's still $service_network.  This happens when there is
-        # no network defined for the service in the ServiceNetMap, which is OK
-        # as not all services have to be bound to a network, so we filter them
-        expression: dict($.data.map.items().where(not isString($[1])))
-        data:
-          map:
-            map_replace:
-              - map_replace:
-                  - map_merge:
-                      repeat:
-                        template:
-                          SERVICE_bootstrap_node_ip: SERVICE_network
-                        for_each:
-                          SERVICE: {get_attr: [EnabledServicesValue, value]}
-                  - values: {get_param: ServiceNetMap}
-              - values: {get_attr: [NetIpMapValue, value]}

@@ -14,20 +14,6 @@ parameters:
     type: string
   enabled_services:
     type: comma_delimited_list
-  controller_ips:
-    type: comma_delimited_list
-  service_ips:
-    type: json
-  service_node_names:
-    type: json
-  short_service_node_names:
-    type: json
-  short_service_bootstrap_node:
-    type: json
-  service_bootstrap_node_ip:
-    type: json
-  controller_names:
-    type: comma_delimited_list
   NetVipMap:
     type: json
   RedisVirtualIP:
@@ -35,33 +21,6 @@ parameters:
     default: ''
   ServiceNetMap:
     type: json
-  DeployIdentifier:
-    type: string
-    default: ''
-    description: >
-      Setting this to a unique value will re-run any deployment tasks which
-      perform configuration on a Heat stack-update.
-  UpdateIdentifier:
-    type: string
-    default: ''
-    description: >
-      Setting to a previously unused value during stack-update will trigger
-      package update on all nodes
-  StackAction:
-    type: string
-    description: >
-      Heat action on performed top-level stack.  Note StackUpdateType is
-      set to UPGRADE when a major-version upgrade is in progress.
-    constraints:
-    - allowed_values: ['CREATE', 'UPDATE']
-  StackUpdateType:
-    type: string
-    description: >
-      Type of update, to differentiate between UPGRADE and UPDATE cases
-      when StackAction is UPDATE (both are the same stack action).
-    constraints:
-    - allowed_values: ['', 'UPGRADE', 'FASTFORWARDUPGRADE']
-    default: ''
   EnableInternalTLS:
     type: boolean
     default: false
@@ -76,91 +35,15 @@ parameters:
     description: The name of the {{network.name_lower}} network.
     type: string
 {%- endfor %}
-  ContainerCli:
-    type: string
-    default: 'podman'
-    description: CLI tool used to manage containers.
-    constraints:
-      - allowed_values: ['docker', 'podman']
 
 resources:
-
-  allNodesConfigValue:
-    type: OS::Heat::Value
-    properties:
-      value:
-        yaql:
-          expression: $.data.all_nodes_extra_map_data.mergeWith($.data.all_nodes)
-          data:
-            all_nodes_extra_map_data: {get_param: AllNodesExtraMapData}
-            all_nodes:
-              map_merge:
-                - enabled_services:
-                    yaql:
-                      expression: $.data.distinct()
-                      data: {get_param: enabled_services}
-                # This writes out a mapping of service_name_enabled: 'true'
-                # For any services not enabled, hiera foo_enabled will
-                # return nil, as it's undefined
-                - map_merge:
-                    repeat:
-                      template:
-                        # Note this must be string 'true' due to
-                        # https://bugs.launchpad.net/heat/+bug/1617203
-                        SERVICE_enabled: 'true'
-                      for_each:
-                        SERVICE: {get_param: enabled_services}
-                # Dynamically generate per-service network data
-                # This works as follows (outer->inner functions)
-                # yaql - filters services where no mapping exists in ServiceNetMap
-                #   map_replace: substitute e.g heat_api_network with network name from ServiceNetMap
-                #     map_merge/repeat: generate a per-service mapping
-                - yaql:
-                    # This filters any entries where the value hasn't been substituted for
-                    # a list, e.g it's still $service_network.  This happens when there is
-                    # no network defined for the service in the ServiceNetMap, which is OK
-                    # as not all services have to be bound to a network, so we filter them
-                    expression: dict($.data.map.items().where(isString($[1]) and not $[1].endsWith("_network")))
-                    data:
-                      map:
-                        map_replace:
-                          - map_merge:
-                              repeat:
-                                template:
-                                  SERVICE_network: SERVICE_network
-                                for_each:
-                                  SERVICE: {get_param: enabled_services}
-                          - values: {get_param: ServiceNetMap}
-                # Keystone doesn't provide separate entries for the public
-                # and admin endpoints, so we need to add them here manually
-                # like we do in the vip-config below
-                - keystone_admin_api_network: {get_param: [ServiceNetMap, keystone_admin_api_network]}
-                  keystone_public_api_network: {get_param: [ServiceNetMap, keystone_public_api_network]}
-                # provides a mapping of service_name_ips to a list of IPs
-                - {get_param: service_ips}
-                - {get_param: service_node_names}
-                - {get_param: short_service_node_names}
-                - {get_param: short_service_bootstrap_node}
-                - {get_param: service_bootstrap_node_ip}
-                - controller_node_ips:
-                    list_join:
-                    - ','
-                    - {get_param: controller_ips}
-                  controller_node_names:
-                    list_join:
-                    - ','
-                    - {get_param: controller_names}
-                  deploy_identifier: {get_param: DeployIdentifier}
-                  stack_action: {get_param: StackAction}
-                  stack_update_type: {get_param: StackUpdateType}
-                  container_cli: {get_param: ContainerCli}
 
   allNodesConfigDatafiles:
     type: OS::Heat::Value
     properties:
       value:
         datafiles:
-          all_nodes: {get_attr: [allNodesConfigValue, value]}
+          all_nodes_extra_map_data: {get_parm: AllNodesExtraMapData}
           vip_data:
             map_merge:
               # Dynamically generate per-service VIP data based on enabled_services
@@ -248,9 +131,6 @@ outputs:
     description: The ID of the allNodesConfigImpl resource.
     value:
       {get_resource: allNodesConfigImpl}
-  all_nodes_config:
-    description: The all_nodes hieradata config
-    value: {get_attr: [allNodesConfigValue, value]}
   all_nodes_config_hieradata:
     description: The all_nodes config in the full format with datafiles section.
     value: {get_attr: [allNodesConfigDatafiles, value]}
