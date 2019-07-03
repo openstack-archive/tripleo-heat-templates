@@ -122,9 +122,6 @@ parameters:
   {{role.name}}DeploymentHierarchy:
     type: json
     default: {}
-  {{role.name}}PerHostHieradata:
-    type: json
-    default: {}
   {{role.name}}HieradataVars:
     type: json
     default: {}
@@ -202,6 +199,12 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  CloudDomain:
+    default: 'localdomain'
+    type: string
+    description: >
+      The DNS domain used for the hosts. This must match the
+      overcloud_domain_name configured on the undercloud.
 
 conditions:
 {% for role in enabled_roles %}
@@ -367,6 +370,7 @@ outputs:
 {%- endfor %}
         cloud_names: {get_param: CloudNames}
         enable_internal_tls: {get_param: EnableInternalTLS}
+        cloud_domain: {get_param: CloudDomain}
       common_deploy_steps_tasks: {get_file: deploy-steps-tasks.yaml}
       docker_puppet_script: {get_file: ./container-puppet.py}
       all_nodes_validation_script.sh : {get_file: ../validation-scripts/all-nodes.sh}
@@ -506,16 +510,6 @@ outputs:
                     hieradata_variable_end_string: $$
                     hieradata_files: "{{ '{{' }} lookup('file', '{{role.name}}/deployment-hierarchy.yaml') {{ '}}' }}"
                   when: tripleo_role_name == '{{role.name}}'
-                - name: Per-host hieradata
-                  include_role:
-                    name: tripleo-hieradata
-                  vars:
-                    hieradata_template: "{{role.name}}/per-host-hieradata.j2.yaml"
-                    hieradata_per_host: True
-                    hieradata_variable_start_string: $$
-                    hieradata_variable_end_string: $$
-                    hieradata_files: "{{ '{{' }} lookup('file', '{{role.name}}/deployment-hierarchy.yaml') {{ '}}' }}"
-                  when: tripleo_role_name == '{{role.name}}'
 {%- endfor %}
               tags:
                 - overcloud
@@ -538,6 +532,8 @@ outputs:
                       - all_nodes
                       - vip_data
                       - net_ip_map
+                      - cloud_domain
+                      - fqdn
                   when: tripleo_role_name == '{{role.name}}'
               tags:
                 - overcloud
@@ -804,7 +800,6 @@ outputs:
 {%- for role in roles %}
       {{role.name}}/deployment-hieradata.j2.yaml: {get_param: {{role.name}}DeploymentHieradata}
       {{role.name}}/deployment-hierarchy.yaml: {get_param: {{role.name}}DeploymentHierarchy}
-      {{role.name}}/per-host-hieradata.j2.yaml: {get_param: {{role.name}}PerHostHieradata}
       {{role.name}}/hieradata_vars: {get_param: {{role.name}}HieradataVars}
 {%- endfor %}
       update_steps_tasks: |
