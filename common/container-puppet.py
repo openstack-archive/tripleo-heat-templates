@@ -436,6 +436,9 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
                 '--volume', '%s:/var/lib/config-data/:rw' % config_volume_prefix,
+                # facter caching
+                '--volume', '/var/lib/container-puppet/puppetlabs/facter.conf:/etc/puppetlabs/facter/facter.conf:ro',
+                '--volume', '/var/lib/container-puppet/puppetlabs/:/opt/puppetlabs/:ro',
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw']
         if privileged:
