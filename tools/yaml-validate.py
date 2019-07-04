@@ -244,8 +244,6 @@ VALIDATE_DOCKER_OVERRIDE = {
 DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::SoftwareDeploymentGroup',
     'OS::Heat::StructuredDeploymentGroup',
-    'OS::Heat::StructuredDeployments',
-    'OS::Heat::SoftwareDeployments',
     'OS::Heat::SoftwareDeployment',
     'OS::Heat::StructuredDeployment',
     'OS::TripleO::SoftwareDeployment'
