@@ -104,14 +104,6 @@ def _configure_workbooks_and_workflows(mistral):
     print('INFO: Undercloud post - Mistral workbooks configured successfully.')
 
 
-def _create_logging_cron(mistral):
-    mistral.cron_triggers.create(
-        'publish-ui-logs-hourly',
-        'tripleo.plan_management.v1.publish_ui_logs_to_swift',
-        pattern='0 * * * *')
-    print('INFO: Undercloud post - Cron triggers configured successfully.')
-
-
 def _store_passwords_in_mistral_env(mistral):
     """ Store required passwords in a mistral environment """
     env_name = 'tripleo.undercloud-config'
@@ -180,7 +172,6 @@ try:
         mistral = mistralclient.client(mistral_url=sdk.workflow.get_endpoint(),
                                        session=sdk.session)
         _configure_workbooks_and_workflows(mistral)
-        _create_logging_cron(mistral)
         _store_passwords_in_mistral_env(mistral)
         _create_default_plan(mistral)
         if tripleo_validations_enabled:
