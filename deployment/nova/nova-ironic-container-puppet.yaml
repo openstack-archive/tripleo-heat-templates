@@ -40,6 +40,21 @@ parameters:
     description: The password for the Ironic service and db account, used by the Ironic services
     type: string
     hidden: true
+  NovaNfsEnabled:
+    default: false
+    description: Whether to enable or not the NFS backend for Nova
+    type: boolean
+    tags:
+      - role_specific
+
+conditions:
+
+  nova_nfs_enabled:
+    or:
+      - and:
+        - equals: [{get_param: NovaNfsEnabled}, true]
+        - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
+      - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
 
 resources:
 
@@ -124,8 +139,16 @@ outputs:
             privileged: false
             detach: false
             volumes:
-              - /var/lib/nova:/var/lib/nova:shared,z
-              - /var/lib/container-config-scripts/:/container-config-scripts/
+              list_concat:
+                # podman fails to relable if nova_nfs_enabled where we have
+                # the nfs share mounted to /var/lib/nova/instances
+                -
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
+                -
+                  - /var/lib/container-config-scripts/:/container-config-scripts/
             command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_statedir_ownership.py"
         step_4:
           nova_compute:
@@ -146,8 +169,14 @@ outputs:
                   - /run:/run
                   - /dev:/dev
                   - /var/lib/iscsi:/var/lib/iscsi:z
-                  - /var/lib/nova/:/var/lib/nova:shared,z
                   - /var/log/containers/nova:/var/log/nova:z
+                -
+                  # podman fails to relable if nova_nfs_enabled where we have
+                  # the nfs share mounted to /var/lib/nova/instances
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
             environment:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           nova_wait_for_compute_service:
