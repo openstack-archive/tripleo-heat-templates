@@ -433,6 +433,13 @@ conditions:
 
   is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
 
+  nova_nfs_enabled:
+    or:
+      - and:
+        - equals: [{get_param: NovaNfsEnabled}, true]
+        - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
+      - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
+
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
@@ -599,8 +606,16 @@ outputs:
             privileged: false
             detach: false
             volumes:
-              - /var/lib/nova:/var/lib/nova:shared,z
-              - /var/lib/container-config-scripts/:/container-config-scripts/:z
+              list_concat:
+                # podman fails to relable if nova_nfs_enabled where we have
+                # the nfs share mounted to /var/lib/nova/instances
+                -
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
+                -
+                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
             command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_statedir_ownership.py"
             environment:
               # NOTE: this should force this container to re-run on each
@@ -663,10 +678,16 @@ outputs:
                       - /lib/modules:/lib/modules:ro
                       - /run:/run
                       - /var/lib/iscsi:/var/lib/iscsi:z
-                      - /var/lib/nova:/var/lib/nova:shared,z
                       - /var/lib/libvirt:/var/lib/libvirt:shared,z
                       - /sys/class/net:/sys/class/net
                       - /sys/bus/pci:/sys/bus/pci
+                    -
+                      # podman fails to relable if nova_nfs_enabled where we have
+                      # the nfs share mounted to /var/lib/nova/instances
+                      if:
+                      - nova_nfs_enabled
+                      - - /var/lib/nova:/var/lib/nova:shared
+                      - - /var/lib/nova:/var/lib/nova:shared,z
                     -
                       if:
                       - {equals: [{get_param: MultipathdEnable}, true]}
