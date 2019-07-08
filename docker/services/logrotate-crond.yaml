@@ -54,6 +54,28 @@ parameters:
     description: Enforces life time (days) of rotated and compressed files.
     type: string
     default: '14'
+  LogrotateDateExt:
+    description: Enable/disable dateext parameter.
+    type: boolean
+    default: false
+  LogrotateDateFormat:
+    description: Configures dateformat strings for containerized logrotate.
+                 This is valid when LogrotateDateExt is true.
+                 The allowed specifiers are only %Y %m %d %H %M %S %V and %s.
+    type: string
+    default: '-%Y%m%d'
+    constraints:
+      - allowed_pattern: '-(%[YmdHMSVs])+$'
+  LogrotateDateYesterday:
+    description: Configures dateyesterday paramter for containerized logrotate.
+                 This is valid when LogrotateDateExt is true.
+    type: boolean
+    default: false
+
+conditions:
+
+  logrotatedateext_is_enabled: {equals: [{get_param: LogrotateDateExt}, true]}
+
 
 resources:
 
@@ -66,17 +88,23 @@ outputs:
     value:
       service_name: logrotate_crond
       config_settings:
-        tripleo::profile::base::logging::logrotate::maxsize: {get_param: LogrotateMaxsize}
-        tripleo::profile::base::logging::logrotate::rotation: {get_param: LogrotateRotationInterval}
-        tripleo::profile::base::logging::logrotate::rotate: {get_param: LogrotateRotate}
-        tripleo::profile::base::logging::logrotate::purge_after_days: {get_param: LogrotatePurgeAfterDays}
+        map_merge:
+          - tripleo::profile::base::logging::logrotate::maxsize: {get_param: LogrotateMaxsize}
+            tripleo::profile::base::logging::logrotate::rotation: {get_param: LogrotateRotationInterval}
+            tripleo::profile::base::logging::logrotate::rotate: {get_param: LogrotateRotate}
+            tripleo::profile::base::logging::logrotate::purge_after_days: {get_param: LogrotatePurgeAfterDays}
+            tripleo::profile::base::logging::logrotate::dateext: {get_param: LogrotateDateExt}
+          - if:
+            - logrotatedateext_is_enabled
+            - tripleo::profile::base::logging::logrotate::dateformat: {get_param: LogrotateDateFormat}
+              tripleo::profile::base::logging::logrotate::dateyesterday: {get_param: LogrotateDateYesterday}
+            - {}
       host_prep_tasks:
         - name: allow logrotate to read inside containers
           seboolean:
             name: logrotate_read_inside_containers
             persistent: yes
             state: yes
-
         - name: configure tmpwatch on the host
           copy:
             dest: /etc/cron.daily/containers-tmpwatch
