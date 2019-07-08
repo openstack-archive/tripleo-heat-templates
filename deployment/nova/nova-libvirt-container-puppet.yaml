@@ -206,6 +206,12 @@ parameters:
     description: The password for the libvirt service when TLS is enabled
     type: string
     hidden: true
+  NovaNfsEnabled:
+    default: false
+    description: Whether to enable or not the NFS backend for Nova
+    type: boolean
+    tags:
+      - role_specific
 
 conditions:
 
@@ -286,6 +292,13 @@ conditions:
     equals:
       - {get_param: ContainerCli}
       - 'docker'
+
+  nova_nfs_enabled:
+    or:
+      - and:
+        - equals: [{get_param: NovaNfsEnabled}, true]
+        - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
+      - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
 
 resources:
   RoleParametersValue:
@@ -629,11 +642,17 @@ outputs:
                   - /dev:/dev
                   - /run:/run
                   - /sys/fs/cgroup:/sys/fs/cgroup
-                  - /var/lib/nova:/var/lib/nova:shared,z
                   - /var/run/libvirt:/var/run/libvirt:shared,z
                   - /var/lib/libvirt:/var/lib/libvirt
                   - /etc/libvirt/qemu:/etc/libvirt/qemu:ro
                   - /var/log/libvirt/qemu:/var/log/libvirt/qemu
+                # podman fails to relable if nova_nfs_enabled where we have
+                # the nfs share mounted to /var/lib/nova/instances
+                -
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
           nova_libvirt:
@@ -660,13 +679,19 @@ outputs:
                   - /dev:/dev
                   - /run:/run
                   - /sys/fs/cgroup:/sys/fs/cgroup
-                  - /var/lib/nova:/var/lib/nova:shared,z
                   - /etc/libvirt:/etc/libvirt
                   - /var/run/libvirt:/var/run/libvirt:shared,z
                   - /var/lib/libvirt:/var/lib/libvirt:shared,z
                   - /var/log/containers/libvirt:/var/log/libvirt:z
                   - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
                   - /var/lib/vhost_sockets:/var/lib/vhost_sockets:z
+                # podman fails to relable if nova_nfs_enabled where we have
+                # the nfs share mounted to /var/lib/nova/instances
+                -
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
                 -
                   if:
                     - docker_enabled
