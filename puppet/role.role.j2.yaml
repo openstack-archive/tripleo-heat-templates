@@ -257,11 +257,6 @@ parameters:
       Unless the default is changed, the parameter is automatically resolved
       from the subnet host_routes attribute.
     type: json
-  EC2MetadataIp:
-    default: ''
-    description: The IP address of the EC2 metadata server. (The parameter
-      is automatically resolved from the ctlplane subnet's host_routes attribute.)
-    type: string
   DnsServers: # Override this via parameter_defaults
     default: []
     description: >
@@ -395,9 +390,6 @@ conditions:
   ctlplane_static_routes_set:
     not:
         equals: [{get_param: ControlPlaneStaticRoutes}, []]
-  ec2metadaip_set:
-    not:
-      equals: [{get_param: EC2MetadataIp}, '']
   dnsservers_set:
     not:
       equals: [{get_param: DnsServers}, []]
@@ -539,15 +531,6 @@ resources:
         yaql:
           expression: switch(isInteger($.data) => $.data, true => 1500)
           data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, network, mtu]}
-      EC2MetadataIp:
-        if:
-          - ec2metadaip_set
-          - {get_param: EC2MetadataIp}
-          - yaql:
-              # NOTE(hjensas): DeployedServer sets the EC2MetadataIp in DeployedServerEnvironment.
-              # Return an empty string if there are no host_routes in the subnet. (Standalone and Container Undercloud)
-              expression: switch($.data = null => '', $.data != null => $.data.where($.destination = "169.254.169.254/32").nexthop.first())
-              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, host_routes]}
       DnsServers:
         if:
           - dnsservers_set
