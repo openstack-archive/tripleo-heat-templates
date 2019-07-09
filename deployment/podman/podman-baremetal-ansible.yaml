@@ -53,9 +53,16 @@ parameters:
           username: pa55word
         '192.0.2.1:8787':
           registry_username: password
+  SystemdDropInDependencies:
+    default: true
+    description: tell the container manager (e.g. paunch) to inject
+                 additional ordering dependencies for the systemd
+                 scopes associated to podman containers.
+    type: boolean
 
 conditions:
   insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
+  systemd_drop_in_dependencies_enabled: {get_param: SystemdDropInDependencies}
 
 outputs:
   role_data:
@@ -115,6 +122,21 @@ outputs:
             when:
               - container_registry_login | bool
               - container_registry_logins
+        - if:
+          - systemd_drop_in_dependencies_enabled
+          - - name: Configure paunch to generate systemd drop-in dependencies
+              copy:
+                dest: /etc/sysconfig/podman_drop_in
+                content: |
+                  This file makes paunch generate additional systemd
+                  dependencies for containers that have special
+                  start/stop ordering constraints. It ensures that
+                  those constraints are enforced on reboot/shutdown.
+          - - name: Configure paunch to not generate drop-in dependencies
+              file:
+                path: /etc/sysconfig/podman_drop_in
+                state: absent
+
       service_config_settings: {}
       upgrade_tasks:
         - block:
