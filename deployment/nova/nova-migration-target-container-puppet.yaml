@@ -54,6 +54,12 @@ parameters:
     default: 2022
     description: Target port for migration over ssh
     type: number
+  NovaNfsEnabled:
+    default: false
+    description: Whether to enable or not the NFS backend for Nova
+    type: boolean
+    tags:
+      - role_specific
 
 resources:
 
@@ -68,6 +74,14 @@ resources:
       DefaultPasswords: {get_param: DefaultPasswords}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+conditions:
+  nova_nfs_enabled:
+    or:
+      - and:
+        - equals: [{get_param: NovaNfsEnabled}, true]
+        - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
+      - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
 
 outputs:
   role_data:
@@ -148,7 +162,13 @@ outputs:
                   - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
                   - /etc/ssh/:/host-ssh/:ro
                   - /run/libvirt:/run/libvirt
-                  - /var/lib/nova:/var/lib/nova:shared
+                # podman fails to relable if nova_nfs_enabled where we have
+                # the nfs share mounted to /var/lib/nova/instances
+                -
+                  if:
+                  - nova_nfs_enabled
+                  - - /var/lib/nova:/var/lib/nova:shared
+                  - - /var/lib/nova:/var/lib/nova:shared,z
             environment:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       post_upgrade_tasks:
