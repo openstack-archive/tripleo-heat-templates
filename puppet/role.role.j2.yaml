@@ -697,38 +697,6 @@ resources:
           - ['CREATE', 'UPDATE']
           - []
 
-  SshHostPubKey:
-    type: OS::TripleO::Ssh::HostPubKey
-    properties:
-        server: {get_resource: {{server_resource_name}}}
-        deployment_actions: {get_attr: [DeploymentActions, value]}
-
-  SshKnownHostsHostnames:
-    type: OS::Heat::Value
-    properties:
-      value:
-        str_replace:
-          template: "[PRIMARYIP]*,[PRIMARYHOST.DOMAIN]*,[PRIMARYHOST]*,\
-    {%- for network in networks %}
-    {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-    [{{network.name}}IP]*,[{{network.name}}HOST.DOMAIN]*,\
-    [{{network.name}}HOST]*,\
-    {%- endif %}
-    {%- endfor %}
-    [CTLPLANEIP]*,[CTLPLANEHOST.DOMAIN]*,[CTLPLANEHOST]*"
-          params:
-            PRIMARYIP: {get_attr: [NetIpMap, net_ip_map, {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}]}
-            DOMAIN: {get_param: CloudDomain}
-            PRIMARYHOST: {get_attr: [{{server_resource_name}}, name]}
-    {%- for network in networks %}
-    {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-            {{network.name}}IP: {get_attr: [{{network.name}}Port, ip_address]}
-            {{network.name}}HOST: {get_attr: [NetHostMap, value, {{network.name_lower|default(network.name.lower())}}, short]}
-    {%- endif %}
-    {%- endfor %}
-            CTLPLANEIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
-            CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
-
   {{server_resource_name}}AnsibleHostVars:
     type: OS::Heat::Value
     properties:
@@ -817,20 +785,6 @@ outputs:
   {%- endfor %}
           CTLPLANEIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
           CTLPLANEHOST: {get_attr: [NetHostMap, value, ctlplane, short]}
-  known_hosts_entry:
-    description: Entry for ssh known hosts
-    value:
-      list_join:
-        - ' '
-        - - {get_attr: [SshKnownHostsHostnames, value]}
-          - {get_attr: [SshHostPubKey, ecdsa]}
-  known_hosts_hostnames:
-    description: Mapping of server name to hostnames portion of ssh known hosts entry
-    value:
-      map_replace:
-        - name: {get_attr: [SshKnownHostsHostnames, value]}
-        - keys:
-            name: {get_attr: [{{server_resource_name}}, name]}
   nova_server_resource:
     description: Heat resource handle for {{role.name}} server
     value:
@@ -869,6 +823,12 @@ outputs:
       neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
       neutron_public_interface_name: {get_param: NeutronPublicInterface}
       network_deployment_actions: {get_attr: [NetworkDeploymentActionsValue, value]}
+      role_networks:
+  {%- for network in networks %}
+  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+        - {{network.name}}
+  {%- endif %}
+  {%- endfor %}
   {%- for network in networks %}
   {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
   {{network.name}}_cidr:
