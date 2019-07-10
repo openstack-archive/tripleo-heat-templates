@@ -30,6 +30,8 @@ import multiprocessing
 
 from paunch import runner as containers_runner
 
+PUPPETS = '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'
+
 logger = None
 sh_script = '/var/lib/container-puppet/container-puppet.sh'
 container_cli = os.environ.get('CONTAINER_CLI', 'podman')
@@ -66,7 +68,7 @@ if not os.path.exists(config_volume_prefix):
     os.makedirs(config_volume_prefix)
 
 if container_cli == 'docker':
-    cli_dcmd = ['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
+    cli_dcmd = ['--volume', PUPPETS]
     env = {}
     RUNNER = containers_runner.DockerRunner(
         'container-puppet', cont_cmd='docker', log=log)
@@ -74,7 +76,7 @@ elif container_cli == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
     cli_dcmd = ['--security-opt', 'label=disable',
-                '--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro']
+                '--volume', PUPPETS]
     # podman need to find dependent binaries that are in environment
     env = {'PATH': os.environ['PATH']}
     RUNNER = containers_runner.PodmanRunner(
@@ -87,8 +89,9 @@ else:
 # NOTE: we require this to support the tarball extracted (Deployment archive)
 # puppet modules but our containers now also include puppet-tripleo so we
 # could use either
-if os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true':
-    cli_dcmd.extend(['--volume', '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'])
+if (os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true' and
+   PUPPETS not in cli_dcmd):
+    cli_dcmd.extend(['--volume', PUPPETS])
 
 # this is to match what we do in deployed-server
 def short_hostname():
@@ -453,6 +456,9 @@ def mp_puppet_config(*args):
             log.debug('NET_HOST enabled')
             dcmd.extend(['--net', 'host', '--volume',
                          '/etc/hosts:/etc/hosts:ro'])
+        else:
+            log.debug('running without containers Networking')
+            dcmd.extend(['--net', 'none'])
 
         # script injection as the last mount to make sure it's accessible
         # https://github.com/containers/libpod/issues/1844
