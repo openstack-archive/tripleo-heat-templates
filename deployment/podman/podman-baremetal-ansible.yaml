@@ -67,14 +67,23 @@ outputs:
       host_prep_tasks:
         - name: Install and configure Podman
           block: &install_and_configure_podman
-          - set_fact:
+          - name: Set login facts
+            set_fact:
               container_registry_insecure_registries:
                 if:
                   - insecure_registry_is_empty
                   - []
                   - {get_param: DockerInsecureRegistryAddress}
               container_registry_login: {get_param: ContainerImageRegistryLogin}
-              container_registry_logins: {get_param: ContainerImageRegistryCredentials}
+              # default that is overwritten by the heat -> dict conversion
+              container_registry_logins: {}
+              container_registry_logins_json: {get_param: ContainerImageRegistryCredentials}
+          - name: Convert logins json to dict
+            set_fact:
+              container_registry_logins: "{{ container_registry_logins_json | from_json }}"
+            when:
+              - container_registry_login | bool
+              - (container_registry_logins_json | length) > 0
           - name: ensure podman and deps are installed
             package:
               name: podman
@@ -101,10 +110,10 @@ outputs:
               REGISTRY_USERNAME: "{{ lookup('dict', item.value).key }}"
               REGISTRY_PASSWORD: "{{ lookup('dict', item.value).value }}"
               REGISTRY: "{{ item.key }}"
-            loop: "{{ lookup('dict', container_registry_logins) }}"
+            loop: "{{ query('dict', container_registry_logins) }}"
             when:
               - container_registry_login | bool
-              - container_registry_logins | length > 0
+              - container_registry_logins
       service_config_settings: {}
       upgrade_tasks:
         - block:
