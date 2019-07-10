@@ -36,6 +36,23 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  ContainerImageRegistryLogin:
+    type: boolean
+    default: false
+    description: Flag to enable container registry login actions during the deployment.
+                 Setting this to true will cause login calls to be performed during the
+                 deployment.
+  ContainerImageRegistryCredentials:
+    type: json
+    hidden: true
+    default: {}
+    description: |
+      Mapping of image registry hosts to login credentials. Must be in the following example format
+
+        docker.io:
+          username: pa55word
+        '192.0.2.1:8787':
+          registry_username: password
 
 conditions:
   insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
@@ -50,12 +67,24 @@ outputs:
       host_prep_tasks:
         - name: Install and configure Podman
           block: &install_and_configure_podman
-          - set_fact:
+          - name: Set login facts
+            set_fact:
               container_registry_insecure_registries:
                 if:
                   - insecure_registry_is_empty
                   - []
                   - {get_param: DockerInsecureRegistryAddress}
+              container_registry_login: {get_param: ContainerImageRegistryLogin}
+              # default that is overwritten by the heat -> dict conversion
+              container_registry_logins: {}
+              container_registry_logins_json: {get_param: ContainerImageRegistryCredentials}
+          - name: Convert logins json to dict
+            set_fact:
+              container_registry_logins: "{{ container_registry_logins_json | from_json }}"
+            when:
+              - container_registry_login | bool
+              - container_registry_logins_json | length) > 0
+
           - name: ensure podman and deps are installed
             package:
               name: podman
@@ -76,6 +105,16 @@ outputs:
               option: registries
               value: "{{ container_registry_insecure_registries }}"
             when: container_registry_insecure_registries | length > 0
+          - name: Perform container registry login(s)
+            shell: podman login --username=$REGISTRY_USERNAME --password=$REGISTRY_PASSWORD $REGISTRY
+            environment:
+              REGISTRY_USERNAME: "{{ lookup('dict', item.value).key }}"
+              REGISTRY_PASSWORD: "{{ lookup('dict', item.value).value }}"
+              REGISTRY: "{{ item.key }}"
+            loop: "{{ query('dict', container_registry_logins) }}"
+            when:
+              - container_registry_login | bool
+              - container_registry_logins
       service_config_settings: {}
       upgrade_tasks:
         - block:
