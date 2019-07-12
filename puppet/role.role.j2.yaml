@@ -710,6 +710,31 @@ resources:
         fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
         fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
 
+  {{server_resource_name}}GroupVars:
+    type: OS::Heat::Value
+    properties:
+      value:
+        bootstrap_nodeid: {get_attr: [{{server_resource_name}}, name]}
+        ctlplane_subnet_cidr:
+          if:
+            - ctlplane_subnet_cidr_set
+            - {get_param: ControlPlaneSubnetCidr}
+            - yaql:
+                expression: str("{0}".format($.data).split("/")[-1])
+                data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
+        network_cidrs:
+        {%- for network in networks %}
+        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+          {{network.name}}_cidr: {get_attr: [{{network.name}}Port, cidr]}
+        {%- endif %}
+        {%- endfor %}
+        role_networks:
+        {%- for network in networks %}
+        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+          - {{network.name}}
+        {% endif %}
+        {% endfor %}
+
 
 outputs:
   ansible_host_vars_map:
@@ -818,17 +843,19 @@ outputs:
   {%- endfor %}
   role_group_vars:
     value:
-      any_errors_fatal: {get_param: {{role.name}}AnyErrorsFatal}
-      max_fail_percentage: {get_param: {{role.name}}MaxFailPercentage}
-      neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
-      neutron_public_interface_name: {get_param: NeutronPublicInterface}
-      network_deployment_actions: {get_attr: [NetworkDeploymentActionsValue, value]}
-      role_networks:
+      map_merge:
+        - any_errors_fatal: {get_param: {{role.name}}AnyErrorsFatal}
+          max_fail_percentage: {get_param: {{role.name}}MaxFailPercentage}
+          neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
+          neutron_public_interface_name: {get_param: NeutronPublicInterface}
+          network_deployment_actions: {get_attr: [NetworkDeploymentActionsValue, value]}
+          role_networks:
   {%- for network in networks %}
   {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-        - {{network.name}}
+            - {{network.name}}
   {%- endif %}
   {%- endfor %}
+        - {get_attr: [{{server_resource_name}}GroupVars, value]}
   {%- for network in networks %}
   {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
   {{network.name}}_cidr:
