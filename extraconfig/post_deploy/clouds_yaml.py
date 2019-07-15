@@ -1,88 +1,54 @@
 #!/usr/bin/env python
+# Copyright 2018, 2019 Red Hat, Inc.
+# All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 import os
-import yaml
+
+from tripleo_common.utils import clouds_yaml
+from tripleoclient import constants
 
 
-AUTH_URL = os.environ['auth_url']
-ADMIN_PASSWORD = os.environ['admin_password']
-CLOUD_NAME = os.environ['cloud_name']
-HOME_DIR = os.environ['home_dir']
-IDENTITY_API_VERSION = os.environ['identity_api_version']
-PROJECT_NAME = os.environ['project_name']
-PROJECT_DOMAIN_NAME = os.environ['project_domain_name']
-REGION_NAME = os.environ['region_name']
-USER_NAME = os.environ['user_name']
-USER_DOMAIN_NAME = os.environ['user_domain_name']
-
-CONFIG_DIR = os.path.join(HOME_DIR, '.config')
-OS_DIR = os.path.join(CONFIG_DIR, 'openstack')
-USER_CLOUDS_YAML = os.path.join(OS_DIR, 'clouds.yaml')
-GLOBAL_OS_DIR = os.path.join('/etc', 'openstack')
-GLOBAL_CLOUDS_YAML = os.path.join(GLOBAL_OS_DIR, 'clouds.yaml')
-
-CLOUD = {CLOUD_NAME: {'auth': {'auth_url': AUTH_URL,
-                               'project_name': PROJECT_NAME,
-                               'project_domain_name': PROJECT_DOMAIN_NAME,
-                               'username': USER_NAME,
-                               'user_domain_name': USER_DOMAIN_NAME,
-                               'password': ADMIN_PASSWORD},
-                      'region_name': REGION_NAME,
-                      'identity_api_version': IDENTITY_API_VERSION}
-         }
+def _get_cloud_config():
+    cloud_config = {
+        os.environ["cloud_name"]: {
+            "auth": {
+                "auth_url": os.environ["auth_url"],
+                "project_name": os.environ["project_name"],
+                "project_domain_name": os.environ["project_domain_name"],
+                "username": os.environ["user_name"],
+                "user_domain_name": os.environ["user_domain_name"],
+                "password": os.environ["admin_password"],
+            },
+            "region_name": os.environ["region_name"],
+            "identity_api_version": os.environ["identity_api_version"],
+        }
+    }
+    return cloud_config
 
 
-def _create_clouds_yaml(clouds_yaml):
-    with open(clouds_yaml, 'w') as f:
-        yaml.dump({'clouds': {}}, f, default_flow_style=False)
-    os.chmod(clouds_yaml, 0o600)
+if __name__ == "__main__":
+    cloud = _get_cloud_config()
+    home_dir = os.path.join(os.environ["home_dir"])
+    user_id = os.stat(home_dir).st_uid
+    group_id = os.stat(home_dir).st_gid
+    clouds_yaml.create_clouds_yaml(
+        cloud=cloud,
+        cloud_yaml_dir=os.path.join(home_dir, constants.CLOUDS_YAML_DIR),
+        user_id=user_id,
+        group_id=group_id,
+    )
 
-
-def _read_clouds_yaml(clouds_yaml):
-    with open(clouds_yaml, 'r') as f:
-        clouds = yaml.safe_load(f)
-        if 'clouds' not in clouds:
-            clouds.update({'clouds': {}})
-
-    return clouds
-
-
-def _write_clouds_yaml(clouds_yaml, clouds):
-    with open(clouds_yaml, 'w') as f:
-        yaml.dump(clouds, f, default_flow_style=False)
-
-
-try:
-    # Get the uid and gid for the homedir
-    user_id = os.stat(HOME_DIR).st_uid
-    group_id = os.stat(HOME_DIR).st_gid
-
-    if not os.path.isdir(CONFIG_DIR):
-        os.makedirs(CONFIG_DIR)
-        os.chown(CONFIG_DIR, user_id, group_id)
-
-    if not os.path.isdir(OS_DIR):
-        os.makedirs(OS_DIR)
-        os.chown(OS_DIR, user_id, group_id)
-
-    if not os.path.isdir(GLOBAL_OS_DIR):
-        os.makedirs(GLOBAL_OS_DIR)
-
-    if not os.path.isfile(USER_CLOUDS_YAML):
-        _create_clouds_yaml(USER_CLOUDS_YAML)
-
-    if not os.path.isfile(GLOBAL_CLOUDS_YAML):
-        _create_clouds_yaml(GLOBAL_CLOUDS_YAML)
-
-    user_clouds = _read_clouds_yaml(USER_CLOUDS_YAML)
-    global_clouds = _read_clouds_yaml(GLOBAL_CLOUDS_YAML)
-
-    user_clouds['clouds'].update(CLOUD)
-    global_clouds['clouds'].update(CLOUD)
-
-    _write_clouds_yaml(USER_CLOUDS_YAML, user_clouds)
-    _write_clouds_yaml(GLOBAL_CLOUDS_YAML, global_clouds)
-
-    os.chown(USER_CLOUDS_YAML, user_id, group_id)
-except Exception:
-    print('ERROR: Create clouds.yaml failed.')
-    raise
+    # Generate clouds.yaml globally
+    clouds_yaml.create_clouds_yaml(cloud=cloud)
