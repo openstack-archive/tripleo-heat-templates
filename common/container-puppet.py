@@ -268,7 +268,8 @@ if not os.path.exists(sh_script):
     with open(sh_script, 'w') as script_file:
         os.chmod(script_file.name, 0o755)
         script_file.write("""#!/bin/bash
-        set -ex
+        set -e
+        [ "$DEBUG" = "false" ] || set -x
         mkdir -p /etc/puppet
         cp -dR /tmp/puppet-etc/* /etc/puppet
         rm -Rf /etc/puppet/ssl # not in use and causes permission errors
@@ -300,6 +301,9 @@ if not os.path.exists(sh_script):
         # $::deployment_type in puppet-tripleo
         export FACTER_deployment_type=containers
         export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lower:]')
+        echo 'Running puppet'
+        # FIXME(bogdando): stdout may be falling behind of the logged syslog messages
+        set -x
         /usr/bin/puppet apply --summarize \
                 --detailed-exitcodes \
                 --color=false \
@@ -309,10 +313,14 @@ if not os.path.exists(sh_script):
                 /etc/config.pp \
                 2>&1 | logger -s -t puppet-user
         rc=${PIPESTATUS[0]}
+        [ "$DEBUG" = "false" ] && set +x
         set -e
         if [ $rc -ne 2 -a $rc -ne 0 ]; then
             exit $rc
         fi
+
+        verbosity=""
+        [ "$DEBUG" = "false" ] || verbosity="-v"
 
         # Disables archiving
         if [ -z "$NO_ARCHIVE" ]; then
@@ -339,16 +347,23 @@ if not os.path.exists(sh_script):
                     exclude_files+=" --exclude=$p"
                 fi
             done
-            rsync -a -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
+            echo "Rsyncing config files from ${rsync_srcs} into /var/lib/config-data/${NAME}"
+            rsync -a $verbosity -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
 
 
             # Also make a copy of files modified during puppet run
             # This is useful for debugging
             echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
             mkdir -p /var/lib/config-data/puppet-generated/${NAME}
-            rsync -a -R -0 --delay-updates --delete-after $exclude_files \
-                          --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
-                          / /var/lib/config-data/puppet-generated/${NAME}
+            exec 5>&1
+            exec 1>/tmp/files_from
+            find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0
+            exec 1>&5
+            echo "Files modified during puppet run:"
+            cat /tmp/files_from | sort | xargs -0 printf "%s\n"
+            echo "Rsyncing the modified files into /var/lib/config-data/puppet-generated/${NAME}"
+            rsync -a $verbosity -R -0 --delay-updates --delete-after $exclude_files \
+                --files-from=/tmp/files_from / /var/lib/config-data/puppet-generated/${NAME}
 
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
@@ -411,6 +426,7 @@ def mp_puppet_config(*args):
                 '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
                 '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
                 '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
+                '--env', 'DEBUG=%s' % os.environ.get('DEBUG', 'false'),
                 '--volume', '/etc/localtime:/etc/localtime:ro',
                 '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
                 '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
