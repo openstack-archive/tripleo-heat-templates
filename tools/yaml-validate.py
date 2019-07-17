@@ -459,8 +459,27 @@ def validate_with_compute_role_services(role_filename, role_tpl, exclude_service
               'ServicesDefault in roles/Compute.yaml'.format(role_filename,
               ', '.join(missing_services)))
         return 1
-    return 0
 
+    cmpt_us = cmpt_tpl[0].get('update_serial', None)
+    tpl_us = role_tpl[0].get('update_serial', None)
+
+    if 'OS::TripleO::Services::CephOSD' in role_services:
+        if tpl_us not in (None, 1):
+            print('ERROR: update_serial in {0} ({1}) '
+                  'is should be 1 as it includes CephOSD'.format(
+                      role_filename,
+                      tpl_us,
+                      cmpt_us))
+            return 1
+    elif cmpt_us is not None and tpl_us != cmpt_us:
+        print('ERROR: update_serial in {0} ({1}) '
+              'does not match roles/Compute.yaml {2}'.format(
+                  role_filename,
+                  tpl_us,
+                  cmpt_us))
+        return 1
+
+    return 0
 
 def validate_multiarch_compute_roles(role_filename, role_tpl):
     errors = 0
