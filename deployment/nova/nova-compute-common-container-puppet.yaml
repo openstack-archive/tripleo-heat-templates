@@ -32,6 +32,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  NovaAdditionalCell:
+    default: false
+    description: Whether this is an cell additional to the default cell.
+    type: boolean
 
 outputs:
   container_config_scripts:
@@ -52,21 +56,28 @@ outputs:
     value: &nova_compute_common_deploy_steps_tasks
       - when: step|int == 5
         block:
-          - name: discover via nova_compute?
+          - name: is additonal Cell?
             set_fact:
-              delegate_host: "{{ groups['nova_compute'][0] }}"
+              nova_additional_cell: {get_param: NovaAdditionalCell}
+          - name: discover nodes if it is not an additional cell
             when:
-              - groups['nova_compute'] is defined and (groups['nova_compute']|length>0)
-          - name: discover via nova_ironic?
-            set_fact:
-              delegate_host: "{{ groups['nova_ironic'][0] }}"
-            when:
-              - delegate_host is not defined
-              - groups['nova_ironic'] is defined and (groups['nova_ironic']|length>0)
-          - name: Discovering nova hosts
-            command: "{{ container_cli }} exec nova_compute nova-manage cell_v2 discover_hosts --by-service"
-            become: true
-            changed_when: False
-            when:
-            - delegate_host is defined
-            - inventory_hostname == delegate_host
+              - not nova_additional_cell|bool
+            block:
+              - name: discover via nova_compute?
+                set_fact:
+                  delegate_host: "{{ groups['nova_compute'][0] }}"
+                when:
+                  - groups['nova_compute'] is defined and (groups['nova_compute']|length>0)
+              - name: discover via nova_ironic?
+                set_fact:
+                  delegate_host: "{{ groups['nova_ironic'][0] }}"
+                when:
+                  - delegate_host is not defined
+                  - groups['nova_ironic'] is defined and (groups['nova_ironic']|length>0)
+              - name: Discovering nova hosts
+                command: "{{ container_cli }} exec nova_compute nova-manage cell_v2 discover_hosts --by-service"
+                become: true
+                changed_when: False
+                when:
+                  - delegate_host is defined
+                  - inventory_hostname == delegate_host
