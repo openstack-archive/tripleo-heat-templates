@@ -283,6 +283,16 @@ with open(sh_script, 'w') as script_file:
                 exclude_files+=" --exclude=$p"
             fi
         done
+
+        # Exclude read-only mounted directories/files which we do not want
+        # to copy or delete.
+        ro_files="/etc/puppetlabs/ /opt/puppetlabs/"
+        for ro in $ro_files; do
+            if [ -e "$ro" ]; then
+                exclude_files+=" --exclude=$ro"
+            fi
+        done
+
         rsync -a -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
 
 
@@ -366,6 +376,9 @@ def mp_puppet_config(*args):
                 '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
                 '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
                 '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
+                # facter caching
+                '--volume', '/var/lib/container-puppet/puppetlabs/facter.conf:/etc/puppetlabs/facter/facter.conf:ro',
+                '--volume', '/var/lib/container-puppet/puppetlabs/:/opt/puppetlabs/:ro',
                 # script injection
                 '--volume', '%s:%s:z' % (sh_script, sh_script) ]
 
