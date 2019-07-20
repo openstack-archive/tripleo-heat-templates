@@ -364,6 +364,7 @@ def validate_hci_role(hci_role_filename, hci_role_tpl):
         for role in hci_role_tpl:
             if role['name'] == 'HciCephAll':
                 hci_role_services = role['ServicesDefault']
+                hci_role_services.remove('OS::TripleO::Services::CephGrafana')
                 hci_role_services.remove('OS::TripleO::Services::CephMds')
                 hci_role_services.remove('OS::TripleO::Services::CephMgr')
                 hci_role_services.remove('OS::TripleO::Services::CephMon')
@@ -399,6 +400,7 @@ def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
         for role in ceph_role_tpl:
             if role['name'] == 'CephAll':
                 ceph_role_services = role['ServicesDefault']
+                ceph_role_services.remove('OS::TripleO::Services::CephGrafana')
                 ceph_role_services.remove('OS::TripleO::Services::CephMds')
                 ceph_role_services.remove('OS::TripleO::Services::CephMgr')
                 ceph_role_services.remove('OS::TripleO::Services::CephMon')
@@ -429,6 +431,7 @@ def validate_controller_no_ceph_role(filename, tpl):
             services.remove('OS::TripleO::Services::CephClient')
             services.append('OS::TripleO::Services::CephMds')
             services.append('OS::TripleO::Services::CephMgr')
+            services.append('OS::TripleO::Services::CephGrafana')
             services.append('OS::TripleO::Services::CephMon')
             services.append('OS::TripleO::Services::CephRbdMirror')
             services.append('OS::TripleO::Services::CephRgw')

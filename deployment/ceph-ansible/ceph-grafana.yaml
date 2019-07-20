@@ -1,0 +1,125 @@
+heat_template_version: rocky
+
+description: >
+  Ceph Grafana service.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CephGrafanaAdminUser:
+    default: 'admin'
+    description: Admin user for grafana component
+    type: string
+  CephGrafanaAdminPassword:
+    description: Admin password for grafana component
+    type: string
+    hidden: true
+  GrafanaPlugins:
+    default: ['vonage-status-panel', 'grafana-piechart-panel']
+    type: comma_delimited_list
+    description: >
+      List of plugins to enable on the grafana container
+  GrafanaContainerImage:
+    description: Grafana container image
+    type: string
+  GrafanaDashboardsPath:
+    default: ''
+    description: ceph dashboards templates built for grafana
+    type: string
+  GrafanaDataSource:
+    default: 'Dashboard'
+    description: Grafana datasource
+    type: string
+  PrometheusContainerImage:
+    description: Ceph Prometheus container image
+    type: string
+  AlertManagerContainerImage:
+    description: Ceph AlertManager container image
+    type: string
+  NodeExporterContainerImage:
+    description: Ceph NodeExporter container image
+    type: string
+
+resources:
+  CephBase:
+    type: ./ceph-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  CephGrafanaAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          grafana_admin_user: {get_param: CephGrafanaAdminUser}
+          grafana_admin_password: {get_param: CephGrafanaAdminPassword}
+          grafana_container_image: {get_param: GrafanaContainerImage}
+          grafana_dashboards_path: {get_param: GrafanaDashboardsPath}
+          grafana_datasource: {get_param: GrafanaDataSource}
+          grafana_plugins: {get_param: GrafanaPlugins}
+          prometheus_container_image: {get_param: PrometheusContainerImage}
+          alertmanager_container_image: {get_param: AlertManagerContainerImage}
+          node_exporter_container_image: {get_param: NodeExporterContainerImage}
+outputs:
+  role_data:
+    description: Role data for the Ceph Dashboard service.
+    value:
+      service_name: ceph_grafana-server
+      upgrade_tasks: []
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_dashboard_external_deploy_init
+            when: step == '1'
+            tags: ceph
+            block:
+              - name: set ceph-ansible group vars
+                set_fact:
+                  ceph_ansible_group_vars_grafana: {get_attr: [CephGrafanaAnsibleVars, value, vars]}
+              - name: generate ceph-ansible grafana-server group vars
+                copy:
+                  dest: "{{playbook_dir}}/ceph-ansible/group_vars/grafana-server.yml"
+                  content: "{{ceph_ansible_group_vars_grafana|to_nice_yaml}}"
+      external_update_tasks: {get_attr: [CephBase, role_data, external_update_tasks]}
+      external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
+      config_settings:
+        map_merge:
+        - tripleo::ceph_dashboard::firewall_rules:
+            '123 ceph_dashboard':
+              dport: [3000,9090,9093,9094,9100]
+        - {}
