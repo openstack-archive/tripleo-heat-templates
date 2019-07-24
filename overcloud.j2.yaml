@@ -123,6 +123,12 @@ parameters:
         Control the IP allocation for the virtual IP used by Redis. E.g.
         [{'ip_address':'1.2.3.4'}]
     type: json
+  OVNDBsVirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the virtual IP used by OVN DBs. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
   CloudDomain:
     default: 'localdomain'
     type: string
@@ -331,6 +337,11 @@ conditions:
     not:
       equals:
         - get_param: RedisVirtualFixedIPs
+        - []
+  ovn_dbs_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: OVNDBsVirtualFixedIPs
         - []
   set_default_mysql_cell_internal:
     or:
@@ -923,6 +934,26 @@ resources:
         - {get_param: RedisVirtualFixedIPs}
         - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, redis]}}]
 
+  OVNDBsVirtualIP:
+    depends_on: [Networks, ServiceNetMap]
+    type: OS::TripleO::Network::Ports::OVNDBsVipPort
+    properties:
+      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
+      ControlPlaneSubnetCidr:
+        if:
+          - ctlplane_subnet_cidr_set
+          - {get_param: ControlPlaneSubnetCidr}
+          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
+      ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
+      PortName: ovn_dbs_virtual_ip
+      NetworkName: {get_attr: [ServiceNetMap, service_net_map, OvnDbsNetwork]}
+      ServiceName: ovn_dbs
+      FixedIPs:
+        if:
+        - ovn_dbs_virtual_fixed_ip_set
+        - {get_param: OVNDBsVirtualFixedIPs}
+        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, ovn_dbs]}}]
+
 {%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
   {%- if network.name == 'External' %}
   # The public VIP is on the External net, falls back to ctlplane
@@ -1077,8 +1108,8 @@ resources:
         map_merge:
           - {get_attr: [VipMap, net_ip_map]}
           - redis: {get_attr: [RedisVirtualIP, ip_address]}
+          - ovn_dbs: {get_attr: [OVNDBsVirtualIP, ip_address]}
       CloudNames: {get_attr: [CloudNames, value]}
-
 
 outputs:
   ManagedEndpoints:
@@ -1159,11 +1190,12 @@ outputs:
       {{role.name}}: {{role.tags|default([])}}
 {%- endfor %}
   VipMap:
-    description: Mapping of each network to VIP addresses. Also includes the Redis VIP.
+    description: Mapping of each network to VIP addresses. Also includes the Redis and OVN DBs VIPs.
     value:
       map_merge:
         - {get_attr: [VipMap, net_ip_map]}
         - redis: {get_attr: [RedisVirtualIP, ip_address]}
+        - ovn_dbs: {get_attr: [OVNDBsVirtualIP, ip_address]}
   ServerIdData:
     description: Mapping of each role to a list of nova server IDs and the bootstrap ID
     value: {get_attr: [ServerIdMap, value]}
