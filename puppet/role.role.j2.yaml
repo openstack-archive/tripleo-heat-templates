@@ -78,24 +78,6 @@ parameters:
     type: json
     default: {}
     description: Optional mapping to override hostnames
-  ExtraConfig:
-    default: {}
-    description: |
-      Additional hiera configuration to inject into the cluster. Note
-      that {{role.name}}ExtraConfig takes precedence over ExtraConfig.
-    type: json
-  {{role.name}}ExtraConfig:
-    default: {}
-    description: |
-      Role specific additional hiera configuration to inject into the cluster.
-    type: json
-{%- if role.deprecated_param_extraconfig is defined %}
-  {{role.deprecated_param_extraconfig}}:
-    default: {}
-    description: |
-      DEPRECATED use {{role.name}}ExtraConfig instead
-    type: json
-{%- endif %}
   {{role.name}}IPs:
     default: {}
     type: json
@@ -156,9 +138,6 @@ parameters:
   NodeIndex:
     type: number
     default: 0
-  ServiceConfigSettings:
-    type: json
-    default: {}
   ServiceNames:
     type: comma_delimited_list
     default: []
@@ -313,7 +292,7 @@ parameter_groups:
   description: Do not use deprecated params, they will be removed.
   parameters:
 {%- for property in role %}
-{%- if property.startswith('deprecated_param_') and not role[property].endswith('SchedulerHints') %}
+{%- if property.startswith('deprecated_param_') and not role[property].endswith(('SchedulerHints', 'ExtraConfig')) %}
   - {{role[property]}}
 {%- endif %}
 {%- endfor %}
@@ -643,22 +622,6 @@ resources:
           - {get_param: {{role.name}}NetworkDeploymentActions}
           - {get_param: NetworkDeploymentActions}
 
-  {{server_resource_name}}ConfigDatafiles:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        datafiles:
-          service_configs: {get_param: ServiceConfigSettings}
-          {{role.name.lower()}}_extraconfig:
-            map_merge:
-              - sensu::subscriptions: {get_param: MonitoringSubscriptions}
-{%- if role.deprecated_param_extraconfig is defined %}
-              - {get_param: {{role.deprecated_param_extraconfig}}}
-{%- endif %}
-              - {get_param: {{role.name}}ExtraConfig}
-          extraconfig: {get_param: ExtraConfig}
-
   # Resource for site-specific injection of root certificate
   NodeTLSCAData:
     depends_on: PreNetworkConfig
@@ -747,9 +710,6 @@ outputs:
         - host: {get_attr: [{{server_resource_name}}AnsibleHostVars, value]}
         - keys:
             host: {get_attr: [{{server_resource_name}}, name]}
-  config_datafiles:
-    description: The config in the full format with datafiles section.
-    value: {get_attr: [{{server_resource_name}}ConfigDatafiles, value]}
   ip_address:
     description: IP address of the server in the ctlplane network
     value: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
