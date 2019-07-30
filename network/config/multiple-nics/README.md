@@ -20,6 +20,14 @@ Or use this Heat environment file:
 
   environments/net-multiple-nics.yaml
 
+Configuration with IPv6 Networks
+--------------------------------
+
+There is no longer a requirement to use controller-v6.yaml for Controller nodes
+when deploying with IPv6. You may now define both an IPv4 network and an IPv6
+network as default routes by adding both networks to the default_route_networks
+list for the Controller role in roles_data.yaml.
+
 Configuration with System Management Network
 --------------------------------------------
 
