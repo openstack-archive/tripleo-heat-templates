@@ -452,7 +452,7 @@ def mp_puppet_config(*args):
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw']
         if privileged:
-            common_dcmd.push('--privileged')
+            common_dcmd.extend('--privileged')
 
         if container_cli == 'podman':
             log_path = os.path.join(container_log_stdout_path, uname)
@@ -460,30 +460,29 @@ def mp_puppet_config(*args):
                        '--log-opt',
                        'path=%s.log' % log_path]
             common_dcmd.extend(logging)
-
-
-        dcmd = common_dcmd + cli_dcmd
-
-        if check_mode:
-            dcmd.extend([
-                '--volume',
-                '/etc/puppet/check-mode:/tmp/puppet-check-mode:ro'])
-
-        for volume in volumes:
-            if volume:
-                dcmd.extend(['--volume', volume])
-
-        dcmd.extend(['--entrypoint', sh_script])
-
-        if container_cli == 'docker':
+        elif container_cli == 'docker':
             # NOTE(flaper87): Always copy the DOCKER_* environment variables as
             # they contain the access data for the docker daemon.
             for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
                 env[k] = os.environ.get(k)
 
+
+        common_dcmd += cli_dcmd
+
+        if check_mode:
+            common_dcmd.extend([
+                '--volume',
+                '/etc/puppet/check-mode:/tmp/puppet-check-mode:ro'])
+
+        for volume in volumes:
+            if volume:
+                common_dcmd.extend(['--volume', volume])
+
+        common_dcmd.extend(['--entrypoint', sh_script])
+
         if os.environ.get('NET_HOST', 'false') == 'true':
             log.debug('NET_HOST enabled')
-            dcmd.extend(['--net', 'host', '--volume',
+            common_dcmd.extend(['--net', 'host', '--volume',
                          '/etc/hosts:/etc/hosts:ro'])
         else:
             log.debug('running without containers Networking')
@@ -491,18 +490,18 @@ def mp_puppet_config(*args):
 
         # script injection as the last mount to make sure it's accessible
         # https://github.com/containers/libpod/issues/1844
-        dcmd.extend(['--volume', '%s:%s:ro' % (sh_script, sh_script)])
+        common_dcmd.extend(['--volume', '%s:%s:ro' % (sh_script, sh_script)])
 
-        dcmd.append(config_image)
+        common_dcmd.append(config_image)
 
         # https://github.com/containers/libpod/issues/1844
         # This block will run "container_cli" run 5 times before to fail.
         retval = -1
         count = 0
-        log.debug('Running %s command: %s' % (container_cli, ' '.join(dcmd)))
+        log.debug('Running %s command: %s' % (container_cli, ' '.join(common_dcmd)))
         while count < 3:
             if count == 0:
-                cmd = dcmd
+                cmd = common_dcmd
             else:
                 cmd = [cli_cmd, 'start', '-a', uname]
             count += 1
