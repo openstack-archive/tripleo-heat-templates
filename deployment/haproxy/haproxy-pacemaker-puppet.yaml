@@ -399,36 +399,123 @@ outputs:
         - name: Haproxy fetch and retag container image for pacemaker
           when: step|int == 2
           block: &haproxy_fetch_retag_container_tasks
-            - name: Get docker Haproxy image
+            - name: Get container haproxy image
               set_fact:
-                docker_image: {get_param: ContainerHAProxyImage}
-                docker_image_latest: *haproxy_image_pcmklatest
-            - name: Get previous Haproxy image id
-              shell: "{{container_cli}} images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
-              register: haproxy_image_id
-            - block:
-                - name: Get a list of container using Haproxy image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{haproxy_image_id.stdout}}'"
-                  register: haproxy_containers_to_destroy
-                # It will be recreated with the delpoy step.
-                - name: Remove any container using the same Haproxy image
-                  shell: "{{container_cli}} rm -fv {{item}}"
-                  with_items: "{{ haproxy_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Haproxy images
-                  shell: "{{container_cli}} rmi -f {{haproxy_image_id.stdout}}"
-              when:
-                - haproxy_image_id.stdout != ''
-            - name: Pull latest Haproxy images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Haproxy image
-              import_role:
+                haproxy_image: {get_param: ContainerHAProxyImage}
+                haproxy_image_latest: *haproxy_image_pcmklatest
+            - name: Pull latest haproxy images
+              command: "{{container_cli}} pull {{haproxy_image}}"
+            - name: Get previous haproxy image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{haproxy_image_latest}}"
+              register: old_haproxy_image_id
+              failed_when: false
+            - name: Get new haproxy image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{haproxy_image}}"
+              register: new_haproxy_image_id
+            - name: Retag pcmklatest to latest haproxy image
+              include_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{ docker_image }}"
-                container_image_latest: "{{ docker_image_latest }}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
+                container_image: "{{haproxy_image}}"
+                container_image_latest: "{{haproxy_image_latest}}"
+              when:
+                - old_haproxy_image_id.stdout != new_haproxy_image_id.stdout
+            - block:
+                - name: Get a list of container using haproxy image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_haproxy_image_id.stdout}}'"
+                  register: haproxy_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same haproxy image
+                  shell: "{{container_cli}} rm -fv {{item}}"
+                  with_items: "{{ haproxy_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous haproxy images
+                  shell: "{{container_cli}} rmi -f {{old_haproxy_image_id.stdout}}"
+              when:
+                - old_haproxy_image_id.stdout != ''
+                - old_haproxy_image_id.stdout != new_haproxy_image_id.stdout
+
       upgrade_tasks:
+        - name: Prepare switch of haproxy image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get haproxy image id currently used by pacemaker
+              shell: "pcs resource config haproxy-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: haproxy_image_current_res
+              failed_when: false
+            - name: Image facts for haproxy
+              set_fact:
+                haproxy_image_latest: *haproxy_image_pcmklatest
+                haproxy_image_current: "{{haproxy_image_current_res.stdout}}"
+            - name: Prepare the switch to new haproxy container image name in pacemaker
+              block:
+                - name: Temporarily tag the current haproxy image id with the upgraded image name
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{haproxy_image_current}}"
+                    container_image_latest: "{{haproxy_image_latest}}"
+                    pull_image: false
+                  when:
+                    - haproxy_image_current != ''
+                    - haproxy_image_current != haproxy_image_latest
+            - name: Check haproxy cluster resource status
+              shell: pcs resource config haproxy-bundle
+              failed_when: false
+              register: haproxy_pcs_res_result
+            - name: Set upgrade haproxy facts
+              set_fact:
+                haproxy_pcs_res: "{{haproxy_pcs_res_result|succeeded}}"
+                is_haproxy_bootstrap_node: "{{haproxy_short_bootstrap_node_name|lower == ansible_hostname|lower}}"
+
+        - name: Update haproxy pcs resource bundle for new container image
+          when:
+            - step|int == 1
+            - is_haproxy_bootstrap_node|bool
+            - haproxy_pcs_res|bool
+            - haproxy_image_current != haproxy_image_latest
+          block:
+            - name: Disable the haproxy cluster resource before container upgrade
+              pacemaker_resource:
+                resource: haproxy-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
+              block:
+                - name: Check haproxy stats socket configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
+                  ignore_errors: true
+                  register: haproxy_stats_exposed
+                - name: Check haproxy public certificate configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
+                  ignore_errors: true
+                  register: haproxy_cert_mounted
+                - name: Add a bind mount for stats socket in the haproxy bundle
+                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: haproxy_stats_exposed.rc == 6
+                - name: Set HAProxy public cert volume mount fact
+                  set_fact:
+                    haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
+                    haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
+                - name: Add a bind mount for public certificate in the haproxy bundle
+                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
+                  when:
+                    - haproxy_cert_mounted.rc == 6
+                    - haproxy_public_tls_enabled|bool
+            - name: Update the haproxy bundle to use the new container image name
+              command: "pcs resource bundle update haproxy-bundle container image={{haproxy_image_latest}}"
+            - name: Enable the haproxy cluster resource
+              pacemaker_resource:
+                resource: haproxy-bundle
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Create hiera data to upgrade haproxy in a stepwise manner.
           when:
             - step|int == 1
@@ -472,86 +559,6 @@ outputs:
               vars:
                 tripleo_upgrade_key: haproxy_short_node_names_override
               when: haproxy_short_node_names_upgraded | length == haproxy_short_node_names | length
-        - name: upgrade haproxy bundle-init image.
-          when:
-            - step|int == 0
-          tags: common
-          block:
-            - name: Get docker haproxy image
-              set_fact:
-                haproxy_docker_image_latest: *haproxy_image_pcmklatest
-            - name: Set HAProxy upgrade facts
-              block: *haproxy_update_upgrade_facts
-            - name: Prepare the switch to new haproxy container image name in pacemaker
-              block:
-                - name: Get haproxy image id currently used by pacemaker
-                  shell: "{{container_cli}} images | awk '/haproxy.* pcmklatest/{print $3}' | uniq"
-                  register: haproxy_current_pcmklatest_id
-                - name: Temporarily tag the current haproxy image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{haproxy_current_pcmklatest_id.stdout}}"
-                    container_image_latest: "{{haproxy_docker_image_latest}}"
-                    pull_image: false
-                  when: haproxy_current_pcmklatest_id.stdout != ''
-            - name: Check haproxy-bundle cluster resource status
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: show
-                check_mode: false
-              ignore_errors: true
-              register: haproxy_pcs_res_result
-            - name: Set fact haproxy_pcs_res
-              set_fact:
-                haproxy_pcs_res: "{{haproxy_pcs_res_result|succeeded}}"
-        - name: Update haproxy pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_haproxy_bootstrap_node
-            - haproxy_pcs_res|bool
-          block:
-            - name: Disable the haproxy cluster resource before container upgrade
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
-              block:
-                - name: Check haproxy stats socket configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
-                  ignore_errors: true
-                  register: haproxy_stats_exposed
-                - name: Check haproxy public certificate configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
-                  ignore_errors: true
-                  register: haproxy_cert_mounted
-                - name: Add a bind mount for stats socket in the haproxy bundle
-                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
-                  # rc == 6 means the configuration doesn't exist in the CIB
-                  when: haproxy_stats_exposed.rc == 6
-                - name: Set HAProxy public cert volume mount fact
-                  set_fact:
-                    haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
-                    haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
-                - name: Add a bind mount for public certificate in the haproxy bundle
-                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
-                  when:
-                    - haproxy_cert_mounted.rc == 6
-                    - haproxy_public_tls_enabled|bool
-            - name: Update the haproxy bundle to use the new container image name
-              command: "pcs resource bundle update haproxy-bundle container image={{haproxy_docker_image_latest}}"
-            - name: Enable the haproxy cluster resource
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3

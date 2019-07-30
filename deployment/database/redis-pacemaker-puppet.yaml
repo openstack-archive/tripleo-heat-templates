@@ -318,36 +318,105 @@ outputs:
         - name: Redis fetch and retag container image for pacemaker
           when: step|int == 2
           block: &redis_fetch_retag_container_tasks
-            - name: Get docker Redis image
+            - name: Get container redis image
               set_fact:
-                docker_image: {get_param: ContainerRedisImage}
-                docker_image_latest: *redis_image_pcmklatest
-            - name: Get previous Redis image id
-              shell: "{{container_cli}} images | awk '/redis.* pcmklatest/{print $3}' | uniq"
-              register: redis_image_id
-            - block:
-                - name: Get a list of container using Redis image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{redis_image_id.stdout}}'"
-                  register: redis_containers_to_destroy
-                # It will be recreated with the delpoy step.
-                - name: Remove any container using the same Redis image
-                  shell: "{{container_cli}} rm -fv {{item}}"
-                  with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Redis images
-                  shell: "{{container_cli}} rmi -f {{redis_image_id.stdout}}"
-              when:
-                - redis_image_id.stdout != ''
-            - name: Pull latest Redis images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Redis image
-              import_role:
+                redis_image: {get_param: ContainerRedisImage}
+                redis_image_latest: *redis_image_pcmklatest
+            - name: Pull latest redis images
+              command: "{{container_cli}} pull {{redis_image}}"
+            - name: Get previous redis image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{redis_image_latest}}"
+              register: old_redis_image_id
+              failed_when: false
+            - name: Get new redis image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{redis_image}}"
+              register: new_redis_image_id
+            - name: Retag pcmklatest to latest redis image
+              include_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{docker_image}}"
-                container_image_latest: "{{docker_image_latest}}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
+                container_image: "{{redis_image}}"
+                container_image_latest: "{{redis_image_latest}}"
+              when:
+                - old_redis_image_id.stdout != new_redis_image_id.stdout
+            - block:
+                - name: Get a list of container using redis image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_redis_image_id.stdout}}'"
+                  register: redis_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same redis image
+                  shell: "{{container_cli}} rm -fv {{item}}"
+                  with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous redis images
+                  shell: "{{container_cli}} rmi -f {{old_redis_image_id.stdout}}"
+              when:
+                - old_redis_image_id.stdout != ''
+                - old_redis_image_id.stdout != new_redis_image_id.stdout
+
       upgrade_tasks:
+        - name: Prepare switch of redis image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get redis image id currently used by pacemaker
+              shell: "pcs resource config redis-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: redis_image_current_res
+              failed_when: false
+            - name: Image facts for redis
+              set_fact:
+                redis_image_latest: *redis_image_pcmklatest
+                redis_image_current: "{{redis_image_current_res.stdout}}"
+            - name: Prepare the switch to new redis container image name in pacemaker
+              block:
+                - name: Temporarily tag the current redis image id with the upgraded image name
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{redis_image_current}}"
+                    container_image_latest: "{{redis_image_latest}}"
+                    pull_image: false
+                  when:
+                    - redis_image_current != ''
+                    - redis_image_current != redis_image_latest
+            - name: Check redis cluster resource status
+              shell: pcs resource config redis-bundle
+              failed_when: false
+              register: redis_pcs_res_result
+            - name: Set upgrade redis facts
+              set_fact:
+                redis_pcs_res: "{{redis_pcs_res_result|succeeded}}"
+                is_redis_bootstrap_node: "{{redis_short_bootstrap_node_name|lower == ansible_hostname|lower}}"
+        - name: Update redis-bundle pcs resource bundle for new container image
+          when:
+            - step|int == 1
+            - is_redis_bootstrap_node|bool
+            - redis_pcs_res|bool
+            - redis_image_current != redis_image_latest
+          block:
+            - name: Disable the redis cluster resource before container upgrade
+              pacemaker_resource:
+                resource: redis-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move redis logging to /var/log/containers
+              block:
+                - name: Check redis logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='redis-log' and @source-dir='/var/log/containers/redis']"
+                  ignore_errors: true
+                  register: redis_logs_moved
+                - name: Change redis logging configuration in pacemaker
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: redis_logs_moved.rc == 6
+                  block:
+                    - name: Remove old bind mount for logging in the redis bundle
+                      command: pcs resource bundle update redis-bundle storage-map remove redis-log
+                    - name: Add a bind mount for logging in the redis bundle
+                      command: pcs resource bundle update redis-bundle storage-map add id=redis-log source-dir=/var/log/containers/redis target-dir=/var/log/redis options=rw
+            - name: Update the redis bundle to use the new container image name
+              command: "pcs resource bundle update redis-bundle container image={{redis_image_latest}}"
         - when:
             - step|int == 1
           block:
@@ -390,71 +459,11 @@ outputs:
               vars:
                 tripleo_upgrade_key: redis_short_node_names_override
               when: redis_short_node_names_upgraded | length == redis_short_node_names | length
-        - when: step|int == 0
-          tags: common
-          block:
-            - name: Get docker redis image
-              set_fact:
-                redis_docker_image_latest: *redis_image_pcmklatest
-            - name: set is_redis_bootstrap_node fact
-              set_fact: is_redis_bootstrap_node={{redis_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Prepare the switch to new redis container image name in pacemaker
-              block:
-                - name: Get redis image id currently used by pacemaker
-                  shell: "{{container_cli}} images | awk '/redis.* pcmklatest/{print $3}' | uniq"
-                  register: redis_current_pcmklatest_id
-                - name: Temporarily tag the current redis image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{redis_current_pcmklatest_id.stdout}}"
-                    container_image_latest: "{{redis_docker_image_latest}}"
-                    pull_image: false
-                  when: redis_current_pcmklatest_id.stdout != ''
-            - name: Check redis-bundle cluster resource status
-              pacemaker_resource:
-                resource: redis-bundle
-                state: show
-                check_mode: false
-              ignore_errors: true
-              register: redis_pcs_res_result
-            - name: Set fact redis_pcs_res
-              set_fact:
-                redis_pcs_res: "{{redis_pcs_res_result|succeeded}}"
-        - name: Update redis-bundle pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_redis_bootstrap_node
-            - redis_pcs_res|bool
-          block:
-            - name: Disable the redis cluster resource before container upgrade
-              pacemaker_resource:
-                resource: redis-bundle
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Move redis logging to /var/log/containers
-              block:
-                - name: Check redis logging configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='redis-log' and @source-dir='/var/log/containers/redis']"
-                  ignore_errors: true
-                  register: redis_logs_moved
-                - name: Change redis logging configuration in pacemaker
-                  # rc == 6 means the configuration doesn't exist in the CIB
-                  when: redis_logs_moved.rc == 6
-                  block:
-                    - name: Remove old bind mount for logging in the redis bundle
-                      command: pcs resource bundle update redis-bundle storage-map remove redis-log
-                    - name: Add a bind mount for logging in the redis bundle
-                      command: pcs resource bundle update redis-bundle storage-map add id=redis-log source-dir=/var/log/containers/redis target-dir=/var/log/redis options=rw
-            - name: Update the redis bundle to use the new container image name
-              command: "pcs resource bundle update redis-bundle container image={{redis_docker_image_latest}}"
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
           block: *redis_fetch_retag_container_tasks
+
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
