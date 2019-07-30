@@ -272,41 +272,116 @@ outputs:
           vars:
             container_image: {get_param: DockerRabbitmqImage}
             container_image_latest: *rabbitmq_image_pcmklatest
+
       update_tasks:
         - name: Rabbit fetch and retag container image for pacemaker
           when: step|int == 2
           block: &rabbitmq_fetch_retag_container_tasks
-            - name: Get docker Rabbitmq image
+            - name: Get container rabbitmq image
               set_fact:
-                docker_image: {get_param: DockerRabbitmqImage}
-                docker_image_latest: *rabbitmq_image_pcmklatest
-            - name: Get previous Rabbitmq image id
-              shell: "{{container_cli}} images | awk '/rabbitmq.* pcmklatest/{print $3}' | uniq"
-              register: rabbitmq_image_id
-            - block:
-                - name: Get a list of container using Rabbitmq image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{rabbitmq_image_id.stdout}}'"
-                  register: rabbitmq_containers_to_destroy
-                # It will be recreated with the delpoy step.
-                - name: Remove any container using the same Rabbitmq image
-                  shell: "{{container_cli}} rm -fv {{item}}"
-                  with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Rabbitmq images
-                  shell: "{{container_cli}} rmi -f {{rabbitmq_image_id.stdout}}"
-              when:
-                - rabbitmq_image_id.stdout != ''
-            - name: Pull latest Rabbitmq images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Rabbitmq image
-              import_role:
+                rabbitmq_image: {get_param: DockerRabbitmqImage}
+                rabbitmq_image_latest: *rabbitmq_image_pcmklatest
+            - name: Pull latest rabbitmq images
+              command: "{{container_cli}} pull {{rabbitmq_image}}"
+            - name: Get previous rabbitmq image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{rabbitmq_image_latest}}"
+              register: old_rabbitmq_image_id
+              failed_when: false
+            - name: Get new rabbitmq image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{rabbitmq_image}}"
+              register: new_rabbitmq_image_id
+            - name: Retag pcmklatest to latest rabbitmq image
+              include_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{docker_image}}"
-                container_image_latest: "{{docker_image_latest}}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
+                container_image: "{{rabbitmq_image}}"
+                container_image_latest: "{{rabbitmq_image_latest}}"
+              when:
+                - old_rabbitmq_image_id.stdout != new_rabbitmq_image_id.stdout
+            - block:
+                - name: Get a list of container using rabbitmq image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_rabbitmq_image_id.stdout}}'"
+                  register: rabbitmq_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same rabbitmq image
+                  shell: "{{container_cli}} rm -fv {{item}}"
+                  with_items: "{{ rabbitmq_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous rabbitmq images
+                  shell: "{{container_cli}} rmi -f {{old_rabbitmq_image_id.stdout}}"
+              when:
+                - old_rabbitmq_image_id.stdout != ''
+                - old_rabbitmq_image_id.stdout != new_rabbitmq_image_id.stdout
+
       upgrade_tasks:
-        - name: Create hiera data to upgrade oslo_messaging_rpc in a stepwise manner.
+        - name: Prepare switch of rabbitmq image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get rabbitmq image id currently used by pacemaker
+              shell: "pcs resource config rabbitmq-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: rabbitmq_image_current_res
+              failed_when: false
+            - name: Image facts for rabbitmq
+              set_fact:
+                rabbitmq_image_latest: *rabbitmq_image_pcmklatest
+                rabbitmq_image_current: "{{rabbitmq_image_current_res.stdout}}"
+            - name: Prepare the switch to new rabbitmq container image name in pacemaker
+              block:
+                - name: Temporarily tag the current rabbitmq image id with the upgraded image name
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{rabbitmq_image_current}}"
+                    container_image_latest: "{{rabbitmq_image_latest}}"
+                    pull_image: false
+                  when:
+                    - rabbitmq_image_current != ''
+                    - rabbitmq_image_current != rabbitmq_image_latest
+            - name: Check rabbitmq cluster resource status
+              shell: pcs resource config rabbitmq-bundle
+              failed_when: false
+              register: rabbitmq_pcs_res_result
+            - name: Set fact rabbitmq_pcs_res
+              set_fact:
+                rabbitmq_pcs_res: "{{rabbitmq_pcs_res_result|succeeded}}"
+            - name: set is_rpc_rabbitmq_bootstrap_node fact
+              set_fact: is_rpc_rabbitmq_bootstrap_node={{oslo_messaging_rpc_short_bootstrap_node_name|lower == ansible_hostname|lower}}
+        - name: Update rabbitmq-bundle pcs resource bundle for new container image
+          when:
+            - step|int == 1
+            - is_rpc_rabbitmq_bootstrap_node|bool
+            - rabbitmq_pcs_res|bool
+            - rabbitmq_image_current != rabbitmq_image_latest
+          block:
+            - name: Disable the rabbitmq cluster resource before container upgrade
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move rabbitmq logging to /var/log/containers
+              block:
+                - name: Check rabbitmq logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
+                  ignore_errors: true
+                  register: rabbitmq_logs_moved
+                - name: Add a bind mount for logging in the rabbitmq bundle
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: rabbitmq_logs_moved.rc == 6
+                  command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
+            - name: Update the rabbitmq bundle to use the new container image name
+              command: "pcs resource bundle update rabbitmq-bundle container image={{rabbitmq_image_latest}}"
+            - name: Enable the rabbitmq cluster resource
+              pacemaker_resource:
+                resource: rabbitmq-bundle
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+        - name: Create hiera data to upgrade oslo messaging rpc in a stepwise manner.
           when:
             - step|int == 1
           block:
@@ -330,8 +405,8 @@ outputs:
                 msg: "Prepare oslo_messaging_rpc upgrade for {{ oslo_messaging_rpc_short_node_names_upgraded }}"
             - fail:
                 msg: >
-                  You can't upgrade oslo_messaging_rpc without staged
-                  upgrade.  You need to use the limit option in order
+                  You can't upgrade oslo_messaging_rpc without
+                  staged upgrade.  You need to use the limit option in order
                   to do so.
               when: >-
                 oslo_messaging_rpc_short_node_names_upgraded is not defined or
@@ -363,71 +438,11 @@ outputs:
                 - oslo_messaging_rpc_short_node_names_override
                 - oslo_messaging_rpc_node_names_override
               when: oslo_messaging_rpc_short_node_names_upgraded | length == oslo_messaging_rpc_node_names | length
-        - name: Get docker Rabbitmq image
-          set_fact:
-            rabbitmq_docker_image_latest: *rabbitmq_image_pcmklatest
-        - name: set is_rpc_rabbitmq_bootstrap_node fact
-          set_fact: is_rpc_rabbitmq_bootstrap_node={{oslo_messaging_rpc_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-        - name: Prepare the switch to new rabbitmq container image name in pacemaker
-          when:
-            - step|int == 0
-          block:
-            - name: Get rabbitmq image id currently used by pacemaker
-              shell: "{{container_cli}} images | awk '/rabbitmq.* pcmklatest/{print $3}' | uniq"
-              register: rabbitmq_current_pcmklatest_id
-            - name: Temporarily tag the current rabbitmq image id with the upgraded image name
-              import_role:
-                name: tripleo-container-tag
-              vars:
-                container_image: "{{rabbitmq_current_pcmklatest_id.stdout}}"
-                container_image_latest: "{{rabbitmq_docker_image_latest}}"
-                pull_image: false
-              when: rabbitmq_current_pcmklatest_id.stdout != ''
-        - name: Check rabbitmq-bundle cluster resource status
-          pacemaker_resource:
-            resource: rabbitmq-bundle
-            state: show
-            check_mode: false
-          ignore_errors: true
-          register: rabbit_pcs_res
-        - name: Update rabbitmq-bundle pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_rpc_rabbitmq_bootstrap_node
-            - rabbit_pcs_res|succeeded
-          block:
-            - name: Disable the rabbitmq cluster resource before container upgrade
-              pacemaker_resource:
-                resource: rabbitmq-bundle
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Move rabbitmq logging to /var/log/containers
-              block:
-                - name: Check rabbitmq logging configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='rabbitmq-log']"
-                  ignore_errors: true
-                  register: rabbitmq_logs_moved
-                - name: Add a bind mount for logging in the rabbitmq bundle
-                  # rc == 6 means the configuration doesn't exist in the CIB
-                  when: rabbitmq_logs_moved.rc == 6
-                  command: pcs resource bundle update rabbitmq-bundle storage-map add id=rabbitmq-log source-dir=/var/log/containers/rabbitmq target-dir=/var/log/rabbitmq options=rw
-            - name: Update the rabbitmq bundle to use the new container image name
-              command: "pcs resource bundle update rabbitmq-bundle container image={{rabbitmq_docker_image_latest}}"
-            - name: Enable the rabbitmq cluster resource
-              pacemaker_resource:
-                resource: rabbitmq-bundle
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
           block: *rabbitmq_fetch_retag_container_tasks
+
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
