@@ -1,0 +1,220 @@
+heat_template_version: queens
+
+description: >
+  Qpid dispatch router service for metrics and monitoring purposes
+
+parameters:
+  DockerMetricsQdrImage:
+    description: image
+    type: string
+  DockerMetricsQdrConfigImage:
+    description: The container image to use for the qdrouterd config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MonitoringSubscriptionQdr:
+    default: 'overcloud-qdr'
+    type: string
+  MetricsQdrLoggingSource:
+    type: json
+    default:
+      tag: openstack.nova.consoleauth
+      path: /var/log/qdrouterd/metrics-qdr.log
+  MetricsQdrPort:
+    default: '5666'
+    description: Service name or port number on which the qdrouterd will accept
+                 connections. This argument must be string, even if the numeric
+                 form is used.
+    type: string
+  MetricsQdrUsername:
+    default: 'guest'
+    description: Username which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+  MetricsQdrPassword:
+    default: 'guest'
+    description: Password which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+    hidden: true
+  MetricsQdrConnectors:
+    default: []
+    description: Connectors configuration (array of hashes).
+    type: json
+  MetricsQdrAddresses:
+    default:
+      - prefix: 'collectd/notify'
+        distribution: multicast
+      - prefix: 'collectd/telemetry'
+        distribution: multicast
+    description: Addresses configuration (array of hashes).
+    type: json
+  MetricsQdrUseSSL:
+    default: false
+    description: Set to true if it is required to use SSL or TLS on
+                 the connection for listener.
+    type: boolean
+  MetricsQdrUseEncryption:
+    default: false
+    description: Set to true if it is required to encrypt connection to the peer
+                 for listener.
+    type: boolean
+  MetricsQdrSaslMechanisms:
+    default: 'ANONYMOUS'
+    description: List of accepted SASL auth mechanisms for listener in format
+                 of comma separated list.
+    type: string
+  MetricsQdrSslCertDb:
+    default: ''
+    description: Path to SSL certificate db for listener.
+    type: string
+  MetricsQdrSslCertFile:
+    default: ''
+    description: Path to SSL certificate file for listener.
+    type: string
+  MetricsQdrSslKeyFile:
+    default: ''
+    description: Path to SSL private key file for listener.
+    type: string
+  MetricsQdrSslPwFile:
+    default: ''
+    description: Path to SSL password file for certificate key for listener.
+    type: string
+  MetricsQdrSslPassword:
+    default: ''
+    description: SSL password to be supplied for listener.
+    type: string
+  MetricsQdrTrustedCerts:
+    default: ''
+    description: Path to file containing trusted certificates for listener.
+    type: string
+
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+
+outputs:
+  role_data:
+    description: Role data for the metrics Qdr role.
+    value:
+      service_name: metrics-qdr
+      monitoring_subscription: {get_param: MonitoringSubscriptionQdr}
+      service_config_settings:
+        fluentd:
+          tripleo_fluentd_groups_metrics_qdr:
+            - qdr
+          tripleo_fluentd_sources_metrics_qdr:
+            - {get_param: MetricsQdrLoggingSource}
+      config_settings:
+        tripleo.metrics_qdr.firewall_rules:
+          '109 metrics qdr':
+            dport:
+              - {get_param: MetricsQdrPort}
+        tripleo::profile::base::metrics::qdr::listener_addr:
+          str_replace:
+             template:
+               "%{hiera('$NETWORK')}"
+             params:
+               $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+        tripleo::profile::base::metrics::qdr::listener_port: {get_param: MetricsQdrPort}
+        tripleo::profile::base::metrics::qdr::username: {get_param: MetricsQdrUsername}
+        tripleo::profile::base::metrics::qdr::password: {get_param: MetricsQdrPassword}
+        tripleo::profile::base::metrics::qdr::connectors: {get_param: MetricsQdrConnectors}
+        tripleo::profile::base::metrics::qdr::addresses: {get_param: MetricsQdrAddresses}
+        # ssl support
+        tripleo::profile::base::metrics::qdr::listener_require_ssl: {get_param: MetricsQdrUseSSL}
+        tripleo::profile::base::metrics::qdr::listener_require_encrypt: {get_param: MetricsQdrUseEncryption}
+        tripleo::profile::base::metrics::qdr::listener_sasl_mech: {get_param: MetricsQdrSaslMechanisms}
+        tripleo::profile::base::metrics::qdr::listener_ssl_cert_db: {get_param: MetricsQdrSslCertDb}
+        tripleo::profile::base::metrics::qdr::listener_ssl_cert_file: {get_param: MetricsQdrSslCertFile}
+        tripleo::profile::base::metrics::qdr::listener_ssl_key_file: {get_param: MetricsQdrSslKeyFile}
+        tripleo::profile::base::metrics::qdr::listener_ssl_pw_file: {get_param: MetricsQdrSslPwFile}
+        tripleo::profile::base::metrics::qdr::listener_ssl_password: {get_param: MetricsQdrSslPassword}
+        tripleo::profile::base::metrics::qdr::listener_trusted_certs: {get_param: MetricsQdrTrustedCerts}
+      # BEGIN DOCKER SETTINGS
+      puppet_config:
+        config_volume: metrics-qdr
+        step_config: |
+          include ::tripleo::profile::base::metrics::qdr
+        config_image: {get_param: DockerMetricsQdrConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/metrics-qdr.json:
+          command: /usr/sbin/qdrouterd -c /etc/qpid-dispatch/qdrouterd.conf
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/lib/qdrouterd
+              owner: qdrouterd:qdrouterd
+              recurse: true
+      docker_config:
+        step_1:
+          metrics_qdr_init_logs:
+            start_order: 0
+            detach: false
+            image: &qdrouterd_image {get_param: DockerMetricsQdrImage}
+            privileged: false
+            user: root
+            volumes:
+              - /var/log/containers/metrics-qdr:/var/log/qdrouterd
+            command: ['/bin/bash', '-c', 'chown -R qdrouterd:qdrouterd /var/log/qdrouterd']
+          metrics_qdr:
+            start_order: 1
+            image: *qdrouterd_image
+            net: host
+            user: qdrouterd
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/metrics-qdr.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/metrics-qdr/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/metrics-qdr:/var/lib/qdrouterd
+                  - /var/log/containers/metrics-qdr:/var/log/qdrouterd
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent logs directory
+          file:
+            path: "{{ item }}"
+            state: directory
+          with_items:
+            - /var/log/containers/metrics-qdr
+            - /var/lib/metrics-qdr
+        - name: qrouterd logs readme
+          copy:
+            dest: /var/log/qrouterd/readme-metrics.txt
+            content: |
+              Log files from metrics qrouterd containers can be found under
+              /var/log/containers/metrics-qdr.
+          ignore_errors: true
