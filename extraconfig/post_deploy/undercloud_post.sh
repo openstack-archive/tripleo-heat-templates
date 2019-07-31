@@ -1,8 +1,6 @@
 #!/bin/bash
 set -eux
 
-ln -sf /etc/puppet/hiera.yaml /etc/hiera.yaml
-
 HOMEDIR="$homedir"
 USERNAME=`ls -ld $HOMEDIR | awk {'print $3'}`
 GROUPNAME=`ls -ld $HOMEDIR | awk {'print $4'}`
