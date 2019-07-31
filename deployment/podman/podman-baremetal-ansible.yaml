@@ -78,121 +78,77 @@ outputs:
               # default that is overwritten by the heat -> dict conversion
               container_registry_logins: {}
               container_registry_logins_json: {get_param: ContainerImageRegistryCredentials}
+
           - name: Convert logins json to dict
             set_fact:
               container_registry_logins: "{{ container_registry_logins_json | from_json }}"
             when:
               - container_registry_login | bool
               - (container_registry_logins_json | length) > 0
-          - name: ensure podman and deps are installed
-            package:
-              name: podman
-              state: latest
-          - name: Remove default cni config for cni0 if exists
-            copy:
-              dest: /etc/cni/net.d/87-podman-bridge.conflist
-              content: ''
-              force: yes
-            ignore_errors: True
-          - name: Delete cni0 interface if exists
-            command: ip link delete cni0
-            ignore_errors: True
-          - name: configure insecure registries /etc/containers/registries.conf
-            ini_file:
-              path: /etc/containers/registries.conf
-              section: 'registries.insecure'
-              option: registries
-              value: "{{ container_registry_insecure_registries }}"
-            when: container_registry_insecure_registries | length > 0
-          - name: Perform container registry login(s)
-            shell: podman login --username=$REGISTRY_USERNAME --password=$REGISTRY_PASSWORD $REGISTRY
-            environment:
-              REGISTRY_USERNAME: "{{ lookup('dict', item.value).key }}"
-              REGISTRY_PASSWORD: "{{ lookup('dict', item.value).value }}"
-              REGISTRY: "{{ item.key }}"
-            loop: "{{ query('dict', container_registry_logins | default({})) }}"
-            when:
-              - container_registry_login | bool
-              - container_registry_logins
+
+          - name: Run podman install
+            include_role:
+              name: tripleo-podman
+              tasks_from: tripleo_podman_install.yml
+              vars_from: "redhat.yml"
+            vars:
+              tripleo_container_registry_insecure_registries: "{{ container_registry_insecure_registries }}"
+
+          - name: Run podman login
+            include_role:
+              name: tripleo-podman
+              tasks_from: tripleo_podman_login.yml
+            vars:
+              tripleo_container_registry_logins: "{{ container_registry_logins }}"
+              tripleo_container_registry_login: "{{ container_registry_login | bool }}"
+
       service_config_settings: {}
+
       upgrade_tasks:
-        - block:
-            - name: Stop all services by stopping all Docker containers
-              when: step|int == 3
-              shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+        - name: Stop all services by stopping all docker containers
+          when:
+            - (step | int) == 3
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_docker_stop.yml
           tags:
             - never
             - system_upgrade_prepare
 
-        # Upgrade tasks for Pacemaker-managed services tasks pull
-        # container images in step 2, we need insecure registries
-        # configured in step 1.
-        - name: Install and configure Podman
-          when: step|int == 1
-          block: *install_and_configure_podman
-      post_upgrade_tasks:
-        - name: Purge everything about Docker on the host
-          when: step|int == 3
-          block:
-            - name: Check if docker has some data
-              stat:
-                path: /var/lib/docker
-              register: docker_path_stat
+        - name: Run podman install
+          when:
+            - (step | int) == 1
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_podman_install.yml
+            vars_from: "redhat.yml"
 
-            - name: Purge Docker
-              when: docker_path_stat.stat.exists
-              block:
-                - name: Ensure docker service is running
-                  systemd:
-                    name: docker
-                  register: docker_service_state
-                - name: Run docker system prune
-                  shell: docker system prune -a -f
-                  when: docker_service_state.status['SubState'] == 'running'
-                - name: Stop and disable Docker service
-                  when: docker_service_state.status['SubState'] == 'running'
-                  systemd:
-                    name: docker
-                    state: stopped
-                    enabled: no
-                - name: Uninstall Docker rpm
-                  package:
-                    name: docker
-                    state: absent
-                - name: Get the list of directory mounted under /var/lib/docker/ orderer.
-                  shell: |
-                    mount | awk '/\/var\/lib\/docker\/[^/]+\// {print $3}';
-                    mount | awk '/\/var\/lib\/docker\/[^/]+$/ {print $3}';
-                  register: unmounted_dirs
-                - name: Unmount those directories
-                  mount:
-                    path: "{{ item }}"
-                    state: unmounted
-                  loop: "{{ unmounted_dirs.stdout_lines }}"
-                - name: Purge /var/lib/docker
-                  file:
-                    path: /var/lib/docker
-                    state: absent
-        - name: Clean podman
+      post_upgrade_tasks:
+        - name: Purge everything about docker on the host
           when:
-            - step|int == 3
+            - (step | int) == 3
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_docker_purge.yml
+
+        - name: Stop docker
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_docker_stop.yml
+
+        - name: Purge Podman
+          when:
+            - (step | int) == 3
             - container_cli == 'podman'
-          block:
-            - name: Purge Podman
-              block:
-                - name: Clean podman images
-                  shell: podman image prune -a
-                - name: Clean podman volumes
-                  shell: podman volume prune -f
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_podman_purge.yml
+
       post_update_tasks:
-        - name: Clean podman
+        - name: Purge Podman
           when:
-            - step|int == 3
+            - (step | int) == 3
             - container_cli == 'podman'
-          block:
-            - name: Purge Podman
-              block:
-                - name: Clean podman images
-                  shell: podman image prune -a
-                - name: Clean podman volumes
-                  shell: podman volume prune -f
+          include_role:
+            name: tripleo-podman
+            tasks_from: tripleo_podman_purge.yml
