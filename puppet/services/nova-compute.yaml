@@ -372,6 +372,47 @@ outputs:
             nfs_vers: {get_attr: [RoleParametersValue, value, nfs_vers]}
           mount: name=/var/lib/nova/instances src="{{nfs_share}}" fstype=nfs4 opts="_netdev,bg,{{nfs_options}},vers={{nfs_vers}},nfsvers={{nfs_vers}}" state=mounted
           when: nfs_backend_enable|bool
+        - name: is Nova Resume Guests State On Host Boot enabled
+          set_fact:
+            resume_guests_state_on_host_boot_enabled: {get_param: NovaResumeGuestsStateOnHostBoot}
+        - name: install libvirt-guests systemd unit file
+          when: resume_guests_state_on_host_boot_enabled|bool
+          block:
+          - name: libvirt-guests unit to stop nova_api container before shutdown VMs
+            copy:
+              dest: /etc/systemd/system/libvirt-guests.service
+              content: |
+                [Unit]
+                Description=Suspend/Resume Running libvirt Guests
+                Requires=virt-guest-shutdown.target
+                After=network.target
+                After=time-sync.target
+                After=virt-guest-shutdown.target
+                After=docker.service
+                After=paunch-container-shutdown.service
+                After=rhel-push-plugin.service
+                Documentation=man:libvirtd(8)
+                Documentation=https://libvirt.org
+
+                [Service]
+                EnvironmentFile=-/etc/sysconfig/libvirt-guests
+                # Hack just call traditional service until we factor
+                # out the code
+                ExecStart=/usr/libexec/libvirt-guests.sh start
+                ExecStop=/bin/docker stop nova_compute
+                ExecStop=/usr/libexec/libvirt-guests.sh stop
+                Type=oneshot
+                RemainAfterExit=yes
+                StandardOutput=journal+console
+                TimeoutStopSec=0
+
+                [Install]
+                WantedBy=multi-user.target
+          - name: libvirt-guests enable VM shutdown on compute reboot/shutdown
+            systemd:
+              name: libvirt-guests
+              enabled: yes
+              daemon_reload: yes
       upgrade_tasks:
         - name: Stop nova-compute service
           when: step|int == 1
