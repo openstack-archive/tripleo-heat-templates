@@ -235,6 +235,10 @@ conditions:
       equals:
         - {get_param: CephAnsibleSkipTags}
         - ''
+  ceph_config_overrides_with_sections:
+    yaql:
+      data: {get_param: CephConfigOverrides}
+      expression: $.data.keys().any(predicate => $ in ['global', 'mon', 'mgr', 'osd', 'mds', 'client'])
   ceph_authenticated_registry:
       and:
       - not:
@@ -282,6 +286,29 @@ resources:
           yaql:
             expression: $.data.rightSplit(':', 1)[1]
             data: {get_param: DockerCephDaemonImage}
+
+  DefaultCephConfigOverrides:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        global:
+          osd_pool_default_size: {get_param: CephPoolDefaultSize}
+          osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
+          osd_pool_default_pgp_num: {get_param: CephPoolDefaultPgNum}
+          rgw_keystone_api_version: 3
+          rgw_keystone_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+          rgw_keystone_accepted_roles: 'Member, admin'
+          rgw_keystone_accepted_admin_roles: ResellerAdmin
+          rgw_keystone_admin_domain: default
+          rgw_keystone_admin_project: service
+          rgw_keystone_admin_user: swift
+          rgw_keystone_admin_password: {get_param: SwiftPassword}
+          rgw_keystone_implicit_tenants: 'true'
+          rgw_keystone_revocation_interval: '0'
+          rgw_s3_auth_use_keystone: 'true'
+          rgw_swift_versioning_enabled: 'true'
+          rgw_swift_account_in_url: 'true'
 
   CephBaseAnsibleVars:
     type: OS::Heat::Value
@@ -422,24 +449,18 @@ resources:
           keys: *openstack_keys
           pools: []
           ceph_conf_overrides:
-            global:
-              map_merge:
-                - osd_pool_default_size: {get_param: CephPoolDefaultSize}
-                  osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
-                  osd_pool_default_pgp_num: {get_param: CephPoolDefaultPgNum}
-                  rgw_keystone_api_version: 3
-                  rgw_keystone_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-                  rgw_keystone_accepted_roles: 'member, Member, admin'
-                  rgw_keystone_accepted_admin_roles: ResellerAdmin
-                  rgw_keystone_admin_domain: default
-                  rgw_keystone_admin_project: service
-                  rgw_keystone_admin_user: swift
-                  rgw_keystone_admin_password: {get_param: SwiftPassword}
-                  rgw_keystone_implicit_tenants: 'true'
-                  rgw_keystone_revocation_interval: '0'
-                  rgw_s3_auth_use_keystone: 'true'
-                  rgw_swift_versioning_enabled: 'true'
-                  rgw_swift_account_in_url: 'true'
+            if:
+            - ceph_config_overrides_with_sections
+            - yaql:
+                data:
+                  default:
+                    map_merge:
+                    - {get_attr: [DefaultCephConfigOverrides, value]}
+                  overrides: {get_param: CephConfigOverrides}
+                expression: $.data.default.mergeWith($.data.overrides)
+            - global:
+                map_merge:
+                - {get_attr: [DefaultCephConfigOverrides, value, global]}
                 - {get_param: CephConfigOverrides}
           ntp_service_enabled: false
           generate_fsid: false
