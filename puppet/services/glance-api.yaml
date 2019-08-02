@@ -129,7 +129,15 @@ parameters:
     type: string
   NovaEnableRbdBackend:
     default: false
-    description: Whether to enable or not the Rbd backend for Nova
+    description: Whether to enable the Rbd backend for Nova ephemeral storage.
+    type: boolean
+    tags:
+      - role_specific
+  GlanceShowMultipleLocations:
+    default: false
+    description: |
+      Whether to show multiple image locations e.g for copy-on-write support on
+      RBD or Netapp backends. Potential security risk, see glance.conf for more information.
     type: boolean
   GlanceImageImportPlugins:
     default: []
@@ -208,18 +216,26 @@ parameters:
 conditions:
 
   rbd_backend_enabled: {equals: [{get_param: GlanceBackend}, rbd]}
+  enable_image_conversion:
+    and:
+      - equals: [{get_param: GlanceBackend}, rbd]
+      - equals: [{get_param: NovaEnableRbdBackend}, true]
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   glance_workers_unset: {equals : [{get_param: GlanceWorkers}, '']}
   service_debug_unset: {equals : [{get_param: GlanceDebug}, '']}
   cinder_backend_enabled: {equals: [{get_param: GlanceBackend}, cinder]}
   glance_multiple_locations:
-    and:
-    - equals:
-      - get_param: GlanceBackend
-      - rbd
-    - equals:
-      - get_param: NovaEnableRbdBackend
-      - true
+    or:
+    - {equals : [{get_param: GlanceShowMultipleLocations}, true]}
+    - and:
+      # Keep this for compat, but ignore NovaEnableRbdBackend if it's a role param
+      - equals:
+        - get_param: GlanceBackend
+        - rbd
+      - equals:
+        - get_param: NovaEnableRbdBackend
+        - true
+
 
 resources:
 
@@ -283,7 +299,7 @@ outputs:
             glance::api::node_staging_uri: {get_param: GlanceNodeStagingUri}
             glance::api::image_import_plugins:
               if:
-              - rbd_backend_enabled
+              - enable_image_conversion
               - list_concat_unique:
                 - {get_param: GlanceImageImportPlugins}
                 - ['image_conversion']
