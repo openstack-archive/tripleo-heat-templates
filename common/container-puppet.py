@@ -289,8 +289,7 @@ if not os.path.exists(sh_script):
         # Create a reference timestamp to easily find all files touched by
         # puppet. The sync ensures we get all the files we want due to
         # different timestamp.
-        conf_data_path="/var/lib/config-data/${NAME}"
-        origin_of_time="${conf_data_path}.origin_of_time"
+        origin_of_time=/var/lib/config-data/${NAME}.origin_of_time
         touch $origin_of_time
         sync
 
@@ -344,7 +343,7 @@ if not os.path.exists(sh_script):
 
             exclude_files=""
             for p in $password_files; do
-                if [ -f "$p" -a -f "${conf_data_path}$p" ]; then
+                if [ -f "$p" -a -f "/var/lib/config-data/${NAME}$p" ]; then
                     exclude_files+=" --exclude=$p"
                 fi
             done
@@ -358,33 +357,23 @@ if not os.path.exists(sh_script):
                 fi
             done
 
-            echo "Evaluating config files to be removed for the $NAME configuration"
-            rsync -av -R --dry-run --delete-after $exclude_files $rsync_srcs ${conf_data_path} |\
-                awk '/^deleting/ {print $2}' > /tmp/files_to_purge
-
-            echo "Rsyncing config files from ${rsync_srcs} into ${conf_data_path}"
-            rsync -a $verbosity -R --delay-updates --delete-after $exclude_files $rsync_srcs ${conf_data_path}
+            echo "Rsyncing config files from ${rsync_srcs} into /var/lib/config-data/${NAME}"
+            rsync -a $verbosity -R --delay-updates --delete-after $exclude_files $rsync_srcs /var/lib/config-data/${NAME}
 
 
             # Also make a copy of files modified during puppet run
+            # This is useful for debugging
             echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
-
-            # Purge obsoleted contents to maintain a fresh and filtered mirror
-            puppet_generated_path=/var/lib/config-data/puppet-generated/${NAME}
-            mkdir -p ${puppet_generated_path}
-            echo "Ensuring the removed config files are also purged in ${puppet_generated_path}:"
-            cat /tmp/files_to_purge | sort
-            cat /tmp/files_to_purge | xargs -n1 -r -I{} \
-                bash -c "test -f ${puppet_generated_path}/{} && rm -f ${puppet_generated_path}/{}"
+            mkdir -p /var/lib/config-data/puppet-generated/${NAME}
             exec 5>&1
             exec 1>/tmp/files_from
             find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0
             exec 1>&5
             echo "Files modified during puppet run:"
             cat /tmp/files_from | sort | xargs -0 printf "%s\n"
-            echo "Rsyncing the modified files into ${puppet_generated_path}"
+            echo "Rsyncing the modified files into /var/lib/config-data/puppet-generated/${NAME}"
             rsync -a $verbosity -R -0 --delay-updates --delete-after $exclude_files \
-                --files-from=/tmp/files_from / ${puppet_generated_path}
+                --files-from=/tmp/files_from / /var/lib/config-data/puppet-generated/${NAME}
 
             # Write a checksum of the config-data dir, this is used as a
             # salt to trigger container restart when the config changes
@@ -406,10 +395,10 @@ if not os.path.exists(sh_script):
             # output because otherwise the sed command cannot work. The sed is
             # needed because puppet puts timestamps as comments in cron and
             # parsedfile resources, hence triggering a change at every redeploy
-            tar -c --mtime='1970-01-01' $EXCLUDE -f - ${conf_data_path} $additional_checksum_files | tar xO | \
-                    sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > ${conf_data_path}.md5sum
-            tar -c --mtime='1970-01-01' $EXCLUDE -f - ${puppet_generated_path} $additional_checksum_files --mtime='1970-01-01' | tar xO \
-                    | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > ${puppet_generated_path}.md5sum
+            tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/${NAME} $additional_checksum_files | tar xO | \
+                    sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
+            tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/puppet-generated/${NAME} $additional_checksum_files --mtime='1970-01-01' | tar xO \
+                    | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
         fi
         """)
 
@@ -431,7 +420,6 @@ def mp_puppet_config(*args):
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
             man_file.write('include ::tripleo::packages\n')
-            man_file.write('noop_resource("service")\n')
             man_file.write(manifest)
 
         uname = RUNNER.unique_container_name('container-puppet-%s' %
