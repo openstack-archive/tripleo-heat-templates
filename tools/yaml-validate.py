@@ -29,15 +29,6 @@ valid_heat_template_versions = [
   'rocky',
 ]
 
-# We should have up-to-date the heat_template_version
-# for each template, although there are a few needing
-# an specific version, here we can add this exception
-# for certain templates.
-set_heat_template_versions_in_templates = {
-    # Needed for mixed version pingtest.
-    './ci/pingtests/tenantvm_floatingip.yaml' : 'ocata',
-}
-
 current_heat_template_version = valid_heat_template_versions[-1]
 
 required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
@@ -1034,17 +1025,7 @@ def validate(filename, param_map):
         if is_heat_template:
             tpl_template_version = str(tpl['heat_template_version'])
 
-            if filename in set_heat_template_versions_in_templates:
-                if set_heat_template_versions_in_templates[filename] != tpl_template_version:
-                    print('ERROR: heat_template_version in template %s '
-                          'must be set to: %s'
-                        % (
-                            filename,
-                            set_heat_template_versions_in_templates[filename]
-                            )
-                        )
-                    return 1
-            elif tpl_template_version not in valid_heat_template_versions:
+            if tpl_template_version not in valid_heat_template_versions:
                 print('ERROR: heat_template_version in template %s '
                       'is not valid: %s (allowed values %s)'
                     % (
