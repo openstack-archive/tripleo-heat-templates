@@ -349,39 +349,46 @@ outputs:
           vars:
             container_image: {get_param: DockerMysqlImage}
             container_image_latest: *mysql_image_pcmklatest
+
       update_tasks:
         - name: Mariadb fetch and retag container image for pacemaker
           when: step|int == 2
           block: &mysql_fetch_retag_container_tasks
-            - name: Get docker Mariadb image
+            - name: Get container galera image
               set_fact:
-                docker_image: {get_param: DockerMysqlImage}
-                docker_image_latest: *mysql_image_pcmklatest
-            - name: Get previous Mariadb image id
-              shell: "{{container_cli}} images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
-              register: mariadb_image_id
-            - block:
-                - name: Get a list of container using Mariadb image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{mariadb_image_id.stdout}}'"
-                  register: mariadb_containers_to_destroy
-                # It will be recreated with the delpoy step.
-                - name: Remove any container using the same Mariadb image
-                  shell: "{{container_cli}} rm -fv {{item}}"
-                  with_items: "{{ mariadb_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Mariadb images
-                  shell: "{{container_cli}} rmi -f {{mariadb_image_id.stdout}}"
-              when:
-                - mariadb_image_id.stdout != ''
-            - name: Pull latest Mariadb images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Mariadb image
-              import_role:
+                galera_image: {get_param: DockerMysqlImage}
+                galera_image_latest: *mysql_image_pcmklatest
+            - name: Pull latest galera images
+              command: "{{container_cli}} pull {{galera_image}}"
+            - name: Get previous galera image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{galera_image_latest}}"
+              register: old_galera_image_id
+              failed_when: false
+            - name: Get new galera image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{galera_image}}"
+              register: new_galera_image_id
+            - name: Retag pcmklatest to latest galera image
+              include_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{docker_image}}"
-                container_image_latest: "{{docker_image_latest}}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
+                container_image: "{{galera_image}}"
+                container_image_latest: "{{galera_image_latest}}"
+              when:
+                - old_galera_image_id.stdout != new_galera_image_id.stdout
+            - block:
+                - name: Get a list of container using galera image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_galera_image_id.stdout}}'"
+                  register: galera_containers_to_destroy
+                # It will be recreated with the delpoy step.
+                - name: Remove any container using the same galera image
+                  shell: "{{container_cli}} rm -fv {{item}}"
+                  with_items: "{{ galera_containers_to_destroy.stdout_lines }}"
+                - name: Remove previous galera images
+                  shell: "{{container_cli}} rmi -f {{old_galera_image_id.stdout}}"
+              when:
+                - old_galera_image_id.stdout != ''
+                - old_galera_image_id.stdout != new_galera_image_id.stdout
+
       upgrade_tasks:
         - vars:
             mysql_upgrade_persist: {get_param: MysqlUpgradePersist}
@@ -415,6 +422,80 @@ outputs:
                 tasks_from: restore.yml
               vars:
                 tripleo_persist_dir: /var/lib/mysql
+
+        - name: Prepare switch of galera image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get galera image id currently used by pacemaker
+              shell: "pcs resource config galera-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: galera_image_current_res
+              failed_when: false
+            - name: Image facts for galera
+              set_fact:
+                galera_image_latest: *mysql_image_pcmklatest
+                galera_image_current: "{{galera_image_current_res.stdout}}"
+            - name: Prepare the switch to new galera container image name in pacemaker
+              block:
+                - name: Temporarily tag the current galera image id with the upgraded image name
+                  import_role:
+                    name: tripleo-container-tag
+                  vars:
+                    container_image: "{{galera_image_current}}"
+                    container_image_latest: "{{galera_image_latest}}"
+                    pull_image: false
+                  when:
+                    - galera_image_current != ''
+                    - galera_image_current != galera_image_latest
+            - name: Check galera cluster resource status
+              shell: pcs resource config galera-bundle
+              failed_when: false
+              register: galera_pcs_res_result
+            - name: Set fact galera_pcs_res
+              set_fact:
+                galera_pcs_res: "{{galera_pcs_res_result|succeeded}}"
+            - name: set is_mysql_bootstrap_node fact
+              tags: common
+              set_fact: is_mysql_bootstrap_node={{mysql_short_bootstrap_node_name|lower == ansible_hostname|lower}}
+        - name: Update galera pcs resource bundle for new container image
+          when:
+            - step|int == 1
+            - is_mysql_bootstrap_node|bool
+            - galera_pcs_res|bool
+            - galera_image_current != galera_image_latest
+          block:
+            - name: Disable the galera cluster resource before container upgrade
+              pacemaker_resource:
+                resource: galera
+                state: disable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
+            - name: Move Mysql logging to /var/log/containers
+              block:
+                - name: Check Mysql logging configuration in pacemaker
+                  command: cibadmin --query --xpath "//storage-mapping[@id='mysql-log']"
+                  ignore_errors: true
+                  register: mysql_logs_moved
+                - name: Change Mysql logging configuration in pacemaker
+                  # rc == 6 means the configuration doesn't exist in the CIB
+                  when: mysql_logs_moved.rc == 6
+                  block:
+                    - name: Add a bind mount for logging in the galera bundle
+                      command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
+                    - name: Reconfigure Mysql log file in the galera resource agent
+                      command: pcs resource update galera log=/var/log/mysql/mysqld.log
+            - name: Update the galera bundle to use the new container image name
+              command: "pcs resource bundle update galera-bundle container image={{galera_image_latest}}"
+            - name: Enable the galera cluster resource
+              pacemaker_resource:
+                resource: galera
+                state: enable
+                wait_for_resource: true
+              register: output
+              retries: 5
+              until: output.rc == 0
         - name: Create hiera data to upgrade mysql in a stepwise manner.
           when:
             - step|int == 1
@@ -471,77 +552,6 @@ outputs:
                 - mysql_short_node_names_override
                 - mysql_node_names_override
               when: mysql_short_node_names_upgraded | length == mysql_node_names | length
-        # Manage image update for pacemaker managed container.
-        - name: mysql baremetal to container upgrade tasks.
-          when: step|int == 0
-          tags: common
-          block:
-            - name: Get docker Mysql image
-              set_fact:
-                mysql_docker_image_latest: *mysql_image_pcmklatest
-            - name: set is_mysql_bootstrap_node fact
-              set_fact: is_mysql_bootstrap_node={{mysql_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Prepare the switch to new galera container image name in pacemaker
-              block:
-                - name: Get galera image id currently used by pacemaker
-                  shell: "{{container_cli}} images | awk '/mariadb.* pcmklatest/{print $3}' | uniq"
-                  register: galera_current_pcmklatest_id
-                - name: Temporarily tag the current galera image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{galera_current_pcmklatest_id.stdout}}"
-                    container_image_latest: "{{mysql_docker_image_latest}}"
-                    pull_image: false
-                  when: galera_current_pcmklatest_id.stdout != ''
-            - name: Check galera cluster resource status
-              pacemaker_resource:
-                resource: galera
-                state: show
-                check_mode: false
-              ignore_errors: true
-              register: galera_pcs_res_result
-            - name: Set fact galera_pcs_res
-              set_fact:
-                galera_pcs_res: "{{galera_pcs_res_result|succeeded}}"
-        - name: Update galera pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_mysql_bootstrap_node
-            - galera_pcs_res|bool
-          block:
-            - name: Disable the galera cluster resource before container upgrade
-              pacemaker_resource:
-                resource: galera
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Move Mysql logging to /var/log/containers
-              block:
-                - name: Check Mysql logging configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='mysql-log']"
-                  ignore_errors: true
-                  register: mysql_logs_moved
-                - name: Change Mysql logging configuration in pacemaker
-                  # rc == 6 means the configuration doesn't exist in the CIB
-                  when: mysql_logs_moved.rc == 6
-                  block:
-                    - name: Add a bind mount for logging in the galera bundle
-                      command: pcs resource bundle update galera-bundle storage-map add id=mysql-log source-dir=/var/log/containers/mysql target-dir=/var/log/mysql options=rw
-                    - name: Reconfigure Mysql log file in the galera resource agent
-                      command: pcs resource update galera log=/var/log/mysql/mysqld.log
-            - name: Update the galera bundle to use the new container image name
-              command: "pcs resource bundle update galera-bundle container image={{mysql_docker_image_latest}}"
-            - name: Enable the galera cluster resource
-              pacemaker_resource:
-                resource: galera
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
@@ -591,6 +601,7 @@ outputs:
                     UPGRADE_VOLUMES: "-v {{ mysql_upgrade_db_bind_mounts | union(['/tmp/mariadb-upgrade:/var/log/mariadb:rw']) | join(' -v ')}}"
                     UPGRADE_SCRIPT: "{{mysql_upgrade_script}}"
                     CONTAINER_CLI: "{{ container_cli }}"
+
       external_upgrade_tasks:
         - vars:
             mysql_upgrade_transfer: {get_param: MysqlUpgradeTransfer}
@@ -609,6 +620,7 @@ outputs:
                 tripleo_transfer_src_host: "{{hostvars[groups['overcloud'][0]]['mysql_short_node_names'][1]}}"
                 tripleo_transfer_dest_dir: /var/lib/mysql
                 tripleo_transfer_dest_host: "{{hostvars[groups['overcloud'][0]]['mysql_short_bootstrap_node_name']}}"
+
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 6
