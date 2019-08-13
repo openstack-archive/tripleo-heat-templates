@@ -139,13 +139,26 @@ outputs:
 
       service_config_settings: {}
       upgrade_tasks:
-        - block:
-            - name: Stop all services by stopping all Docker containers
-              when: step|int == 3
-              shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+        - name: system_upgrade_prepare step 2
           tags:
             - never
+            - system_upgrade
             - system_upgrade_prepare
+          when:
+            - (step | int) == 2
+          block:
+            - name: Check if pcs is present
+              stat:
+                path: /usr/sbin/pcs
+              register: pcs_stat
+            - name: Stop pacemaker cluster before stopping all docker containers
+              pacemaker_cluster: state=offline
+              when: pcs_stat.stat.exists
+            - name: Destroy pacemaker cluster
+              command: /usr/sbin/pcs cluster destroy
+              when: pcs_stat.stat.exists
+            - name: Stop all services by stopping all Docker containers
+              shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
 
         # Upgrade tasks for Pacemaker-managed services tasks pull
         # container images in step 2, we need insecure registries

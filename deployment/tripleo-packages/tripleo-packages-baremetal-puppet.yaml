@@ -99,9 +99,11 @@ outputs:
             upgrade_leapp_debug: {get_param: UpgradeLeappDebug}
             upgrade_leapp_devel_skip_rhsm: {get_param: UpgradeLeappDevelSkipRhsm}
             upgrade_leapp_reboot_timeout: {get_param: UpgradeLeappRebootTimeout}
+
         - name: system_upgrade_prepare step 3
           tags:
             - never
+            - system_upgrade
             - system_upgrade_prepare
           when: step|int == 3
           block:
@@ -121,22 +123,37 @@ outputs:
                 name: leapp
                 state: latest
               when: upgrade_leapp_enabled
+
+        - name: system_upgrade_prepare step 4
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_prepare
+          when: step|int == 4
+          block:
             - name: run leapp upgrade (download packages)
               shell: >
                 {% if upgrade_leapp_devel_skip_rhsm|default(false) %}LEAPP_DEVEL_SKIP_RHSM=1{% endif %}
                 leapp upgrade
                 {% if upgrade_leapp_debug|default(true) %}--debug{% endif %}
               when: upgrade_leapp_enabled
-        - name: system_upgrade_run step 5
+
+        - name: system_upgrade_run step 4
           tags:
             - never
+            - system_upgrade
             - system_upgrade_run
-          when: step|int == 5
+            # In case someone needs to re-run system_upgrade_run post-tasks
+            # but doesn't want to reboot, they can run with
+            # `--skip-tags system_upgrade_reboot`.
+            - system_upgrade_reboot
+          when: step|int == 4
           block:
             - name: reboot to perform the upgrade
               reboot:
                 reboot_timeout: "{{upgrade_leapp_reboot_timeout}}"
               when: upgrade_leapp_enabled
+
         - name: Package and repo update tasks
           when: step|int == 0
           block:
