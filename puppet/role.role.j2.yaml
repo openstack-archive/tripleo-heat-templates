@@ -35,14 +35,6 @@ parameters:
     description: Name of an existing Nova key pair to enable SSH access to the instances
     type: string
     default: default
-  NeutronPhysicalBridge:
-    default: 'br-ex'
-    description: An OVS bridge to create for accessing external networks.
-    type: string
-  NeutronPublicInterface:
-    default: nic1
-    description: Which interface to add to the NeutronPhysicalBridge.
-    type: string
   ServiceNetMap:
     default: {}
     description: Mapping of service_name -> network name. Typically set
@@ -75,16 +67,6 @@ parameters:
     description: DEPRECATED - use {{role.name}}IPs instead
     type: json
 {%- endif %}
-  {{role.name}}NetworkDeploymentActions:
-    type: comma_delimited_list
-    description: >
-      Heat action when to apply network configuration changes
-    default: []
-  NetworkDeploymentActions:
-    type: comma_delimited_list
-    description: >
-      Heat action when to apply network configuration changes
-    default: ['CREATE']
   SoftwareConfigTransport:
     default: POLL_SERVER_CFN
     description: |
@@ -178,14 +160,6 @@ parameters:
     description: |
       Name of the subnet on ctlplane network for this role.
     type: string
-  {{role.name}}AnyErrorsFatal:
-    default: yes
-    type: string
-  {#- We generally won't want any failures on HA Controller roles, 15% will cause any 1 node to fail the deploy, #}
-  {#- for a 3 or 5 node Role, making it a fairly safe default. #}
-  {{role.name}}MaxFailPercentage:
-    default: 15
-    type: number
   ControlPlaneSubnetCidr:
     default: ''
     description: >
@@ -291,11 +265,6 @@ conditions:
         - {get_param: {{role.deprecated_param_flavor}}}
         - {{default_flavor_name}}
 {%- endif %}
-  role_network_deployment_actions_exists:
-    not:
-      equals:
-        - {get_param: {{role.name}}NetworkDeploymentActions}
-        - []
   ctlplane_fixed_ip_set:
     or:
       - not:
@@ -570,15 +539,6 @@ resources:
       ServiceNames: {get_param: ServiceNames}
       deployment_actions: {get_attr: [DeploymentActions, value]}
 
-  NetworkDeploymentActionsValue:
-    type: OS::Heat::Value
-    properties:
-      value:
-        - if:
-          - role_network_deployment_actions_exists
-          - {get_param: {{role.name}}NetworkDeploymentActions}
-          - {get_param: NetworkDeploymentActions}
-
   # Resource for site-specific injection of root certificate
   NodeTLSCAData:
     depends_on: PreNetworkConfig
@@ -629,37 +589,6 @@ resources:
   {%- endfor %}
         fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
         fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
-
-  {{server_resource_name}}GroupVars:
-    type: OS::Heat::Value
-    properties:
-      value:
-        bootstrap_nodeid: {get_attr: [{{server_resource_name}}, name]}
-        ctlplane_subnet_cidr:
-          if:
-            - ctlplane_subnet_cidr_set
-            - {get_param: ControlPlaneSubnetCidr}
-            - yaql:
-                expression: str("{0}".format($.data).split("/")[-1])
-                data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
-        network_cidrs:
-        {%- for network in networks %}
-        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-          {{network.name}}_cidr: {get_attr: [{{network.name}}Port, cidr]}
-        {%- endif %}
-        {%- endfor %}
-        role_networks:
-        {%- for network in networks %}
-        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-          - {{network.name}}
-        {% endif %}
-        {% endfor %}
-        {%- for network in networks %}
-        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-        {{network.name_lower}}_cidr: {get_attr: [{{network.name}}Port, cidr]}
-        {%- endif %}
-        {%- endfor %}
-
 
 outputs:
   ansible_host_vars_map:
@@ -763,18 +692,3 @@ outputs:
     value: {get_attr: [{{network.name}}Port, ip_address]}
   {%- endif %}
   {%- endfor %}
-  role_group_vars:
-    value:
-      map_merge:
-        - any_errors_fatal: {get_param: {{role.name}}AnyErrorsFatal}
-          max_fail_percentage: {get_param: {{role.name}}MaxFailPercentage}
-          neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
-          neutron_public_interface_name: {get_param: NeutronPublicInterface}
-          network_deployment_actions: {get_attr: [NetworkDeploymentActionsValue, value]}
-          role_networks:
-  {%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-            - {{network.name}}
-  {%- endif %}
-  {%- endfor %}
-        - {get_attr: [{{server_resource_name}}GroupVars, value]}
