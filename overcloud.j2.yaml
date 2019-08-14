@@ -156,6 +156,20 @@ parameters:
     description: Whether this is an cell additional to the default cell.
     type: boolean
 
+  NovaLocalMetadataPerCell:
+    default: false
+    description: >
+      Indicates that the nova-metadata API service has been deployed
+      per-cell, so that we can have better performance and data isolation in a
+      multi-cell deployment. Users should consider the use of this configuration
+      depending on how neutron is setup. If networks span cells, you might need
+      to run nova-metadata API service globally. If your networks are segmented
+      along cell boundaries, then you can run nova-metadata API service per cell.
+      When running nova-metadata API service per cell, you should also configure
+      each Neutron metadata-agent to point to the corresponding nova-metadata API
+      service.
+    type: boolean
+
   # Jinja loop for Role in role_data.yaml
 {% for role in roles %}
   {{role.name}}ExtraConfig:
@@ -322,6 +336,18 @@ conditions:
         - equals:
           - get_param: [EndpointMapOverride, NovaVNCProxyCellPublic]
           - ''
+  set_default_nova_metadata_cell_internal:
+    or:
+      - equals:
+        - get_param: NovaLocalMetadataPerCell
+        - true
+      - and:
+        - equals:
+          - get_param: NovaLocalMetadataPerCell
+          - false
+        - equals:
+          - get_param: [EndpointMapOverride, NovaMetadataCellInternal]
+          - ''
 
 resources:
 
@@ -440,6 +466,10 @@ resources:
           - if:
             - set_default_nova_vnc_proxy_cell_public
             - NovaVNCProxyCellPublic: {get_attr: [EndpointMap, endpoint_map, NovaVNCProxyPublic]}
+            - {}
+          - if:
+            - set_default_nova_metadata_cell_internal
+            - NovaMetadataCellInternal: {get_attr: [EndpointMap, endpoint_map, NovaMetadataInternal]}
             - {}
 
   # Creates the "heat-admin" user if configured via the environment
