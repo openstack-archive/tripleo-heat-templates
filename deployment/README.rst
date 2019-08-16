@@ -78,7 +78,9 @@ are available for containerized services.
  * docker_config: Data that is passed to paunch tool to configure
    a container, or step of containers at each step. See the available steps
    documented below which are implemented by TripleO's cluster deployment
-   architecture.
+   architecture. If you want the tasks executed only once for the bootstrap
+   node per a role in the cluster, use the `/usr/bin/bootstrap_host_exec`
+   wrapper.
 
  * puppet_config: This section is a nested set of key value pairs
    that drive the creation of config files using puppet.
@@ -105,11 +107,15 @@ are available for containerized services.
        this container.
 
  * container_puppet_tasks: This section provides data to drive the
-   container-puppet.py tool directly. The task is executed only once
-   within the cluster (not on each node) and is useful for several
-   puppet snippets we require for initialization of things like
-   keystone endpoints, database users, etc. See container-puppet.py
-   for formatting.
+   container-puppet.py tool directly. The task is executed for the
+   defined steps before the corresponding docker_config's step. Puppet
+   always sees the step number overrided as the step #6. It might be useful
+   for initialization of things. See container-puppet.py for formatting.
+   Note that the tasks are executed only once for the bootstrap node per a
+   role in the cluster. Make sure the puppet manifest ensures the wanted
+   "at most once" semantics. That may be achieved via the
+   `<service_name>_short_bootstrap_node_name` hiera parameters automatically
+   evaluated for each service.
 
  * global_config_settings: the hiera keys will be distributed to all roles
 
