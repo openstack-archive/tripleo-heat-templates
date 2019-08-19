@@ -30,14 +30,10 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  ManageFirewall:
-    default: true
-    description: Whether to manage IPtables rules.
-    type: boolean
-  PurgeFirewallRules:
-    default: false
-    description: Whether IPtables rules should be purged before setting up the new ones.
-    type: boolean
+  ExtraFirewallRules:
+    default: {}
+    description: Mapping of firewall rules.
+    type: json
 
 conditions:
   no_ctlplane:
@@ -51,36 +47,36 @@ outputs:
     value:
       service_name: tripleo_firewall
       config_settings:
-        tripleo::firewall::manage_firewall: {get_param: ManageFirewall}
-        tripleo::firewall::purge_firewall_rules: {get_param: PurgeFirewallRules}
-        tripleo::tripleo_firewall::firewall_rules:
-          map_merge:
-            repeat:
-              for_each:
-                <%net_cidr%>: {get_param: [ServiceData, net_cidr_map, ctlplane]}
-              template:
-                '003 accept ssh from ctlplane subnet <%net_cidr%>':
-                  source: <%net_cidr%>
-                  proto: 'tcp'
-                  dport: 22
-
-      step_config: |
-        include ::tripleo::firewall
-
+        tripleo::firewall::manage_firewall: false
+        tripleo::firewall::purge_firewall_rules: false
+      firewall_rules:
+        map_merge:
+          - map_merge:
+              repeat:
+                for_each:
+                  <%net_cidr%>: {get_param: [ServiceData, net_cidr_map, ctlplane]}
+                template:
+                  '003 accept ssh from ctlplane subnet <%net_cidr%>':
+                    source: <%net_cidr%>
+                    proto: 'tcp'
+                    dport: 22
+          - {get_param: ExtraFirewallRules}
       host_prep_tasks:
-        if:
-        - no_ctlplane
-        -
-          name: Ensure ctlplane subnet is set
-          fail:
-            msg: |
-              No CIDRs found in the ctlplane network tags.
-              Please refer to the documentation in order to
-              set the correct network tags in DeployedServerPortMap.
-        - null
-
+        - if:
+            - no_ctlplane
+            - name: Failure - ctlplane subnet is unset
+              fail:
+                msg: |
+                  No CIDRs found in the ctlplane network tags.
+                  Please refer to the documentation in order to
+                  set the correct network tags in DeployedServerPortMap.
+            - name: Notice - ctlplane subnet is set
+              debug:
+                msg: |
+                  CIDRs found in the ctlplane network tags.
       deploy_steps_tasks:
-        - when: step|int == 0
+        - when:
+            - (step|int) == 0
           block:
             - name: create iptables service
               copy:
@@ -128,7 +124,8 @@ outputs:
                 enabled: yes
                 name: tripleo-ip6tables.service
       upgrade_tasks:
-        - when: step|int == 3
+        - when:
+            - (step | int) == 3
           block:
             - name: blank ipv6 rule before activating ipv6 firewall.
               shell: cat /etc/sysconfig/ip6tables > /etc/sysconfig/ip6tables.n-o-upgrade; cat</dev/null>/etc/sysconfig/ip6tables
