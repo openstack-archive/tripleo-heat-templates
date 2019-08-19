@@ -41,6 +41,10 @@ parameters:
     default: false
     description: Whether to enable fencing in Pacemaker or not.
     type: boolean
+  PacemakerTLSPriorities:
+    type: string
+    description: Pacemaker TLS Priorities
+    default: ''
   PacemakerRemoteAuthkey:
     type: string
     description: The authkey for the pacemaker remote service.
@@ -102,6 +106,9 @@ parameters:
     type: boolean
     default: true
 
+conditions:
+  pcmk_tls_priorities_empty: {equals: [{get_param: PacemakerTLSPriorities}, '']}
+
 outputs:
   role_data:
     description: Role data for the Pacemaker role.
@@ -109,36 +116,42 @@ outputs:
       service_name: pacemaker
       monitoring_subscription: {get_param: MonitoringSubscriptionPacemaker}
       config_settings:
-        pacemaker::corosync::cluster_name: 'tripleo_cluster'
-        pacemaker::corosync::manage_fw: false
-        pacemaker::resource_defaults::defaults:
-          resource-stickiness: { value: INFINITY }
-        corosync_token_timeout: 10000
-        pacemaker::corosync::settle_tries: {get_param: CorosyncSettleTries}
-        pacemaker::resource::bundle::deep_compare: true
-        pacemaker::resource::ip::deep_compare: true
-        pacemaker::resource::ocf::deep_compare: true
-        tripleo::pacemaker::firewall_rules:
-          '130 pacemaker tcp':
-            proto: 'tcp'
-            dport:
-              - 2224
-              - 3121
-              - 21064
-          '131 pacemaker udp':
-            proto: 'udp'
-            dport: 5405
-        corosync_ipv6: {get_param: CorosyncIPv6}
-        tripleo::fencing::config: {get_param: FencingConfig}
-        enable_fencing: {get_param: EnableFencing}
-        hacluster_pwd:
-          yaql:
-            expression: $.data.passwords.where($ != '').first()
-            data:
-              passwords:
-                - {get_param: PcsdPassword}
-                - {get_param: [DefaultPasswords, pcsd_password]}
-        tripleo::profile::base::pacemaker::remote_authkey: {get_param: PacemakerRemoteAuthkey}
+        map_merge:
+        - pacemaker::corosync::cluster_name: 'tripleo_cluster'
+          pacemaker::corosync::manage_fw: false
+          pacemaker::resource_defaults::defaults:
+            resource-stickiness: { value: INFINITY }
+          corosync_token_timeout: 10000
+          pacemaker::corosync::settle_tries: {get_param: CorosyncSettleTries}
+          pacemaker::resource::bundle::deep_compare: true
+          pacemaker::resource::ip::deep_compare: true
+          pacemaker::resource::ocf::deep_compare: true
+          tripleo::pacemaker::firewall_rules:
+            '130 pacemaker tcp':
+              proto: 'tcp'
+              dport:
+                - 2224
+                - 3121
+                - 21064
+            '131 pacemaker udp':
+              proto: 'udp'
+              dport: 5405
+          corosync_ipv6: {get_param: CorosyncIPv6}
+          tripleo::fencing::config: {get_param: FencingConfig}
+          enable_fencing: {get_param: EnableFencing}
+          hacluster_pwd:
+            yaql:
+              expression: $.data.passwords.where($ != '').first()
+              data:
+                passwords:
+                  - {get_param: PcsdPassword}
+                  - {get_param: [DefaultPasswords, pcsd_password]}
+          tripleo::profile::base::pacemaker::remote_authkey: {get_param: PacemakerRemoteAuthkey}
+        -
+          if:
+          - pcmk_tls_priorities_empty
+          - {}
+          - tripleo::pacemaker::tls_priorities: {get_param: PacemakerTLSPriorities}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_pacemaker:
