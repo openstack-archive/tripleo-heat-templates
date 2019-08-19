@@ -94,7 +94,8 @@ if __name__ == '__main__':
         user_domain_name=config.get('neutron',
                                     'user_domain_name'))
     sess = session.Session(auth=auth, verify=options.insecure)
-    nova = client.Client('2.11', session=sess, endpoint_type='internal')
+    nova = client.Client('2.11', session=sess, endpoint_type='internal',
+                         region_name=config.get('neutron', 'region_name'))
 
     # Wait until this host is listed in the service list
     for i in range(iterations):
