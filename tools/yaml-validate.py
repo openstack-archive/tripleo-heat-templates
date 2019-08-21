@@ -251,10 +251,6 @@ WORKFLOW_TASKS_EXCLUSIONS = [
 ]
 
 
-ANSIBLE_TASKS_YAMLS = [
-    './extraconfig/pre_network/boot_param_tasks.yaml'
-]
-
 HEAT_OUTPUTS_EXCLUSIONS = [
     './puppet/extraconfig/tls/ca-inject.yaml',
     './deployed-server/deployed-server.yaml',
@@ -1164,8 +1160,6 @@ def validate(filename, param_map):
             retval |= validate_nic_config_file(filename, tpl)
 
     except Exception:
-        if filename in ANSIBLE_TASKS_YAMLS:
-            return 0
         print(traceback.format_exc())
         return 1
     # yaml is OK, now walk the parameters and output a warning for unused ones
