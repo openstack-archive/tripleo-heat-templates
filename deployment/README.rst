@@ -297,6 +297,24 @@ Note that the services are not started in the upgrade tasks - we instead re-run
 puppet which does any reconfiguration required for the new version, then starts
 the services.
 
+When running an OS upgrade via the tags `system_upgrade_prepare` and
+`system_upgrade_run`, or the combined tag `system_upgrade`, the steps
+corellate to the following:
+
+   1) Any pre-service-stop actions. (`system_upgrade_prepare`)
+
+   2) Stop all services. (`system_upgrade_prepare`)
+
+   3) Post-service-stop actions like removing packages before the
+      upgrade. (`system_upgrade_prepare`)
+
+   4) Step reserved for the `tripleo-packages` service. Only package
+      download for upgrade (under `system_upgrade_prepare` tag), and
+      reboot for performing the offline upgrade (under
+      `system_upgrade_run` tag) happens here.
+
+   5) Any post-upgrade tasks (`system_upgrade_run`).
+
 Nova Server Metadata Settings
 -----------------------------
 

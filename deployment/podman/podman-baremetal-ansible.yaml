@@ -127,15 +127,32 @@ outputs:
       service_config_settings: {}
 
       upgrade_tasks:
-        - name: Stop all services by stopping all docker containers
-          when:
-            - (step | int) == 3
-          include_role:
-            name: tripleo-podman
-            tasks_from: tripleo_docker_stop.yml
+        - name: system_upgrade_prepare step 2
           tags:
             - never
+            - system_upgrade
             - system_upgrade_prepare
+          when:
+            - (step | int) == 2
+          block:
+            - name: Check if pcs is present
+              stat:
+                path: /usr/sbin/pcs
+              register: pcs_stat
+            - name: Stop pacemaker cluster before stopping all docker containers
+              pacemaker_cluster: state=offline
+              when: pcs_stat.stat.exists
+            - name: Destroy pacemaker cluster
+              command: /usr/sbin/pcs cluster destroy
+              when: pcs_stat.stat.exists
+            - name: Stop all services by stopping all docker containers
+              include_role:
+                name: tripleo-podman
+                tasks_from: tripleo_docker_stop.yml
+              tags:
+                - never
+                - system_upgrade
+                - system_upgrade_prepare
 
         - name: Run podman install
           when:
