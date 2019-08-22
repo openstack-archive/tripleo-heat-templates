@@ -219,12 +219,6 @@ def process_templates(template_path, role_data_path, output_dir,
                                     # that specify {{role}} vs {{role.name}}
                                     j2_data = {'role': role,
                                                'networks': network_data}
-                                    # (dprince) For the undercloud installer we
-                                    # don'twant to have heat check nova/glance
-                                    # API's
-                                    if r_map[role].get('disable_constraints',
-                                                       False):
-                                        j2_data['disable_constraints'] = True
                                     _j2_render_to_file(
                                         template_data, j2_data,
                                         out_f_path, overwrite, dry_run)
