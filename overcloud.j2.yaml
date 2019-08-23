@@ -89,6 +89,10 @@ parameters:
     default: 'ctlplane'
     type: string
     description: Neutron ID or name for ctlplane network.
+  NeutronPhysicalBridge:
+    default: 'br-ex'
+    description: An OVS bridge to create for accessing external networks.
+    type: string
   NeutronPublicInterface:
     default: nic1
     description: Which interface to add to the NeutronPhysicalBridge.
@@ -131,7 +135,11 @@ parameters:
       Extra properties or metadata passed to Nova for the created nodes in
       the overcloud. It's accessible via the Nova metadata API.
     type: json
-
+  NetworkDeploymentActions:
+    type: comma_delimited_list
+    description: >
+      Heat action when to apply network configuration changes
+    default: ['CREATE']
 # Compute-specific params
 # FIXME(shardy) handle these deprecated names as they don't match compute.yaml
   HypervisorNeutronPhysicalBridge:
@@ -190,7 +198,19 @@ parameters:
                  resource_registry) which represent nested stacks
                  for each service that should get installed on the {{role.name}} role.
     type: comma_delimited_list
-
+  {{role.name}}NetworkDeploymentActions:
+    type: comma_delimited_list
+    description: >
+      Heat action when to apply network configuration changes
+    default: []
+  {{role.name}}AnyErrorsFatal:
+    default: yes
+    type: string
+  {#- We generally won't want any failures on HA Controller roles, 15% will cause any 1 node to fail the deploy, #}
+  {#- for a 3 or 5 node Role, making it a fairly safe default. #}
+  {{role.name}}MaxFailPercentage:
+    default: 15
+    type: number
   {{role.name}}Count:
     description: Number of {{role.name}} nodes to deploy
     type: number
@@ -324,6 +344,13 @@ conditions:
         - equals:
           - get_param: [EndpointMapOverride, MysqlCellInternal]
           - ''
+{%- for role in roles %}
+  {{role.name}}_network_deployment_actions_exists:
+    not:
+      equals:
+        - {get_param: {{role.name}}NetworkDeploymentActions}
+        - []
+{%- endfor %}
   set_default_nova_vnc_proxy_cell_public:
     or:
       - equals:
@@ -514,6 +541,15 @@ resources:
     properties:
       type: json
       value: {get_attr: [{{role.name}}ServiceChain, role_data]}
+
+  {{role.name}}NetworkDeploymentActionsValue:
+    type: OS::Heat::Value
+    properties:
+      value:
+        - if:
+          - {{role.name}}_network_deployment_actions_exists
+          - {get_param: {{role.name}}NetworkDeploymentActions}
+          - {get_param: NetworkDeploymentActions}
 
   {{role.name}}ConfigData:
     type: OS::Heat::Value
@@ -816,6 +852,48 @@ resources:
     properties:
       CtlplaneNetworkCidrs: {get_attr: [ControlVirtualIP, network, tags]}
 
+{%- for role in roles %}
+  {{role.name}}GroupVars:
+    type: OS::Heat::Value
+    properties:
+      value:
+        bootstrap_nodeid:
+          yaql:
+            expression: coalesce($.data, []).where(not isEmpty($)).first()
+            data: {get_attr: [{{role.name}}, hostname]}
+        ctlplane_subnet_cidr:
+          yaql:
+            expression: coalesce($.data, []).where(not isEmpty($)).first().split('/')[-1]
+            data:
+              if:
+              - ctlplane_subnet_cidr_set
+              - [{get_param: ControlPlaneSubnetCidr}]
+              - {get_attr: [ControlVirtualIP, network, tags]}
+        network_cidrs:
+        {%- for network in networks %}
+        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+          {{network.name}}_cidr:
+            yaql:
+              expression: coalesce($.data, []).where(not isEmpty($)).first().split('/')[-1]
+              data: {get_attr: [Networks, net_cidr_map, {{network.name_lower}}]}
+        {%- endif %}
+        {%- endfor %}
+        role_networks:
+        {%- for network in networks %}
+        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+          - {{network.name}}
+        {% endif %}
+        {% endfor %}
+        {%- for network in networks %}
+        {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+        {{network.name_lower}}_cidr:
+          yaql:
+            expression: coalesce($.data, []).where(not isEmpty($)).first().split('/')[-1]
+            data: {get_attr: [Networks, net_cidr_map, {{network.name_lower}}]}
+        {% endif %}
+        {% endfor %}
+{% endfor %}
+
   ControlVirtualIP:
     depends_on: ServiceNetMap
     type: OS::TripleO::Network::Ports::ControlPlaneVipPort
@@ -1081,9 +1159,13 @@ outputs:
 {%- for role in roles %}
       {{role.name}}:
         map_merge:
-          list_concat:
-          - {get_attr: [{{role.name}}, role_group_vars]}
-          - [{get_attr: [{{role.name}}ConfigData, value]}]
+        - {get_attr: [{{role.name}}GroupVars, value]}
+        - {get_attr: [{{role.name}}ConfigData, value]}
+        - any_errors_fatal: {get_param: {{role.name}}AnyErrorsFatal}
+          max_fail_percentage: {get_param: {{role.name}}MaxFailPercentage}
+          neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
+          neutron_public_interface_name: {get_param: NeutronPublicInterface}
+          network_deployment_actions: {get_attr: [{{role.name}}NetworkDeploymentActionsValue, value]}
 {%- endfor %}
   RoleNetHostnameMap:
     description: Mapping of each network to a list of hostnames for each role
