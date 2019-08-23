@@ -63,6 +63,12 @@ parameters:
   NodeExporterContainerImage:
     description: Ceph NodeExporter container image
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
   CephBase:
@@ -95,7 +101,7 @@ outputs:
   role_data:
     description: Role data for the Ceph Dashboard service.
     value:
-      service_name: ceph_grafana-server
+      service_name: ceph_grafana
       upgrade_tasks: []
       puppet_config:
         config_image: ''
@@ -111,7 +117,19 @@ outputs:
             block:
               - name: set ceph-ansible group vars
                 set_fact:
-                  ceph_ansible_group_vars_grafana: {get_attr: [CephGrafanaAnsibleVars, value, vars]}
+                  ceph_ansible_group_vars_grafana:
+                    if:
+                    - internal_tls_enabled
+                    - yaql:
+                        data:
+                          default:
+                            map_merge:
+                            - {get_attr: [CephGrafanaAnsibleVars, value, vars]}
+                          certmap:
+                            grafana_crt: '/etc/pki/tls/certs/ceph_grafana.crt'
+                            grafana_key: '/etc/pki/tls/private/ceph_grafana.key'
+                        expression: $.data.default.mergeWith($.data.certmap)
+                    - {get_attr: [CephGrafanaAnsibleVars, value, vars]}
               - name: generate ceph-ansible grafana-server group vars
                 copy:
                   dest: "{{playbook_dir}}/ceph-ansible/group_vars/grafana-server.yml"
@@ -120,7 +138,34 @@ outputs:
       external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
       config_settings:
         map_merge:
-        - tripleo::ceph_dashboard::firewall_rules:
-            '123 ceph_dashboard':
-              dport: [3100,9090,9093,9094,9100]
-        - {}
+          - if:
+            - internal_tls_enabled
+            -
+              generate_service_certificates: true
+              ceph_grafana_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ceph_grafana.crt'
+                service_key: '/etc/pki/tls/private/ceph_grafana.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephGrafanaNetwork]}
+                principal:
+                  str_replace:
+                    template: "ceph_grafana/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephGrafanaNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-grafana-refresh.sh"
+            - {}
+          - tripleo::ceph_grafana::firewall_rules:
+              '123 ceph_dashboard':
+                dport: [3100,9090,9093,9094,9100]
+          - {}
+      metadata_settings:
+        if:
+        - internal_tls_enabled
+        -
+          - service: ceph_grafana
+            network: {get_param: [ServiceNetMap, CephGrafanaNetwork]}
+            type: node
+        - null
