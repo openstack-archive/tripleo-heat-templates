@@ -145,6 +145,22 @@ parameters:
     description: default minimum replication for RBD copies
     type: number
     default: 3
+  ManilaCephFSDataPoolName:
+    default: manila_data
+    type: string
+  ManilaCephFSMetadataPoolName:
+    default: manila_metadata
+    type: string
+  # DEPRECATED options for compatibility with older versions
+  ManilaCephFSDataPoolPGNum:
+    default: 128
+    type: number
+  ManilaCephFSMetadataPoolPGNum:
+    default: 128
+    type: number
+  ManilaCephFSShareBackendName:
+    default: cephfs
+    type: string
   ManilaCephFSCephFSAuthId:
     default: manila
     type: string
@@ -198,7 +214,16 @@ parameters:
                  Set this value to 0 to disable this check.
     type: number
 
+parameter_groups:
+- label: deprecated
+  description: Do not use deprecated params, they will be removed.
+  parameters:
+  - ManilaCephFSDataPoolPGNum
+  - ManilaCephFSMetadataPoolPGNum
+
 conditions:
+  deprecated_data_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSDataPoolPGNum}, 128]}}
+  deprecated_metadata_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSMetadataPoolPGNum}, 128]}}
   custom_registry_host:
     yaql:
       data: {get_param: ContainerCephDaemonImage}
@@ -407,6 +432,27 @@ resources:
             - ipv6
             - ipv4
           dashboard_enabled: {get_param: CephEnableDashboard}
+          # Prefer CephPoolDefaultPgNum unless the (deprecated)
+          # params value is different from their default.
+          cephfs_data_pool:
+            application: cephfs
+            name: {get_param: ManilaCephFSDataPoolName}
+            pg_num:
+              if:
+              - deprecated_data_pool_pgnum
+              - {get_param: ManilaCephFSDataPoolPGNum}
+              - {get_param: CephPoolDefaultPgNum}
+            rule_name: replicated_rule
+          cephfs_metadata_pool:
+            application: cephfs
+            name: {get_param: ManilaCephFSMetadataPoolName}
+            pg_num:
+              if:
+              - deprecated_metadata_pool_pgnum
+              - {get_param: ManilaCephFSMetadataPoolPGNum}
+              - {get_param: CephPoolDefaultPgNum}
+            rule_name: replicated_rule
+          cephfs: {get_param: ManilaCephFSShareBackendName}
 
 outputs:
   role_data:
