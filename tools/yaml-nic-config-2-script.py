@@ -229,6 +229,7 @@ for base_path in opts.files:
             # path relative to NIC config files
             script_paths = [opts.script_dir]
             script_paths.append('../../scripts/run-os-net-config.sh')
+            script_paths.append('../network/scripts/run-os-net-config.sh')
             script_paths.append(
 '/usr/share/openstack-tripleo-heat-templates/network/scripts/run-os-net-config.sh')
 
