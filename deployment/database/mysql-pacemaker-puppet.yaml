@@ -563,6 +563,13 @@ outputs:
             - step|int == 3
           block: *mysql_fetch_retag_container_tasks
         - name: Check and upgrade Mysql database after major version upgrade
+         # Note: during upgrade to Stein, a new pacemaker cluster is recreated,
+         # controller nodes added sequentially to this new cluster, and the upgrade
+         # workflow (upgrade tasks, deploy/convertge) is ran once per controller.
+         # This mysql upgrade block must run only once per controller, before
+         # the controller is added into the cluster (by mysql_init_bundle) and
+         # before pacemaker has a chance to start galera on that controller.
+         # So do not exercise the upgrade if mysql is already running.
           when: step|int == 3
           block:
             # mariadb package changes ownership of /var/lib/mysql on package
@@ -580,6 +587,7 @@ outputs:
                   list_join:
                     - ' '
                     - - 'kolla_set_configs;'
+                      - 'if mysqladmin ping --silent; then exit 0; fi;'
                       - 'chown -R mysql:mysql /var/lib/mysql;'
                       - 'chown -R mysql:mysql /var/log/mariadb;'
                       - 'mysqld_safe --user=mysql --wsrep-provider=none --skip-networking --wsrep-on=off &'
