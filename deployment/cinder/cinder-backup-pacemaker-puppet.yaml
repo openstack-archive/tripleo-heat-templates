@@ -52,11 +52,6 @@ parameters:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
     type: boolean
-  PcmkConfigRestartTimeout:
-    default: 600
-    description: Time in seconds to wait for a pcmk resource to restart when
-                 a config change is detected and the resource is being restarted
-    type: number
   ContainerCli:
     type: string
     default: 'podman'
@@ -187,24 +182,12 @@ outputs:
             user: root
             environment:
               - TRIPLEO_MINOR_UPDATE
-            command:
-              - '/usr/bin/bootstrap_host_exec'
-              - 'cinder_backup'
-              - str_replace:
-                  template:
-                    'if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ] && /usr/sbin/pcs resource show openstack-cinder-backup; then /usr/sbin/pcs resource restart --wait=PCMKTIMEOUT openstack-cinder-backup; echo "openstack-cinder-backup restart invoked"; fi'
-                  params:
-                    PCMKTIMEOUT: {get_param: PcmkConfigRestartTimeout}
+            command: /pacemaker_restart_bundle.sh openstack-cinder-backup cinder_backup
             image: {get_param: DockerCinderBackupImage}
             volumes:
               list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/puppet-generated/cinder/:/var/lib/kolla/config_files/src:ro
-                - if:
-                  - docker_enabled
-                  - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - null
+                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
+                - - /var/lib/config-data/puppet-generated/cinder/:/var/lib/kolla/config_files/src:ro
           cinder_backup_init_bundle:
             start_order: 1
             detach: false
