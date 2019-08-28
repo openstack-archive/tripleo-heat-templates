@@ -79,13 +79,13 @@ parameters:
 
 {% for role in roles %}
   # Parameters generated for {{role.name}} Role
-  {{role.name}}Services:
+  {{ role.name }}Services:
     description: A list of service resources (configured in the Heat
                  resource_registry) which represent nested stacks
                  for each service that should get installed on the {{role.name}} role.
     type: comma_delimited_list
 
-  {{role.name}}Count:
+  {{ role.name }}Count:
     description: Number of {{role.name}} nodes to deploy
     type: number
     default: {{role.CountDefault|default(0)}}
@@ -97,60 +97,24 @@ outputs:
     value:
       service_name: container_image_prepare
       external_deploy_tasks:
-        - name: Container image prepare
-          when: step|int == 1
-          tags: container_image_prepare
-          block:
-          - set_fact:
-              log_file: {get_param: ContainerImagePrepareLogFile}
-              container_image_prepare_debug: {get_param: ContainerImagePrepareDebug}
-          - name: Create temp file for prepare parameter
-            tempfile:
-              state: file
-              suffix: -prepare-param
-            register: prepare_param
-            check_mode: no
-          - name: Create temp file for role data
-            tempfile:
-              state: file
-              suffix: -role-data
-            register: role_data
-            check_mode: no
-          - name: Write ContainerImagePrepare parameter file
-            copy:
-              dest: "{{ '{{' }} prepare_param.path {{ '}}' }}"
-              content:
-                parameter_defaults:
-                  ContainerImagePrepare: {get_param: ContainerImagePrepare}
-                  DockerInsecureRegistryAddress: {get_param: DockerInsecureRegistryAddress}
-                  NeutronMechanismDrivers: {get_param: NeutronMechanismDrivers}
-                  DockerRegistryMirror: {get_param: DockerRegistryMirror}
-                  ContainerImageRegistryCredentials: {get_param: ContainerImageRegistryCredentials}
-                  AdditionalArchitectures: {get_param: AdditionalArchitectures}
+        - name: Run tripleo-container-image-prepare role
+          include_role:
+            name: tripleo-container-image-prepare
+          vars:
+            tripleo_container_image_prepare_log_file: {get_param: ContainerImagePrepareLogFile}
+            tripleo_container_image_prepare_debug: {get_param: ContainerImagePrepareDebug}
+            tripleo_container_image_prepare_roles: {{ roles }}
+            tripleo_container_image_prepare_content:
+              parameter_defaults:
+                ContainerImagePrepare: {get_param: ContainerImagePrepare}
+                DockerInsecureRegistryAddress: {get_param: DockerInsecureRegistryAddress}
+                NeutronMechanismDrivers: {get_param: NeutronMechanismDrivers}
+                DockerRegistryMirror: {get_param: DockerRegistryMirror}
+                ContainerImageRegistryCredentials: {get_param: ContainerImageRegistryCredentials}
+                AdditionalArchitectures: {get_param: AdditionalArchitectures}
 {% for role in roles %}
-                  {{role.name}}Services: {get_param: {{role.name}}Services}
-                  {{role.name}}Count: {get_param: {{role.name}}Count}
+                {{ role.name }}Services: {get_param: {{role.name}}Services}
+                {{ role.name }}Count: {get_param: {{role.name}}Count}
 {% endfor %}
-          - name: Write role data file
-            copy:
-              dest: "{{ '{{' }} role_data.path {{ '}}' }}"
-              content: {{ roles }}
-          - name: Run tripleo-container-image-prepare logged to {{ '{{' }} log_file {{ '}}' }}
-            shell: |
-              sudo /usr/bin/tripleo-container-image-prepare \
-                --roles-file {{ '{{' }} role_data.path {{ '}}' }} \
-                --environment-file {{ '{{' }} prepare_param.path {{ '}}' }} \
-                --cleanup partial \
-                --log-file {{ '{{' }} log_file {{ '}}' }}{{ '{' }}% if container_image_prepare_debug|default(false) %{{ '}' }} \
-                --debug > {{ '{{' }} log_file {{ '}}' }} 2>&1{{ '{' }}% endif %{{ '}' }}
-            no_log: True
-          - name: Delete param file
-            file:
-              dest: "{{ '{{' }} prepare_param.path {{ '}}' }}"
-              state: absent
-            check_mode: no
-          - name: Delete role file
-            file:
-              dest: "{{ '{{' }} role_data.path {{ '}}' }}"
-              state: absent
-            check_mode: no
+          when:
+            - (step | int) == 1
