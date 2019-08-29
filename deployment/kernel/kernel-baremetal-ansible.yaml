@@ -1,0 +1,146 @@
+heat_template_version: rocky
+
+description: >
+  Load kernel modules with kmod and configure kernel options with sysctl.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  KernelPidMax:
+    default: 1048576
+    description: Configures sysctl kernel.pid_max key
+    type: number
+  KernelDisableIPv6:
+    default: 0
+    description: Configures sysctl net.ipv6.{default/all}.disable_ipv6 keys
+    type: number
+  KernelIpForward:
+    default: 1
+    description: Configures net.ipv4.ip_forward key
+    type: number
+  KernelIpNonLocalBind:
+    default: 1
+    description: Configures net.ipv{4,6}.ip_nonlocal_bind key
+    type: number
+  NeighbourGcThreshold1:
+    default: 1024
+    description: Configures sysctl net.ipv4.neigh.default.gc_thresh1 value.
+                 This is the minimum number of entries to keep in the ARP
+                 cache. The garbage collector will not run if there are
+                 fewer than this number of entries in the cache.
+    type: number
+  NeighbourGcThreshold2:
+    default: 2048
+    description: Configures sysctl net.ipv4.neigh.default.gc_thresh2 value.
+                 This is the soft maximum number of entries to keep in the
+                 ARP cache. The garbage collector will  allow the number of
+                 entries to exceed this for 5 seconds before collection will
+                 be performed.
+    type: number
+  NeighbourGcThreshold3:
+    default: 4096
+    description: Configures sysctl net.ipv4.neigh.default.gc_thresh3 value.
+                 This is the hard maximum number of entries to keep in the
+                 ARP cache. The garbage collector will always run if there
+                 are more than this number of entries in the cache.
+    type: number
+  InotifyIntancesMax:
+    default: 1024
+    description: Configures sysctl fs.inotify.max_user_instances key
+    type: number
+  ExtraKernelModules:
+    default: {}
+    description: Hash of extra Kernel modules to load.
+    type: json
+    tags:
+      - role_specific
+  ExtraKernelPackages:
+    default: {}
+    description: List of extra kernel related packages to install.
+    type: json
+    tags:
+      - role_specific
+  ExtraSysctlSettings:
+    default: {}
+    description: Hash of extra sysctl settings to apply.
+    type: json
+    tags:
+      - role_specific
+
+resources:
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - extra_kernel_modules: ExtraKernelModules
+              extra_kernel_packages: ExtraKernelPackages
+              extra_sysctl_settings: ExtraSysctlSettings
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ExtraKernelModules: {get_param: ExtraKernelModules}
+              ExtraKernelPackages: {get_param: ExtraKernelPackages}
+              ExtraSysctlSettings: {get_param: ExtraSysctlSettings}
+
+outputs:
+  role_data:
+    description: Role data for the Kernel modules
+    value:
+      service_name: kernel
+      host_prep_tasks:
+        - include_role:
+            name: tripleo-kernel
+      ansible_group_vars:
+        tripleo_kernel_extra_modules: {get_attr: [RoleParametersValue, value, extra_kernel_modules]}
+        tripleo_kernel_extra_packages: {get_attr: [RoleParametersValue, value, extra_kernel_packages]}
+        tripleo_kernel_sysctl_extra_settings:
+          map_merge:
+            - net.ipv6.conf.default.disable_ipv6:
+                value: {get_param: KernelDisableIPv6}
+              net.ipv6.conf.all.disable_ipv6:
+                value: {get_param: KernelDisableIPv6}
+              net.ipv4.ip_forward:
+                value: {get_param: KernelIpForward}
+              net.ipv4.ip_nonlocal_bind:
+                value: {get_param: KernelIpNonLocalBind}
+              net.ipv6.ip_nonlocal_bind:
+                value: {get_param: KernelIpNonLocalBind}
+              kernel.pid_max:
+                value: {get_param: KernelPidMax}
+              net.ipv4.neigh.default.gc_thresh1:
+                value: {get_param: NeighbourGcThreshold1}
+              net.ipv4.neigh.default.gc_thresh2:
+                value: {get_param: NeighbourGcThreshold2}
+              net.ipv4.neigh.default.gc_thresh3:
+                value: {get_param: NeighbourGcThreshold3}
+              fs.inotify.max_user_instances:
+                value: {get_param: InotifyIntancesMax}
+            - {get_attr: [RoleParametersValue, value, extra_sysctl_settings]}
