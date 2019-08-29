@@ -1,9 +1,19 @@
 #!/usr/bin/env python
-
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 import json
 import netaddr
-import os
 import openstack
+import os
 import subprocess
 
 CTLPLANE_NETWORK_NAME = 'ctlplane'
@@ -61,12 +71,15 @@ def _ensure_neutron_network(sdk):
 
     return network
 
+
 def _get_nameservers_for_version(servers, ipversion):
     """Get list of nameservers for an IP version"""
     return [s for s in servers if netaddr.IPAddress(s).version == ipversion]
 
+
 def _neutron_subnet_create(sdk, network_id, cidr, gateway, host_routes,
-                           allocation_pools, name, segment_id, dns_nameservers):
+                           allocation_pools, name, segment_id,
+                           dns_nameservers):
     try:
         if netaddr.IPNetwork(cidr).version == 6:
             subnet = sdk.network.create_subnet(
@@ -137,6 +150,7 @@ def _neutron_add_subnet_segment_association(sdk, subnet_id, segment_id):
         print('ERROR: Associationg segment with subnet %s failed.' % subnet_id)
         raise
 
+
 def _neutron_segment_create(sdk, name, network_id, phynet):
     try:
         segment = sdk.network.create_segment(
@@ -145,7 +159,7 @@ def _neutron_segment_create(sdk, name, network_id, phynet):
             physical_network=phynet,
             network_type='flat')
         print('INFO: Neutron Segment created %s' % segment)
-    except Exception as ex:
+    except Exception:
         print('ERROR: Neutron Segment %s create failed.' % name)
         raise
 
@@ -173,7 +187,7 @@ def _ensure_neutron_router(sdk, name, subnet_id):
 def _get_subnet(sdk, cidr, network_id):
     try:
         subnet = list(sdk.network.subnets(cidr=cidr, network_id=network_id))
-    except Exception as ex:
+    except Exception:
         print('ERROR: Get subnet with cidr %s failed.' % cidr)
         raise
 
@@ -206,12 +220,13 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     """Create's and updates the ctlplane subnet on the segment that is local to
     the underclud.
     """
+
     s = CONF['subnets'][CONF['local_subnet']]
     name = CONF['local_subnet']
     subnet = _get_subnet(sdk, s['NetworkCidr'], ctlplane_id)
     segment = _get_segment(sdk, CONF['physical_network'], ctlplane_id)
     if subnet:
-        if CONF['enable_routed_networks'] and subnet.segment_id == None:
+        if CONF['enable_routed_networks'] and subnet.segment_id is None:
             # The subnet exists and does not have a segment association. Since
             # routed networks is enabled in the configuration, we need to
             # migrate the existing non-routed networks subnet to a routed
@@ -239,10 +254,12 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
 
     return net_cidrs
 
+
 def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     """Create's and updates the ctlplane subnet(s) on segments that is
     not local to the undercloud.
     """
+
     for name in CONF['subnets']:
         s = CONF['subnets'][name]
         if name == CONF['local_subnet']:
@@ -273,6 +290,7 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
         net_cidrs.append(s['NetworkCidr'])
 
     return net_cidrs
+
 
 if 'true' not in _run_command(['hiera', 'neutron_api_enabled'],
                               name='hiera').lower():

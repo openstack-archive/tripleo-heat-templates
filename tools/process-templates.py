@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 import argparse
 import jinja2
@@ -38,6 +38,7 @@ def _shutil_copy_if_not_same(src, dst):
             else:
                 raise
 
+
 def parse_opts(argv):
     parser = argparse.ArgumentParser(
         description='Configure host network interfaces using a JSON'
@@ -49,7 +50,8 @@ def parse_opts(argv):
                         help="""relative path to the roles_data.yaml file.""",
                         default='roles_data.yaml')
     parser.add_argument('-n', '--network-data', metavar='NETWORK_DATA',
-                        help="""relative path to the network_data.yaml file.""",
+                        help=("""relative path to the network_data.yaml """
+                              """file."""),
                         default='network_data.yaml')
     parser.add_argument('--safe',
                         action='store_true',
@@ -86,7 +88,8 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
 
     # Search for templates relative to the current template path first
     template_base = os.path.dirname(yaml_f)
-    j2_loader = jinja2.loaders.FileSystemLoader([template_base, __tht_root_dir])
+    j2_loader = \
+        jinja2.loaders.FileSystemLoader([template_base, __tht_root_dir])
 
     try:
         # Render the j2 template
@@ -101,6 +104,7 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
     if not dry_run:
         with open(outfile_name, 'w') as out_f:
             out_f.write(r_template)
+
 
 def process_templates(template_path, role_data_path, output_dir,
                       network_data_path, overwrite, dry_run):
@@ -163,9 +167,9 @@ def process_templates(template_path, role_data_path, output_dir,
             out_dir = subdir
             if output_dir:
                 if template_path != '.':
-                   # strip out base path if not default
-                   temp = out_dir.split(template_path)[1]
-                   out_dir = temp[1:] if temp.startswith('/') else temp
+                    # strip out base path if not default
+                    temp = out_dir.split(template_path)[1]
+                    out_dir = temp[1:] if temp.startswith('/') else temp
                 out_dir = os.path.join(output_dir, out_dir)
                 if not os.path.exists(out_dir):
                     os.mkdir(out_dir)
@@ -255,7 +259,8 @@ def process_templates(template_path, role_data_path, output_dir,
                         template_data = j2_template.read()
                         j2_data = {'roles': role_data,
                                    'networks': network_data}
-                        out_f = os.path.basename(f).replace('.j2.yaml', '.yaml')
+                        out_f = os.path.basename(f).replace('.j2.yaml',
+                                                            '.yaml')
                         out_f_path = os.path.join(out_dir, out_f)
                         _j2_render_to_file(template_data, j2_data, out_f_path,
                                            overwrite, dry_run)
@@ -264,6 +269,7 @@ def process_templates(template_path, role_data_path, output_dir,
 
     else:
         print('Unexpected argument %s' % template_path)
+
 
 def clean_templates(base_path, role_data_path, network_data_path):
 

@@ -74,7 +74,7 @@ class PathManager(object):
             try:
                 os.chown(self.path, target_uid, target_gid)
                 self._update()
-            except Exception as e:
+            except Exception:
                 LOG.exception('Could not change ownership of %s: ',
                               self.path)
         else:
@@ -171,6 +171,7 @@ class NovaStatedirOwnershipManager(object):
             os.unlink(self.upgrade_marker_path)
 
         LOG.info('Nova statedir ownership complete')
+
 
 if __name__ == '__main__':
     NovaStatedirOwnershipManager('/var/lib/nova').run()

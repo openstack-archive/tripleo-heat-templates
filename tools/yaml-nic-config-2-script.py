@@ -1,32 +1,32 @@
 #!/usr/bin/env python
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 import argparse
 import collections
-import copy
 import datetime
 import os
+import re
 import shutil
+import six
 import sys
 import traceback
 import yaml
-import six
-import re
+
 
 def parse_opts(argv):
     parser = argparse.ArgumentParser(
-        description='Convert an old style NIC config file into the new format using '
-                    'run-os-net-config.sh')
+        description='Convert an old style NIC config file into the new format '
+                    'using run-os-net-config.sh')
     parser.add_argument('--script-dir', metavar='<script directory>',
                         help="Relative path to run-os-net-config.sh",
                         default="network/scripts/run-os-net-config.sh")
@@ -42,8 +42,9 @@ def parse_opts(argv):
     return opts
 
 
-#convert comments into 'comments<num>: ...' YAML
 def to_commented_yaml(filename):
+    """Convert comments into 'comments<num>: ...' YAML"""
+
     out_str = ''
     last_non_comment_spaces = ''
     with open(filename, 'r') as f:
@@ -51,38 +52,43 @@ def to_commented_yaml(filename):
         for line in f:
             # skip blank line
             if line.isspace():
-                continue;
+                continue
             char_count = 0
             spaces = ''
             for char in line:
                 char_count += 1
                 if char == ' ':
-                    spaces+=' '
-                    next;
+                    spaces += ' '
+                    next
                 elif char == '#':
                     last_non_comment_spaces = spaces
                     comment_count += 1
                     comment = line[char_count:-1]
-                    out_str += "%scomment%i_%i: '%s'\n" % (last_non_comment_spaces, comment_count, len(spaces), comment)
-                    break;
+                    out_str += "%scomment%i_%i: '%s'\n" % \
+                        (last_non_comment_spaces, comment_count, len(spaces),
+                         comment)
+                    break
                 else:
                     last_non_comment_spaces = spaces
                     out_str += line
 
-                    #inline comments check
+                    # inline comments check
                     m = re.match(".*:.*#(.*)", line)
                     if m:
                         comment_count += 1
-                        out_str += "%s  inline_comment%i: '%s'\n" % (last_non_comment_spaces, comment_count, m.group(1))
-                    break;
+                        out_str += "%s  inline_comment%i: '%s'\n" % \
+                            (last_non_comment_spaces, comment_count,
+                             m.group(1))
+                    break
 
     with open(filename, 'w') as f:
         f.write(out_str)
 
     return out_str
 
-#convert back to normal #commented YAML
+
 def to_normal_yaml(filename):
+    """Convert back to normal #commented YAML"""
 
     with open(filename, 'r') as f:
         data = f.read()
@@ -92,8 +98,12 @@ def to_normal_yaml(filename):
     for line in data.split('\n'):
         # get_input not supported by run-os-net-config.sh script
         line = line.replace('get_input: ', '')
-        m = re.match(" +comment[0-9]+_([0-9]+): '(.*)'.*", line) #normal comments
-        i = re.match(" +inline_comment[0-9]+: '(.*)'.*", line) #inline comments
+
+        # normal comments
+        m = re.match(" +comment[0-9]+_([0-9]+): '(.*)'.*", line)
+        # inline comments
+        i = re.match(" +inline_comment[0-9]+: '(.*)'.*", line)
+
         if m:
             if next_line_break:
                 out_str += '\n'
@@ -122,9 +132,11 @@ def to_normal_yaml(filename):
 class description(six.text_type):
     pass
 
+
 # FIXME: Some of this duplicates code from build_endpoint_map.py, we should
 # refactor to share the common code
 class TemplateDumper(yaml.SafeDumper):
+
     def represent_ordered_dict(self, data):
         return self.represent_dict(data.items())
 
@@ -154,9 +166,12 @@ TemplateDumper.add_representer(collections.OrderedDict,
 TemplateLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
                                TemplateLoader.construct_mapping)
 
+
 def write_template(template, filename=None):
     with open(filename, 'w') as f:
-        yaml.dump(template, f, TemplateDumper, width=120, default_flow_style=False)
+        yaml.dump(template, f, TemplateDumper, width=120,
+                  default_flow_style=False)
+
 
 def convert(filename, script_path):
     print('Converting %s' % filename)
@@ -170,7 +185,6 @@ def convert(filename, script_path):
         if (r[1].get('type') == 'OS::Heat::StructuredConfig' and
             r[1].get('properties', {}).get('group') == 'os-apply-config' and
             r[1].get('properties', {}).get('config', {}).get('os_net_config')):
-            #print("match %s" % r[0])
             new_r = collections.OrderedDict()
             new_r['type'] = 'OS::Heat::SoftwareConfig'
             new_r['properties'] = collections.OrderedDict()
@@ -179,7 +193,8 @@ def convert(filename, script_path):
                 'properties', {}).get('config', {}).get('os_net_config')
             new_config = {'str_replace': collections.OrderedDict()}
             new_config['str_replace']['template'] = {'get_file': script_path}
-            new_config['str_replace']['params'] = {'$network_config': old_net_config}
+            new_config['str_replace']['params'] = \
+                {'$network_config': old_net_config}
             new_r['properties']['config'] = new_config
             tpl['resources'][r[0]] = new_r
         else:
@@ -195,18 +210,16 @@ def convert(filename, script_path):
     od_result['parameters'] = tpl['parameters']
     od_result['resources'] = tpl['resources']
     od_result['outputs'] = tpl['outputs']
-    #print('Result:')
-    #print('%s' % yaml.dump(od_result, Dumper=TemplateDumper, width=120, default_flow_style=False))
-    #print('---')
 
     write_template(od_result, filename)
 
     return 1
 
+
 def check_old_style(filename):
 
     with open(filename, 'r') as f:
-        tpl = yaml.load(open(filename).read())
+        tpl = yaml.load(f.read())
 
         if isinstance(tpl.get('resources', {}), dict):
             for r in (tpl.get('resources', {})).items():
@@ -216,6 +229,7 @@ def check_old_style(filename):
                     return True
 
     return False
+
 
 opts = parse_opts(sys.argv)
 exit_val = 0
@@ -231,8 +245,8 @@ for base_path in opts.files:
             script_paths = [opts.script_dir]
             script_paths.append('../../scripts/run-os-net-config.sh')
             script_paths.append('../network/scripts/run-os-net-config.sh')
-            script_paths.append(
-'/usr/share/openstack-tripleo-heat-templates/network/scripts/run-os-net-config.sh')
+            script_paths.append('/usr/share/openstack-tripleo-heat-templates/'
+                                'network/scripts/run-os-net-config.sh')
 
             script_path = None
             for p in script_paths:
@@ -240,7 +254,8 @@ for base_path in opts.files:
                     script_path = p
                     break
             if script_path is None:
-                print("Error couldn't find run-os-net-config.sh relative to filename")
+                print("Error couldn't find run-os-net-config.sh relative "
+                      "to filename")
                 sys.exit(1)
 
             print("Using script at %s" % script_path)
@@ -248,14 +263,16 @@ for base_path in opts.files:
             extension = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
             backup_filename = os.path.realpath(base_path) + '.' + extension
 
-            print('The yaml file will be overwritten and the original saved as %s'
-                  % backup_filename)
-            if not (opts.yes or input("Overwrite %s? [y/n] " % base_path).lower() == 'y'):
+            print('The yaml file will be overwritten and the original saved '
+                  'as %s' % backup_filename)
+            if not (opts.yes or
+                    input("Overwrite %s? [y/n] " % base_path).lower() == 'y'):
                 print("Skipping file %s" % base_path)
                 continue
 
             if os.path.exists(backup_filename):
-                print("Backup file already exists, skipping file %s" % base_path)
+                print("Backup file already exists, skipping file %s" %
+                      base_path)
                 continue
 
             shutil.copyfile(base_path, backup_filename)
@@ -264,11 +281,13 @@ for base_path in opts.files:
             num_converted += convert(base_path, script_path)
             to_normal_yaml(base_path)
         else:
-            print('File %s is not using old style NIC configuration' % base_path)
+            print('File %s is not using old style NIC configuration' %
+                  base_path)
 
     else:
         print('Unexpected argument %s' % base_path)
 
+
 if num_converted == 0:
-  exit_val = 1
+    exit_val = 1
 sys.exit(exit_val)

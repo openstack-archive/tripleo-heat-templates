@@ -1,13 +1,24 @@
 #!/usr/bin/env python
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 import json
-import os
 import openstack
+import os
 import subprocess
 
 from keystoneauth1 import exceptions as ks_exceptions
-from mistralclient.api import client as mistralclient
 from mistralclient.api import base as mistralclient_exc
+from mistralclient.api import client as mistralclient
 
 
 CONF = json.loads(os.environ['config'])
@@ -45,7 +56,7 @@ def _run_command(args, env=None, name=None):
 
 
 def _configure_nova(sdk):
-    """ Disable nova quotas """
+    """Disable nova quotas"""
     sdk.set_compute_quotas('admin', cores='-1', instances='-1', ram='-1')
 
     # Configure flavors.
@@ -74,7 +85,7 @@ def _configure_nova(sdk):
 
 
 def _create_default_keypair(sdk):
-    """ Set up a default keypair. """
+    """Set up a default keypair."""
     ssh_dir = os.path.join(CONF['home_dir'], '.ssh')
     public_key_file = os.path.join(ssh_dir, 'id_rsa.pub')
     if (not [True for kp in sdk.compute.keypairs() if kp.name == 'default'] and
@@ -105,7 +116,7 @@ def _configure_workbooks_and_workflows(mistral):
 
 
 def _store_passwords_in_mistral_env(mistral):
-    """ Store required passwords in a mistral environment """
+    """Store required passwords in a mistral environment"""
     env_name = 'tripleo.undercloud-config'
     config_data = {
         'undercloud_ceilometer_snmpd_password':
@@ -153,7 +164,7 @@ def _create_default_plan(mistral):
 nova_api_enabled = 'true' in _run_command(
     ['hiera', 'nova_api_enabled']).lower()
 mistral_api_enabled = 'true' in _run_command(
-    ['hiera','mistral_api_enabled']).lower()
+    ['hiera', 'mistral_api_enabled']).lower()
 tripleo_validations_enabled = 'true' in _run_command(
     ['hiera', 'tripleo_validations_enabled']).lower()
 

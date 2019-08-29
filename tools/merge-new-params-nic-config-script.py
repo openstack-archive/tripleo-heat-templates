@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 import argparse
 import collections
@@ -17,6 +17,7 @@ import datetime
 import os
 import re
 import shutil
+import six
 import subprocess
 import sys
 import yaml
@@ -62,7 +63,7 @@ def parse_opts(argv):
 # FIXME: This duplicates code from tools/yaml-nic-config-2-script.py, we should
 # refactor to share the common code
 def to_commented_yaml(filename):
-    """ Convert comments into 'comments<num>: ...' YAML """
+    """Convert comments into 'comments<num>: ...' YAML"""
 
     out_str = ''
     last_non_comment_spaces = ''
@@ -108,7 +109,7 @@ def to_commented_yaml(filename):
 # FIXME: This duplicates code from tools/yaml-nic-config-2-script.py, we should
 # refactor to share the common code
 def to_normal_yaml(filename):
-    """ Convert back to normal #commented YAML"""
+    """Convert back to normal #commented YAML"""
 
     with open(filename, 'r') as f:
         data = f.read()
@@ -168,14 +169,10 @@ class TemplateLoader(yaml.SafeLoader):
         return collections.OrderedDict(self.construct_pairs(node))
 
 
-if sys.version_info.major >= 3:
-    TemplateDumper.add_representer(str, TemplateDumper.description_presenter)
-    TemplateDumper.add_representer(bytes,
-                                   TemplateDumper.description_presenter)
-else:
-    TemplateDumper.add_representer(str, TemplateDumper.description_presenter)
-    TemplateDumper.add_representer(unicode,
-                                   TemplateDumper.description_presenter)
+TemplateDumper.add_representer(six.text_type,
+                               TemplateDumper.description_presenter)
+TemplateDumper.add_representer(six.binary_type,
+                               TemplateDumper.description_presenter)
 
 TemplateDumper.add_representer(collections.OrderedDict,
                                TemplateDumper.represent_ordered_dict)
@@ -215,9 +212,10 @@ def process_templates_and_get_reference_parameters():
                                 for x in roles_data
                                 if x['name'] == OPTS.role_name))
     except StopIteration:
-        raise RuntimeError('The role: {role_name} is not defined in roles '
-                           'data file: {roles_data_file}'.format(
-            role_name=OPTS.role_name, roles_data_file=OPTS.roles_data))
+        raise RuntimeError(
+            'The role: {role_name} is not defined in roles '
+            'data file: {roles_data_file}'.format(
+                role_name=OPTS.role_name, roles_data_file=OPTS.roles_data))
 
     refernce_file = '/'.join([temp_dir, 'network/config', NIC_CONFIG_REFERENCE,
                               nic_config_name])

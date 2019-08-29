@@ -762,4 +762,5 @@ resource_registry:
                             self.nested_output)
                 self.assertEqual(expected, f.read())
 
+
 GeneratorTestCase.generate_scenarios()

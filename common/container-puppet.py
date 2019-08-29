@@ -1,32 +1,32 @@
 #!/usr/bin/env python
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
 #
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 # Shell script tool to run puppet inside of the given container image.
-# Uses the config file at /var/lib/container-puppet/container-puppet.json as a source for a JSON
-# array of [config_volume, puppet_tags, manifest, config_image, [volumes]] settings
+# Uses the config file at /var/lib/container-puppet/container-puppet.json
+# as a source for a JSON array of
+# [config_volume, puppet_tags, manifest, config_image, [volumes]] settings
 # that can be used to generate config files or run ad-hoc puppet modules
 # inside of a container.
 
 import glob
 import json
 import logging
+import multiprocessing
 import os
 import subprocess
 import sys
 import tempfile
 import time
-import multiprocessing
 
 from paunch import runner as containers_runner
 
@@ -45,7 +45,7 @@ def get_logger():
     if logger is None:
         logger = logging.getLogger()
         ch = logging.StreamHandler(sys.stdout)
-        if os.environ.get('DEBUG') in ['True', 'true'] :
+        if os.environ.get('DEBUG') in ['True', 'true']:
             logger.setLevel(logging.DEBUG)
             ch.setLevel(logging.DEBUG)
         else:
@@ -92,6 +92,7 @@ else:
 if (os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true' and
    PUPPETS not in cli_dcmd):
     cli_dcmd.extend(['--volume', PUPPETS])
+
 
 # this is to match what we do in deployed-server
 def short_hostname():
@@ -187,6 +188,7 @@ def rm_container(name):
            cmd_stderr != 'Error response from daemon: ' \
            'No such container: {}\n'.format(name):
         log.debug(cmd_stderr)
+
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
@@ -403,12 +405,11 @@ if not os.path.exists(sh_script):
         """)
 
 
-
 def mp_puppet_config(*args):
-    (config_volume,puppet_tags,manifest,config_image,volumes,privileged,check_mode) = args[0]
+    (config_volume, puppet_tags, manifest, config_image, volumes, privileged, check_mode) = args[0]
     log = get_logger()
-    log.info('Starting configuration of %s using image %s' % (config_volume,
-             config_image))
+    log.info('Starting configuration of %s using image %s' %
+             (config_volume, config_image))
     log.debug('config_volume %s' % config_volume)
     log.debug('puppet_tags %s' % puppet_tags)
     log.debug('manifest %s' % manifest)
@@ -466,7 +467,6 @@ def mp_puppet_config(*args):
             for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
                 env[k] = os.environ.get(k)
 
-
         common_dcmd += cli_dcmd
 
         if check_mode:
@@ -483,10 +483,10 @@ def mp_puppet_config(*args):
         if os.environ.get('NET_HOST', 'false') == 'true':
             log.debug('NET_HOST enabled')
             common_dcmd.extend(['--net', 'host', '--volume',
-                         '/etc/hosts:/etc/hosts:ro'])
+                                '/etc/hosts:/etc/hosts:ro'])
         else:
             log.debug('running without containers Networking')
-            dcmd.extend(['--net', 'none'])
+            common_dcmd.extend(['--net', 'none'])
 
         # script injection as the last mount to make sure it's accessible
         # https://github.com/containers/libpod/issues/1844
@@ -512,7 +512,7 @@ def mp_puppet_config(*args):
             retval = subproc.returncode
             # puppet with --detailed-exitcodes will return 0 for success and no changes
             # and 2 for success and resource changes. Other numbers are failures
-            if retval in [0,2]:
+            if retval in [0, 2]:
                 if cmd_stdout:
                     log.debug('%s run succeeded: %s' % (cmd, cmd_stdout))
                 if cmd_stderr:
@@ -533,6 +533,7 @@ def mp_puppet_config(*args):
             log.error('Failed running container for %s' % config_volume)
         log.info('Finished processing puppet configs for %s' % (config_volume))
         return retval
+
 
 # Holds all the information for each process to consume.
 # Instead of starting them all linearly we run them using a process
@@ -608,4 +609,3 @@ for infile in infiles:
 
 if not success:
     sys.exit(1)
-
