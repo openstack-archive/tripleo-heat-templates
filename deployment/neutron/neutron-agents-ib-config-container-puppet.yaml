@@ -1,0 +1,121 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Neutron MLNX IB config service
+
+parameters:
+  ContainerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  MultiInterfaceDriverMappings:
+    type: comma_delimited_list
+    default: ""
+    tags:
+      - role_specific
+  IPoIBPhysicalInterface:
+    type: string
+    default: 'ib0'
+    tags:
+      - role_specific
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  NeutronBase:
+    type: ./neutron-plugin-ml2.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::agents::ml2::mlnx::multi_interface_driver_mappings: MultiInterfaceDriverMappings
+              neutron::agents::ml2::mlnx::ipoib_physical_interface : IPoIBPhysicalInterface
+            - values: {get_param: [RoleParameters]}
+          - values:
+              MultiInterfaceDriverMappings: {get_param: MultiInterfaceDriverMappings}
+              IPoIBPhysicalInterface: {get_param: IPoIBPhysicalInterface}
+
+outputs:
+  role_data:
+    description: Role data for Neutron agents IB config
+    value:
+      service_name: neutron_agents_ib_config
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
+          - neutron::agents::ml2::mlnx::enabled: False
+            neutron::agents::ml2::mlnx::manage_service: False
+            neutron::agents::ml2::mlnx::manage_package: False
+            neutron::agents::ml2::mlnx::dhcp_broadcast_reply: true
+            neutron::agents::ml2::mlnx::interface_driver : 'multi'
+            neutron::agents::ml2::mlnx::enable_multi_interface_driver_cache_maintenance : true
+      docker_config:
+        step_3:
+          neutron_agents_ib_config:
+            detach: false
+            image: {get_param: ContainerNeutronConfigImage}
+            net: host
+            pid: host
+            user: root
+            privileged: true
+            security_opt: 'label=disable'
+            command:
+              - puppet
+              - apply
+              - --modulepath
+              - /etc/puppet/modules:/usr/share/openstack-puppet/modules
+              - -v
+              - -e
+              - "include neutron::agents::ml2::mlnx"
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /lib/modules:/lib/modules:ro
+                  - /usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro
+                  - /var/lib/config-data/puppet-generated/neutron/etc/neutron:/etc/neutron
+                  - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      metadata_settings:
+        get_attr: [NeutronBase, role_data, metadata_settings]
+      upgrade_tasks: []
