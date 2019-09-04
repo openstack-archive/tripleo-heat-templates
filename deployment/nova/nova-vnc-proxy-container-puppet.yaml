@@ -284,11 +284,21 @@ outputs:
           - null
       deploy_steps_tasks:
         - name: validate nova-vnc-proxy container state
-          when: step|int == 5
+          when:
+            - not container_healthcheck_disabled
+            - step|int == 5
           tags:
             - opendev-validation
             - opendev-validation-nova
-          command: "{{ container_cli }} exec nova_vnc_proxy /openstack/healthcheck"
+          block:
+            - name: Get nova-vnc-proxy healthcheck status
+              register: nova_vnc_proxy_healthcheck_state
+              systemd:
+                name: tripleo_nova_vnc_proxy_healthcheck
+            - name: Fail if nova-vnc-proxy healtcheck report failed status
+              fail:
+                msg: nova-vnc-proxy isn't working (healthcheck failed)
+              when: nova_vnc_proxy_healthcheck_state.status.ExecMainStatus != '0'
       host_prep_tasks: {get_attr: [NovaLogging, host_prep_tasks]}
       fast_forward_upgrade_tasks:
         - when:

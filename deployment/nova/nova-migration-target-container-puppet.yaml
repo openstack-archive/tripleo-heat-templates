@@ -173,11 +173,21 @@ outputs:
              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       deploy_steps_tasks:
         - name: validate nova migration target container state
-          when: step|int == 5
+          when:
+            - not container_healthcheck_disabled
+            - step|int == 5
           tags:
             - opendev-validation
             - opendev-validation-nova
-          command: "{{ container_cli }} exec nova_migration_target /openstack/healthcheck"
+          block:
+            - name: Get nova-migration-target healthcheck status
+              register: nova_migration_target_healthcheck_state
+              systemd:
+                name: tripleo_nova_migration_target_healthcheck
+            - name: Fail if nova-migration-target healthcheck report failed status
+              fail:
+                msg: nova-migration-target isn't working (healtcheck failed)
+              when: nova_migration_target_healthcheck_state.status.ExecMainStatus != '0'
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:
