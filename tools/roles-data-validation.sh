@@ -29,7 +29,7 @@ function check_diff {
   local thtfile=$1
   local genfile=$2
   echo -n "Performing diff on $thtfile $genfile... "
-  diff $thtfile $genfile > $TMPDIR/diff_results
+  diff --ignore-blank-lines $thtfile $genfile > $TMPDIR/diff_results
   if [ $? = 1 ]; then
       echo "ERROR: Generated roles file not match the current ${thtfile}"
       echo "Please make sure to update the appropriate roles/* files."
