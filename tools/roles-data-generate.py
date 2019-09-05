@@ -42,6 +42,7 @@ def parse_opts(argv):
 
     return opts
 
+
 opts = parse_opts(sys.argv)
 
 roles = collections.OrderedDict.fromkeys(opts.roles)

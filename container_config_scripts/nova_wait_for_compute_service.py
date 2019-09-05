@@ -68,7 +68,7 @@ if __name__ == '__main__':
     if os.path.isfile(nova_cfg):
         try:
             config.read(nova_cfg)
-        except Exception as e:
+        except Exception:
             LOG.exception('Error while reading nova.conf:')
     else:
         LOG.error('Nova configuration file %s does not exist', nova_cfg)
@@ -107,7 +107,7 @@ if __name__ == '__main__':
                     LOG.info('Nova-compute service registered')
                     sys.exit(0)
             LOG.info('Waiting for nova-compute service to register')
-        except Exception as e:
+        except Exception:
             LOG.exception(
                 'Error while waiting for nova-compute service to register')
         time.sleep(timeout)

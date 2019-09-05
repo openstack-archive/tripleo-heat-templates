@@ -1,4 +1,15 @@
 #!/usr/bin/env python
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 """
 Generate the endpoint_map.yaml template from data in the endpoint_data.yaml
@@ -13,12 +24,6 @@ mismatch is detected.
 """
 
 from __future__ import print_function
-
-
-__all__ = ['load_endpoint_data', 'generate_endpoint_map_template',
-           'write_template', 'build_endpoint_map', 'check_up_to_date']
-
-
 import collections
 import copy
 import itertools
@@ -26,6 +31,9 @@ import os
 import sys
 import yaml
 
+
+__all__ = ['load_endpoint_data', 'generate_endpoint_map_template',
+           'write_template', 'build_endpoint_map', 'check_up_to_date']
 
 (IN_FILE, OUT_FILE) = ('endpoint_data.yaml', 'endpoint_map.yaml')
 
@@ -88,7 +96,8 @@ def make_parameter(ptype, default, description=None):
 def template_parameters(config):
     params = collections.OrderedDict()
     params[PARAM_NETIPMAP] = make_parameter('json', {}, 'The Net IP map')
-    params[PARAM_SERVICENETMAP] = make_parameter('json', {}, 'The Service Net map')
+    params[PARAM_SERVICENETMAP] = make_parameter('json', {},
+                                                 'The Service Net map')
     params[PARAM_ENDPOINTMAP] = make_parameter('json',
                                                endpoint_map_default(config),
                                                'Mapping of service endpoint '

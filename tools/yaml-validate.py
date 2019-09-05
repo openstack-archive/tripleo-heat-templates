@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
 #
-#         http://www.apache.org/licenses/LICENSE-2.0
+#      http://www.apache.org/licenses/LICENSE-2.0
 #
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
 import argparse
 import os
@@ -51,11 +51,12 @@ OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
                             'pre_upgrade_rolling_tasks',
                             'fast_forward_upgrade_tasks',
                             'fast_forward_post_upgrade_tasks',
-                            'post_upgrade_tasks',  'update_tasks',
+                            'post_upgrade_tasks', 'update_tasks',
                             'post_update_tasks', 'service_config_settings',
                             'host_prep_tasks', 'metadata_settings',
                             'kolla_config', 'global_config_settings',
-                            'external_deploy_tasks', 'external_post_deploy_tasks',
+                            'external_deploy_tasks',
+                            'external_post_deploy_tasks',
                             'container_config_scripts', 'step_config',
                             'monitoring_subscription', 'scale_tasks',
                             'external_update_tasks', 'external_upgrade_tasks']
@@ -63,139 +64,130 @@ OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
                           'fast_forward_upgrade_tasks',
                           'fast_forward_post_upgrade_tasks',
-                          'post_upgrade_tasks',  'update_tasks',
+                          'post_upgrade_tasks', 'update_tasks',
                           'post_update_tasks', 'host_prep_tasks',
                           'external_deploy_tasks',
-                          'external_post_deploy_tasks' ]
+                          'external_post_deploy_tasks']
 REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS = ['config_volume', 'step_config',
                                           'config_image']
-OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = [ 'puppet_tags', 'volumes' ]
+OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS = ['puppet_tags', 'volumes']
 REQUIRED_DOCKER_LOGGING_OUTPUTS = ['config_settings', 'docker_config',
                                    'volumes', 'host_prep_tasks']
 # Mapping of parameter names to a list of the fields we should _not_ enforce
 # consistency across files on.  This should only contain parameters whose
 # definition we cannot change for backwards compatibility reasons.  New
 # parameters to the templates should not be added to this list.
-PARAMETER_DEFINITION_EXCLUSIONS = {'CephPools': ['description',
-                                                 'type',
-                                                 'default'],
-                                   'ManagementNetCidr': ['default'],
-                                   'ManagementAllocationPools': ['default'],
-                                   'ExternalNetCidr': ['default'],
-                                   'ExternalAllocationPools': ['default'],
-                                   'StorageNetCidr': ['default'],
-                                   'StorageAllocationPools': ['default'],
-                                   'StorageMgmtNetCidr': ['default'],
-                                   'StorageMgmtAllocationPools': ['default'],
-                                   'TenantNetCidr': ['default'],
-                                   'TenantAllocationPools': ['default'],
-                                   'InternalApiNetCidr': ['default'],
-                                   'InternalApiAllocationPools': ['default'],
-                                   'UpdateIdentifier': ['description'],
-                                   'key_name': ['default'],
-                                   'CeilometerAgentCentralLoggingSource': ['default'],
-                                   'CeilometerAgentIpmiLoggingSource': ['default'],
-                                   'CeilometerAgentNotificationLoggingSource': ['default'],
-                                   'CinderApiLoggingSource': ['default'],
-                                   'CinderSchedulerLoggingSource': ['default'],
-                                   'CinderVolumeLoggingSource': ['default'],
-                                   'DesignateApiLoggingSource': ['default'],
-                                   'DesignateCentralLoggingSource': ['default'],
-                                   'DesignateMiniDNSLoggingSource': ['default'],
-                                   'DesignateProducerLoggingSource': ['default'],
-                                   'DesignateSinkLoggingSource': ['default'],
-                                   'DesignateWorkerLoggingSource': ['default'],
-                                   'Ec2ApiLoggingSource': ['default'],
-                                   'GlanceApiLoggingSource': ['default'],
-                                   'GnocchiApiLoggingSource': ['default'],
-                                   'HeatApiCfnLoggingSource': ['default'],
-                                   'HeatApiLoggingSource': ['default'],
-                                   'HeatEngineLoggingSource': ['default'],
-                                   'KeystoneLoggingSource': ['default'],
-                                   'KeystoneErrorLoggingSource': ['default'],
-                                   'KeystoneAdminAccessLoggingSource': ['default'],
-                                   'KeystoneAdminErrorLoggingSource': ['default'],
-                                   'KeystoneMainAcccessLoggingSource': ['default'],
-                                   'KeystoneMainErrorLoggingSource': ['default'],
-                                   'NeutronApiLoggingSource': ['default'],
-                                   'NeutronDhcpAgentLoggingSource': ['default'],
-                                   'NeutronL3AgentLoggingSource': ['default'],
-                                   'NeutronMetadataAgentLoggingSource': ['default'],
-                                   'NeutronOpenVswitchAgentLoggingSource': ['default'],
-                                   'NovaApiLoggingSource': ['default'],
-                                   'NovaComputeLoggingSource': ['default'],
-                                   'NovaConductorLoggingSource': ['default'],
-                                   'NovaMetadataLoggingSource': ['default'],
-                                   'NovaSchedulerLoggingSource': ['default'],
-                                   'NovaVncproxyLoggingSource': ['default'],
-                                   'OctaviaApiLoggingSource': ['default'],
-                                   'OctaviaHealthManagerLoggingSource': ['default'],
-                                   'OctaviaHousekeepingLoggingSource': ['default'],
-                                   'OctaviaWorkerLoggingSource': ['default'],
-                                   'OvnMetadataAgentLoggingSource': ['default'],
-                                   'PlacementLoggingSource': ['default'],
-                                   'SaharaApiLoggingSource': ['default'],
-                                   'SaharaEngineLoggingSource': ['default'],
-                                   # There's one template that defines this
-                                   # differently, and I'm not sure if we can
-                                   # safely change it.
-                                   'ControlPlaneDefaultRoute': ['default'],
-                                   # TODO(bnemec): Address these existing
-                                   # inconsistencies.
-                                   'ServiceNetMap': ['description', 'default'],
-                                   'network': ['default'],
-                                   'ControlPlaneIP': ['default',
-                                                      'description'],
-                                   'ControlPlaneIp': ['default',
-                                                      'description'],
-                                   'NeutronBigswitchLLDPEnabled': ['default'],
-                                   'NeutronWorkers': ['description'],
-                                   'ServerMetadata': ['description'],
-                                   'server': ['description'],
-                                   'servers': ['description'],
-                                   'ExtraConfig': ['description'],
-                                   'DefaultPasswords': ['description',
-                                                        'default'],
-                                   'BondInterfaceOvsOptions': ['description',
-                                                               'default',
-                                                               'constraints'],
-                                   # NOTE(anil): This is a temporary change and
-                                   # will be removed once bug #1767070 properly
-                                   # fixed. OVN supports only VLAN, geneve
-                                   # and flat for NeutronNetworkType. But VLAN
-                                   # tenant networks have a limited support
-                                   # in OVN. Till that is fixed, we restrict
-                                   # NeutronNetworkType to 'geneve'.
-                                   'NeutronNetworkType': ['description',
-                                                          'default',
-                                                          'constraints'],
-                                   'KeyName': ['constraints'],
-                                   'OVNSouthboundServerPort': ['description'],
-                                   'ExternalInterfaceDefaultRoute':
-                                       ['description', 'default'],
-                                   'ManagementInterfaceDefaultRoute':
-                                       ['description', 'default'],
-                                   'IPPool': ['description'],
-                                   'SSLCertificate': ['description',
-                                                      'default',
-                                                      'hidden'],
-                                   'NodeIndex': ['description'],
-                                   'name': ['description', 'default'],
-                                   'image': ['description', 'default'],
-                                   'NeutronBigswitchAgentEnabled': ['default'],
-                                   'EndpointMap': ['description', 'default'],
-                                   'ContainerManilaConfigImage': ['description',
-                                                                  'default'],
-                                   'replacement_policy': ['default'],
-                                   'CloudDomain': ['description', 'default'],
-                                   'EnableLoadBalancer': ['description'],
-                                   'ControllerExtraConfig': ['description'],
-                                   'NovaComputeExtraConfig': ['description'],
-                                   'controllerExtraConfig': ['description'],
-                                   'ContainerSwiftConfigImage': ['default'],
-                                   'input_values': ['default'],
-                                   'fixed_ips': ['default', 'type']
-                                   }
+PARAMETER_DEFINITION_EXCLUSIONS = {
+    'CephPools': ['description', 'type', 'default'],
+    'ManagementNetCidr': ['default'],
+    'ManagementAllocationPools': ['default'],
+    'ExternalNetCidr': ['default'],
+    'ExternalAllocationPools': ['default'],
+    'StorageNetCidr': ['default'],
+    'StorageAllocationPools': ['default'],
+    'StorageMgmtNetCidr': ['default'],
+    'StorageMgmtAllocationPools': ['default'],
+    'TenantNetCidr': ['default'],
+    'TenantAllocationPools': ['default'],
+    'InternalApiNetCidr': ['default'],
+    'InternalApiAllocationPools': ['default'],
+    'UpdateIdentifier': ['description'],
+    'key_name': ['default'],
+    'CeilometerAgentCentralLoggingSource': ['default'],
+    'CeilometerAgentIpmiLoggingSource': ['default'],
+    'CeilometerAgentNotificationLoggingSource': ['default'],
+    'CinderApiLoggingSource': ['default'],
+    'CinderSchedulerLoggingSource': ['default'],
+    'CinderVolumeLoggingSource': ['default'],
+    'DesignateApiLoggingSource': ['default'],
+    'DesignateCentralLoggingSource': ['default'],
+    'DesignateMiniDNSLoggingSource': ['default'],
+    'DesignateProducerLoggingSource': ['default'],
+    'DesignateSinkLoggingSource': ['default'],
+    'DesignateWorkerLoggingSource': ['default'],
+    'Ec2ApiLoggingSource': ['default'],
+    'GlanceApiLoggingSource': ['default'],
+    'GnocchiApiLoggingSource': ['default'],
+    'HeatApiCfnLoggingSource': ['default'],
+    'HeatApiLoggingSource': ['default'],
+    'HeatEngineLoggingSource': ['default'],
+    'KeystoneLoggingSource': ['default'],
+    'KeystoneErrorLoggingSource': ['default'],
+    'KeystoneAdminAccessLoggingSource': ['default'],
+    'KeystoneAdminErrorLoggingSource': ['default'],
+    'KeystoneMainAcccessLoggingSource': ['default'],
+    'KeystoneMainErrorLoggingSource': ['default'],
+    'NeutronApiLoggingSource': ['default'],
+    'NeutronDhcpAgentLoggingSource': ['default'],
+    'NeutronL3AgentLoggingSource': ['default'],
+    'NeutronMetadataAgentLoggingSource': ['default'],
+    'NeutronOpenVswitchAgentLoggingSource': ['default'],
+    'NovaApiLoggingSource': ['default'],
+    'NovaComputeLoggingSource': ['default'],
+    'NovaConductorLoggingSource': ['default'],
+    'NovaMetadataLoggingSource': ['default'],
+    'NovaSchedulerLoggingSource': ['default'],
+    'NovaVncproxyLoggingSource': ['default'],
+    'OctaviaApiLoggingSource': ['default'],
+    'OctaviaHealthManagerLoggingSource': ['default'],
+    'OctaviaHousekeepingLoggingSource': ['default'],
+    'OctaviaWorkerLoggingSource': ['default'],
+    'OvnMetadataAgentLoggingSource': ['default'],
+    'PlacementLoggingSource': ['default'],
+    'SaharaApiLoggingSource': ['default'],
+    'SaharaEngineLoggingSource': ['default'],
+    # There's one template that defines this
+    # differently, and I'm not sure if we can
+    # safely change it.
+    'ControlPlaneDefaultRoute': ['default'],
+    # TODO(bnemec): Address these existing inconsistencies.
+    'ServiceNetMap': ['description', 'default'],
+    'network': ['default'],
+    'ControlPlaneIP': ['default',
+                       'description'],
+    'ControlPlaneIp': ['default',
+                       'description'],
+    'NeutronBigswitchLLDPEnabled': ['default'],
+    'NeutronWorkers': ['description'],
+    'ServerMetadata': ['description'],
+    'server': ['description'],
+    'servers': ['description'],
+    'ExtraConfig': ['description'],
+    'DefaultPasswords': ['description',
+                         'default'],
+    'BondInterfaceOvsOptions': ['description',
+                                'default',
+                                'constraints'],
+    # NOTE(anil): This is a temporary change and
+    # will be removed once bug #1767070 properly
+    # fixed. OVN supports only VLAN, geneve
+    # and flat for NeutronNetworkType. But VLAN
+    # tenant networks have a limited support
+    # in OVN. Till that is fixed, we restrict
+    # NeutronNetworkType to 'geneve'.
+    'NeutronNetworkType': ['description', 'default', 'constraints'],
+    'KeyName': ['constraints'],
+    'OVNSouthboundServerPort': ['description'],
+    'ExternalInterfaceDefaultRoute': ['description', 'default'],
+    'ManagementInterfaceDefaultRoute': ['description', 'default'],
+    'IPPool': ['description'],
+    'SSLCertificate': ['description', 'default', 'hidden'],
+    'NodeIndex': ['description'],
+    'name': ['description', 'default'],
+    'image': ['description', 'default'],
+    'NeutronBigswitchAgentEnabled': ['default'],
+    'EndpointMap': ['description', 'default'],
+    'ContainerManilaConfigImage': ['description', 'default'],
+    'replacement_policy': ['default'],
+    'CloudDomain': ['description', 'default'],
+    'EnableLoadBalancer': ['description'],
+    'ControllerExtraConfig': ['description'],
+    'NovaComputeExtraConfig': ['description'],
+    'controllerExtraConfig': ['description'],
+    'ContainerSwiftConfigImage': ['default'],
+    'input_values': ['default'],
+    'fixed_ips': ['default', 'type']
+    }
 
 PREFERRED_CAMEL_CASE = {
     'ec2api': 'Ec2Api',
@@ -270,6 +262,7 @@ HEAT_OUTPUTS_EXCLUSIONS = [
     './extraconfig/pre_network/host_config_and_reboot.yaml'
 ]
 
+
 def exit_usage():
     print('Usage %s <yaml file or directory>' % sys.argv[0])
     sys.exit(1)
@@ -308,9 +301,9 @@ def validate_endpoint_map(base_map, env_map):
 def validate_role_name(filename):
     role_data = yaml.load(open(filename).read())[0]
     if role_data['name'] != os.path.basename(filename).split('.')[0]:
-            print('ERROR: role name should match file name for role : %s.'
-                  % filename)
-            return 1
+        print('ERROR: role name should match file name for role : %s.'
+              % filename)
+        return 1
     return 0
 
 
@@ -363,9 +356,9 @@ def validate_controller_dashboard(filename, tpl):
 
 def validate_hci_role(hci_role_filename, hci_role_tpl):
     role_files = ['HciCephAll', 'HciCephFile', 'HciCephMon', 'HciCephObject']
-    if hci_role_filename in ['./roles/'+ x +'.yaml' for x in role_files]:
-        compute_role_filename = os.path.join(os.path.dirname(hci_role_filename),
-                                             './Compute.yaml')
+    if hci_role_filename in ['./roles/' + x + '.yaml' for x in role_files]:
+        compute_role_filename = \
+            os.path.join(os.path.dirname(hci_role_filename), './Compute.yaml')
         compute_role_tpl = yaml.load(open(compute_role_filename).read())
         compute_role_services = compute_role_tpl[0]['ServicesDefault']
         for role in hci_role_tpl:
@@ -397,11 +390,12 @@ def validate_hci_role(hci_role_filename, hci_role_tpl):
                 return 1
     return 0
 
+
 def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
     role_files = ['CephAll', 'CephFile', 'CephMon', 'CephObject']
-    if ceph_role_filename in ['./roles/'+ x +'.yaml' for x in role_files]:
-        ceph_storage_role_filename = os.path.join(os.path.dirname(ceph_role_filename),
-                                             './CephStorage.yaml')
+    if ceph_role_filename in ['./roles/' + x + '.yaml' for x in role_files]:
+        ceph_storage_role_filename = \
+            os.path.join(os.path.dirname(ceph_role_filename), './CephStorage.yaml')
         ceph_storage_role_tpl = yaml.load(open(ceph_storage_role_filename).read())
         ceph_storage_role_services = ceph_storage_role_tpl[0]['ServicesDefault']
         for role in ceph_role_tpl:
@@ -427,6 +421,7 @@ def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
                 return 1
     return 0
 
+
 def validate_controller_no_ceph_role(filename, tpl):
     control_role_filename = os.path.join(os.path.dirname(filename),
                                          './Controller.yaml')
@@ -447,6 +442,7 @@ def validate_controller_no_ceph_role(filename, tpl):
                       'ServicesDefault in roles/Controller.yaml' % filename)
                 return 1
     return 0
+
 
 def validate_with_compute_role_services(role_filename, role_tpl, exclude_service=()):
     cmpt_filename = os.path.join(os.path.dirname(role_filename),
@@ -483,6 +479,7 @@ def validate_with_compute_role_services(role_filename, role_tpl, exclude_service
         return 1
 
     return 0
+
 
 def validate_multiarch_compute_roles(role_filename, role_tpl):
     errors = 0
@@ -572,7 +569,7 @@ def validate_docker_service_mysql_usage(filename, tpl):
 
     def read_all(incfile, inctpl):
         # search for included content
-        content = inctpl['outputs']['role_data']['value'].get('config_settings',{})
+        content = inctpl['outputs']['role_data']['value'].get('config_settings', {})
         all_content.append(content)
         included_res[:] = []
         if search(content, match_included_res, no_op):
@@ -582,7 +579,7 @@ def validate_docker_service_mysql_usage(filename, tpl):
                 # disregard class names, only consider file names
                 if 'OS::' in f:
                     continue
-                newfile = os.path.normpath(os.path.dirname(incfile)+'/'+f)
+                newfile = os.path.normpath(os.path.dirname(incfile) + '/' + f)
                 newtmp = yaml.load(open(newfile).read())
                 read_all(newfile, newtmp)
 
@@ -667,18 +664,19 @@ def validate_docker_service(filename, tpl):
                     if key in OPTIONAL_DOCKER_PUPPET_CONFIG_SECTIONS:
                         continue
                     else:
-                      print('ERROR: %s should not be in puppet_config section.'
-                            % key)
-                      return 1
+                        print('ERROR: %s should not be in puppet_config section.'
+                              % key)
+                        return 1
             for key in REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS:
-              if key not in puppet_config:
-                  print('ERROR: %s is required in puppet_config for %s.'
-                        % (key, filename))
-                  return 1
+                if key not in puppet_config:
+                    print('ERROR: %s is required in puppet_config for %s.'
+                          % (key, filename))
+                    return 1
 
             config_volume = puppet_config.get('config_volume')
-            expected_config_image_parameter = "Container%sConfigImage" % to_camel_case(config_volume)
-            if config_volume and not expected_config_image_parameter in tpl.get('parameters', []):
+            expected_config_image_parameter = \
+                "Container%sConfigImage" % to_camel_case(config_volume)
+            if config_volume and expected_config_image_parameter not in tpl.get('parameters', []):
                 print('ERROR: Missing %s heat parameter for %s config_volume.'
                       % (expected_config_image_parameter, config_volume))
                 return 1
@@ -699,8 +697,9 @@ def validate_docker_service(filename, tpl):
                         command = ' '.join(map(str, command))
                     if 'bootstrap_host_exec' in command \
                             and container.get('user') != 'root':
-                      print('ERROR: bootstrap_host_exec needs to run as the root user.')
-                      return 1
+                        print('ERROR: bootstrap_host_exec needs to run '
+                              'as the root user.')
+                        return 1
 
         if 'upgrade_tasks' in role_data and role_data['upgrade_tasks']:
             if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
@@ -793,7 +792,7 @@ def validate_service(filename, tpl):
 
 
 def _rsearch_keys(d, pattern, search_keynames=False, enter_lists=False):
-    """ Deep regex search through a dict for k or v matching a pattern
+    """Deep regex search through a dict for k or v matching a pattern
 
     Returns a list of the matched parent keys. Nested keypaths are
     represented as lists. Looks for either values (default) or keys mathching
@@ -871,8 +870,9 @@ def _rsearch_keys(d, pattern, search_keynames=False, enter_lists=False):
     result = []
     return _rsearch_keys_nested(d, pattern, search_keynames, enter_lists)
 
+
 def _get(d, path):
-    """ Get a value (or None) from a dict by path given as a list
+    """Get a value (or None) from a dict by path given as a list
 
     Integer values represent indexes in lists, string values are for dict keys
     """
@@ -885,8 +885,9 @@ def _get(d, path):
             return None
     return d
 
+
 def validate_service_hiera_interpol(f, tpl):
-    """  Validate service templates for hiera interpolation rules
+    """Validate service templates for hiera interpolation rules
 
     Find all {get_param: [ServiceNetMap, ...]} missing hiera
     interpolation of IP addresses or network ranges vs
@@ -978,6 +979,7 @@ def validate_service_hiera_interpol(f, tpl):
         return 1
     else:
         return 0
+
 
 def validate_upgrade_tasks_duplicate_whens(filename):
     """Take a heat template and starting at the upgrade_tasks
@@ -1188,6 +1190,7 @@ def validate(filename, param_map):
 
     return retval
 
+
 def validate_upgrade_tasks(upgrade_tasks):
     # some templates define its upgrade_tasks via list_concat
     if isinstance(upgrade_tasks, dict):
@@ -1200,14 +1203,19 @@ def validate_upgrade_tasks(upgrade_tasks):
         task_name = task.get("name", "")
         whenline = task.get("when", "")
         if (type(whenline) == list):
-            if any('step|int ' in condition for condition in whenline) and ('step|int == ' not in whenline[0]):
-                    print('ERROR: \'step|int ==\' condition should be evaluated first in when conditions for task (%s)'  % (task))
-                    return 1
+            if any('step|int ' in condition for condition in whenline) \
+                    and ('step|int == ' not in whenline[0]):
+                print('ERROR: \'step|int ==\' condition should be evaluated '
+                      'first in when conditions for task (%s)' % (task))
+                return 1
         else:
             if (' and ' in whenline) and (' or ' not in whenline) \
                     and args.quiet < 2:
-                print("Warning: Consider specifying \'and\' conditions as a list to improve readability in task: \"%s\"" %  (task_name))
+                print("Warning: Consider specifying \'and\' conditions as "
+                      "a list to improve readability in task: \"%s\""
+                      % (task_name))
     return 0
+
 
 def validate_network_data_file(data_file_path):
     try:
@@ -1227,6 +1235,7 @@ def validate_network_data_file(data_file_path):
         return 1
     return 0
 
+
 def validate_nic_config_file(filename, tpl):
     try:
         if isinstance(tpl.get('resources', {}), dict):
@@ -1243,6 +1252,7 @@ def validate_nic_config_file(filename, tpl):
         return 1
     return 0
 
+
 def parse_args():
     p = argparse.ArgumentParser()
 
@@ -1255,6 +1265,7 @@ def parse_args():
                    default=['.'])
 
     return p.parse_args()
+
 
 args = parse_args()
 path_args = args.path_args
@@ -1273,9 +1284,9 @@ for base_path in path_args:
             for f in files:
                 file_path = os.path.join(subdir, f)
                 if 'environments/services-docker' in file_path:
-                    print("ERROR: environments/services-docker should not be used "
-                          "any more, use environments/services instead: %s " %
-                          file_path)
+                    print("ERROR: environments/services-docker should not be "
+                          "used any more, use environments/services instead: "
+                          "%s " % file_path)
                     failed_files.append(file_path)
                     exit_val |= 1
 

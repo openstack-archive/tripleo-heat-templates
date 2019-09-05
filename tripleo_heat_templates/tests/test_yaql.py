@@ -12,15 +12,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import io
-import tempfile
-
-import mock
 from oslotest import base
-import six
-import testscenarios
 import yaml
-import yaql
 
 
 class YAQLTestCase(base.BaseTestCase):
@@ -32,4 +25,3 @@ class YAQLTestCase(base.BaseTestCase):
             for i in path.split('.'):
                 data = data[i]
             return data['yaql']['expression']
-

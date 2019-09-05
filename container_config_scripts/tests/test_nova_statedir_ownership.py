@@ -192,8 +192,8 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid+1, current_gid)
-            assert_ids(testtree, pathinfo.path, current_uid+1, current_gid)
+            pathinfo.chown(current_uid + 1, current_gid)
+            assert_ids(testtree, pathinfo.path, current_uid + 1, current_gid)
 
     def test_chgrp(self):
         testtree = generate_testtree1(current_uid, current_gid)
@@ -201,8 +201,8 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid, current_gid+1)
-            assert_ids(testtree, pathinfo.path, current_uid, current_gid+1)
+            pathinfo.chown(current_uid, current_gid + 1)
+            assert_ids(testtree, pathinfo.path, current_uid, current_gid + 1)
 
     def test_chown_chgrp(self):
         testtree = generate_testtree1(current_uid, current_gid)
@@ -210,8 +210,9 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid+1, current_gid+1)
-            assert_ids(testtree, pathinfo.path, current_uid+1, current_gid+1)
+            pathinfo.chown(current_uid + 1, current_gid + 1)
+            assert_ids(testtree, pathinfo.path,
+                       current_uid + 1, current_gid + 1)
 
 
 class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
