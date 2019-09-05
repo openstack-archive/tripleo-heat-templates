@@ -139,6 +139,11 @@ parameters:
     description: Additional to the availability zones aware network scheduler.
     default: networks
     type: string
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
   # DEPRECATED: the following options are deprecated and are currently maintained
   # for backwards compatibility. They will be removed in the Ocata cycle.
   NeutronL3HA:
@@ -172,6 +177,7 @@ conditions:
   is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
   az_unset: {equals: [{get_param: NeutronDefaultAvailabilityZones}, '']}
   omit_az_configs: {or: [is_ovn_in_neutron_mechanism_driver, az_unset]}
+  ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, internal_tls_enabled]}
 
 resources:
 
@@ -321,6 +327,32 @@ outputs:
                 {get_param: NeutronRouterSchedulerDriver}
               neutron::server::default_availability_zones:
                 {get_param: NeutronDefaultAvailabilityZones}
+          -
+            if:
+            - ovn_and_tls
+            -
+              generate_service_certificates: true
+              tripleo::profile::base::neutron::plugins::ml2::ovn::protocol: 'ssl'
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_private_key: '/etc/pki/tls/private/ovn_neutron_client.key'
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/ovn_neutron_client.crt'
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_private_key: '/etc/pki/tls/private/ovn_neutron_client.key'
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_certificate: '/etc/pki/tls/certs/ovn_neutron_client.crt'
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
+              tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
+              neutron_ovn_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ovn_neutron_client.crt'
+                service_key: '/etc/pki/tls/private/ovn_neutron_client.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+                principal:
+                  str_replace:
+                    template: "neutron_ovn/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+            - {}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_neutron_api:
@@ -376,6 +408,14 @@ outputs:
             - path: /var/log/neutron
               owner: neutron:neutron
               recurse: true
+            - path: /etc/pki/tls/certs/ovn_neutron_client.crt
+              owner: neutron:neutron
+              optional: true
+              perm: '0644'
+            - path: /etc/pki/tls/private/ovn_neutron_client.key
+              owner: neutron:neutron
+              optional: true
+              perm: '0644'
         /var/lib/kolla/config_files/neutron_server_tls_proxy.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
@@ -426,6 +466,12 @@ outputs:
                     -
                       - /var/lib/kolla/config_files/neutron_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                    - if:
+                      - ovn_and_tls
+                      -
+                        - /etc/pki/tls/certs/ovn_neutron_client.crt:/etc/pki/tls/certs/ovn_neutron_client.crt
+                        - /etc/pki/tls/private/ovn_neutron_client.key:/etc/pki/tls/private/ovn_neutron_client.key
+                      - null
                 environment:
                   list_concat:
                     - {get_param: NeutronApiOptEnvVars}
@@ -451,7 +497,14 @@ outputs:
                 - {}
       host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
       metadata_settings:
-        get_attr: [TLSProxyBase, role_data, metadata_settings]
+        list_concat:
+        - {get_attr: [TLSProxyBase, role_data, metadata_settings]}
+        - if:
+          - ovn_and_tls
+          - - service: neutron_ovn
+              network: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+              type: node
+          - null
       post_upgrade_tasks:
         - when: step|int == 1
           import_role:

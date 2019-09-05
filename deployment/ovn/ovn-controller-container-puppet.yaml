@@ -78,9 +78,18 @@ parameters:
     description: Probe interval in ms
     type: number
     default: 60000
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+      services in the internal network.
 
 conditions:
   force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -134,6 +143,25 @@ outputs:
               - force_config_drive
               - nova::compute::force_config_drive: true
               - {}
+          -
+            if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
+              ovn_controller_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ovn_controller.crt'
+                service_key: '/etc/pki/tls/private/ovn_controller.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                principal:
+                  str_replace:
+                    template: "ovn_controller/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -154,11 +182,28 @@ outputs:
           - /etc/sysconfig/modules:/etc/sysconfig/modules
       kolla_config:
         /var/lib/kolla/config_files/ovn_controller.json:
-          command: /usr/bin/ovn-controller --pidfile --log-file unix:/run/openvswitch/db.sock
+          command:
+            list_join:
+              - ' '
+              - - /usr/bin/ovn-controller --pidfile --log-file unix:/run/openvswitch/db.sock
+                - if:
+                  - internal_tls_enabled
+                  - list_join:
+                    - ' '
+                    - - -p /etc/pki/tls/private/ovn_controller.key -c /etc/pki/tls/certs/ovn_controller.crt -C
+                      - {get_param: InternalTLSCAFile}
+                  - ''
           permissions:
             - path: /var/log/openvswitch
               owner: root:root
               recurse: true
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          - - service: ovn_controller
+              network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              type: node
+          - null
       docker_config:
         step_4:
           configure_cms_options:
@@ -192,13 +237,26 @@ outputs:
                         data:
                           port: {get_param: OVNSouthboundServerPort}
             volumes:
-              - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
-              - /lib/modules:/lib/modules:ro
-              # TODO(numans): This is temporary. Mount /run/openvswitch once
-              # openvswitch systemd script is fixed to not delete /run/openvswitch
-              # folder in the host when openvswitch service is stopped.
-              - /run:/run
-              - /var/log/containers/openvswitch:/var/log/openvswitch:z
+              list_concat:
+                -
+                  - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  # TODO(numans): This is temporary. Mount /run/openvswitch once
+                  # openvswitch systemd script is fixed to not delete /run/openvswitch
+                  # folder in the host when openvswitch service is stopped.
+                  - /run:/run
+                  - /var/log/containers/openvswitch:/var/log/openvswitch:z
+                - if:
+                  - internal_tls_enabled
+                  -
+                    - list_join:
+                      - ':'
+                      - - {get_param: InternalTLSCAFile}
+                        - {get_param: InternalTLSCAFile}
+                        - 'ro'
+                    - /etc/pki/tls/certs/ovn_controller.crt:/etc/pki/tls/certs/ovn_controller.crt
+                    - /etc/pki/tls/private/ovn_controller.key:/etc/pki/tls/private/ovn_controller.key
+                  - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
