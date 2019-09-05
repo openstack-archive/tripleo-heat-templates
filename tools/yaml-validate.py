@@ -345,6 +345,22 @@ def validate_hci_computehci_role(hci_role_filename, hci_role_tpl):
                 return 1
     return 0
 
+
+def validate_controller_dashboard(filename, tpl):
+    control_role_filename = os.path.join(os.path.dirname(filename),
+                                         './Controller.yaml')
+    control_role_tpl = yaml.load(open(control_role_filename).read())
+    control_role_services = control_role_tpl[0]['ServicesDefault']
+    for role in tpl:
+        if role['name'] == 'ControllerStorageDashboard':
+            services = role['ServicesDefault']
+            if sorted(services) != sorted(control_role_services):
+                print('ERROR: ServicesDefault in %s is different from '
+                      'ServicesDefault in roles/Controller.yaml' % filename)
+                return 1
+    return 0
+
+
 def validate_hci_role(hci_role_filename, hci_role_tpl):
     role_files = ['HciCephAll', 'HciCephFile', 'HciCephMon', 'HciCephObject']
     if hci_role_filename in ['./roles/'+ x +'.yaml' for x in role_files]:
