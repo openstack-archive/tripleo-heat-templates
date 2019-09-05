@@ -229,6 +229,7 @@ for service in (json_data or []):
             service.get('config_image'),
             service.get('volumes', []),
             service.get('privileged', False),
+            service.get('keep_container', False),
         ]
 
     config_volume = service[0] or ''
@@ -237,6 +238,7 @@ for service in (json_data or []):
     config_image = service[3] or ''
     volumes = service[4] if len(service) > 4 else []
     privileged = service[5] if len(service) > 5 else False
+    keep_container = service[6] if len(service) > 6 else False
 
     if not manifest or not config_image:
         continue
@@ -247,6 +249,7 @@ for service in (json_data or []):
     log.debug('config_image %s' % config_image)
     log.debug('volumes %s' % volumes)
     log.debug('privileged %s' % privileged)
+    log.debug('keep_container %s' % keep_container)
     # We key off of config volume for all configs.
     if config_volume in configs:
         # Append puppet tags and manifest.
@@ -413,7 +416,7 @@ if not os.path.exists(sh_script):
 
 
 def mp_puppet_config(*args):
-    (config_volume, puppet_tags, manifest, config_image, volumes, privileged, check_mode) = args[0]
+    (config_volume, puppet_tags, manifest, config_image, volumes, privileged, check_mode, keep_container) = args[0]
     log = get_logger()
     log.info('Starting configuration of %s using image %s' %
              (config_volume, config_image))
@@ -424,6 +427,7 @@ def mp_puppet_config(*args):
     log.debug('volumes %s' % volumes)
     log.debug('privileged %s' % privileged)
     log.debug('check_mode %s' % check_mode)
+    log.debug('keep_container %s' % keep_container)
 
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
@@ -459,8 +463,15 @@ def mp_puppet_config(*args):
                 '--volume', '/var/lib/container-puppet/puppetlabs/:/opt/puppetlabs/:ro',
                 # Syslog socket for puppet logs
                 '--volume', '/dev/log:/dev/log:rw']
+
+        # Remove container by default after the run
+        # This should mitigate the "ghost container" issue described here
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1747885
+        # https://bugs.launchpad.net/tripleo/+bug/1840691
+        if not keep_container:
+            common_dcmd.append('--rm')
         if privileged:
-            common_dcmd.extend('--privileged')
+            common_dcmd.append('--privileged')
 
         if container_cli == 'podman':
             log_path = os.path.join(container_log_stdout_path, uname)
@@ -507,12 +518,8 @@ def mp_puppet_config(*args):
         count = 0
         log.debug('Running %s command: %s' % (container_cli, ' '.join(common_dcmd)))
         while count < 3:
-            if count == 0:
-                cmd = common_dcmd
-            else:
-                cmd = [cli_cmd, 'start', '-a', uname]
             count += 1
-            subproc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+            subproc = subprocess.Popen(common_dcmd, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, env=env,
                                        universal_newlines=True)
             cmd_stdout, cmd_stderr = subproc.communicate()
@@ -521,14 +528,14 @@ def mp_puppet_config(*args):
             # and 2 for success and resource changes. Other numbers are failures
             if retval in [0, 2]:
                 if cmd_stdout:
-                    log.debug('%s run succeeded: %s' % (cmd, cmd_stdout))
+                    log.debug('%s run succeeded: %s' % (common_dcmd, cmd_stdout))
                 if cmd_stderr:
                     log.warning(cmd_stderr)
                 # only delete successful runs, for debugging
                 rm_container(uname)
                 break
             time.sleep(3)
-            log.error('%s run failed after %s attempt(s): %s' % (cmd,
+            log.error('%s run failed after %s attempt(s): %s' % (common_dcmd,
                                                                  cmd_stderr,
                                                                  count))
             log.warning('Retrying running container: %s' % config_volume)
@@ -559,6 +566,7 @@ for config_volume in configs:
     config_image = service[3] or ''
     volumes = service[4] if len(service) > 4 else []
     privileged = service[5] if len(service) > 5 else False
+    keep_container = service[6] if len(service) > 6 else False
 
     if puppet_tags:
         puppet_tags = "file,file_line,concat,augeas,cron,%s" % puppet_tags
@@ -566,7 +574,7 @@ for config_volume in configs:
         puppet_tags = "file,file_line,concat,augeas,cron"
 
     process_map.append([config_volume, puppet_tags, manifest, config_image,
-                        volumes, privileged, check_mode])
+                        volumes, privileged, check_mode, keep_container])
 
 for p in process_map:
     log.debug('- %s' % p)
