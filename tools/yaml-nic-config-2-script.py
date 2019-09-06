@@ -176,7 +176,8 @@ def write_template(template, filename=None):
 def convert(filename, script_path):
     print('Converting %s' % filename)
     try:
-        tpl = yaml.load(open(filename).read(), Loader=TemplateLoader)
+        with open(filename, 'r') as f:
+            tpl = yaml.load(f.read(), Loader=TemplateLoader)
     except Exception:
         print(traceback.format_exc())
         return 0
@@ -219,7 +220,7 @@ def convert(filename, script_path):
 def check_old_style(filename):
 
     with open(filename, 'r') as f:
-        tpl = yaml.load(f.read())
+        tpl = yaml.load(f.read(), Loader=yaml.FullLoader)
 
         if isinstance(tpl.get('resources', {}), dict):
             for r in (tpl.get('resources', {})).items():
