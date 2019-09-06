@@ -177,7 +177,14 @@ def rm_container(name):
             log.debug(cmd_stderr)
 
     log.info('Removing container: %s' % name)
-    subproc = subprocess.Popen([cli_cmd, 'rm', name],
+    rm_cli_cmd = [cli_cmd, 'rm']
+    # --storage is used as a mitigation of
+    # https://github.com/containers/libpod/issues/3906
+    # Also look https://bugzilla.redhat.com/show_bug.cgi?id=1747885
+    if container_cli == 'podman':
+        rm_cli_cmd.extend(['--storage'])
+    rm_cli_cmd.append(name)
+    subproc = subprocess.Popen(rm_cli_cmd,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE,
                                universal_newlines=True)
