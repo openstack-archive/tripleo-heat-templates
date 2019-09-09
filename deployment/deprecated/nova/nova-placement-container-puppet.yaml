@@ -194,6 +194,12 @@ outputs:
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - placement_wait_for_service.py:
+              mode: "0755"
+              content: { get_file: ../../../container_config_scripts/placement_wait_for_service.py }
       docker_config:
         step_2:
           get_attr: [NovaPlacementLogging, docker_config, step_2]
@@ -201,7 +207,7 @@ outputs:
         step_4:
           nova_placement:
             start_order: 1
-            image: {get_param: DockerNovaPlacementImage}
+            image: &nova_placement_api_image {get_param: DockerNovaPlacementImage}
             net: host
             user: root
             restart: always
@@ -226,6 +232,29 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          nova_placement_wait_for_service:
+            start_order: 2
+            image: *nova_placement_api_image
+            user: root
+            net: host
+            privileged: false
+            detach: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - get_attr: [NovaPlacementLogging, volumes]
+                -
+                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
+                  - /var/lib/config-data/nova_placement/etc/placement/:/etc/placement/:ro
+            command: "/usr/bin/bootstrap_host_exec nova_placement su nova -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
+            environment:
+              - list_join:
+                  - ''
+                  - - '__OS_DEBUG='
+                    - yaql:
+                        expression: str($.data.debug)
+                        data:
+                          debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
       host_prep_tasks:
         - {get_attr: [NovaPlacementLogging, host_prep_tasks]}
         - name: create persistent directory

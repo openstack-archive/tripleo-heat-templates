@@ -310,54 +310,59 @@ outputs:
               owner: nova:nova
               recurse: true
       container_config_scripts:
-        nova_api_ensure_default_cell.sh:
-          mode: "0700"
-          content:
-            str_replace:
-              template: |
-                #!/bin/bash
-                DEFID=$(su nova -s /bin/bash -c "nova-manage cell_v2 list_cells" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}')
-                if [ "$DEFID" ]; then
-                  echo "(cellv2) Updating default cell_v2 cell $DEFID"
-                  su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 update_cell --cell_uuid $DEFID --name=default --database_connection='CELLDB' --transport-url='TRANSPORTURL'"
-                else
-                  echo "(cellv2) Creating default cell_v2 cell"
-                  su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 create_cell --name=default --database_connection='CELLDB' --transport-url='TRANSPORTURL'"
-                fi
-              params:
-                CELLDB:
-                  list_join:
-                  - ''
-                  - - '{scheme}'
-                    - '://'
-                    - '{username}'
-                    - ':'
-                    - '{password}'
-                    - '@'
-                    -
-                      if:
-                        - mysql_ipv6_use_ip_address
-                        - '[{hostname}]'
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - nova_wait_for_api_service.py:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/nova_wait_for_api_service.py }
+            nova_api_ensure_default_cell.sh:
+              mode: "0700"
+              content:
+                str_replace:
+                  template: |
+                    #!/bin/bash
+                    DEFID=$(su nova -s /bin/bash -c "nova-manage cell_v2 list_cells" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}')
+                    if [ "$DEFID" ]; then
+                      echo "(cellv2) Updating default cell_v2 cell $DEFID"
+                      su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 update_cell --cell_uuid $DEFID --name=default --database_connection='CELLDB' --transport-url='TRANSPORTURL'"
+                    else
+                      echo "(cellv2) Creating default cell_v2 cell"
+                      su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 create_cell --name=default --database_connection='CELLDB' --transport-url='TRANSPORTURL'"
+                    fi
+                  params:
+                    CELLDB:
+                      list_join:
+                      - ''
+                      - - '{scheme}'
+                        - '://'
+                        - '{username}'
+                        - ':'
+                        - '{password}'
+                        - '@'
+                        -
+                          if:
+                            - mysql_ipv6_use_ip_address
+                            - '[{hostname}]'
+                            - '{hostname}'
+                        - '/'
+                        - 'nova'
+                        - '?'
+                        - '{query}'
+                    TRANSPORTURL:
+                      list_join:
+                      - ''
+                      - - '{scheme}'
+                        - '://'
+                        - '{username}'
+                        - ':'
+                        - '{password}'
+                        - '@'
                         - '{hostname}'
-                    - '/'
-                    - 'nova'
-                    - '?'
-                    - '{query}'
-                TRANSPORTURL:
-                  list_join:
-                  - ''
-                  - - '{scheme}'
-                    - '://'
-                    - '{username}'
-                    - ':'
-                    - '{password}'
-                    - '@'
-                    - '{hostname}'
-                    - ':'
-                    - '{port}'
-                    - '/'
-                    - '?'
-                    - '{query}'
+                        - ':'
+                        - '{port}'
+                        - '/'
+                        - '?'
+                        - '{query}'
       docker_config:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
@@ -447,7 +452,32 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          nova_wait_for_api_service:
+            start_order: 3
+            image: *nova_api_image
+            user: root
+            net: host
+            privileged: false
+            detach: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/config-data/nova/etc/my.cnf.d/:/etc/my.cnf.d/:ro
+                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/log/containers/nova:/var/log/nova
+                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
+            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_api_service.py'"
+            environment:
+              - list_join:
+                  - ''
+                  - - '__OS_DEBUG='
+                    - yaql:
+                        expression: str($.data.debug)
+                        data:
+                          debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
           nova_api_cron:
+            start_order: 4
             image: *nova_api_image
             net: host
             user: root
