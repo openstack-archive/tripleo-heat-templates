@@ -47,6 +47,12 @@ parameters:
     description: The network port for messaging backend
     type: number
 
+  PcmkConfigRestartTimeout:
+    default: 600
+    description: Time in seconds to wait for a pacemaker resource to restart when
+                 a config change is detected and the resource is being restarted
+    type: number
+
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
@@ -90,6 +96,13 @@ outputs:
       pyshim.sh:
         mode: "0755"
         content: { get_file: ../container_config_scripts/pyshim.sh }
+      pacemaker_restart_bundle.sh:
+        mode: "0755"
+        content:
+          str_replace:
+            template: { get_file: ../container_config_scripts/pacemaker_restart_bundle.sh }
+            params:
+              __PCMKTIMEOUT__: {get_param: PcmkConfigRestartTimeout}
 
   volumes_base:
     description: Base volume list
@@ -121,6 +134,17 @@ outputs:
         - *volumes_base
         - - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
           # required for bootstrap_host_exec
+          - /etc/puppet:/etc/puppet:ro
+
+  pacemaker_restart_volumes:
+    description: Common volumes for the pacemaker restart containers.
+    value:
+      list_concat:
+        - *volumes_base
+        - - /var/lib/container-config-scripts/pacemaker_restart_bundle.sh:/pacemaker_restart_bundle.sh:ro
+          - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+          - /dev/shm:/dev/shm:rw
+          # required for bootstrap_host_exec, facter
           - /etc/puppet:/etc/puppet:ro
 
   container_puppet_apply_volumes:
