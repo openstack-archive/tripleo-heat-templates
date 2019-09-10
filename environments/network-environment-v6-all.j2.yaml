@@ -1,0 +1,64 @@
+# This file allows IPv6 deployment on tenant networks as well.
+# This should only be used for new deployments and not for upgrade
+# or update.
+resource_registry:
+  # Network Interface templates to use (these files must exist). You can
+  # override these by including one of the net-*.yaml environment files,
+  # such as net-bond-with-vlans-v6.yaml, or modifying the list here.
+{%- for role in roles %}
+  # Port assignments for the {{role.name}}
+  OS::TripleO::{{role.name}}::Net::SoftwareConfig:
+    ../network/config/single-nic-vlans/{{role.deprecated_nic_config_name|default(role.name.lower() ~ ".yaml")}}
+{%- endfor %}
+
+parameter_defaults:
+  # This section is where deployment-specific configuration is done
+  #
+  # NOTE: (Since Rocky)
+  # ControlPlaneSubnetCidr: It is no longer a requirement to provide this
+  #                         parameter. The attribute is resolved from the
+  #                         ctlplane subnet(s).
+  # ControlPlaneDefaultRoute: It is no longer a requirement to provide this
+  #                           parameter. The attribute is resolved from the
+  #                           ctlplane subnet(s).
+  # EC2MetadataIp: It is no longer a requirement to provide this parameter. The
+  #                attribute is resolved from the ctlplane subnet(s).
+  #
+  #
+{% for network in networks if network.enabled|default(true) %}
+  # Customize the IP subnets to match the local environment
+  {{network.name}}NetCidr: '{{network.ipv6_subnet}}'
+  # Customize the IP range to use for static IPs and VIPs
+{%-     if network.name == 'External' %}
+  # Leave room if the external network is also used for floating IPs
+{%-     endif %}
+  {{network.name}}AllocationPools: {{network.ipv6_allocation_pools}}
+{%-     if network.gateway_ipv6|default(false) %}
+  # Gateway router for routable networks
+  {{network.name}}InterfaceDefaultRoute: '{{network.gateway_ipv6}}'
+{%-     endif %}
+{%-     if network.vlan is defined %}
+  # Customize the VLAN ID to match the local environment
+  {{network.name}}NetworkVlanID: {{network.vlan}}
+{%-     endif %}
+{%-     if network.routes_ipv6 %}
+  # Routes to add to host_routes property of the subnets in neutron.
+  {{network.name}}Routes: {{network.routes_ipv6|default([])}}
+{%-     endif %}
+{% endfor %}
+{#- FIXME: These global parameters should be defined in a YAML file, e.g. network_data.yaml. #}
+  # Define the DNS servers (maximum 2) for the overcloud nodes
+  # When the list is not set (empty) the nameservers on the ctlplane subnet(s) will be used.
+  # (ctlplane subnet(s) nameservers are confgured by the ``undercloud_nameservers`` option in ``undercloud.conf``)
+  DnsServers: []
+  # List of Neutron network types for tenant networks (will be used in order)
+  NeutronNetworkType: 'vxlan,vlan'
+  # The tunnel type for the tenant network (vxlan or gre). Set to '' to disable tunneling.
+  NeutronTunnelTypes: 'vxlan'
+  # Neutron VLAN ranges per network, for example 'datacentre:1:499,tenant:500:1000':
+  NeutronNetworkVLANRanges: 'datacentre:1:1000'
+  # Customize bonding options, e.g. "mode=4 lacp_rate=1 updelay=1000 miimon=100"
+  # for Linux bonds w/LACP, or "bond_mode=active-backup" for OVS active/backup.
+  BondInterfaceOvsOptions: "bond_mode=active-backup"
+  # Specify Tunnel endpoints to be IPv6
+  NeutronOverlayIPVersion: 6
