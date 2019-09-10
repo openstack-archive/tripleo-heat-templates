@@ -801,11 +801,21 @@ outputs:
             - {}
       deploy_steps_tasks:
         - name: validate nova-libvirt container state
-          when: step|int == 4
+          when:
+            - not container_healthcheck_disabled
+            - step|int == 4
           tags:
             - opendev-validation
             - opendev-validation-nova
-          command: "{{ container_cli }} exec nova_libvirt /openstack/healthcheck"
+          block:
+            - name: Get nova-libvirt healthcheck status
+              register: nova_libvirt_healthcheck_state
+              systemd:
+                name: tripleo_nova_libvirt_healthcheck
+            - name: Fail if nova-libvirt healthcheck report failed status
+              fail:
+                msg: nova-libvirt isn't working (healtcheck failed)
+              when: nova_libvirt_healthcheck_state.status.ExecMainStatus != '0'
       host_prep_tasks:
         - name: create libvirt persistent data directories
           file:
