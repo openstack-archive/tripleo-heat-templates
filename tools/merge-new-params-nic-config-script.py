@@ -246,7 +246,9 @@ def backup_template():
 
 
 def merge_from_processed(reference_params):
-    template = yaml.load(open(OPTS.template).read(), Loader=TemplateLoader)
+    with open(OPTS.template, 'r') as f:
+        template = yaml.load(f.read(), Loader=TemplateLoader)
+
     for param in reference_params:
         if param not in template['parameters']:
             template['parameters'][param] = reference_params[param]
