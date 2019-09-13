@@ -213,6 +213,17 @@ parameters:
                  deployment not to fail. Used to catch deployment errors early.
                  Set this value to 0 to disable this check.
     type: number
+  ContainerImageRegistryCredentials:
+    type: json
+    hidden: true
+    default: {}
+    description: |
+      Mapping of image registry hosts to login credentials. Must be in the following example format
+
+        docker.io:
+          username: pa55word
+        '192.0.2.1:8787':
+          registry_username: password
 
 parameter_groups:
 - label: deprecated
@@ -239,6 +250,26 @@ conditions:
     yaql:
       data: {get_param: CephConfigOverrides}
       expression: $.data.keys().any(predicate => $ in ['global', 'mon', 'mgr', 'osd', 'mds', 'client'])
+  ceph_authenticated_registry:
+      and:
+      - not:
+          yaql:
+            data:
+              cred: {get_param: ContainerImageRegistryCredentials}
+              ns:
+               yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: ContainerCephDaemonImage}
+            expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).keys().last(default => "").isEmpty()
+      - not:
+          yaql:
+            data:
+              cred: {get_param: ContainerImageRegistryCredentials}
+              ns:
+               yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: ContainerCephDaemonImage}
+            expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).values().last(default => "").isEmpty()
 
 resources:
   ContainerImageUrlParts:
@@ -310,6 +341,23 @@ resources:
           ceph_docker_registry: {get_attr: [ContainerImageUrlParts, value, host]}
           ceph_docker_image: {get_attr: [ContainerImageUrlParts, value, image]}
           ceph_docker_image_tag: {get_attr: [ContainerImageUrlParts, value, image_tag]}
+          ceph_docker_registry_auth:
+            if:
+              - ceph_authenticated_registry
+              - true
+              - false
+          ceph_docker_registry_username:
+            yaql:
+              data:
+                cred: {get_param: ContainerImageRegistryCredentials}
+                ns: {get_attr: [ContainerImageUrlParts, value, host]}
+              expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).keys().last(default => "")
+          ceph_docker_registry_password:
+            yaql:
+              data:
+                cred: {get_param: ContainerImageRegistryCredentials}
+                ns: {get_attr: [ContainerImageUrlParts, value, host]}
+              expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).values().last(default => "")
           public_network:
             list_join:
               - ','
