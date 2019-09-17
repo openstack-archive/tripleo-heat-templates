@@ -170,7 +170,6 @@ Example
    * OS::TripleO::Services::NovaCompute
    * OS::TripleO::Services::NovaLibvirt
    * OS::TripleO::Services::NovaMigrationTarget
-   * OS::TripleO::Services::OpenDaylightOvs
    * OS::TripleO::Services::Podman
    * OS::TripleO::Services::Securetty
    * OS::TripleO::Services::Snmp
