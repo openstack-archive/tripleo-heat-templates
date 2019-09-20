@@ -31,19 +31,6 @@ import time
 from paunch import runner as containers_runner
 
 
-PUPPETS = (
-    '/usr/share/openstack-puppet/modules/:'
-    '/usr/share/openstack-puppet/modules/:ro'
-)
-SH_SCRIPT = '/var/lib/container-puppet/container-puppet.sh'
-CONTAINER_CLI = os.environ.get('CONTAINER_CLI', 'podman')
-CONTAINER_LOG_STDOUT_PATH = os.environ.get(
-    'CONTAINER_LOG_STDOUT_PATH',
-    '/var/log/containers/stdouts'
-)
-CLI_CMD = '/usr/bin/' + CONTAINER_CLI
-
-
 def get_logger():
     """Return a logger object."""
     logger = logging.getLogger()
@@ -77,45 +64,6 @@ def local_subprocess_call(cmd, env=None):
     )
     stdout, stderr = subproc.communicate()
     return stdout, stderr, subproc.returncode
-
-
-LOG = get_logger()
-LOG.info('Running container-puppet')
-CONFIG_VOLUME_PREFIX = os.path.abspath(
-    os.environ.get(
-        'CONFIG_VOLUME_PREFIX',
-        '/var/lib/config-data'
-    )
-)
-CHECK_MODE = int(os.environ.get('CHECK_MODE', 0))
-LOG.debug('CHECK_MODE: %s' % CHECK_MODE)
-if CONTAINER_CLI == 'docker':
-    CLI_DCMD = ['--volume', PUPPETS]
-    ENV = {}
-    RUNNER = containers_runner.DockerRunner(
-        'container-puppet',
-        cont_cmd='docker',
-        log=LOG
-    )
-elif CONTAINER_CLI == 'podman':
-    # podman doesn't allow relabeling content in /usr and
-    # doesn't support named volumes
-    CLI_DCMD = [
-        '--security-opt',
-        'label=disable',
-        '--volume',
-        PUPPETS
-    ]
-    # podman need to find dependent binaries that are in environment
-    ENV = {'PATH': os.environ['PATH']}
-    RUNNER = containers_runner.PodmanRunner(
-        'container-puppet',
-        cont_cmd='podman',
-        log=LOG
-    )
-else:
-    LOG.error('Invalid CONTAINER_CLI: %s' % CONTAINER_CLI)
-    raise SystemExit()
 
 
 def pull_image(name):
@@ -209,88 +157,6 @@ def rm_container(name):
         LOG.debug(stdout)
     if stderr and 'Error response from daemon' in stderr:
         LOG.debug(stderr)
-
-config_file = os.environ.get(
-    'CONFIG',
-    '/var/lib/container-puppet/container-puppet.json'
-)
-LOG.debug('CONFIG: %s' % config_file)
-# If specified, only this config_volume will be used
-CONFIG_VOLUME_ONLY = os.environ.get('CONFIG_VOLUME', None)
-with open(config_file) as f:
-    JSON_DATA = json.load(f)
-
-# To save time we support configuring 'shared' services at the same
-# time. For example configuring all of the heat services
-# in a single container pass makes sense and will save some time.
-# To support this we merge shared settings together here.
-#
-# We key off of config_volume as this should be the same for a
-# given group of services.  We are also now specifying the container
-# in which the services should be configured.  This should match
-# in all instances where the volume name is also the same.
-
-CONFIGS = {}
-for service in (JSON_DATA or []):
-    if service is None:
-        continue
-    if isinstance(service, dict):
-        service = [
-            service.get('config_volume'),
-            service.get('puppet_tags'),
-            service.get('step_config'),
-            service.get('config_image'),
-            service.get('volumes', []),
-            service.get('privileged', False),
-            service.get('keep_container', False),
-        ]
-
-    CONFIG_VOLUME = service[0] or ''
-    PUPPET_TAGS = service[1] or ''
-    MANIFEST = service[2] or ''
-    CONFIG_IMAGE = service[3] or ''
-    VOLUMES = service[4] if len(service) > 4 else []
-
-    if not MANIFEST or not CONFIG_IMAGE:
-        continue
-
-    LOG.debug('config_volume %s' % CONFIG_VOLUME)
-    LOG.debug('puppet_tags %s' % PUPPET_TAGS)
-    LOG.debug('manifest %s' % MANIFEST)
-    LOG.debug('config_image %s' % CONFIG_IMAGE)
-    LOG.debug('volumes %s' % VOLUMES)
-    LOG.debug('privileged %s' % service[5] if len(service) > 5 else False)
-    LOG.debug('keep_container %s' % service[6] if len(service) > 6 else False)
-    # We key off of config volume for all configs.
-    if CONFIG_VOLUME in CONFIGS:
-        # Append puppet tags and manifest.
-        LOG.debug("Existing service, appending puppet tags and manifest")
-        if PUPPET_TAGS:
-            CONFIGS[CONFIG_VOLUME][1] = '%s,%s' % (CONFIGS[CONFIG_VOLUME][1],
-                                                   PUPPET_TAGS)
-        if MANIFEST:
-            CONFIGS[CONFIG_VOLUME][2] = '%s\n%s' % (CONFIGS[CONFIG_VOLUME][2],
-                                                    MANIFEST)
-        if CONFIGS[CONFIG_VOLUME][3] != CONFIG_IMAGE:
-            LOG.warning("Config containers do not match even though"
-                        " shared volumes are the same!")
-        if VOLUMES:
-            CONFIGS[CONFIG_VOLUME][4].extend(VOLUMES)
-
-    else:
-        if not CONFIG_VOLUME_ONLY or (CONFIG_VOLUME_ONLY == CONFIG_VOLUME):
-            LOG.debug("Adding new service")
-            CONFIGS[CONFIG_VOLUME] = service
-        else:
-            LOG.debug(
-                "Ignoring %s due to $CONFIG_VOLUME=%s" % (
-                    CONFIG_VOLUME,
-                    CONFIG_VOLUME_ONLY
-                )
-            )
-
-
-LOG.info('Service compilation completed.')
 
 
 def mp_puppet_config(*args):
@@ -531,53 +397,185 @@ def infile_processing(infiles):
             json.dump(infile_data, out_f, indent=2)
 
 
-# Holds all the information for each process to consume.
-# Instead of starting them all linearly we run them using a process
-# pool.  This creates a list of arguments for the above function
-# to consume.
-PROCESS_MAP = []
-for config_volume in CONFIGS:
-
-    SERVICE = CONFIGS[config_volume]
-    PUPPET_TAGS = SERVICE[1] or ''
-
-    if PUPPET_TAGS:
-        PUPPET_TAGS = "file,file_line,concat,augeas,cron,%s" % PUPPET_TAGS
+if __name__ == '__main__':
+    PUPPETS = (
+        '/usr/share/openstack-puppet/modules/:'
+        '/usr/share/openstack-puppet/modules/:ro'
+    )
+    SH_SCRIPT = '/var/lib/container-puppet/container-puppet.sh'
+    CONTAINER_CLI = os.environ.get('CONTAINER_CLI', 'podman')
+    CONTAINER_LOG_STDOUT_PATH = os.environ.get(
+        'CONTAINER_LOG_STDOUT_PATH',
+        '/var/log/containers/stdouts'
+    )
+    CLI_CMD = '/usr/bin/' + CONTAINER_CLI
+    LOG = get_logger()
+    LOG.info('Running container-puppet')
+    CONFIG_VOLUME_PREFIX = os.path.abspath(
+        os.environ.get(
+            'CONFIG_VOLUME_PREFIX',
+            '/var/lib/config-data'
+        )
+    )
+    CHECK_MODE = int(os.environ.get('CHECK_MODE', 0))
+    LOG.debug('CHECK_MODE: %s' % CHECK_MODE)
+    if CONTAINER_CLI == 'docker':
+        CLI_DCMD = ['--volume', PUPPETS]
+        ENV = {}
+        RUNNER = containers_runner.DockerRunner(
+            'container-puppet',
+            cont_cmd='docker',
+            log=LOG
+        )
+    elif CONTAINER_CLI == 'podman':
+        # podman doesn't allow relabeling content in /usr and
+        # doesn't support named volumes
+        CLI_DCMD = [
+            '--security-opt',
+            'label=disable',
+            '--volume',
+            PUPPETS
+        ]
+        # podman need to find dependent binaries that are in environment
+        ENV = {'PATH': os.environ['PATH']}
+        RUNNER = containers_runner.PodmanRunner(
+            'container-puppet',
+            cont_cmd='podman',
+            log=LOG
+        )
     else:
-        PUPPET_TAGS = "file,file_line,concat,augeas,cron"
+        LOG.error('Invalid CONTAINER_CLI: %s' % CONTAINER_CLI)
+        raise SystemExit()
 
-    PROCESS_ITEM = [
-        config_volume,
-        PUPPET_TAGS,
-        SERVICE[2] or '',
-        SERVICE[3] or '',
-        SERVICE[4] if len(SERVICE) > 4 else [],
-        SERVICE[5] if len(SERVICE) > 5 else False,
-        CHECK_MODE,
-        SERVICE[6] if len(SERVICE) > 6 else False
-    ]
-    PROCESS_MAP.append(PROCESS_ITEM)
-    LOG.debug('- %s' % PROCESS_ITEM)
+    config_file = os.environ.get(
+        'CONFIG',
+        '/var/lib/container-puppet/container-puppet.json'
+    )
+    LOG.debug('CONFIG: %s' % config_file)
+    # If specified, only this config_volume will be used
+    CONFIG_VOLUME_ONLY = os.environ.get('CONFIG_VOLUME', None)
+    with open(config_file) as f:
+        JSON_DATA = json.load(f)
 
-# Fire off processes to perform each configuration.  Defaults
-# to the number of CPUs on the system.
-PROCESS = multiprocessing.Pool(int(os.environ.get('PROCESS_COUNT', 2)))
-RETURNCODES = list(PROCESS.map(mp_puppet_config, PROCESS_MAP))
-CONFIG_VOLUMES = [pm[0] for pm in PROCESS_MAP]
-SUCCESS = True
-for returncode, config_volume in zip(RETURNCODES, CONFIG_VOLUMES):
-    if returncode not in [0, 2]:
-        LOG.error('ERROR configuring %s' % config_volume)
-        SUCCESS = False
+    # To save time we support configuring 'shared' services at the same
+    # time. For example configuring all of the heat services
+    # in a single container pass makes sense and will save some time.
+    # To support this we merge shared settings together here.
+    #
+    # We key off of config_volume as this should be the same for a
+    # given group of services.  We are also now specifying the container
+    # in which the services should be configured.  This should match
+    # in all instances where the volume name is also the same.
+    CONFIGS = {}
+    for service in (JSON_DATA or []):
+        if service is None:
+            continue
+        if isinstance(service, dict):
+            service = [
+                service.get('config_volume'),
+                service.get('puppet_tags'),
+                service.get('step_config'),
+                service.get('config_image'),
+                service.get('volumes', []),
+                service.get('privileged', False),
+            ]
 
-# Update the startup configs with the config hash we generated above
-STARTUP_CONFIGS = os.environ.get(
-    'STARTUP_CONFIG_PATTERN',
-    '/var/lib/tripleo-config/docker-container-startup-config-step_*.json'
-)
-LOG.debug('STARTUP_CONFIG_PATTERN: %s' % STARTUP_CONFIGS)
-# Run infile processing
-infile_processing(infiles=glob.glob(STARTUP_CONFIGS))
+        CONFIG_VOLUME = service[0] or ''
+        PUPPET_TAGS = service[1] or ''
+        MANIFEST = service[2] or ''
+        CONFIG_IMAGE = service[3] or ''
+        VOLUMES = service[4] if len(service) > 4 else []
 
-if not SUCCESS:
-    raise SystemExit()
+        if not MANIFEST or not CONFIG_IMAGE:
+            continue
+
+        LOG.debug('config_volume %s' % CONFIG_VOLUME)
+        LOG.debug('puppet_tags %s' % PUPPET_TAGS)
+        LOG.debug('manifest %s' % MANIFEST)
+        LOG.debug('config_image %s' % CONFIG_IMAGE)
+        LOG.debug('volumes %s' % VOLUMES)
+        LOG.debug('privileged %s' % service[5] if len(service) > 5 else False)
+        # We key off of config volume for all configs.
+        if CONFIG_VOLUME in CONFIGS:
+            # Append puppet tags and manifest.
+            LOG.debug("Existing service, appending puppet tags and manifest")
+            if PUPPET_TAGS:
+                CONFIGS[CONFIG_VOLUME][1] = '%s,%s' % (
+                    CONFIGS[CONFIG_VOLUME][1],
+                    PUPPET_TAGS
+                )
+            if MANIFEST:
+                CONFIGS[CONFIG_VOLUME][2] = '%s\n%s' % (
+                    CONFIGS[CONFIG_VOLUME][2],
+                    MANIFEST
+                )
+            if CONFIGS[CONFIG_VOLUME][3] != CONFIG_IMAGE:
+                LOG.warning("Config containers do not match even though"
+                            " shared volumes are the same!")
+            if VOLUMES:
+                CONFIGS[CONFIG_VOLUME][4].extend(VOLUMES)
+
+        else:
+            if not CONFIG_VOLUME_ONLY or (CONFIG_VOLUME_ONLY == CONFIG_VOLUME):
+                LOG.debug("Adding new service")
+                CONFIGS[CONFIG_VOLUME] = service
+            else:
+                LOG.debug(
+                    "Ignoring %s due to $CONFIG_VOLUME=%s" % (
+                        CONFIG_VOLUME,
+                        CONFIG_VOLUME_ONLY
+                    )
+                )
+
+    LOG.info('Service compilation completed.')
+
+    # Holds all the information for each process to consume.
+    # Instead of starting them all linearly we run them using a process
+    # pool.  This creates a list of arguments for the above function
+    # to consume.
+    PROCESS_MAP = []
+    for config_volume in CONFIGS:
+
+        SERVICE = CONFIGS[config_volume]
+        PUPPET_TAGS = SERVICE[1] or ''
+
+        if PUPPET_TAGS:
+            PUPPET_TAGS = "file,file_line,concat,augeas,cron,%s" % PUPPET_TAGS
+        else:
+            PUPPET_TAGS = "file,file_line,concat,augeas,cron"
+
+        PROCESS_ITEM = [
+            config_volume,
+            PUPPET_TAGS,
+            SERVICE[2] or '',
+            SERVICE[3] or '',
+            SERVICE[4] if len(SERVICE) > 4 else [],
+            SERVICE[5] if len(SERVICE) > 5 else False,
+            CHECK_MODE,
+            SERVICE[6] if len(SERVICE) > 6 else False
+        ]
+        PROCESS_MAP.append(PROCESS_ITEM)
+        LOG.debug('- %s' % PROCESS_ITEM)
+
+    # Fire off processes to perform each configuration.  Defaults
+    # to the number of CPUs on the system.
+    PROCESS = multiprocessing.Pool(int(os.environ.get('PROCESS_COUNT', 2)))
+    RETURNCODES = list(PROCESS.map(mp_puppet_config, PROCESS_MAP))
+    CONFIG_VOLUMES = [pm[0] for pm in PROCESS_MAP]
+    SUCCESS = True
+    for returncode, config_volume in zip(RETURNCODES, CONFIG_VOLUMES):
+        if returncode not in [0, 2]:
+            LOG.error('ERROR configuring %s' % config_volume)
+            SUCCESS = False
+
+    # Update the startup configs with the config hash we generated above
+    STARTUP_CONFIGS = os.environ.get(
+        'STARTUP_CONFIG_PATTERN',
+        '/var/lib/tripleo-config/docker-container-startup-config-step_*.json'
+    )
+    LOG.debug('STARTUP_CONFIG_PATTERN: %s' % STARTUP_CONFIGS)
+    # Run infile processing
+    infile_processing(infiles=glob.glob(STARTUP_CONFIGS))
+
+    if not SUCCESS:
+        raise SystemExit()
