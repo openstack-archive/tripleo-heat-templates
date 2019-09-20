@@ -62,6 +62,23 @@ def get_logger():
     return logger
 
 
+def local_subprocess_call(cmd, env=None):
+    """General run method for subprocess calls.
+
+    :param cmd: list
+    returns: tuple
+    """
+    subproc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        env=env
+    )
+    stdout, stderr = subproc.communicate()
+    return stdout, stderr, subproc.returncode
+
+
 LOG = get_logger()
 LOG.info('Running container-puppet')
 CONFIG_VOLUME_PREFIX = os.path.abspath(
@@ -102,14 +119,8 @@ else:
 
 
 def pull_image(name):
-
-    subproc = subprocess.Popen([CLI_CMD, 'inspect', name],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE,
-                               universal_newlines=True)
-    cmd_stdout, cmd_stderr = subproc.communicate()
-    retval = subproc.returncode
-    if retval == 0:
+    _, _, rc = local_subprocess_call(cmd=[CLI_CMD, 'inspect', name])
+    if rc == 0:
         LOG.info('Image already exists: %s' % name)
         return
 
@@ -118,24 +129,20 @@ def pull_image(name):
     LOG.info('Pulling image: %s' % name)
     while retval != 0:
         count += 1
-        subproc = subprocess.Popen([CLI_CMD, 'pull', name],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE,
-                                   universal_newlines=True)
-
-        cmd_stdout, cmd_stderr = subproc.communicate()
-        retval = subproc.returncode
+        stdout, stderr, retval = local_subprocess_call(
+            cmd=[CLI_CMD, 'pull', name]
+        )
         if retval != 0:
             time.sleep(3)
-            LOG.warning('%s pull failed: %s' % (CONTAINER_CLI, cmd_stderr))
+            LOG.warning('%s pull failed: %s' % (CONTAINER_CLI, stderr))
             LOG.warning('retrying pulling image: %s' % name)
         if count >= 5:
             LOG.error('Failed to pull image: %s' % name)
             break
-    if cmd_stdout:
-        LOG.debug(cmd_stdout)
-    if cmd_stderr:
-        LOG.debug(cmd_stderr)
+    if stdout:
+        LOG.debug(stdout)
+    if stderr:
+        LOG.debug(stderr)
 
 
 def match_config_volumes(prefix, config):
@@ -179,15 +186,13 @@ def get_config_hash(config_volume):
 def rm_container(name):
     if os.environ.get('SHOW_DIFF', None):
         LOG.info('Diffing container: %s' % name)
-        subproc = subprocess.Popen([CLI_CMD, 'diff', name],
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE,
-                                   universal_newlines=True)
-        cmd_stdout, cmd_stderr = subproc.communicate()
-        if cmd_stdout:
-            LOG.debug(cmd_stdout)
-        if cmd_stderr:
-            LOG.debug(cmd_stderr)
+        stdout, stderr, retval = local_subprocess_call(
+            cmd=[CLI_CMD, 'diff', name]
+        )
+        if stdout:
+            LOG.debug(stdout)
+        if stderr:
+            LOG.debug(stderr)
 
     LOG.info('Removing container: %s' % name)
     rm_cli_cmd = [CLI_CMD, 'rm']
@@ -197,15 +202,13 @@ def rm_container(name):
     if CONTAINER_CLI == 'podman':
         rm_cli_cmd.extend(['--storage'])
     rm_cli_cmd.append(name)
-    subproc = subprocess.Popen(rm_cli_cmd,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE,
-                               universal_newlines=True)
-    cmd_stdout, cmd_stderr = subproc.communicate()
-    if cmd_stdout:
-        LOG.debug(cmd_stdout)
-    if cmd_stderr and 'Error response from daemon' in cmd_stderr:
-        LOG.debug(cmd_stderr)
+    stdout, stderr, retval = local_subprocess_call(
+        cmd=rm_cli_cmd
+    )
+    if stdout:
+        LOG.debug(stdout)
+    if stderr and 'Error response from daemon' in stderr:
+        LOG.debug(stderr)
 
 config_file = os.environ.get(
     'CONFIG',
@@ -435,23 +438,18 @@ def mp_puppet_config(*args):
         )
         while count < 3:
             count += 1
-            subproc = subprocess.Popen(
-                common_dcmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=ENV,
-                universal_newlines=True
+            stdout, stderr, retval = local_subprocess_call(
+                cmd=common_dcmd,
+                env=ENV
             )
-            cmd_stdout, cmd_stderr = subproc.communicate()
-            retval = subproc.returncode
             # puppet with --detailed-exitcodes will return 0 for success and
             # no changes and 2 for success and resource changes. Other
             # numbers are failures
             if retval in [0, 2]:
-                if cmd_stdout:
-                    LOG.debug('%s run succeeded: %s' % (common_dcmd, cmd_stdout))
-                if cmd_stderr:
-                    LOG.warning(cmd_stderr)
+                if stdout:
+                    LOG.debug('%s run succeeded: %s' % (common_dcmd, stdout))
+                if stderr:
+                    LOG.warning(stderr)
                 # only delete successful runs, for debugging
                 rm_container(uname)
                 break
@@ -459,16 +457,16 @@ def mp_puppet_config(*args):
             LOG.error(
                 '%s run failed after %s attempt(s): %s' % (
                     common_dcmd,
-                    cmd_stderr,
+                    stderr,
                     count
                 )
             )
             LOG.warning('Retrying running container: %s' % config_volume)
         else:
-            if cmd_stdout:
-                LOG.debug(cmd_stdout)
-            if cmd_stderr:
-                LOG.debug(cmd_stderr)
+            if stdout:
+                LOG.debug(stdout)
+            if stderr:
+                LOG.debug(stderr)
             LOG.error('Failed running container for %s' % config_volume)
         LOG.info(
             'Finished processing puppet configs for %s' % (
