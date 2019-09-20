@@ -30,97 +30,95 @@ import time
 
 from paunch import runner as containers_runner
 
-PUPPETS = '/usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro'
 
-logger = None
-sh_script = '/var/lib/container-puppet/container-puppet.sh'
-container_cli = os.environ.get('CONTAINER_CLI', 'podman')
-container_log_stdout_path = os.environ.get('CONTAINER_LOG_STDOUT_PATH',
-                                           '/var/log/containers/stdouts')
-cli_cmd = '/usr/bin/' + container_cli
+PUPPETS = (
+    '/usr/share/openstack-puppet/modules/:'
+    '/usr/share/openstack-puppet/modules/:ro'
+)
+SH_SCRIPT = '/var/lib/container-puppet/container-puppet.sh'
+CONTAINER_CLI = os.environ.get('CONTAINER_CLI', 'podman')
+CONTAINER_LOG_STDOUT_PATH = os.environ.get(
+    'CONTAINER_LOG_STDOUT_PATH',
+    '/var/log/containers/stdouts'
+)
+CLI_CMD = '/usr/bin/' + CONTAINER_CLI
 
 
 def get_logger():
-    global logger
-    if logger is None:
-        logger = logging.getLogger()
-        ch = logging.StreamHandler(sys.stdout)
-        if os.environ.get('DEBUG') in ['True', 'true']:
-            logger.setLevel(logging.DEBUG)
-            ch.setLevel(logging.DEBUG)
-        else:
-            logger.setLevel(logging.INFO)
-            ch.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s %(levelname)s: '
-                                      '%(process)s -- %(message)s')
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
+    """Return a logger object."""
+    logger = logging.getLogger()
+    ch = logging.StreamHandler(sys.stdout)
+    if os.environ.get('DEBUG') in ['True', 'true']:
+        logger.setLevel(logging.DEBUG)
+        ch.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+        ch.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s: %(process)s -- %(message)s'
+    )
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
     return logger
 
 
-log = get_logger()
-log.info('Running container-puppet')
-
-config_volume_prefix = os.path.abspath(os.environ.get('CONFIG_VOLUME_PREFIX',
-                                                      '/var/lib/config-data'))
-log.debug('CONFIG_VOLUME_PREFIX: %s' % config_volume_prefix)
-if not os.path.exists(config_volume_prefix):
-    os.makedirs(config_volume_prefix)
-
-if container_cli == 'docker':
-    cli_dcmd = ['--volume', PUPPETS]
-    env = {}
+LOG = get_logger()
+LOG.info('Running container-puppet')
+CONFIG_VOLUME_PREFIX = os.path.abspath(
+    os.environ.get(
+        'CONFIG_VOLUME_PREFIX',
+        '/var/lib/config-data'
+    )
+)
+CHECK_MODE = int(os.environ.get('CHECK_MODE', 0))
+LOG.debug('CHECK_MODE: %s' % CHECK_MODE)
+if CONTAINER_CLI == 'docker':
+    CLI_DCMD = ['--volume', PUPPETS]
+    ENV = {}
     RUNNER = containers_runner.DockerRunner(
-        'container-puppet', cont_cmd='docker', log=log)
-elif container_cli == 'podman':
+        'container-puppet',
+        cont_cmd='docker',
+        log=LOG
+    )
+elif CONTAINER_CLI == 'podman':
     # podman doesn't allow relabeling content in /usr and
     # doesn't support named volumes
-    cli_dcmd = ['--security-opt', 'label=disable',
-                '--volume', PUPPETS]
+    CLI_DCMD = [
+        '--security-opt',
+        'label=disable',
+        '--volume',
+        PUPPETS
+    ]
     # podman need to find dependent binaries that are in environment
-    env = {'PATH': os.environ['PATH']}
+    ENV = {'PATH': os.environ['PATH']}
     RUNNER = containers_runner.PodmanRunner(
-        'container-puppet', cont_cmd='podman', log=log)
+        'container-puppet',
+        cont_cmd='podman',
+        log=LOG
+    )
 else:
-    log.error('Invalid container_cli: %s' % container_cli)
-    sys.exit(1)
-
-# Controls whether puppet is bind mounted in from the host
-# NOTE: we require this to support the tarball extracted (Deployment archive)
-# puppet modules but our containers now also include puppet-tripleo so we
-# could use either
-if (os.environ.get('MOUNT_HOST_PUPPET', 'true') == 'true' and
-   PUPPETS not in cli_dcmd):
-    cli_dcmd.extend(['--volume', PUPPETS])
-
-
-# this is to match what we do in deployed-server
-def short_hostname():
-    subproc = subprocess.Popen(['hostname', '-s'],
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    cmd_stdout, cmd_stderr = subproc.communicate()
-    return cmd_stdout.decode('utf-8').rstrip()
+    LOG.error('Invalid CONTAINER_CLI: %s' % CONTAINER_CLI)
+    raise SystemExit()
 
 
 def pull_image(name):
 
-    subproc = subprocess.Popen([cli_cmd, 'inspect', name],
+    subproc = subprocess.Popen([CLI_CMD, 'inspect', name],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE,
                                universal_newlines=True)
     cmd_stdout, cmd_stderr = subproc.communicate()
     retval = subproc.returncode
     if retval == 0:
-        log.info('Image already exists: %s' % name)
+        LOG.info('Image already exists: %s' % name)
         return
 
     retval = -1
     count = 0
-    log.info('Pulling image: %s' % name)
+    LOG.info('Pulling image: %s' % name)
     while retval != 0:
         count += 1
-        subproc = subprocess.Popen([cli_cmd, 'pull', name],
+        subproc = subprocess.Popen([CLI_CMD, 'pull', name],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
                                    universal_newlines=True)
@@ -129,15 +127,15 @@ def pull_image(name):
         retval = subproc.returncode
         if retval != 0:
             time.sleep(3)
-            log.warning('%s pull failed: %s' % (container_cli, cmd_stderr))
-            log.warning('retrying pulling image: %s' % name)
+            LOG.warning('%s pull failed: %s' % (CONTAINER_CLI, cmd_stderr))
+            LOG.warning('retrying pulling image: %s' % name)
         if count >= 5:
-            log.error('Failed to pull image: %s' % name)
+            LOG.error('Failed to pull image: %s' % name)
             break
     if cmd_stdout:
-        log.debug(cmd_stdout)
+        LOG.debug(cmd_stdout)
     if cmd_stderr:
-        log.debug(cmd_stderr)
+        LOG.debug(cmd_stderr)
 
 
 def match_config_volumes(prefix, config):
@@ -146,7 +144,12 @@ def match_config_volumes(prefix, config):
     try:
         volumes = config.get('volumes', [])
     except AttributeError:
-        log.error('Error fetching volumes. Prefix: %s - Config: %s' % (prefix, config))
+        LOG.error(
+            'Error fetching volumes. Prefix: %s - Config: %s' % (
+                prefix,
+                config
+            )
+        )
         raise
     return sorted([os.path.dirname(v.split(":")[0]) for v in volumes if
                    v.startswith(prefix)])
@@ -154,10 +157,20 @@ def match_config_volumes(prefix, config):
 
 def get_config_hash(config_volume):
     hashfile = "%s.md5sum" % config_volume
-    log.debug("Looking for hashfile %s for config_volume %s" % (hashfile, config_volume))
+    LOG.debug(
+        "Looking for hashfile %s for config_volume %s" % (
+            hashfile,
+            config_volume
+        )
+    )
     hash_data = None
     if os.path.isfile(hashfile):
-        log.debug("Got hashfile %s for config_volume %s" % (hashfile, config_volume))
+        LOG.debug(
+            "Got hashfile %s for config_volume %s" % (
+                hashfile,
+                config_volume
+            )
+        )
         with open(hashfile) as f:
             hash_data = f.read().rstrip()
     return hash_data
@@ -165,51 +178,44 @@ def get_config_hash(config_volume):
 
 def rm_container(name):
     if os.environ.get('SHOW_DIFF', None):
-        log.info('Diffing container: %s' % name)
-        subproc = subprocess.Popen([cli_cmd, 'diff', name],
+        LOG.info('Diffing container: %s' % name)
+        subproc = subprocess.Popen([CLI_CMD, 'diff', name],
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
                                    universal_newlines=True)
         cmd_stdout, cmd_stderr = subproc.communicate()
         if cmd_stdout:
-            log.debug(cmd_stdout)
+            LOG.debug(cmd_stdout)
         if cmd_stderr:
-            log.debug(cmd_stderr)
+            LOG.debug(cmd_stderr)
 
-    def run_cmd(rm_cli_cmd):
-        subproc = subprocess.Popen(rm_cli_cmd,
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE,
-                                   universal_newlines=True)
-        cmd_stdout, cmd_stderr = subproc.communicate()
-        if cmd_stdout:
-            log.debug(cmd_stdout)
-        if cmd_stderr and \
-               cmd_stderr != 'Error response from daemon: ' \
-               'No such container: {}\n'.format(name):
-            log.debug(cmd_stderr)
-
-    log.info('Removing container: %s' % name)
-    rm_cli_cmd = [cli_cmd, 'rm']
-    rm_cli_cmd.append(name)
-    run_cmd(rm_cli_cmd)
-
-    # rm --storage is used as a mitigation of
+    LOG.info('Removing container: %s' % name)
+    rm_cli_cmd = [CLI_CMD, 'rm']
+    # --storage is used as a mitigation of
     # https://github.com/containers/libpod/issues/3906
     # Also look https://bugzilla.redhat.com/show_bug.cgi?id=1747885
-    if container_cli == 'podman':
-        rm_storage_cli_cmd = [cli_cmd, 'rm', '--storage']
-        rm_storage_cli_cmd.append(name)
-        run_cmd(rm_storage_cli_cmd)
+    if CONTAINER_CLI == 'podman':
+        rm_cli_cmd.extend(['--storage'])
+    rm_cli_cmd.append(name)
+    subproc = subprocess.Popen(rm_cli_cmd,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE,
+                               universal_newlines=True)
+    cmd_stdout, cmd_stderr = subproc.communicate()
+    if cmd_stdout:
+        LOG.debug(cmd_stdout)
+    if cmd_stderr and 'Error response from daemon' in cmd_stderr:
+        LOG.debug(cmd_stderr)
 
-process_count = int(os.environ.get('PROCESS_COUNT',
-                                   multiprocessing.cpu_count()))
-config_file = os.environ.get('CONFIG', '/var/lib/container-puppet/container-puppet.json')
-log.debug('CONFIG: %s' % config_file)
+config_file = os.environ.get(
+    'CONFIG',
+    '/var/lib/container-puppet/container-puppet.json'
+)
+LOG.debug('CONFIG: %s' % config_file)
 # If specified, only this config_volume will be used
-config_volume_only = os.environ.get('CONFIG_VOLUME', None)
+CONFIG_VOLUME_ONLY = os.environ.get('CONFIG_VOLUME', None)
 with open(config_file) as f:
-    json_data = json.load(f)
+    JSON_DATA = json.load(f)
 
 # To save time we support configuring 'shared' services at the same
 # time. For example configuring all of the heat services
@@ -221,9 +227,8 @@ with open(config_file) as f:
 # in which the services should be configured.  This should match
 # in all instances where the volume name is also the same.
 
-configs = {}
-
-for service in (json_data or []):
+CONFIGS = {}
+for service in (JSON_DATA or []):
     if service is None:
         continue
     if isinstance(service, dict):
@@ -237,99 +242,136 @@ for service in (json_data or []):
             service.get('keep_container', False),
         ]
 
-    config_volume = service[0] or ''
-    puppet_tags = service[1] or ''
-    manifest = service[2] or ''
-    config_image = service[3] or ''
-    volumes = service[4] if len(service) > 4 else []
-    privileged = service[5] if len(service) > 5 else False
-    keep_container = service[6] if len(service) > 6 else False
+    CONFIG_VOLUME = service[0] or ''
+    PUPPET_TAGS = service[1] or ''
+    MANIFEST = service[2] or ''
+    CONFIG_IMAGE = service[3] or ''
+    VOLUMES = service[4] if len(service) > 4 else []
 
-    if not manifest or not config_image:
+    if not MANIFEST or not CONFIG_IMAGE:
         continue
 
-    log.debug('config_volume %s' % config_volume)
-    log.debug('puppet_tags %s' % puppet_tags)
-    log.debug('manifest %s' % manifest)
-    log.debug('config_image %s' % config_image)
-    log.debug('volumes %s' % volumes)
-    log.debug('privileged %s' % privileged)
-    log.debug('keep_container %s' % keep_container)
+    LOG.debug('config_volume %s' % CONFIG_VOLUME)
+    LOG.debug('puppet_tags %s' % PUPPET_TAGS)
+    LOG.debug('manifest %s' % MANIFEST)
+    LOG.debug('config_image %s' % CONFIG_IMAGE)
+    LOG.debug('volumes %s' % VOLUMES)
+    LOG.debug('privileged %s' % service[5] if len(service) > 5 else False)
+    LOG.debug('keep_container %s' % service[6] if len(service) > 6 else False)
     # We key off of config volume for all configs.
-    if config_volume in configs:
+    if CONFIG_VOLUME in CONFIGS:
         # Append puppet tags and manifest.
-        log.debug("Existing service, appending puppet tags and manifest")
-        if puppet_tags:
-            configs[config_volume][1] = '%s,%s' % (configs[config_volume][1],
-                                                   puppet_tags)
-        if manifest:
-            configs[config_volume][2] = '%s\n%s' % (configs[config_volume][2],
-                                                    manifest)
-        if configs[config_volume][3] != config_image:
-            log.warning("Config containers do not match even though"
+        LOG.debug("Existing service, appending puppet tags and manifest")
+        if PUPPET_TAGS:
+            CONFIGS[CONFIG_VOLUME][1] = '%s,%s' % (CONFIGS[CONFIG_VOLUME][1],
+                                                   PUPPET_TAGS)
+        if MANIFEST:
+            CONFIGS[CONFIG_VOLUME][2] = '%s\n%s' % (CONFIGS[CONFIG_VOLUME][2],
+                                                    MANIFEST)
+        if CONFIGS[CONFIG_VOLUME][3] != CONFIG_IMAGE:
+            LOG.warning("Config containers do not match even though"
                         " shared volumes are the same!")
-        if volumes:
-            configs[config_volume][4].extend(volumes)
+        if VOLUMES:
+            CONFIGS[CONFIG_VOLUME][4].extend(VOLUMES)
 
     else:
-        if not config_volume_only or (config_volume_only == config_volume):
-            log.debug("Adding new service")
-            configs[config_volume] = service
+        if not CONFIG_VOLUME_ONLY or (CONFIG_VOLUME_ONLY == CONFIG_VOLUME):
+            LOG.debug("Adding new service")
+            CONFIGS[CONFIG_VOLUME] = service
         else:
-            log.debug("Ignoring %s due to $CONFIG_VOLUME=%s" %
-                (config_volume, config_volume_only))
+            LOG.debug(
+                "Ignoring %s due to $CONFIG_VOLUME=%s" % (
+                    CONFIG_VOLUME,
+                    CONFIG_VOLUME_ONLY
+                )
+            )
 
-log.info('Service compilation completed.')
+
+LOG.info('Service compilation completed.')
 
 
 def mp_puppet_config(*args):
-    (config_volume, puppet_tags, manifest, config_image, volumes, privileged, check_mode, keep_container) = args[0]
-    log = get_logger()
-    log.info('Starting configuration of %s using image %s' %
+    (
+        config_volume,
+        puppet_tags,
+        manifest,
+        config_image,
+        volumes,
+        privileged,
+        check_mode,
+        keep_container
+    ) = args[0]
+    LOG.info('Starting configuration of %s using image %s' %
              (config_volume, config_image))
-    log.debug('config_volume %s' % config_volume)
-    log.debug('puppet_tags %s' % puppet_tags)
-    log.debug('manifest %s' % manifest)
-    log.debug('config_image %s' % config_image)
-    log.debug('volumes %s' % volumes)
-    log.debug('privileged %s' % privileged)
-    log.debug('check_mode %s' % check_mode)
-    log.debug('keep_container %s' % keep_container)
+    LOG.debug('config_volume %s' % config_volume)
+    LOG.debug('puppet_tags %s' % puppet_tags)
+    LOG.debug('manifest %s' % manifest)
+    LOG.debug('config_image %s' % config_image)
+    LOG.debug('volumes %s' % volumes)
+    LOG.debug('privileged %s' % privileged)
+    LOG.debug('check_mode %s' % check_mode)
+    LOG.debug('keep_container %s' % keep_container)
 
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
             man_file.write('include ::tripleo::packages\n')
             man_file.write(manifest)
 
-        uname = RUNNER.unique_container_name('container-puppet-%s' %
-                                             config_volume)
+        uname = RUNNER.unique_container_name(
+            'container-puppet-%s' % config_volume
+        )
         rm_container(uname)
         pull_image(config_image)
 
-        common_dcmd = [cli_cmd, 'run',
-                '--user', 'root',
-                '--name', uname,
-                '--env', 'PUPPET_TAGS=%s' % puppet_tags,
-                '--env', 'NAME=%s' % config_volume,
-                '--env', 'HOSTNAME=%s' % short_hostname(),
-                '--env', 'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
-                '--env', 'STEP=%s' % os.environ.get('STEP', '6'),
-                '--env', 'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
-                '--env', 'DEBUG=%s' % os.environ.get('DEBUG', 'false'),
-                '--volume', '/etc/localtime:/etc/localtime:ro',
-                '--volume', '%s:/etc/config.pp:ro' % tmp_man.name,
-                '--volume', '/etc/puppet/:/tmp/puppet-etc/:ro',
-                # OpenSSL trusted CA injection
-                '--volume', '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
-                '--volume', '/etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro',
-                '--volume', '/etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
-                '--volume', '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
-                '--volume', '%s:/var/lib/config-data/:rw' % config_volume_prefix,
-                # facter caching
-                '--volume', '/var/lib/container-puppet/puppetlabs/facter.conf:/etc/puppetlabs/facter/facter.conf:ro',
-                '--volume', '/var/lib/container-puppet/puppetlabs/:/opt/puppetlabs/:ro',
-                # Syslog socket for puppet logs
-                '--volume', '/dev/log:/dev/log:rw']
+        common_dcmd = [
+            CLI_CMD,
+            'run',
+            '--user',
+            'root',
+            '--name',
+            uname,
+            '--env',
+            'PUPPET_TAGS=%s' % puppet_tags,
+            '--env',
+            'NAME=%s' % config_volume,
+            '--env',
+            'HOSTNAME=%s' % os.environ.get('SHORT_HOSTNAME'),
+            '--env',
+            'NO_ARCHIVE=%s' % os.environ.get('NO_ARCHIVE', ''),
+            '--env',
+            'STEP=%s' % os.environ.get('STEP', '6'),
+            '--env',
+            'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
+            '--env',
+            'DEBUG=%s' % os.environ.get('DEBUG', 'false'),
+            '--volume',
+            '/etc/localtime:/etc/localtime:ro',
+            '--volume',
+            '%s:/etc/config.pp:ro' % tmp_man.name,
+            '--volume',
+            '/etc/puppet/:/tmp/puppet-etc/:ro',
+            # OpenSSL trusted CA injection
+            '--volume',
+            '/etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro',
+            '--volume',
+            '/etc/pki/tls/certs/ca-bundle.crt:'
+            '/etc/pki/tls/certs/ca-bundle.crt:ro',
+            '--volume',
+            '/etc/pki/tls/certs/ca-bundle.trust.crt:'
+            '/etc/pki/tls/certs/ca-bundle.trust.crt:ro',
+            '--volume',
+            '/etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro',
+            '--volume',
+            '%s:/var/lib/config-data/:rw' % CONFIG_VOLUME_PREFIX,
+            # facter caching
+            '--volume',
+            '/var/lib/container-puppet/puppetlabs/facter.conf:'
+            '/etc/puppetlabs/facter/facter.conf:ro',
+            '--volume',
+            '/var/lib/container-puppet/puppetlabs/:/opt/puppetlabs/:ro',
+            # Syslog socket for puppet logs
+            '--volume', '/dev/log:/dev/log:rw'
+        ]
 
         # Remove container by default after the run
         # This should mitigate the "ghost container" issue described here
@@ -337,24 +379,26 @@ def mp_puppet_config(*args):
         # https://bugs.launchpad.net/tripleo/+bug/1840691
         if not keep_container:
             common_dcmd.append('--rm')
+
         if privileged:
             common_dcmd.append('--privileged')
 
-        if container_cli == 'podman':
-            log_path = os.path.join(container_log_stdout_path, uname)
+        if CONTAINER_CLI == 'podman':
+            log_path = os.path.join(CONTAINER_LOG_STDOUT_PATH, uname)
             logging = ['--log-driver', 'k8s-file',
                        '--log-opt',
                        'path=%s.log' % log_path]
             common_dcmd.extend(logging)
-        elif container_cli == 'docker':
+        elif CONTAINER_CLI == 'docker':
             # NOTE(flaper87): Always copy the DOCKER_* environment variables as
             # they contain the access data for the docker daemon.
-            for k in filter(lambda k: k.startswith('DOCKER'), os.environ.keys()):
-                env[k] = os.environ.get(k)
+            for k in os.environ.keys():
+                if k.startswith('DOCKER'):
+                    ENV[k] = os.environ.get(k)
 
-        common_dcmd += cli_dcmd
+        common_dcmd += CLI_DCMD
 
-        if check_mode:
+        if CHECK_MODE:
             common_dcmd.extend([
                 '--volume',
                 '/etc/puppet/check-mode:/tmp/puppet-check-mode:ro'])
@@ -363,139 +407,179 @@ def mp_puppet_config(*args):
             if volume:
                 common_dcmd.extend(['--volume', volume])
 
-        common_dcmd.extend(['--entrypoint', sh_script])
+        common_dcmd.extend(['--entrypoint', SH_SCRIPT])
 
         if os.environ.get('NET_HOST', 'false') == 'true':
-            log.debug('NET_HOST enabled')
+            LOG.debug('NET_HOST enabled')
             common_dcmd.extend(['--net', 'host', '--volume',
                                 '/etc/hosts:/etc/hosts:ro'])
         else:
-            log.debug('running without containers Networking')
+            LOG.debug('running without containers Networking')
             common_dcmd.extend(['--net', 'none'])
 
         # script injection as the last mount to make sure it's accessible
         # https://github.com/containers/libpod/issues/1844
-        common_dcmd.extend(['--volume', '%s:%s:ro' % (sh_script, sh_script)])
+        common_dcmd.extend(['--volume', '%s:%s:ro' % (SH_SCRIPT, SH_SCRIPT)])
 
         common_dcmd.append(config_image)
 
         # https://github.com/containers/libpod/issues/1844
-        # This block will run "container_cli" run 5 times before to fail.
+        # This block will run "CONTAINER_CLI" run 5 times before to fail.
         retval = -1
         count = 0
-        log.debug('Running %s command: %s' % (container_cli, ' '.join(common_dcmd)))
+        LOG.debug(
+            'Running %s command: %s' % (
+                CONTAINER_CLI,
+                ' '.join(common_dcmd)
+            )
+        )
         while count < 3:
             count += 1
-            subproc = subprocess.Popen(common_dcmd, stdout=subprocess.PIPE,
-                                       stderr=subprocess.PIPE, env=env,
-                                       universal_newlines=True)
+            subproc = subprocess.Popen(
+                common_dcmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=ENV,
+                universal_newlines=True
+            )
             cmd_stdout, cmd_stderr = subproc.communicate()
             retval = subproc.returncode
-            # puppet with --detailed-exitcodes will return 0 for success and no changes
-            # and 2 for success and resource changes. Other numbers are failures
+            # puppet with --detailed-exitcodes will return 0 for success and
+            # no changes and 2 for success and resource changes. Other
+            # numbers are failures
             if retval in [0, 2]:
                 if cmd_stdout:
-                    log.debug('%s run succeeded: %s' % (common_dcmd, cmd_stdout))
+                    LOG.debug('%s run succeeded: %s' % (common_dcmd, cmd_stdout))
                 if cmd_stderr:
-                    log.warning(cmd_stderr)
+                    LOG.warning(cmd_stderr)
                 # only delete successful runs, for debugging
                 rm_container(uname)
                 break
             time.sleep(3)
-            log.error('%s run failed after %s attempt(s): %s' % (common_dcmd,
-                                                                 cmd_stderr,
-                                                                 count))
-            log.warning('Retrying running container: %s' % config_volume)
+            LOG.error(
+                '%s run failed after %s attempt(s): %s' % (
+                    common_dcmd,
+                    cmd_stderr,
+                    count
+                )
+            )
+            LOG.warning('Retrying running container: %s' % config_volume)
         else:
             if cmd_stdout:
-                log.debug(cmd_stdout)
+                LOG.debug(cmd_stdout)
             if cmd_stderr:
-                log.debug(cmd_stderr)
-            log.error('Failed running container for %s' % config_volume)
-        log.info('Finished processing puppet configs for %s' % (config_volume))
+                LOG.debug(cmd_stderr)
+            LOG.error('Failed running container for %s' % config_volume)
+        LOG.info(
+            'Finished processing puppet configs for %s' % (
+                config_volume
+            )
+        )
         return retval
+
+
+def infile_processing(infiles):
+    for infile in infiles:
+        # If the JSON is already hashed, we'll skip it; and a new hashed file will
+        # be created if config changed.
+        if 'hashed' in infile:
+            LOG.debug('%s skipped, already hashed' % infile)
+            continue
+
+        with open(infile) as f:
+            infile_data = json.load(f)
+
+        # if the contents of the file is None, we need should just create an empty
+        # data set see LP#1828295
+        if not infile_data:
+            infile_data = {}
+
+        c_name = os.path.splitext(os.path.basename(infile))[0]
+        config_volumes = match_config_volumes(
+            CONFIG_VOLUME_PREFIX,
+            infile_data
+        )
+        config_hashes = [
+            get_config_hash(volume_path) for volume_path in config_volumes
+        ]
+        config_hashes = filter(None, config_hashes)
+        config_hash = '-'.join(config_hashes)
+        if config_hash:
+            LOG.debug(
+                "Updating config hash for %s, config_volume=%s hash=%s" % (
+                    c_name,
+                    config_volume,
+                    config_hash
+                )
+            )
+            # When python 27 support is removed, we will be able to use:
+            #   z = {**x, **y} to merge the dicts.
+            infile_data.get(
+                'environment',
+                {}
+            ).update(
+                {'TRIPLEO_CONFIG_HASH': config_hash}
+            )
+            env = infile_data.get('environment')
+            infile_data['environment'] = env
+
+        outfile = os.path.join(
+            os.path.dirname(
+                infile
+            ), "hashed-" + os.path.basename(infile)
+        )
+        with open(outfile, 'w') as out_f:
+            os.chmod(out_f.name, 0o600)
+            json.dump(infile_data, out_f, indent=2)
 
 
 # Holds all the information for each process to consume.
 # Instead of starting them all linearly we run them using a process
 # pool.  This creates a list of arguments for the above function
 # to consume.
-process_map = []
+PROCESS_MAP = []
+for config_volume in CONFIGS:
 
-check_mode = int(os.environ.get('CHECK_MODE', 0))
-log.debug('CHECK_MODE: %s' % check_mode)
+    SERVICE = CONFIGS[config_volume]
+    PUPPET_TAGS = SERVICE[1] or ''
 
-for config_volume in configs:
-
-    service = configs[config_volume]
-    puppet_tags = service[1] or ''
-    manifest = service[2] or ''
-    config_image = service[3] or ''
-    volumes = service[4] if len(service) > 4 else []
-    privileged = service[5] if len(service) > 5 else False
-    keep_container = service[6] if len(service) > 6 else False
-
-    if puppet_tags:
-        puppet_tags = "file,file_line,concat,augeas,cron,%s" % puppet_tags
+    if PUPPET_TAGS:
+        PUPPET_TAGS = "file,file_line,concat,augeas,cron,%s" % PUPPET_TAGS
     else:
-        puppet_tags = "file,file_line,concat,augeas,cron"
+        PUPPET_TAGS = "file,file_line,concat,augeas,cron"
 
-    process_map.append([config_volume, puppet_tags, manifest, config_image,
-                        volumes, privileged, check_mode, keep_container])
-
-for p in process_map:
-    log.debug('- %s' % p)
+    PROCESS_ITEM = [
+        config_volume,
+        PUPPET_TAGS,
+        SERVICE[2] or '',
+        SERVICE[3] or '',
+        SERVICE[4] if len(SERVICE) > 4 else [],
+        SERVICE[5] if len(SERVICE) > 5 else False,
+        CHECK_MODE,
+        SERVICE[6] if len(SERVICE) > 6 else False
+    ]
+    PROCESS_MAP.append(PROCESS_ITEM)
+    LOG.debug('- %s' % PROCESS_ITEM)
 
 # Fire off processes to perform each configuration.  Defaults
 # to the number of CPUs on the system.
-log.info('Starting multiprocess configuration steps.  Using %d processes.' %
-         process_count)
-p = multiprocessing.Pool(process_count)
-returncodes = list(p.map(mp_puppet_config, process_map))
-config_volumes = [pm[0] for pm in process_map]
-success = True
-for returncode, config_volume in zip(returncodes, config_volumes):
+PROCESS = multiprocessing.Pool(int(os.environ.get('PROCESS_COUNT', 2)))
+RETURNCODES = list(PROCESS.map(mp_puppet_config, PROCESS_MAP))
+CONFIG_VOLUMES = [pm[0] for pm in PROCESS_MAP]
+SUCCESS = True
+for returncode, config_volume in zip(RETURNCODES, CONFIG_VOLUMES):
     if returncode not in [0, 2]:
-        log.error('ERROR configuring %s' % config_volume)
-        success = False
-
+        LOG.error('ERROR configuring %s' % config_volume)
+        SUCCESS = False
 
 # Update the startup configs with the config hash we generated above
-startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/container_startup_config/*/*.json')
-log.debug('STARTUP_CONFIG_PATTERN: %s' % startup_configs)
-infiles = glob.glob(startup_configs)
+STARTUP_CONFIGS = os.environ.get(
+    'STARTUP_CONFIG_PATTERN',
+    '/var/lib/tripleo-config/docker-container-startup-config-step_*.json'
+)
+LOG.debug('STARTUP_CONFIG_PATTERN: %s' % STARTUP_CONFIGS)
+# Run infile processing
+infile_processing(infiles=glob.glob(STARTUP_CONFIGS))
 
-for infile in infiles:
-    # If the JSON is already hashed, we'll skip it; and a new hashed file will
-    # be created if config changed.
-    if 'hashed' in infile:
-        log.debug('%s skipped, already hashed' % infile)
-        continue
-
-    with open(infile) as f:
-        infile_data = json.load(f)
-
-    # if the contents of the file is None, we need should just create an empty
-    # data set see LP#1828295
-    if not infile_data:
-        infile_data = {}
-
-    c_name = os.path.splitext(os.path.basename(infile))[0]
-    config_volumes = match_config_volumes(config_volume_prefix, infile_data)
-    config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
-    config_hashes = filter(None, config_hashes)
-    config_hash = '-'.join(config_hashes)
-    if config_hash:
-        log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (c_name, config_volume, config_hash))
-        # When python 27 support is removed, we will be able to use z = {**x, **y} to merge the dicts.
-        infile_data.get('environment', {}).update({'TRIPLEO_CONFIG_HASH': config_hash})
-        env = infile_data.get('environment')
-        infile_data['environment'] = env
-
-    outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
-    with open(outfile, 'w') as out_f:
-        os.chmod(out_f.name, 0o600)
-        json.dump(infile_data, out_f, indent=2)
-
-if not success:
-    sys.exit(1)
+if not SUCCESS:
+    raise SystemExit()
