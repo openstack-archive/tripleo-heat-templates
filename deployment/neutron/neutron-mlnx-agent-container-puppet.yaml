@@ -1,0 +1,219 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Neutron MLNX service
+
+parameters:
+  ContainerNeutronMlnxImage:
+    description: The container image to use for the Neutron MLNX agent
+    type: string
+  ContainerNeutronConfigImage:
+    description: The container image to use for the neutron config_volume
+    type: string
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NeutronPhysicalDevMappings:
+    description: >
+      List of <physical_network>:<physical device>
+      All physical networks listed in network_vlan_ranges
+      on the server should have mappings to appropriate
+      interfaces on each agent.
+      Example "tenant0:ens2f0,tenant1:ens2f1"
+    type: comma_delimited_list
+    default: ""
+    tags:
+      - role_specific
+  MlnxAgentPollingInterval:
+    default: 2
+    description: The number of seconds the agent will wait between
+                 polling for local device changes
+    type: number
+    tags:
+      - role_specific
+
+resources:
+
+  # Merging role-specific parameters (RoleParameters) with the default parameters.
+  # RoleParameters will have the precedence over the default parameters.
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - neutron::agents::ml2::mlnx::physical_interface_mappings: NeutronPhysicalDevMappings
+              neutron::agents::ml2::mlnx::polling_interval: MlnxAgentPollingInterval
+            - values: {get_param: [RoleParameters]}
+          - values:
+              NeutronPhysicalDevMappings: {get_param: NeutronPhysicalDevMappings}
+              MlnxAgentPollingInterval: {get_param: MlnxAgentPollingInterval}
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  NeutronBase:
+    type: ./neutron-plugin-ml2.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  MlnxAgentLogging:
+    type: OS::TripleO::Services::Logging::NeutronCommon
+    properties:
+      NeutronServiceName: mlnx-agent
+
+  EswitchdLogging:
+    type: OS::TripleO::Services::Logging::NeutronCommon
+    properties:
+      NeutronServiceName: eswitchd
+
+outputs:
+  role_data:
+    description: Role data for Neutron MLNX service
+    value:
+      service_name: neutron_mlnx_agent
+      config_settings:
+        map_merge:
+          - get_attr: [NeutronBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
+          - get_attr: [MlnxAgentLogging, config_settings]
+      puppet_config:
+        config_volume: 'neutron'
+        puppet_tags: neutron_plugin_ml2
+        step_config: |
+          include ::tripleo::profile::base::neutron::plugins::ml2
+        config_image: {get_param: ContainerNeutronConfigImage}
+      kolla_config:
+        /var/lib/kolla/config_files/neutron_mlnx_agent.json:
+          command:
+            list_join:
+            - ' '
+            - - neutron-mlnx-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/mlnx/mlnx_conf.ini
+              - get_attr: [MlnxAgentLogging, cmd_extra_args]
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
+        /var/lib/kolla/config_files/eswitchd.json:
+          command:
+            list_join:
+            - ' '
+            - - eswitchd --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/eswitchd.conf
+              - get_attr: [EswitchdLogging, cmd_extra_args]
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/neutron
+              owner: neutron:neutron
+              recurse: true
+      docker_config:
+        step_3:
+          neutron_mlnx_agent_config:
+            detach: false
+            image: {get_param: ContainerNeutronConfigImage}
+            net: host
+            pid: host
+            user: root
+            privileged: true
+            security_opt: 'label=disable'
+            command:
+              - puppet
+              - apply
+              - --modulepath
+              - /etc/puppet/modules:/usr/share/openstack-puppet/modules
+              - -v
+              - -e
+              - "include tripleo::profile::base::neutron::agents::mlnx"
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/neutron_mlnx_agent.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro
+                  - /var/lib/config-data/puppet-generated/neutron/etc/neutron:/etc/neutron
+                  - ''
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+        step_4:
+          neutron_mlnx_agent:
+            start_order: 10
+            image: {get_param: ContainerNeutronMlnxImage}
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [MlnxAgentLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/neutron_mlnx_agent.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /run:/run
+                  - /sys/class/net:/sys/class/net:rw
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          eswitchd:
+            start_order: 10
+            image: {get_param: ContainerNeutronMlnxImage}
+            net: host
+            pid: host
+            privileged: true
+            restart: always
+            healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [EswitchdLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/eswitchd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/neutron/:/var/lib/kolla/config_files/src:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /run:/run
+                  - /sys/class/net:/sys/class/net:rw
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+      metadata_settings:
+        get_attr: [NeutronBase, role_data, metadata_settings]
+      upgrade_tasks: []
