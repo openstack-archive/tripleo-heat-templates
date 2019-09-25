@@ -176,6 +176,10 @@ def _neutron_segment_update(sdk, segment_id, name):
 
 
 def _ensure_neutron_router(sdk, name, subnet_id):
+    # If the router already exist, don't try to create it again.
+    if list(sdk.network.routers(name=name)):
+        return
+
     try:
         router = sdk.network.create_router(name=name, admin_state_up='true')
         sdk.network.add_interface_to_router(router.id, subnet_id=subnet_id)
@@ -248,8 +252,14 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             s['DnsNameServers'])
         # If the subnet is IPv6 we need to start a router so that router
         #  advertisments are sent out for stateless IP addressing to work.
-        if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
-            _ensure_neutron_router(sdk, name, subnet.id)
+        # NOTE(hjensas): Don't do this for routed networks. The router will
+        #  use the address defined as gateway for the subnet, and in a
+        #  deployment with routed networks this will conflict with the router
+        #  in the infrastructure. The router in the infrastucture must be
+        #  configured to send router advertisements.
+        if not CONF['enable_routed_networks']:
+            if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
+                _ensure_neutron_router(sdk, name, subnet.id)
     net_cidrs.append(s['NetworkCidr'])
 
     return net_cidrs
@@ -283,10 +293,6 @@ def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
                 sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
                 s['HostRoutes'], s.get('AllocationPools'), name, segment.id,
                 s['DnsNameServers'])
-            # If the subnet is IPv6 we need to start a router so that router
-            # advertisments are sent out for stateless IP addressing to work.
-            if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
-                _ensure_neutron_router(sdk, name, subnet.id)
         net_cidrs.append(s['NetworkCidr'])
 
     return net_cidrs
