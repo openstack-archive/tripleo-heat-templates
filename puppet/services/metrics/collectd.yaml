@@ -37,6 +37,28 @@ parameters:
     type: string
     description: Keystone region for endpoint
     default: 'regionOne'
+  MetricsQdrPort:
+    default: '5666'
+    description: Service name or port number on which the qdrouterd will accept
+                 connections. This argument must be string, even if the numeric
+                 form is used.
+    type: string
+  MetricsQdrUsername:
+    default: 'guest'
+    description: Username which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+  MetricsQdrPassword:
+    default: 'guest'
+    description: Password which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+    hidden: true
+  CollectdConnectionType:
+    default: 'gnocchi'
+    description: Define which write plugin should collectd use. Currently
+                 supported are 'amqp1', 'network' and 'gnocchi'.
+    type: string
   CollectdDefaultPollingInterval:
     default: 120
     type: number
@@ -199,17 +221,75 @@ parameters:
     type: number
     description: Minimum number of values Gnocchi should batch.
     default: 10
+  CollectdAmqpHost:
+    type: string
+    description: Hostname or IP address of the AMQP 1.0 intermediary.
+    default: nil
+  CollectdAmqpPort:
+    type: string
+    description: >
+      Service name or port number on which the AMQP 1.0 intermediary accepts
+      connections. This argument must be a string, even if the numeric form
+      is used.
+    default: '5666'
+  CollectdAmqpUser:
+    type: string
+    description: >
+      User part of credentials used to authenticate to the AMQP 1.0 intermediary.
+    default: guest
+  CollectdAmqpPassword:
+    type: string
+    description: >
+      Password part of credentials used to authenticate to the AMQP 1.0 intermediary.
+    default: guest
+    hidden: true
+  CollectdAmqpTransportName:
+    type: string
+    description: Name of the AMQP 1.0 transport.
+    default: metrics
+  CollectdAmqpAddress:
+    type: string
+    description: >
+      This option specifies the prefix for the send-to value in the message.
+    default: collectd
+  CollectdAmqpInstances:
+    type: json
+    description: >
+      Hash of hashes. Each inner hash represent Instance block in plugin
+      configuration file. Key of outter hash represents instance name.
+      The 'address' value concatenated with the 'name' given will be used
+      as the send-to address for communications over the messaging link.
+    default: {}
+  CollectdAmqpRetryDelay:
+    type: number
+    description: >
+      When the AMQP 1.0 connection is lost, defines the time in seconds to wait
+      before attempting to reconnect.
+    default: 1
+  CollectdAmqpInterval:
+    type: number
+    description: >
+      Interval on which metrics should be sent to AMQP intermediary. If not set
+      the default for all collectd plugins is used.
+    default: -666
 
 conditions:
+  amqp_connection:
+    equals: [{get_param: CollectdConnectionType}, 'amqp1']
+  amqp_default_connection:
+    equals: [{get_param: CollectdAmqpHost}, nil]
+  amqp_default_interval:
+    equals: [{get_param: CollectdAmqpInterval}, -666]
+  collectd_connection:
+    equals: [{get_param: CollectdConnectionType}, 'network']
+  gnocchi_connection:
+    equals: [{get_param: CollectdConnectionType}, 'gnocchi']
+  gnocchi_auth_basic:
+    equals: [{get_param: CollectdGnocchiAuthMode}, 'basic']
   gnocchi_default_connection:
     and:
       - equals: [{get_param: CollectdGnocchiServer}, nil]
       - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
-  collectd_connection:
-    not:
-      equals: [{get_param: CollectdServer}, '']
-  gnocchi_auth_basic:
-    equals: [{get_param: CollectdGnocchiAuthMode}, 'basic']
 
 outputs:
   role_data:
@@ -235,8 +315,47 @@ outputs:
                 expression: >
                   ($.data.default_plugins + $.data.extra_plugins)
                   .flatten().distinct()
-          - if:
-            - collectd_connection # use server side collectd or gnocchi as metrics relay?
+          - if: # Collectd connected to QDR
+            - amqp_connection
+            - map_merge:
+              - tripleo::profile::base::metrics::collectd::amqp_transport_name:
+                  get_param: CollectdAmqpTransportName
+                tripleo::profile::base::metrics::collectd::amqp_address:
+                  get_param: CollectdAmqpAddress
+                tripleo::profile::base::metrics::collectd::amqp_instances:
+                  get_param: CollectdAmqpInstances
+                tripleo::profile::base::metrics::collectd::amqp_retry_delay:
+                  get_param: CollectdAmqpRetryDelay
+              - if:
+                - amqp_default_interval
+                - {}
+                - tripleo::profile::base::metrics::collectd::amqp_interval:
+                    get_param: CollectdAmqpInterval
+              - if:
+                - amqp_default_connection
+                - tripleo::profile::base::metrics::collectd::amqp_host:
+                    str_replace:
+                      template:
+                        "%{hiera('$NETWORK')}"
+                      params:
+                        $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+                  tripleo::profile::base::metrics::collectd::amqp_port:
+                    get_param: MetricsQdrPort
+                  tripleo::profile::base::metrics::collectd::amqp_user:
+                    get_param: MetricsQdrUsername
+                  tripleo::profile::base::metrics::collectd::amqp_password:
+                    get_param: MetricsQdrPassword
+                - tripleo::profile::base::metrics::collectd::amqp_host:
+                    get_param: CollectdAmqpHost
+                  tripleo::profile::base::metrics::collectd::amqp_port:
+                    get_param: CollectdAmqpPort
+                  tripleo::profile::base::metrics::collectd::amqp_user:
+                    get_param: CollectdAmqpUser
+                  tripleo::profile::base::metrics::collectd::amqp_password:
+                    get_param: CollectdAmqpPassword
+            - {}
+          - if: # Collectd connected to external collectd instance
+            - collectd_connection
             - tripleo::profile::base::metrics::collectd::collectd_server:
                 get_param: CollectdServer
               tripleo::profile::base::metrics::collectd::collectd_port:
@@ -247,6 +366,9 @@ outputs:
                 get_param: CollectdPassword
               tripleo::profile::base::metrics::collectd::collectd_securitylevel:
                 get_param: CollectdSecurityLevel
+            - {}
+          - if: # Collectd connected directly to Gnocchi DB
+            - gnocchi_connection
             - map_merge:
               - tripleo::profile::base::metrics::collectd::gnocchi_auth_mode:
                   get_param: CollectdGnocchiAuthMode
@@ -304,6 +426,7 @@ outputs:
                       get_param: CollectdGnocchiKeystoneInterface
                     tripleo::profile::base::metrics::collectd::gnocchi_keystone_endpoint:
                       get_param: CollectdGnocchiKeystoneEndpoint
+            - {}
       step_config: |
         include ::tripleo::profile::base::metrics::collectd
       upgrade_tasks:
