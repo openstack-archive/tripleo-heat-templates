@@ -330,11 +330,11 @@ outputs:
               when:
                 - old_redis_image_id.stdout != new_redis_image_id.stdout
             - block:
-                - name: Get a list of container using redis image
+                - name: Get a list of containers using redis image
                   shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_redis_image_id.stdout}}'"
                   register: redis_containers_to_destroy
                 # It will be recreated with the delpoy step.
-                - name: Remove any container using the same redis image
+                - name: Remove any containers using the same redis image
                   shell: "{{container_cli}} rm -fv {{item}}"
                   with_items: "{{ redis_containers_to_destroy.stdout_lines }}"
                 - name: Remove previous redis images
@@ -356,21 +356,25 @@ outputs:
               set_fact:
                 redis_image_latest: *redis_image_pcmklatest
                 redis_image_current: "{{redis_image_current_res.stdout}}"
-            - name: Prepare the switch to new redis container image name in pacemaker
-              block:
-                - name: Temporarily tag the current redis image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{redis_image_current}}"
-                    container_image_latest: "{{redis_image_latest}}"
-                    pull_image: false
-                  when:
-                    - redis_image_current != ''
-                    - redis_image_current != redis_image_latest
+            - name: Temporarily tag the current redis image id with the upgraded image name
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{redis_image_current}}"
+                container_image_latest: "{{redis_image_latest}}"
+                pull_image: false
+              when:
+                - redis_image_current != ''
+                - redis_image_current != redis_image_latest
+            # During an OS Upgrade, the cluster may not exist so we use
+            # the shell module instead.
+            # TODO(odyssey4me):
+            # Fix the pacemaker_resource module to handle the exception
+            # for a non-existant cluster more gracefully.
             - name: Check redis cluster resource status
               shell: pcs resource config redis-bundle
               failed_when: false
+              changed_when: false
               register: redis_pcs_res_result
             - name: Set upgrade redis facts
               set_fact:
