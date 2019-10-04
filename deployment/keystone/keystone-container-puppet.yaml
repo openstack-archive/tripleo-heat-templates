@@ -45,15 +45,10 @@ parameters:
     type: string
     default: 'fernet'
     constraints:
-      - allowed_values: ['uuid', 'fernet']
+      - allowed_values: ['fernet']
   EnableInternalTLS:
     type: boolean
     default: false
-  KeystoneEnableDBPurge:
-    default: true
-    description: |
-        Whether to create cron job for purging soft deleted rows in Keystone database.
-    type: boolean
   KeystoneSSLCertificate:
     default: ''
     description: Keystone certificate for verifying token validity.
@@ -158,51 +153,6 @@ parameters:
     default:
       tag: openstack.keystone.wsgi.main.error
       file: /var/log/containers/httpd/keystone/keystone_wsgi_main_error.log
-  KeystoneCronTokenFlushEnsure:
-    type: string
-    description: >
-        Cron to purge expired tokens - Ensure
-    default: 'present'
-  KeystoneCronTokenFlushMinute:
-    type: comma_delimited_list
-    description: >
-        Cron to purge expired tokens - Minute
-    default: '1'
-  KeystoneCronTokenFlushHour:
-    type: comma_delimited_list
-    description: >
-        Cron to purge expired tokens - Hour
-    default: '*'
-  KeystoneCronTokenFlushMonthday:
-    type: comma_delimited_list
-    description: >
-        Cron to purge expired tokens - Month Day
-    default: '*'
-  KeystoneCronTokenFlushMonth:
-    type: comma_delimited_list
-    description: >
-        Cron to purge expired tokens - Month
-    default: '*'
-  KeystoneCronTokenFlushWeekday:
-    type: comma_delimited_list
-    description: >
-        Cron to purge expired tokens - Week Day
-    default: '*'
-  KeystoneCronTokenFlushMaxDelay:
-    type: number
-    description: >
-        Cron to purge expired tokens - Max Delay
-    default: 0
-  KeystoneCronTokenFlushDestination:
-    type: string
-    description: >
-        Cron to purge expired tokens - Log destination
-    default: '/var/log/keystone/keystone-tokenflush.log'
-  KeystoneCronTokenFlushUser:
-    type: string
-    description: >
-        Cron to purge expired tokens - User
-    default: 'keystone'
   KeystonePolicies:
     description: |
       A hash of policies to configure for Keystone.
@@ -510,22 +460,6 @@ outputs:
                     $NETWORK: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
           -
             if:
-            - keystone_fernet_tokens
-            - {}
-            - keystone_enable_db_purge: {get_param: KeystoneEnableDBPurge}
-              keystone::cron::token_flush::maxdelay: 3600
-              keystone::cron::token_flush::destination: '/var/log/keystone/keystone-tokenflush.log'
-              keystone::cron::token_flush::ensure: {get_param: KeystoneCronTokenFlushEnsure}
-              keystone::cron::token_flush::minute: {get_param: KeystoneCronTokenFlushMinute}
-              keystone::cron::token_flush::hour: {get_param: KeystoneCronTokenFlushHour}
-              keystone::cron::token_flush::monthday: {get_param: KeystoneCronTokenFlushMonthday}
-              keystone::cron::token_flush::month: {get_param: KeystoneCronTokenFlushMonth}
-              keystone::cron::token_flush::weekday: {get_param: KeystoneCronTokenFlushWeekday}
-              keystone::cron::token_flush::maxdelay: {get_param: KeystoneCronTokenFlushMaxDelay}
-              keystone::cron::token_flush::destination: {get_param: KeystoneCronTokenFlushDestination}
-              keystone::cron::token_flush::user: {get_param: KeystoneCronTokenFlushUser}
-          -
-            if:
             - keystone_federation_enabled
             -
               keystone_federation_enabled: True
@@ -659,116 +593,74 @@ outputs:
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: &keystone_config_image {get_param: ContainerKeystoneConfigImage}
       kolla_config:
-        map_merge:
-          - /var/lib/kolla/config_files/keystone.json:
-              command: /usr/sbin/httpd
-              config_files:
-                - source: "/var/lib/kolla/config_files/src/etc/keystone/fernet-keys"
-                  dest: "/etc/keystone/fernet-keys"
-                  merge: false
-                  preserve_properties: true
-                - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
-                  dest: "/etc/httpd/conf.d"
-                  merge: false
-                  preserve_properties: true
-                - source: "/var/lib/kolla/config_files/src/*"
-                  dest: "/"
-                  merge: true
-                  preserve_properties: true
-          -
-            if:
-            - keystone_fernet_tokens
-            - {}
-            - /var/lib/kolla/config_files/keystone_cron.json:
-                # FIXME(dprince): this is unused ATM because Kolla hardcodes the
-                # args for the keystone container to -DFOREGROUND
-                command: /usr/sbin/crond -n
-                config_files:
-                  - source: "/var/lib/kolla/config_files/src/*"
-                    dest: "/"
-                    merge: true
-                    preserve_properties: true
-                permissions:
-                  - path: /var/log/keystone
-                    owner: keystone:keystone
-                    recurse: true
+        /var/lib/kolla/config_files/keystone.json:
+          command: /usr/sbin/httpd
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/etc/keystone/fernet-keys"
+              dest: "/etc/keystone/fernet-keys"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
           get_attr: [KeystoneLogging, docker_config, step_2]
         step_3:
-          map_merge:
-            - keystone_db_sync:
-                image: &keystone_image {get_param: ContainerKeystoneImage}
-                net: host
-                user: root
-                privileged: false
-                detach: false
-                volumes: &keystone_volumes
-                  list_concat:
-                    - {get_attr: [ContainersCommon, volumes]}
-                    - {get_attr: [KeystoneLogging, volumes]}
-                    -
-                      - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
-                      - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
-                      -
-                        if:
-                          - internal_tls_enabled
-                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                          - ''
-                      -
-                        if:
-                          - internal_tls_enabled
-                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                          - ''
-                environment:
-                  list_concat:
-                  - - KOLLA_BOOTSTRAP=True
-                    - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-                  - {get_attr: [KeystoneLogging, environment]}
-                command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
-              keystone:
-                start_order: 2
-                image: *keystone_image
-                net: host
-                privileged: false
-                restart: always
-                healthcheck:
-                  test: /openstack/healthcheck
-                volumes: *keystone_volumes
-                environment:
-                  - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
-              keystone_bootstrap:
-                start_order: 3
-                action: exec
-                user: root
-                command:
-                  [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap', '--bootstrap-password', {get_param: AdminPassword} ]
-                environment:
-                  - KOLLA_BOOTSTRAP=True
-            -
-              if:
-              - keystone_fernet_tokens
-              - {}
-              - keystone_cron:
-                  start_order: 4
-                  image: *keystone_image
-                  user: root
-                  net: host
-                  privileged: false
-                  restart: always
-                  healthcheck:
-                    test: '/usr/share/openstack-tripleo-common/healthcheck/cron keystone'
-                  command: ['/bin/bash', '-c', '/usr/local/bin/kolla_set_configs && /usr/sbin/crond -n']
-                  volumes:
-                    list_concat:
-                      - {get_attr: [ContainersCommon, volumes]}
-                      - {get_attr: [KeystoneLogging, volumes]}
-                      -
-                        - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
-                        - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
-                  environment:
-                    - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          keystone_db_sync:
+            image: &keystone_image {get_param: ContainerKeystoneImage}
+            net: host
+            user: root
+            privileged: false
+            detach: false
+            volumes: &keystone_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - ''
+                  -
+                    if:
+                      - internal_tls_enabled
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                      - ''
+            environment:
+              list_concat:
+              - - KOLLA_BOOTSTRAP=True
+                - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+              - {get_attr: [KeystoneLogging, environment]}
+            command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
+          keystone:
+            start_order: 2
+            image: *keystone_image
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes: *keystone_volumes
+            environment:
+              - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+          keystone_bootstrap:
+            start_order: 3
+            action: exec
+            user: root
+            command:
+              [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap', '--bootstrap-password', {get_param: AdminPassword} ]
+            environment:
+              - KOLLA_BOOTSTRAP=True
         step_4:
           # There are cases where we need to refresh keystone after the resource provisioning,
           # such as the case of using LDAP backends for domains. So we trigger a graceful
