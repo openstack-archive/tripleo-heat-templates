@@ -238,11 +238,11 @@ outputs:
               when:
                 - old_cinder_volume_image_id.stdout != new_cinder_volume_image_id.stdout
             - block:
-                - name: Get a list of container using cinder_volume image
+                - name: Get a list of containers using cinder_volume image
                   shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_cinder_volume_image_id.stdout}}'"
                   register: cinder_volume_containers_to_destroy
                 # It will be recreated with the delpoy step.
-                - name: Remove any container using the same cinder_volume image
+                - name: Remove any containers using the same cinder_volume image
                   shell: "{{container_cli}} rm -fv {{item}}"
                   with_items: "{{ cinder_volume_containers_to_destroy.stdout_lines }}"
                 - name: Remove previous cinder_volume images
@@ -264,20 +264,24 @@ outputs:
               set_fact:
                 cinder_volume_image_latest: *cinder_volume_image_pcmklatest
                 cinder_volume_image_current: "{{cinder_volume_image_current_res.stdout}}"
-            - name: Prepare the switch to new cinder_volume container image name in pacemaker
-              block:
-                - name: Temporarily tag the current cinder_volume image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{cinder_volume_image_current}}"
-                    container_image_latest: "{{cinder_volume_image_latest}}"
-                    pull_image: false
-                  when:
-                    - cinder_volume_image_current != ''
-                    - cinder_volume_image_current != cinder_volume_image_latest
+            - name: Temporarily tag the current cinder_volume image id with the upgraded image name
+              import_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{cinder_volume_image_current}}"
+                container_image_latest: "{{cinder_volume_image_latest}}"
+                pull_image: false
+              when:
+                - cinder_volume_image_current != ''
+                - cinder_volume_image_current != cinder_volume_image_latest
+            # During an OS Upgrade, the cluster may not exist so we use
+            # the shell module instead.
+            # TODO(odyssey4me):
+            # Fix the pacemaker_resource module to handle the exception
+            # for a non-existant cluster more gracefully.
             - name: Check openstack-cinder-volume cluster resource status
               shell: pcs resource config openstack-cinder-volume
+              changed_when: false
               failed_when: false
               register: cinder_volume_pcs_res_result
             - name: Set fact cinder_volume_pcs_res
@@ -304,7 +308,6 @@ outputs:
             - name: pcs resource bundle update cinder_volume for new container image name
               command: "pcs resource bundle update openstack-cinder-volume container image={{cinder_volume_image_latest}}"
             - name: Enable the cinder_volume cluster resource
-              when:
               pacemaker_resource:
                 resource: openstack-cinder-volume
                 state: enable

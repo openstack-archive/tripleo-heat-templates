@@ -215,64 +215,76 @@ outputs:
             container_image: {get_param: ContainerManilaShareImage}
             container_image_latest: *manila_share_image_pcmklatest
       update_tasks:
-        - name: Manila-Share fetch and retag container image for pacemaker
+        - name: manila_share fetch and retag container image for pacemaker
           when: step|int == 2
           block: &manila_share_fetch_retag_container_tasks
-            - name: Get docker Manila-Share image
+            - name: Get container manila_share image
               set_fact:
-                docker_image: {get_param: ContainerManilaShareImage}
-                docker_image_latest: *manila_share_image_pcmklatest
-            - name: Get previous Manila-Share image id
-              shell: "{{container_cli}} images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
-              register: manila_share_image_id
+                manila_share_image: {get_param: ContainerManilaShareImage}
+                manila_share_image_latest: *manila_share_image_pcmklatest
+            - name: Pull latest manila_share images
+              command: "{{container_cli}} pull {{manila_share_image}}"
+            - name: Get previous manila_share image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{manila_share_image_latest}}"
+              register: old_manila_share_image_id
+              failed_when: false
+            - name: Get new manila_share image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{manila_share_image}}"
+              register: new_manila_share_image_id
+            - name: Retag pcmklatest to latest manila_share image
+              include_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{manila_share_image}}"
+                container_image_latest: "{{manila_share_image_latest}}"
+              when:
+                - old_manila_share_image_id.stdout != new_manila_share_image_id.stdout
             - block:
-                - name: Get a list of container using Manila-Share image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{manila_share_image_id.stdout}}'"
+                - name: Get a list of containers using manila_share image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_manila_share_image_id.stdout}}'"
                   register: manila_share_containers_to_destroy
                 # It will be recreated with the delpoy step.
-                - name: Remove any container using the same Manila-Share image
+                - name: Remove any containers using the same manila_share image
                   shell: "{{container_cli}} rm -fv {{item}}"
                   with_items: "{{ manila_share_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Manila-Share images
+                - name: Remove previous manila_share images
                   shell: "{{container_cli}} rmi -f {{manila_share_image_id.stdout}}"
               when:
-                - manila_share_image_id.stdout != ''
-            - name: Pull latest Manila-Share images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Manila-Share image
+                - old_manila_share_image_id.stdout != ''
+                - old_manila_share_image_id.stdout != new_manila_share_image_id.stdout
+
+      upgrade_tasks:
+        - name: Prepare switch of manila_share image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get manila_share image id currently used by pacemaker
+              shell: "pcs resource config openstack-manila-share | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: manila_share_image_current_res
+              failed_when: false
+            - name: manila_share image facts
+              set_fact:
+                manila_share_image_latest: *manila_share_image_pcmklatest
+                manila_share_image_current: "{{manila_share_image_current_res.stdout}}"
+            - name: Temporarily tag the current manila_share image id with the upgraded image name
               import_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{docker_image}}"
-                container_image_latest: "{{docker_image_latest}}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
-      upgrade_tasks:
-        - when: step|int == 0
-          tags: common
-          block:
-            - name: Get docker Manila-Share image
-              set_fact:
-                manila_share_docker_image_latest: *manila_share_image_pcmklatest
-            - name: Prepare the switch to new Manila-Share container image name in pacemaker
-              block:
-                - name: Get Manila-Share image id currently used by pacemaker
-                  shell: "{{container_cli}} images | awk '/manila-share.* pcmklatest/{print $3}' | uniq"
-                  register: manila_share_current_pcmklatest_id
-                - name: Temporarily tag the current Manila-Share image id with the upgraded image name
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{manila_share_current_pcmklatest_id.stdout}}"
-                    container_image_latest: "{{manila_share_docker_image_latest}}"
-                    pull_image: false
-                  when: manila_share_current_pcmklatest_id.stdout != ''
+                container_image: "{{manila_share_image_current}}"
+                container_image_latest: "{{manila_share_image_latest}}"
+                pull_image: false
+              when:
+                - manila_share_image_current != ''
+                - manila_share_image_current != manila_share_image_latest
+            # During an OS Upgrade, the cluster may not exist so we use
+            # the shell module instead.
+            # TODO(odyssey4me):
+            # Fix the pacemaker_resource module to handle the exception
+            # for a non-existant cluster more gracefully.
             - name: Check openstack-manila-share cluster resource status
-              pacemaker_resource:
-                resource: openstack-manila-share
-                state: show
-                check_mode: false
-              ignore_errors: true
+              shell: pcs resource config openstack-manila-share
+              failed_when: false
+              changed_when: false
               register: manila_share_pcs_res_result
             - name: Set fact manila_share_pcs_res
               set_fact:
@@ -285,8 +297,9 @@ outputs:
             - step|int == 1
             - is_manila_share_bootstrap_node
             - manila_share_pcs_res|bool
+            - manila_share_image_current != manila_share_image_latest
           block:
-            - name: Disable the Manila-Share cluster resource before container upgrade
+            - name: Disable the manila_share cluster resource before container upgrade
               pacemaker_resource:
                 resource: openstack-manila-share
                 state: disable
@@ -294,10 +307,9 @@ outputs:
               register: output
               retries: 5
               until: output.rc == 0
-            - name: Update the Manila-Share bundle to use the new container image name
-              command: "pcs resource bundle update openstack-manila-share container image={{manila_share_docker_image_latest}}"
-            - name: Enable the Manila-Share cluster resource
-              when:
+            - name: pcs resource bundle update manila_share for new container image name
+              command: "pcs resource bundle update openstack-manila-share container image={{manila_share_image_latest}}"
+            - name: Enable the manila_share cluster resource
               pacemaker_resource:
                 resource: openstack-manila-share
                 state: enable
@@ -309,6 +321,7 @@ outputs:
           when:
             - step|int == 3
           block: *manila_share_fetch_retag_container_tasks
+
       fast_forward_upgrade_tasks:
         - name: Check cluster resource status
           pacemaker_resource:
