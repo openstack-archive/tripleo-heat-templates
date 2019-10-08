@@ -102,6 +102,11 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
   DockerAdditionalSockets:
     default: ['/var/lib/openstack/docker.sock']
     description: Additional domain sockets for the docker daemon to bind to (useful for mounting
@@ -176,6 +181,27 @@ outputs:
             - neutron_workers_unset
             - {}
             - neutron::agents::ovn_metadata::metadata_workers: {get_param: NeutronWorkers}
+          - if:
+            - internal_tls_enabled
+            - tripleo::profile::base::neutron::ovn_metadata::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
+              tripleo::profile::base::neutron::ovn_metadata::protocol: 'ssl'
+              tripleo::profile::base::neutron::ovn_metadata::ovn_sb_certificate: '/etc/pki/tls/certs/ovn_metadata.crt'
+              tripleo::profile::base::neutron::ovn_metadata::ovn_sb_private_key: '/etc/pki/tls/private/ovn_metadata.key'
+              generate_service_certificates: true
+              ovn_metadata_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ovn_metadata.crt'
+                service_key: '/etc/pki/tls/private/ovn_metadata.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                principal:
+                  str_replace:
+                    template: "ovn_metadata/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            - {}
 
       puppet_config:
         puppet_tags: neutron_config,ovn_metadata_agent_config
@@ -205,6 +231,14 @@ outputs:
             - path: /var/lib/neutron
               owner: neutron:neutron
               recurse: true
+            - path: /etc/pki/tls/certs/ovn_metadata.crt
+              owner: neutron:neutron
+              optional: true
+              perm: '0644'
+            - path: /etc/pki/tls/private/ovn_metadata.key
+              owner: neutron:neutron
+              optional: true
+              perm: '0644'
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
       deploy_steps_tasks:
         - when: step|int == 1
@@ -296,10 +330,23 @@ outputs:
                     - haproxy_wrapper_enabled
                     - - /var/lib/neutron/ovn_metadata_haproxy_wrapper:/usr/local/bin/haproxy:ro
                     - null
+                - if:
+                  - internal_tls_enabled
+                  -
+                    - /etc/pki/tls/certs/ovn_metadata.crt:/etc/pki/tls/certs/ovn_metadata.crt
+                    - /etc/pki/tls/private/ovn_metadata.key:/etc/pki/tls/private/ovn_metadata.key
+                  - null
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       metadata_settings:
-        get_attr: [NeutronBase, role_data, metadata_settings]
+        list_concat:
+          - {get_attr: [NeutronBase, role_data, metadata_settings]}
+          - if:
+            - internal_tls_enabled
+            - - service: ovn_metadata
+                network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                type: node
+            - null
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}

@@ -60,10 +60,20 @@ parameters:
     description: >
       Setting this to a unique value will re-run any deployment tasks which
       perform configuration on a Heat stack-update.
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
 
@@ -109,6 +119,27 @@ outputs:
                   - 3125
                   - {get_param: OVNNorthboundServerPort}
                   - {get_param: OVNSouthboundServerPort}
+          - if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::profile::pacemaker::ovn_dbs_bundle::ca_file:
+                get_param: InternalTLSCAFile
+              tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
+              tripleo::profile::pacemaker::ovn_dbs_bundle::enable_internal_tls: true
+              ovn_dbs_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ovn_dbs.crt'
+                service_key: '/etc/pki/tls/private/ovn_dbs.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                principal:
+                  str_replace:
+                    template: "ovn_dbs/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -130,6 +161,16 @@ outputs:
               preserve_properties: true
               optional: true
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          - - service: ovn_dbs
+              network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              type: vip
+            - service: ovn_dbs
+              network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              type: node
+          - null
       docker_config:
         step_3:
           ovn_dbs_restart_bundle:
@@ -143,7 +184,15 @@ outputs:
               - TRIPLEO_MINOR_UPDATE
             command: /pacemaker_restart_bundle.sh ovn-dbs-bundle ovn_dbs
             image: {get_param: ContainerOvnDbsConfigImage}
-            volumes: {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
+                - if:
+                  - internal_tls_enabled
+                  -
+                    - /etc/pki/tls/certs/ovn_dbs.crt:/etc/pki/tls/certs/ovn_dbs.crt:ro
+                    - /etc/pki/tls/private/ovn_dbs.key:/etc/pki/tls/private/ovn_dbs.key:ro
+                  - null
           ovn_dbs_init_bundle:
             start_order: 1
             detach: false
@@ -168,6 +217,12 @@ outputs:
                 - if:
                   - docker_enabled
                   - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
+                  - null
+                - if:
+                  - internal_tls_enabled
+                  -
+                    - /etc/pki/tls/certs/ovn_dbs.crt:/etc/pki/tls/certs/ovn_dbs.crt:ro
+                    - /etc/pki/tls/private/ovn_dbs.key:/etc/pki/tls/private/ovn_dbs.key:ro
                   - null
             environment:
               # NOTE: this should force this container to re-run on each
