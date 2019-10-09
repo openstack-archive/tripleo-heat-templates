@@ -207,51 +207,73 @@
       tags:
         - container_config
 
-    ##################################################
-    # Per step starting of the containers using paunch
-    ##################################################
+    #####################################
+    # Per step starting of the containers
+    #####################################
 
     # Note container-puppet.py generates the hashed-*.json file, which is a copy of
     # the *step_n.json with a hash of the generated external config added
     # This acts as a salt to enable restarting the container if config changes
-    - name: Start containers for step {{ step }} using paunch
-      async: 3600
-      poll: 0
+    - name: Per step starting of the containers using Paunch
+      when: enable_paunch|default(true)
+      block:
+        - name: Start containers for step {{ step }} using paunch
+          async: 3600
+          poll: 0
+          environment:
+            TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
+          paunch:
+            config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
+            config_id: "tripleo_step{{ step }}"
+            action: apply
+            container_cli: "{{ container_cli }}"
+            container_log_stdout_path: "{{ container_log_stdout_path }}"
+            healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
+            managed_by: "tripleo-{{ tripleo_role_name }}"
+            debug: "{{ enable_debug | bool }}"
+          register: outputs
+          register: start_containers_async_result
+          tags:
+            - container_startup_configs
+
+        - name: Wait for containers to start for step {{ step }} using paunch
+          async_status:
+            jid: "{{ start_containers_async_result.ansible_job_id }}"
+          register: start_containers_outputs
+          until: start_containers_outputs.finished
+          retries: 1200
+          delay: 3
+          tags:
+            - container_startup_configs
+
+        - name: "Debug output for task: Start containers for step {{ step }}"
+          debug:
+            var: start_containers_outputs.stdout_lines | default([]) | union(start_containers_outputs.stderr_lines | default([]))
+          when: start_containers_outputs.rc is defined
+          failed_when: start_containers_outputs.rc != 0
+          tags:
+            - container_startup_configs
+
+    # This is experimental, do not use for production now
+    - name: Per step starting of the containers using tripleo-ansible
+      when: not enable_paunch|default(true)
       environment:
         TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
-      paunch:
-        config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
-        config_id: "tripleo_step{{ step }}"
-        action: apply
-        container_cli: "{{ container_cli }}"
-        container_log_stdout_path: "{{ container_log_stdout_path }}"
-        healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
-        managed_by: "tripleo-{{ tripleo_role_name }}"
-        debug: "{{ enable_debug | bool }}"
-      register: outputs
-      failed_when: false
-      when: enable_paunch|default(true)
-      register: start_containers_async_result
-      tags:
-        - container_startup_configs
-
-    - name: Wait for containers to start for step {{ step }} using paunch
-      async_status:
-        jid: "{{ start_containers_async_result.ansible_job_id }}"
-      register: start_containers_outputs
-      until: start_containers_outputs.finished
-      retries: 1200
-      delay: 3
-      tags:
-        - container_startup_configs
-
-    - name: "Debug output for task: Start containers for step {{ step }}"
-      debug:
-        var: start_containers_outputs.stdout_lines | default([]) | union(start_containers_outputs.stderr_lines | default([]))
-      when: start_containers_outputs.rc is defined
-      failed_when: start_containers_outputs.rc != 0
-      tags:
-        - container_startup_configs
+      block:
+        - name: "Manage containers for step {{ step }} with tripleo-ansible"
+          include_role:
+            name: tripleo-container-manage
+          vars:
+            tripleo_container_manage_concurrency: 2
+            tripleo_container_manage_systemd_order: true
+            tripleo_container_manage_cli: "{{ container_cli }}"
+            tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
+            tripleo_container_manage_config_id: "tripleo_step{{ step }}"
+            tripleo_container_manage_debug: "{{ enable_debug | bool }}"
+            tripleo_container_manage_healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
+            tripleo_container_manage_log_path: "{{ container_log_stdout_path }}"
+          tags:
+            - container_startup_configs
 
     ########################################################
     # Bootstrap tasks - run any tasks that have been defined
