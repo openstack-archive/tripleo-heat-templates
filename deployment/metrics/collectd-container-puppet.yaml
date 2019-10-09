@@ -61,6 +61,9 @@ parameters:
                  qdrouterd.
     type: string
     hidden: true
+  MonitoringSubscriptionCollectd:
+    default: 'overcloud-collectd'
+    type: string
   CollectdConnectionType:
     default: 'gnocchi'
     description: Define which write plugin should collectd use. Currently
@@ -283,6 +286,81 @@ parameters:
       Interval on which metrics should be sent to AMQP intermediary. If not set
       the default for all collectd plugins is used.
     default: -666
+  CollectdEnableSensubility:
+    type: boolean
+    description: Set to true if sensubility should be executed by exec plugin.
+    default: false
+  CollectdSensubilityLogLevel:
+    type: string
+    description: Use for override the default logging level (WARNING).
+    default: WARNING
+  CollectdSensubilityConnection:
+    type: string
+    description: URL to Sensu sever side
+    default: amqp://sensu:sensu@localhost:5672//sensu
+  CollectdSensubilityKeepaliveInterval:
+    type: number
+    description: Interval in seconds for sending keepalive messages to Sensu server side.
+    default: 20
+  CollectdSensubilityTmpDir:
+    type: string
+    description: Path to temporary directory which is used for creation of check scripts.
+    default: /var/tmp/collectd-sensubility-checks
+  CollectdSensubilityShellPath:
+    type: string
+    description: Path to shell used for executing check scripts.
+    default: /usr/bin/sh
+  CollectdSensubilityWorkerCount:
+    type: number
+    description: Number of goroutines spawned for executing check scripts.
+    default: 2
+  CollectdSensubilityChecks:
+    type: json
+    description: JSON formated definition of standalone checks to be scheduled on client side.
+    default: {}
+  CollectdEnableContainerHealthCheck:
+    type: boolean
+    description: >
+      Set to false if container health check should not be defined and attached
+      to CollectdEnableContainerHealthCheck.
+    default: true
+  CollectdContainerHealthCheckCommand:
+    type: string
+    default: |
+      output=''
+      for i in $(systemctl list-timers --no-pager --no-legend "tripleo*healthcheck.timer" | awk '{print $14}'); do
+        i=${i%.timer}
+        if result=$(systemctl show $i --property=ActiveState | awk '{split($0,a,/=/); print a[2]}'); then
+          if [ "$result" == 'failed' ]; then
+            timestamp=$(systemctl show $i --property=InactiveEnterTimestamp | awk '{print $2, $3}' )
+            log=$(journalctl -u $i -t podman --since "${timestamp}" --no-pager --output=cat --directory /var/log/journal)
+            if [ !  -z  "$output" ]; then
+              output="$i: $log ; $output"
+            else
+              output="$i: $log"
+            fi
+          fi
+        fi
+      done
+      if [ ! -z "${output}" ]; then
+        echo ${output:3} && exit 2;
+      fi
+  CollectdContainerHealthCheckInterval:
+    type: number
+    description: The frequency in seconds the docker health check is executed.
+    default: 10
+  CollectdContainerHealthCheckHandlers:
+    default: []
+    description: The Sensu event handler to use for events created by the docker health check.
+    type: comma_delimited_list
+  CollectdContainerHealthCheckOccurrences:
+    type: number
+    description: The number of event occurrences before sensu-plugin-aware handler should take action.
+    default: 3
+  CollectdContainerHealthCheckRefresh:
+    type: number
+    description: The number of seconds sensu-plugin-aware handlers should wait before taking second action.
+    default: 90
 
 conditions:
   amqp_connection:
@@ -301,9 +379,10 @@ conditions:
     and:
       - equals: [{get_param: CollectdGnocchiServer}, nil]
       - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
+  enable_sensubility:
+    equals: [{get_param: CollectdEnableSensubility}, true]
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -445,6 +524,43 @@ outputs:
                     tripleo::profile::base::metrics::collectd::gnocchi_keystone_endpoint:
                       get_param: CollectdGnocchiKeystoneEndpoint
             - {}
+          - if: # Collectd should run collectd-sensubility via collectd-exec
+            - enable_sensubility
+            - tripleo::profile::base::metrics::collectd::enable_sensubility:
+                get_param: CollectdEnableSensubility
+              tripleo::profile::base::metrics::collectd::sensubility::connection:
+                get_param: CollectdSensubilityConnection
+              tripleo::profile::base::metrics::collectd::sensubility::log_level:
+                get_param: CollectdSensubilityLogLevel
+              tripleo::profile::base::metrics::collectd::sensubility::client_name:
+                str_replace:
+                  template: "%{hiera('fqdn_NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              tripleo::profile::base::metrics::collectd::sensubility::client_address:
+                str_replace:
+                  template: "%{hiera('NETWORK')}"
+                  params:
+                    NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              tripleo::profile::base::metrics::collectd::sensubility::keepalive_interval:
+                get_param: CollectdSensubilityKeepaliveInterval
+              tripleo::profile::base::metrics::collectd::sensubility::tmp_base_dir:
+                get_param: CollectdSensubilityTmpDir
+              tripleo::profile::base::metrics::collectd::sensubility::shell_path:
+                get_param: CollectdSensubilityShellPath
+              tripleo::profile::base::metrics::collectd::sensubility::worker_count:
+                get_param: CollectdSensubilityWorkerCount
+              tripleo::profile::base::metrics::collectd::sensubility::checks:
+                map_merge:
+                  - {get_param: CollectdSensubilityChecks}
+                  - check-container-health:
+                      standalone: true
+                      command: {get_param: CollectdContainerHealthCheckCommand}
+                      interval: {get_param: CollectdContainerHealthCheckInterval}
+                      handlers: {get_param: CollectdContainerHealthCheckHandlers}
+                      occurrences: {get_param: CollectdContainerHealthCheckOccurrences}
+                      refresh: {get_param: CollectdContainerHealthCheckRefresh}
+            - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -474,9 +590,10 @@ outputs:
             image: {get_param: ContainerCollectdImage}
             net: host
             pid: host
-            privileged: true
             user: root
             restart: always
+            cap_add:
+              - IPC_LOCK
             healthcheck:
               test: /openstack/healthcheck
             volumes:
@@ -487,6 +604,9 @@ outputs:
                   - /var/lib/config-data/puppet-generated/collectd/:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/collectd:/var/log/collectd:rw,z
                   - /var/run/:/var/run:rw,z
+                  - /var/log/journal:/var/log/journal:ro
+                  - /sys/fs/cgroup:/sys/fs/cgroup:ro
+                  - /usr/lib/systemd/system:/usr/lib/systemd/system:ro
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       host_prep_tasks:
