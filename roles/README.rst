@@ -173,7 +173,6 @@ Example
    * OS::TripleO::Services::OpenDaylightOvs
    * OS::TripleO::Services::Podman
    * OS::TripleO::Services::Securetty
-   * OS::TripleO::Services::SensuClient
    * OS::TripleO::Services::Snmp
    * OS::TripleO::Services::Sshd
    * OS::TripleO::Services::Timesync
