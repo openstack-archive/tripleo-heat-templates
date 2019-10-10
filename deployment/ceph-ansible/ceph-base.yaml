@@ -202,6 +202,17 @@ parameters:
                  config-download, e.g. the mistral user in the mistral-executor
                  container is able to read/write to /var/lib/mistral/ceph_fetch
     type: string
+  ContainerImageRegistryCredentials:
+    type: json
+    hidden: true
+    default: {}
+    description: |
+      Mapping of image registry hosts to login credentials. Must be in the following example format
+
+        docker.io:
+          username: pa55word
+        '192.0.2.1:8787':
+          registry_username: password
 
 parameter_groups:
 - label: deprecated
@@ -224,6 +235,26 @@ conditions:
       equals:
         - {get_param: CephAnsibleSkipTags}
         - ''
+  ceph_authenticated_registry:
+      and:
+      - not:
+          yaql:
+            data:
+              cred: {get_param: ContainerImageRegistryCredentials}
+              ns:
+               yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: DockerCephDaemonImage}
+            expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).keys().last(default => "").isEmpty()
+      - not:
+          yaql:
+            data:
+              cred: {get_param: ContainerImageRegistryCredentials}
+              ns:
+               yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: DockerCephDaemonImage}
+            expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).values().last(default => "").isEmpty()
 
 resources:
   DockerImageUrlParts:
@@ -265,6 +296,23 @@ resources:
           ceph_docker_registry: {get_attr: [DockerImageUrlParts, value, host]}
           ceph_docker_image: {get_attr: [DockerImageUrlParts, value, image]}
           ceph_docker_image_tag: {get_attr: [DockerImageUrlParts, value, image_tag]}
+          ceph_docker_registry_auth:
+            if:
+              - ceph_authenticated_registry
+              - true
+              - false
+          ceph_docker_registry_username:
+            yaql:
+              data:
+                cred: {get_param: ContainerImageRegistryCredentials}
+                ns: {get_attr: [DockerImageUrlParts, value, host]}
+              expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).keys().last(default => "")
+          ceph_docker_registry_password:
+            yaql:
+              data:
+                cred: {get_param: ContainerImageRegistryCredentials}
+                ns: {get_attr: [DockerImageUrlParts, value, host]}
+              expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).values().last(default => "")
           containerized_deployment: true
           public_network:
             list_join:
