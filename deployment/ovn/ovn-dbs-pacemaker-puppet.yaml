@@ -202,6 +202,23 @@ outputs:
             container_image: {get_param: DockerOvnDbsImage}
             container_image_latest: *ovn_dbs_image_pcmklatest
       update_tasks:
+        # When a schema change happens, the newer slaves don't connect
+        # back to the older master and end up timing out.  So we clean
+        # up the error here until we get a fix for
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1759974
+        - name: Clear ovndb cluster pacemaker error
+          shell: "pcs resource cleanup ovn-dbs-bundle"
+          when:
+            - step|int == 1
+        # Then we ban the resource for this node.  It has no effect on
+        # the first two controllers, but when we reach the last one,
+        # it avoids a cut in the control plane as master get chosen in
+        # one of the updated Stopped ovn.  They are in error, that why
+        # we need the cleanup just before.
+        - name: Ban ovndb resource on the current node.
+          shell: "pcs resource ban ovn-dbs-bundle $(hostname | cut -d. -f1)"
+          when:
+            - step|int == 1
         - name: Get docker ovn-dbs image
           set_fact:
             ovn_dbs_docker_image: {get_param: DockerOvnDbsImage}
@@ -237,6 +254,15 @@ outputs:
                 container_image_latest: "{{ovn_dbs_docker_image_latest}}"
             # Got to check that pacemaker_is_active is working fine with bundle.
             # TODO: pacemaker_is_active resource doesn't support bundle.
+        # We remove any leftover error and remove the ban.
+        - name: Ensure the cluster converge back even in case of schema change
+          shell: "pcs resource cleanup ovn-dbs-bundle"
+          when:
+            - step|int == 5
+        - name: Remove the ban
+          shell: "pcs resource clear ovn-dbs-bundle"
+          when:
+            - step|int == 5
         # When ovn-dbs-bundle support was added, we didn't tag the ovn-dbs image
         # with pcmklatest. So, when update is run for the first time we need to
         # update the ovn-dbs-bundle resource to use the 'pcmklatest' tagged image.
