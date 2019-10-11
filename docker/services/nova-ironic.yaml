@@ -40,6 +40,10 @@ parameters:
     default: false
     description: Remove package if the service is being disabled during upgrade
     type: boolean
+  ConfigDownload:
+    default: false
+    description: Whether config-download method is used or not.
+    type: boolean
 
 resources:
 
@@ -68,6 +72,9 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+conditions:
+  config_download_not_enabled: {equals: [{get_param: ConfigDownload}, false]}
 
 outputs:
   role_data:
@@ -160,22 +167,25 @@ outputs:
                   - /var/lib/docker-config-scripts/:/docker-config-scripts/
             user: root
             command: "/docker-config-scripts/nova_wait_for_compute_service.py"
-        step_5:
-          nova_cell_v2_discover_hosts:
-            start_order: 0
-            image: *nova_ironic_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
-                  - /var/log/containers/nova:/var/log/nova
-                  - /var/lib/docker-config-scripts/:/docker-config-scripts/
-            user: root
-            command: "su nova -s /bin/bash -c '/docker-config-scripts/nova_cell_v2_discover_hosts.py'"
+      workflow_tasks:
+        if:
+          - config_download_not_enabled
+          -
+            step5:
+              # Discover hosts via workflow _ONLY_ for non config-download deploy method
+              # that we also run it when:
+              # - nodes get blacklisted
+              # - deployment is run with skip-deploy-identifier
+              # For config-download method we use bellow deploy_steps_tasks
+              - name: nova_compute_discovery_workflow
+                workflow: 'tripleo.nova.v1.cellv2_discovery'
+                input:
+                  nova_host_discovery_service: 'nova_compute'
+                  nova_host_discovery_container: 'nova_compute'
+                  nova_host_discovery_ansible_playbook: '/usr/share/tripleo-common/playbooks/nova_cellv2_host_discover.yaml'
+          - {}
+      # deploy_steps_tasks only run in queens when config-download is used
+      deploy_steps_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       host_prep_tasks:
         - name: create persistent directories
           file:
