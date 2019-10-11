@@ -157,6 +157,20 @@ outputs:
                   - get_param: HAProxyInternalTLSKeysDirectory
                   - get_param: HAProxyInternalTLSCertsDirectory
                 - null
+            # The init bundle users the container_puppet_apply_volumes list. That already contains InternalTLSCAFile
+            # and newer podmans refuse to start with duplicated mountpoints. That is why we cannot use tls_mapping
+            # but need a new mapping
+            tripleo::profile::pacemaker::haproxy_bundle::tls_mapping_init_bundle: &tls_mapping_init_bundle
+              list_concat:
+              - if:
+                - public_tls_enabled
+                - - get_param: DeployedSSLCertificatePath
+                - null
+              - if:
+                - internal_tls_enabled
+                - - get_param: HAProxyInternalTLSKeysDirectory
+                  - get_param: HAProxyInternalTLSCertsDirectory
+                - null
             tripleo::profile::pacemaker::haproxy_bundle::internal_certs_directory: {get_param: HAProxyInternalTLSCertsDirectory}
             tripleo::profile::pacemaker::haproxy_bundle::internal_keys_directory: {get_param: HAProxyInternalTLSKeysDirectory}
             # disable the use CRL file until we can restart the container when the file expires
@@ -260,7 +274,9 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                - *deployed_cert_mount
+                - yaql:
+                    expression: $.data.select($+":"+$+":ro")
+                    data: *tls_mapping_init_bundle
                 - if:
                   - docker_enabled
                   - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
