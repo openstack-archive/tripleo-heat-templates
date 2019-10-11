@@ -654,27 +654,8 @@ outputs:
                         expression: str($.data.debug)
                         data:
                           debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
-        step_4:
+        step_5:
           map_merge:
-            - nova_wait_for_placement_service:
-                start_order: 2
-                image: *nova_compute_image
-                user: nova
-                net: host
-                privileged: false
-                detach: false
-                volumes:
-                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
-                  - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
-                command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_placement_service.py"
-                environment:
-                  - list_join:
-                      - ''
-                      - - '__OS_DEBUG='
-                        - yaql:
-                            expression: str($.data.debug)
-                            data:
-                              debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
             - nova_compute:
                 start_order: 3
                 image: *nova_compute_image
@@ -939,31 +920,30 @@ outputs:
                 - ksm.service
                 - ksmtuned.service
       deploy_steps_tasks:
-        list_concat:
-        - {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
-        - - name: validate nova compute container state
-            when:
-              - container_cli == 'podman'
-              - not container_healthcheck_disabled
-              - step|int == 5
-              - false
-            tags:
-              - opendev-validation
-              - opendev-validation-nova
-            block:
-              - name: Get nova-compute healthcheck status
-                register: nova_compute_healthcheck_state
-                systemd:
-                  name: tripleo_nova_compute_healthcheck
-                retries: 10
-                delay: 30
-                until: nova_compute_healthcheck_state.status.ExecMainPID != '0' and
-                  nova_compute_healthcheck_state.status.ActiveState in ['inactive', 'failed']
-                ignore_errors: yes
-              - name: Fail if nova-compute healthcheck report failed status
-                fail:
-                  msg: nova-compute isn't working (healthcheck failed)
-                when: nova_compute_healthcheck_state.status.ExecMainStatus != '0'
+        - name: validate nova compute container state
+          when:
+            - container_cli == 'podman'
+            - not container_healthcheck_disabled
+            - step|int == 6 #FIXME: there is no step6
+            - false
+          tags:
+            - opendev-validation
+            - opendev-validation-nova
+          block:
+            - name: Get nova-compute healthcheck status
+              register: nova_compute_healthcheck_state
+              systemd:
+                name: tripleo_nova_compute_healthcheck
+              retries: 10
+              delay: 30
+              until: nova_compute_healthcheck_state.status.ExecMainPID != '0' and
+                nova_compute_healthcheck_state.status.ActiveState in ['inactive', 'failed']
+              ignore_errors: yes
+            - name: Fail if nova-compute healthcheck report failed status
+              fail:
+                msg: nova-compute isn't working (healthcheck failed)
+              when: nova_compute_healthcheck_state.status.ExecMainStatus != '0'
+      external_post_deploy_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       upgrade_tasks:
         - name: Remove openstack-nova-compute and python-nova package during upgrade
           package:

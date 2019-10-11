@@ -68,6 +68,10 @@ parameters:
     description: The password for the nova service and db account
     type: string
     hidden: true
+  Debug:
+    type: boolean
+    default: false
+    description: Set to True to enable debugging on all services.
 
 conditions:
   placement_workers_zero: {equals : [{get_param: PlacementWorkers}, 0]}
@@ -190,6 +194,12 @@ outputs:
             - path: /var/log/placement
               owner: placement:placement
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - placement_wait_for_service.py:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/placement_wait_for_service.py }
       docker_config:
         step_2:
           get_attr: [PlacementLogging, docker_config, step_2]
@@ -280,6 +290,25 @@ outputs:
                       - ''
             environment:
               - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
+            placement_wait_for_service:
+              start_order: 2
+              image: *placement_api_image
+              user: root
+              net: host
+              privileged: false
+              detach: false
+              volumes:
+                - /var/lib/container-config-scripts/:/container-config-scripts/:z
+                - /var/lib/config-data/puppet-generated/placement/:/var/lib/kolla/config_files/src:ro
+              command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
+              environment:
+                - list_join:
+                    - ''
+                    - - '__OS_DEBUG='
+                      - yaql:
+                          expression: str($.data.debug)
+                          data:
+                            debug: {get_param: Debug}
       host_prep_tasks: {get_attr: [PlacementLogging, host_prep_tasks]}
       upgrade_tasks: []
       post_upgrade_tasks:
