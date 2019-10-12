@@ -212,11 +212,6 @@ parameters:
     type: boolean
     tags:
       - role_specific
-  LibvirtLogOutputs:
-    description: Defines how log outputs are sent, as described in
-                 https://libvirt.org/logging.html .
-    type: string
-    default: '3:file:/var/log/libvirt/libvirtd.log'
   LibvirtLogFilters:
     description: Defines a filter to select a different logging level
                  for a given category log outputs, as specified in
@@ -398,7 +393,6 @@ outputs:
                    "%{hiera('$NETWORK')}"
                  params:
                    $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-            nova::compute::libvirt::log_outputs: {get_param: LibvirtLogOutputs}
             nova::compute::libvirt::log_filters: {get_param: LibvirtLogFilters}
             rbd_persistent_storage: {get_param: CinderEnableRbdBackend}
             tripleo::nova_libvirt::firewall_rules:
@@ -691,6 +685,7 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaLibvirtLogging, volumes]}
                 -
                   - /var/lib/kolla/config_files/nova_libvirt.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova_libvirt/:/var/lib/kolla/config_files/src:ro
@@ -702,7 +697,6 @@ outputs:
                   - /etc/libvirt:/etc/libvirt
                   - /var/run/libvirt:/var/run/libvirt:shared,z
                   - /var/lib/libvirt:/var/lib/libvirt:shared,z
-                  - /var/log/containers/libvirt:/var/log/libvirt:z
                   - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
                   - /var/lib/vhost_sockets:/var/lib/vhost_sockets:z
                 # podman fails to relable if nova_nfs_enabled where we have
@@ -825,72 +819,73 @@ outputs:
                 msg: nova-libvirt isn't working (healtcheck failed)
               when: nova_libvirt_healthcheck_state.status.ExecMainStatus != '0'
       host_prep_tasks:
-        - name: create libvirt persistent data directories
-          file:
-            path: "{{ item.path }}"
-            state: directory
-            setype: "{{ item.setype }}"
-          with_items:
-            - { 'path': /etc/libvirt, 'setype': svirt_sandbox_file_t }
-            - { 'path': /etc/libvirt/secrets, 'setype': svirt_sandbox_file_t }
-            - { 'path': /etc/libvirt/qemu, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/lib/libvirt, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/lib/nova, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/log/containers/libvirt, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/run/libvirt, 'setype': virt_var_run_t }
-            - { 'path': /var/log/libvirt, 'setype': svirt_sandbox_file_t }
-            - { 'path': /var/log/libvirt/qemu, 'setype': svirt_sandbox_file_t }
-        # qemu user on host will be cretaed by libvirt package install, ensure
-        # the qemu user created with same uid/gid as like libvirt package.
-        # These specific values are required since ovs is running on host.
-        # Once ovs with DPDK is containerized, we could modify this uid/gid
-        # to match with kolla config values.
-        - name: ensure qemu group is present on the host
-          group:
-            name: qemu
-            gid: 107
-            state: present
-        - name: ensure qemu user is present on the host
-          user:
-            name: qemu
-            uid: 107
-            group: qemu
-            state: present
-            shell: /sbin/nologin
-            comment: qemu user
-        - name: create directory for vhost-user sockets with qemu ownership
-          file:
-            path: /var/lib/vhost_sockets
-            state: directory
-            owner: qemu
-            group: {get_attr: [RoleParametersValue, value, vhostuser_socket_group]}
-            setype: virt_cache_t
-            seuser: system_u
-        - name: ensure ceph configurations exist
-          file:
-            path: /etc/ceph
-            state: directory
-        - name: check if libvirt is installed
-          command: /usr/bin/rpm -q libvirt-daemon
-          failed_when: false
-          register: libvirt_installed
-          check_mode: no
-        - name: make sure libvirt services are disabled and masked
-          service:
-            name: "{{ item }}"
-            state: stopped
-            enabled: no
-            masked: yes
-            daemon_reload: yes
-          with_items:
-            - libvirtd.service
-            - virtlogd.socket
-          when: libvirt_installed.rc == 0
-        - name: ensure /var/run/libvirt is present upon reboot
-          copy:
-            dest: /etc/tmpfiles.d/var-run-libvirt.conf
-            content: |
-              d /var/run/libvirt 0755 root root - -
+        list_concat:
+          - {get_attr: [NovaLibvirtLogging, host_prep_tasks]}
+          - - name: create libvirt persistent data directories
+              file:
+                path: "{{ item.path }}"
+                state: directory
+                setype: "{{ item.setype }}"
+              with_items:
+                - { 'path': /etc/libvirt, 'setype': svirt_sandbox_file_t }
+                - { 'path': /etc/libvirt/secrets, 'setype': svirt_sandbox_file_t }
+                - { 'path': /etc/libvirt/qemu, 'setype': svirt_sandbox_file_t }
+                - { 'path': /var/lib/libvirt, 'setype': svirt_sandbox_file_t }
+                - { 'path': /var/lib/nova, 'setype': svirt_sandbox_file_t }
+                - { 'path': /var/run/libvirt, 'setype': virt_var_run_t }
+                - { 'path': /var/log/libvirt, 'setype': svirt_sandbox_file_t }
+                - { 'path': /var/log/libvirt/qemu, 'setype': svirt_sandbox_file_t }
+            # qemu user on host will be cretaed by libvirt package install, ensure
+            # the qemu user created with same uid/gid as like libvirt package.
+            # These specific values are required since ovs is running on host.
+            # Once ovs with DPDK is containerized, we could modify this uid/gid
+            # to match with kolla config values.
+            - name: ensure qemu group is present on the host
+              group:
+                name: qemu
+                gid: 107
+                state: present
+            - name: ensure qemu user is present on the host
+              user:
+                name: qemu
+                uid: 107
+                group: qemu
+                state: present
+                shell: /sbin/nologin
+                comment: qemu user
+            - name: create directory for vhost-user sockets with qemu ownership
+              file:
+                path: /var/lib/vhost_sockets
+                state: directory
+                owner: qemu
+                group: {get_attr: [RoleParametersValue, value, vhostuser_socket_group]}
+                setype: virt_cache_t
+                seuser: system_u
+            - name: ensure ceph configurations exist
+              file:
+                path: /etc/ceph
+                state: directory
+            - name: check if libvirt is installed
+              command: /usr/bin/rpm -q libvirt-daemon
+              failed_when: false
+              register: libvirt_installed
+              check_mode: no
+            - name: make sure libvirt services are disabled and masked
+              service:
+                name: "{{ item }}"
+                state: stopped
+                enabled: no
+                masked: yes
+                daemon_reload: yes
+              with_items:
+                - libvirtd.service
+                - virtlogd.socket
+              when: libvirt_installed.rc == 0
+            - name: ensure /var/run/libvirt is present upon reboot
+              copy:
+                dest: /etc/tmpfiles.d/var-run-libvirt.conf
+                content: |
+                  d /var/run/libvirt 0755 root root - -
       metadata_settings:
         list_concat:
           - if:
