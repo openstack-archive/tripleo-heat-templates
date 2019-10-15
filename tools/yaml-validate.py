@@ -14,11 +14,16 @@
 import argparse
 import os
 import re
+import six
 import sys
 import traceback
 import yaml
 
 from copy import copy
+
+
+def is_string(value):
+    return isinstance(value, six.string_types)
 
 # Only permit the template alias versions.
 # The current template version should be the last element.
@@ -43,7 +48,10 @@ envs_containing_endpoint_map = ['no-tls-endpoints-public-ip.yaml',
                                 'tls-endpoints-public-ip.yaml',
                                 'tls-everywhere-endpoints-dns.yaml']
 ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
-OPTIONAL_SECTIONS = ['cellv2_discovery']
+OPTIONAL_SECTIONS = ['ansible_group_vars',
+                     'cellv2_discovery',
+                     'firewall_rules',
+                     'keystone_resources']
 REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
                             'config_settings']
 OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
@@ -60,6 +68,38 @@ OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
                             'container_config_scripts', 'step_config',
                             'monitoring_subscription', 'scale_tasks',
                             'external_update_tasks', 'external_upgrade_tasks']
+REQUIRED_DOCKER_SECTIONS_OVERRIDES = {
+    # Runs puppet within a container
+    './deployment/neutron/neutron-agents-ib-config-container-puppet.yaml': [
+        'service_name',
+        'docker_config',
+        'config_settings'
+    ],
+    # Just sets hieradata
+    './deployment/neutron/neutron-ovn-dpdk-config-container-puppet.yaml': [
+        'service_name',
+        'config_settings'
+    ],
+    # Does not deploy container
+    './deployment/ceilometer/ceilometer-base-container-puppet.yaml': [
+        'service_name',
+        'config_settings'
+    ],
+    # Does not manage container using docker_config
+    './deployment/nova/nova-libvirt-guests-container-puppet.yaml': [
+        'service_name',
+        'puppet_config',
+        'config_settings'
+    ],
+    # Inherits sections
+    './deployment/haproxy/haproxy-edge-container-puppet.yaml': [
+        'service_name',
+        'config_settings'
+    ],
+    './deployment/glance/glance-api-edge-container-puppet.yaml': [
+        'service_name',
+    ],
+}
 # ansible tasks cannot be an empty dict or ansible is unhappy
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
                           'fast_forward_upgrade_tasks',
@@ -220,6 +260,8 @@ VALIDATE_DOCKER_OVERRIDE = {
   # deployment/rabbitmq/rabbitmq-messaging-notify-shared-puppet.yaml does not
   # deploy container
   './deployment/rabbitmq/rabbitmq-messaging-notify-shared-puppet.yaml': False,
+  # Does not follow the filename pattern
+  './deployment/multipathd/multipathd-container.yaml': True
 }
 DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::SoftwareDeploymentGroup',
@@ -256,6 +298,14 @@ HEAT_OUTPUTS_EXCLUSIONS = [
     './extraconfig/tasks/ssh/host_public_key.yaml',
     './extraconfig/pre_network/host_config_and_reboot.yaml'
 ]
+
+CONFIG_IMAGE_OVERRIDES = {
+    'ContainerSwiftRingbuilderConfigImage': 'ContainerSwiftConfigImage'
+}
+
+SERVICE_NAME_OVERRIDE = {
+    './deployment/rabbitmq/rabbitmq-messaging-pacemaker-puppet.yaml': 'rabbitmq',
+}
 
 
 def exit_usage():
@@ -612,9 +662,12 @@ def validate_docker_service_mysql_usage(filename, tpl):
                     continue
                 newfilename = \
                     os.path.normpath(os.path.join(os.path.dirname(incfile), f))
+                if not os.path.exists(newfilename) and \
+                    os.path.exists(newfilename.replace('.yaml', '.j2.yaml')):
+                    return  # Skip for now if it's templated
                 with open(newfilename, 'r') as newfile:
                     newtmp = yaml.load(newfile.read(), Loader=yaml.SafeLoader)
-                read_all(newfile, newtmp)
+                read_all(newfilename, newtmp)
 
     read_all(filename, tpl)
     if search(all_content, match_use_mysql_protocol, no_op):
@@ -650,15 +703,24 @@ def validate_docker_service(filename, tpl):
                   % filename)
             return 1
         role_data = tpl['outputs']['role_data']['value']
+        if list(role_data.keys()) == ['map_merge']:
+            merged_role_data = {}
+            for part in role_data['map_merge']:
+                if list(part.keys()) == ['get_attr']:
+                    continue
+                merged_role_data.update(part)
+            role_data = merged_role_data
 
-        for section_name in REQUIRED_DOCKER_SECTIONS:
+        for section_name in REQUIRED_DOCKER_SECTIONS_OVERRIDES.get(filename, REQUIRED_DOCKER_SECTIONS):
             if section_name not in role_data:
                 # add an exception if both step_config is used in docker
                 # service, deployment/ceph-ansible/ceph-nfs.yaml uses
                 # additional step_config to add pacemaker resources
                 if (section_name == 'docker_config' and
                         role_data.get('step_config', '')):
-                    continue
+                    print('ERROR: %s appears to be a barematal-puppet service'
+                        % (filename))
+                    return 1
                 print('ERROR: %s is required in role_data for %s.'
                       % (section_name, filename))
                 return 1
@@ -709,6 +771,10 @@ def validate_docker_service(filename, tpl):
             config_volume = puppet_config.get('config_volume')
             expected_config_image_parameter = \
                 "Container%sConfigImage" % to_camel_case(config_volume)
+            expected_config_image_parameter = CONFIG_IMAGE_OVERRIDES.get(
+                expected_config_image_parameter,
+                expected_config_image_parameter
+            )
             if config_volume and expected_config_image_parameter not in tpl.get('parameters', []):
                 print('ERROR: Missing %s heat parameter for %s config_volume.'
                       % (expected_config_image_parameter, config_volume))
@@ -784,15 +850,17 @@ def validate_service(filename, tpl):
             print('ERROR: service_name is required in role_data for %s.'
                   % filename)
             return 1
-        # service_name must match the beginning of the file name, but with an
-        # underscore
+        # service_name must match the beginning of the file name, but with an underscore
         service_name = \
-                os.path.basename(filename).split('.')[0].replace("-", "_")
-        if not role_data['service_name'].startswith(service_name):
-            print('ERROR: service_name should match the beginning of the '
-                  'filename: %s.'
-                  % filename)
-            return 1
+                os.path.basename(filename).split('.')[0].rsplit('-', 2)[0].replace('-', '_')
+
+        if is_string(role_data['service_name']):
+            service_name = SERVICE_NAME_OVERRIDE.get(filename, service_name)
+            if not role_data['service_name'].startswith(service_name):
+                print('ERROR: service_name "%s" should match the beginning of the '
+                      'filename: %s (%s).'
+                      % (role_data['service_name'], os.path.basename(filename), service_name))
+                return 1
         # if service connects to mysql, the uri should use option
         # bind_address to avoid issues with VIP failover
         if 'config_settings' in role_data and \
@@ -1099,18 +1167,18 @@ def validate(filename, param_map):
                 )
 
         if VALIDATE_PUPPET_OVERRIDE.get(filename, False) or (
-                filename.startswith('./puppet/services/') and
+                re.search(r'^\.\/deployment\/.+-(baremetal|pacemaker)-puppet.yaml$', filename) and
                 VALIDATE_PUPPET_OVERRIDE.get(filename, True)):
             retval |= validate_service(filename, tpl)
 
         if re.search(r'(puppet|docker)\/services', filename) or \
-                re.search(r'deployment\/', filename):
+                re.search(r'^\.\/deployment\/', filename):
             retval |= validate_service_hiera_interpol(filename, tpl)
 
-        if filename.startswith('./docker/services/logging/'):
+        if re.search(r'^\.\/deployment\/logging\/(files|stdout)\/', filename):
             retval |= validate_docker_logging_template(filename, tpl)
         elif VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
-                filename.startswith('./docker/services/') and
+                re.search(r'^\.\/deployment\/.+-container-puppet.yaml$', filename) and
                 VALIDATE_DOCKER_OVERRIDE.get(filename, True)):
             retval |= validate_docker_service(filename, tpl)
 
