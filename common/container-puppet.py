@@ -482,10 +482,17 @@ for returncode, config_volume in zip(returncodes, config_volumes):
 
 
 # Update the startup configs with the config hash we generated above
-startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/docker-container-startup-config-step_*.json')
+startup_configs = os.environ.get('STARTUP_CONFIG_PATTERN', '/var/lib/tripleo-config/container_startup_config/*/*.json')
 log.debug('STARTUP_CONFIG_PATTERN: %s' % startup_configs)
 infiles = glob.glob(startup_configs)
+
 for infile in infiles:
+    # If the JSON is already hashed, we'll skip it; and a new hashed file will
+    # be created if config changed.
+    if 'hashed' in infile:
+        log.debug('%s skipped, already hashed' % infile)
+        continue
+
     with open(infile) as f:
         infile_data = json.load(f)
 
@@ -494,17 +501,17 @@ for infile in infiles:
     if not infile_data:
         infile_data = {}
 
-    for k, v in iter(infile_data.items()):
-        config_volumes = match_config_volumes(config_volume_prefix, v)
-        config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
-        config_hashes = filter(None, config_hashes)
-        config_hash = '-'.join(config_hashes)
-        if config_hash:
-            log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (k, config_volume, config_hash))
-            # When python 27 support is removed, we will be able to use z = {**x, **y} to merge the dicts.
-            v.get('environment', {}).update({'TRIPLEO_CONFIG_HASH': config_hash})
-            env = v.get('environment')
-            infile_data[k]['environment'] = env
+    c_name = os.path.splitext(os.path.basename(infile))[0]
+    config_volumes = match_config_volumes(config_volume_prefix, infile_data)
+    config_hashes = [get_config_hash(volume_path) for volume_path in config_volumes]
+    config_hashes = filter(None, config_hashes)
+    config_hash = '-'.join(config_hashes)
+    if config_hash:
+        log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (c_name, config_volume, config_hash))
+        # When python 27 support is removed, we will be able to use z = {**x, **y} to merge the dicts.
+        infile_data.get('environment', {}).update({'TRIPLEO_CONFIG_HASH': config_hash})
+        env = infile_data.get('environment')
+        infile_data['environment'] = env
 
     outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
     with open(outfile, 'w') as out_f:
