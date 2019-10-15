@@ -172,25 +172,31 @@ def rm_container(name):
         if cmd_stderr:
             log.debug(cmd_stderr)
 
+    def run_cmd(rm_cli_cmd):
+        subproc = subprocess.Popen(rm_cli_cmd,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE,
+                                   universal_newlines=True)
+        cmd_stdout, cmd_stderr = subproc.communicate()
+        if cmd_stdout:
+            log.debug(cmd_stdout)
+        if cmd_stderr and \
+               cmd_stderr != 'Error response from daemon: ' \
+               'No such container: {}\n'.format(name):
+            log.debug(cmd_stderr)
+
     log.info('Removing container: %s' % name)
     rm_cli_cmd = [cli_cmd, 'rm']
-    # --storage is used as a mitigation of
+    rm_cli_cmd.append(name)
+    run_cmd(rm_cli_cmd)
+
+    # rm --storage is used as a mitigation of
     # https://github.com/containers/libpod/issues/3906
     # Also look https://bugzilla.redhat.com/show_bug.cgi?id=1747885
     if container_cli == 'podman':
-        rm_cli_cmd.extend(['--storage'])
-    rm_cli_cmd.append(name)
-    subproc = subprocess.Popen(rm_cli_cmd,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE,
-                               universal_newlines=True)
-    cmd_stdout, cmd_stderr = subproc.communicate()
-    if cmd_stdout:
-        log.debug(cmd_stdout)
-    if cmd_stderr and \
-           cmd_stderr != 'Error response from daemon: ' \
-           'No such container: {}\n'.format(name):
-        log.debug(cmd_stderr)
+        rm_storage_cli_cmd = [cli_cmd, 'rm', '--storage']
+        rm_storage_cli_cmd.append(name)
+        run_cmd(rm_storage_cli_cmd)
 
 process_count = int(os.environ.get('PROCESS_COUNT',
                                    multiprocessing.cpu_count()))
