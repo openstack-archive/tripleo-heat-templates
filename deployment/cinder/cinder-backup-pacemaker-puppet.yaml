@@ -224,65 +224,76 @@ outputs:
             container_image: {get_param: ContainerCinderBackupImage}
             container_image_latest: *cinder_backup_image_pcmklatest
       update_tasks:
-        - name: Cinder-Backup fetch and retag container image for pacemaker
+        - name: cinder_backup fetch and retag container image for pacemaker
           when: step|int == 2
           block: &cinder_backup_fetch_retag_container_tasks
-            - name: Get docker Cinder-Backup image
+            - name: Get container cinder_backup image
               set_fact:
-                docker_image: {get_param: ContainerCinderBackupImage}
-                docker_image_latest: *cinder_backup_image_pcmklatest
-            - name: Get previous Cinder-Backup image id
-              shell: "{{container_cli}} images | awk '/cinder-backup.* pcmklatest/{print $3}' | uniq"
-              register: cinder_backup_image_id
+                cinder_backup_image: {get_param: ContainerCinderBackupImage}
+                cinder_backup_image_latest: *cinder_backup_image_pcmklatest
+            - name: Pull latest cinder_backup images
+              command: "{{container_cli}} pull {{cinder_backup_image}}"
+            - name: Get previous cinder_backup image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{cinder_backup_image_latest}}"
+              register: old_cinder_backup_image_id
+              failed_when: false
+            - name: Get new cinder_backup image id
+              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{cinder_backup_image}}"
+              register: new_cinder_backup_image_id
+            - name: Retag pcmklatest to latest cinder_backup image
+              include_role:
+                name: tripleo-container-tag
+              vars:
+                container_image: "{{cinder_backup_image}}"
+                container_image_latest: "{{cinder_backup_image_latest}}"
+              when:
+                - old_cinder_backup_image_id.stdout != new_cinder_backup_image_id.stdout
             - block:
-                - name: Get a list of container using Cinder-Backup image
-                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{cinder_backup_image_id.stdout}}'"
+                - name: Get a list of containers using cinder_backup image
+                  shell: "{{container_cli}} ps -a -q -f 'ancestor={{old_cinder_backup_image_id.stdout}}'"
                   register: cinder_backup_containers_to_destroy
                 # It will be recreated with the deploy step.
-                - name: Remove any container using the same Cinder-Backup image
+                - name: Remove any containers using the same cinder_backup image
                   shell: "{{container_cli}} rm -fv {{item}}"
                   with_items: "{{ cinder_backup_containers_to_destroy.stdout_lines }}"
-                - name: Remove previous Cinder-Backup images
-                  shell: "{{container_cli}} rmi -f {{cinder_backup_image_id.stdout}}"
+                - name: Remove previous cinder_backup images
+                  shell: "{{container_cli}} rmi -f {{old_cinder_backup_image_id.stdout}}"
               when:
-                - cinder_backup_image_id.stdout != ''
-            - name: Pull latest Cinder-Backup images
-              command: "{{container_cli}} pull {{docker_image}}"
-            - name: Retag pcmklatest to latest Cinder-Backup image
+                - old_cinder_backup_image_id.stdout != ''
+                - old_cinder_backup_image_id.stdout != new_cinder_backup_image_id.stdout
+
+      upgrade_tasks:
+        - name: Prepare switch of cinder_backup image name
+          when:
+            - step|int == 0
+          block:
+            - name: Get cinder_backup image id currently used by pacemaker
+              shell: "pcs resource config openstack-cinder-backup | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+              register: cinder_backup_image_current_res
+              failed_when: false
+            - name: cinder_backup image facts
+              set_fact:
+                cinder_backup_image_latest: *cinder_backup_image_pcmklatest
+                cinder_backup_image_current: "{{cinder_backup_image_current_res.stdout}}"
+            - name: Temporarily tag the current cinder_backup image id with the upgraded image name
               import_role:
                 name: tripleo-container-tag
               vars:
-                container_image: "{{docker_image}}"
-                container_image_latest: "{{docker_image_latest}}"
-            # Got to check that pacemaker_is_active is working fine with bundle.
-            # TODO: pacemaker_is_active resource doesn't support bundle.
-      upgrade_tasks:
-        - when: step|int == 0
-          tags: common
-          block:
-            - name: Get docker Cinder-Backup image
-              set_fact:
-                cinder_backup_docker_image_latest: *cinder_backup_image_pcmklatest
-            - name: Prepare the switch to new cinder_backup container image name in pacemaker
-              when: cinder_backup_containerized|bool
-              block:
-                - name: Get cinder_backup image id currently used by pacemaker
-                  shell: "{{container_cli}} images | awk '/cinder-backup.* pcmklatest/{print $3}' | uniq"
-                  register: cinder_backup_current_pcmklatest_id
-                - name: Temporarily tag the current cinder_backup image id with the upgraded image name
-                  when: cinder_backup_current_pcmklatest_id.stdout != ''
-                  import_role:
-                    name: tripleo-container-tag
-                  vars:
-                    container_image: "{{cinder_backup_current_pcmklatest_id.stdout}}"
-                    container_image_latest: "{{cinder_backup_docker_image_latest}}"
-                    pull_image: false
+                container_image: "{{cinder_backup_current_pcmklatest_id.stdout}}"
+                container_image_latest: "{{cinder_backup_docker_image_latest}}"
+                pull_image: false
+              when:
+                - cinder_backup_image_current != ''
+                - cinder_backup_image_current != cinder_backup_image_latest
+            # During an OS Upgrade, the cluster may not exist so we use
+            # the shell module instead.
+            # TODO(odyssey4me):
+            # Fix the pacemaker_resource module to handle the exception
+            # for a non-existant cluster more gracefully.
             - name: Check openstack-cinder-backup cluster resource status
-              pacemaker_resource:
-                resource: openstack-cinder-backup
-                state: show
-                check_mode: false
-              ignore_errors: true
+              shell: pcs resource config openstack-cinder-backup
+              failed_when: false
+              changed_when: false
               register: cinder_backup_pcs_res_result
             - name: Set fact cinder_backup_pcs_res
               set_fact:
@@ -295,6 +306,7 @@ outputs:
             - step|int == 1
             - is_cinder_backup_bootstrap_node
             - cinder_backup_pcs_res|bool
+            - cinder_backup_image_current != cinder_backup_image_latest
           block:
             - name: Disable the cinder_backup cluster resource before container upgrade
               pacemaker_resource:
@@ -305,7 +317,7 @@ outputs:
               retries: 5
               until: output.rc == 0
             - name: Update the cinder_backup bundle to use the new container image name
-              command: "pcs resource bundle update openstack-cinder-backup container image={{cinder_backup_docker_image_latest}}"
+              command: "pcs resource bundle update openstack-cinder-backup container image={{cinder_backup_image_latest}}"
             - name: Enable the cinder_backup cluster resource
               pacemaker_resource:
                 resource: openstack-cinder-backup
@@ -318,6 +330,7 @@ outputs:
           when:
             - step|int == 3
           block: *cinder_backup_fetch_retag_container_tasks
+
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
@@ -329,7 +342,7 @@ outputs:
                 resource: openstack-cinder-backup
                 state: show
                 check_mode: false
-              ignore_errors: true
+              failed_when: false
               register: cinder_backup_res_result
             - name: Set fact cinder_backup_res
               set_fact:
