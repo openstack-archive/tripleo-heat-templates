@@ -98,6 +98,11 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  EnableSQLAlchemyCollectd:
+    type: boolean
+    description: >
+        Set to true to enable the SQLAlchemy-collectd server plugin
+    default: false
   NeutronApiPolicies:
     description: |
       A hash of policies to configure for Neutron API.
@@ -178,6 +183,7 @@ conditions:
   az_unset: {equals: [{get_param: NeutronDefaultAvailabilityZones}, '']}
   omit_az_configs: {or: [is_ovn_in_neutron_mechanism_driver, az_unset]}
   ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, internal_tls_enabled]}
+  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
 resources:
 
@@ -232,8 +238,18 @@ outputs:
                 host: {get_param: [EndpointMap, MysqlInternal, host]}
                 path: /ovs_neutron
                 query:
-                  read_default_file: /etc/my.cnf.d/tripleo.cnf
-                  read_default_group: tripleo
+                  if:
+                    - enable_sqlalchemy_collectd
+                    -
+                        read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
+                        plugin: collectd
+                        collectd_program_name: ovs_neutron
+                        collectd_host: localhost
+                    -
+                        read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
+
             neutron::policy::policies: {get_param: NeutronApiPolicies}
             neutron::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             neutron::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
