@@ -5,6 +5,7 @@ set -u
 # ./pacemaker_restart_bundle.sh galera-bundle galera
 RESOURCE=$1
 TRIPLEO_SERVICE=$2
+: ${TRIPLEO_MINOR_UPDATE=false}
 
 # try to restart only if resource has been created already
 if /usr/sbin/pcs resource show $RESOURCE; then
