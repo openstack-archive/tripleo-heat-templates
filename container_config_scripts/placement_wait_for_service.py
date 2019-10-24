@@ -14,7 +14,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-# shell script to check if nova API DB migrations finished after X attempts.
+# shell script to check if placement API is up after X attempts.
 # Default max is 60 iterations with 10s (default) timeout in between.
 
 from __future__ import print_function
@@ -52,30 +52,32 @@ else:
     loglevel = logging.INFO
 
 logging.basicConfig(stream=sys.stdout, level=loglevel)
-LOG = logging.getLogger('nova_wait_for_placement_service')
+LOG = logging.getLogger('placement_wait_for_service')
 
 iterations = 60
 timeout = 10
-nova_cfg = '/etc/nova/nova.conf'
+placement_cfg = '/etc/placement/placement.conf'
 
 if __name__ == '__main__':
-    if os.path.isfile(nova_cfg):
+    if os.path.isfile(placement_cfg):
         try:
-            config.read(nova_cfg)
+            config.read(placement_cfg)
         except Exception:
-            LOG.exception('Error while reading nova.conf:')
+            LOG.exception('Error while reading placement.conf:')
     else:
-        LOG.error('Nova configuration file %s does not exist', nova_cfg)
+        LOG.error('Placement configuration file %s does not exist',
+                  placement_cfg)
         sys.exit(1)
 
-    # get keystone client with details from [placement] section
+    # get keystone client with details from [keystone_authtoken] section
     auth = v3.Password(
-        user_domain_name=config.get('placement', 'user_domain_name'),
-        username=config.get('placement', 'username'),
-        password=config.get('placement', 'password'),
-        project_name=config.get('placement', 'project_name'),
-        project_domain_name=config.get('placement', 'user_domain_name'),
-        auth_url=config.get('placement', 'auth_url') + '/v3')
+        user_domain_name=config.get('keystone_authtoken', 'user_domain_name'),
+        username=config.get('keystone_authtoken', 'username'),
+        password=config.get('keystone_authtoken', 'password'),
+        project_name=config.get('keystone_authtoken', 'project_name'),
+        project_domain_name=config.get('keystone_authtoken',
+                                       'project_domain_name'),
+        auth_url=config.get('keystone_authtoken', 'auth_url') + '/v3')
     sess = session.Session(auth=auth, verify=False)
     keystone = client.Client(session=sess, interface='internal')
 
@@ -88,11 +90,14 @@ if __name__ == '__main__':
             placement_service_id = keystone.services.list(
                 name='placement')[0].id
 
-            # get placement endpoint (valid_interfaces)
+            # get placement endpoint
+            # Note: puppet-placement does not support setting the interface
+            #       until we have https://review.opendev.org/688862.
+            #       Lets hard code 'internal' for now.
             placement_endpoint_url = keystone.endpoints.list(
                 service=placement_service_id,
-                region=config.get('placement', 'region_name'),
-                interface=config.get('placement', 'valid_interfaces'))[0].url
+                region=config.get('keystone_authtoken', 'region_name'),
+                interface='internal')[0].url
             if not placement_endpoint_url:
                 LOG.error('Failed to get placement service endpoint!')
             else:
