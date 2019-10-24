@@ -136,6 +136,90 @@ outputs:
           when: step|int == 3
           yum: name=* state=latest exclude=ceph*,librados*,librbd*,libcephfs*,librgw*,python-rados*,python-rbd*,python-cephfs*,python-rgw*,rbd-mirror
       update_tasks:
+        # With the layered product packaging, the key package is rhosp-openvswitch. It depends on
+        # a openvswitch package that includes the version as part of the name (e.g openvswitch2.10).
+        # This requires some additional special handling:
+        #   - During an upgrade the package name for openvswitch may change so
+        #     upgrading the currently installed package won't do anything.
+        #   - The rhosp-openvswitch package "obsoletes" several packages,
+        #     including older openvswitch packages. This results in a pretty
+        #     severe uninstall/install sequence of operations that stops and
+        #     removes openvswitch which could break network links required to
+        #     continue the upgrade.
+        #   - To prevent rhosp-openvswitch breaking connectivity, the currently
+        #     installed core openvswitch packages need to be erased from the rpm
+        #     database but leave the binaries intact. This effectively
+        #     short-circuits the obsoletes mechanism in rhosp-openvswitch and
+        #     leaves the core elements of openvswitch running. In the future we
+        #     may replace this mechanism with "an upgrade on reboot".  We only
+        #     do this for the core openvswitch packages so other packages
+        #     obsoleted by rhosp-openvswitch will be removed when
+        #     rhosp-openvswitch is installed/upgraded.
+        #   - Neither the rhosp-openvswitch nor openvswitch{m.n} package enables
+        #     or starts the systemd service so there must always be a task
+        #     to ensure that it is enabled or OpenvSwitch functionality won't be
+        #     available on reboot.
+        #   - With LP, we expect that the core openvswitch package name will
+        #     change with every major upgrade so this special handling will
+        #     eventually replace the special handling of upgrading the
+        #     openvswitch package "in place"
+        - name: Block for gathering information for upgrading OpenvSwitch layered product packaging
+          when: step|int == 2
+          block:
+            - name: Process rhosp-openvswitch layered package for new version number
+              shell: |
+                set -o pipefail
+                yum info -q rhosp-openvswitch | awk '/^Version/{print $NF}'
+              register: rhosp_package_result
+              ignore_errors: true
+            - name: Set fact for triggering OpenvSwitch layered product package handling
+              set_fact:
+                ovs_lp_packaging: "{{ rhosp_package_result.rc == 0 }}"
+            - name: Capture the expected OpenvSwitch version.
+              set_fact:
+                new_ovs_version: "{{ rhosp_package_result.stdout }}"
+              when: ovs_lp_packaging|default(false)
+
+            - name: Get current OpenvSwitch package name
+              register: ovs_pkg_out
+              shell:
+                rpm -qa | awk -F- '/^(openvswitch[0-9]+\.[0-9]+-|openvswitch-2)/{print $1}'
+            - name: Get version from current OpenvSwitch package
+              register: ovs_version_out
+              shell:
+                rpm -qi  "{{ ovs_pkg_out.stdout }}" | awk '/^Version/{print $NF}'
+            - name: split numeric version for OpenvSwitch into parts
+              set_fact:
+                ovs_version_parts: "{{ ovs_version_out.stdout.split('.') }}"
+            - name: get major minor version for OpenvSwitch package naming
+              set_fact:
+                current_ovs_version: "{{ ovs_version_parts[0] }}.{{ ovs_version_parts[1] }}"
+            - name: get OpenvSwitch major version
+              set_fact:
+                current_ovs_major_version: "{{ ovs_version_parts[0]|int }}"
+            - name: get OpenvSwitch minor version
+              set_fact:
+                current_ovs_minor_version: "{{ ovs_version_parts[1]|int }}"
+        - name: Block for upgrading OpenvSwitch when layer package is present
+          when:
+            - step|int == 2
+            - ovs_lp_packaging|default(false)
+          block:
+            - name: set current OpenvSwitch package suffix if old version is layered product format
+              set_fact:
+                package_suffix: "{{ current_ovs_version }}"
+              when:
+                - current_ovs_major_version|int >= 3 or current_ovs_minor_version|int >=10
+            - name: remove old OpenvSwitch package(s) if version doesn't match
+              shell: |
+                rpm -e --noscripts --nopreun --nopostun --notriggers --nodeps $(rpm -qa 'openvswitch{{ package_suffix|default('') }}*' | grep -v 'selinux')
+              args:
+                warn: false
+              when: new_ovs_version != current_ovs_version
+            - name: install/upgrade OpenvSwitch LP package
+              package:
+                name: rhosp-openvswitch
+                state: latest
         - name: Check for existing yum.pid
           stat:  path=/var/run/yum.pid
           register: yum_pid_file
