@@ -116,8 +116,8 @@ outputs:
             placement::keystone::authtoken::project_name: 'service'
             placement::keystone::authtoken::password: {get_param: PlacementPassword}
             placement::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-            placement::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             placement::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+            placement::keystone::authtoken::region_name: {get_param: KeystoneRegion}
             placement::wsgi::apache::api_port: '8778'
             placement::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             # NOTE: bind IP is found in hiera replacing the network name with the local node IP
@@ -278,23 +278,28 @@ outputs:
                       - ''
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-            placement_wait_for_service:
-              start_order: 2
-              image: *placement_api_image
-              user: root
-              net: host
-              privileged: false
-              detach: false
-              volumes:
-                - /var/lib/container-config-scripts/:/container-config-scripts/:z
-                - /var/lib/config-data/puppet-generated/placement/:/var/lib/kolla/config_files/src:ro
-              command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
-              environment:
-                __OS_DEBUG:
-                  yaql:
-                    expression: str($.data.debug)
-                    data:
-                      debug: {get_param: Debug}
+          placement_wait_for_service:
+            start_order: 2
+            image: *placement_api_image
+            user: root
+            net: host
+            privileged: false
+            detach: false
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [PlacementLogging, volumes]}
+                -
+                  - /var/lib/config-data/placement/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                  - /var/lib/config-data/placement/etc/placement/:/etc/placement/:ro
+                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
+            command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
+            environment:
+              __OS_DEBUG:
+                yaql:
+                  expression: str($.data.debug)
+                  data:
+                    debug: {get_param: Debug}
       host_prep_tasks: {get_attr: [PlacementLogging, host_prep_tasks]}
       upgrade_tasks: []
       post_upgrade_tasks:
