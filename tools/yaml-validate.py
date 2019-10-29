@@ -117,6 +117,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'KeystoneAdminErrorLoggingSource': ['default'],
     'KeystoneMainAcccessLoggingSource': ['default'],
     'KeystoneMainErrorLoggingSource': ['default'],
+    'LibvirtVncCACert': ['description'],
     'NeutronApiLoggingSource': ['default'],
     'NeutronDhcpAgentLoggingSource': ['default'],
     'NeutronL3AgentLoggingSource': ['default'],
