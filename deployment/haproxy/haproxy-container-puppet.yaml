@@ -286,6 +286,31 @@ outputs:
               environment:
                 - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
       deploy_steps_tasks:
+        - name: Configure rsyslog for HAproxy container
+          when: step|int == 1
+          block:
+            - name: Check if rsyslog exists
+              shell: systemctl is-active rsyslog
+              register: rsyslog_config
+            - when:
+                - rsyslog_config is changed
+                - rsyslog_config.rc == 0
+              block:
+                - name: Forward logging to haproxy.log file
+                  blockinfile:
+                    content: |
+                      if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
+                      & stop
+                    create: yes
+                    path: /etc/rsyslog.d/openstack-haproxy.conf
+                  vars:
+                    facility: {get_param: HAProxySyslogFacility}
+                  register: logconfig
+                - name: restart rsyslog service after logging conf change
+                  service:
+                    name: rsyslog
+                    state: restarted
+                  when: logconfig is changed
         - name: Run puppet on the host to apply IPtables rules
           when: step|int == 1
           shell: |
@@ -340,28 +365,6 @@ outputs:
                 tripleo_delegate_to: "{{ groups['haproxy'] | default([]) }}"
       host_prep_tasks:
         - {get_attr: [HAProxyPublicTLS, role_data, host_prep_tasks]}
-        - name: Check if rsyslog exists
-          shell: systemctl is-active rsyslog
-          register: rsyslog_config
-        - when:
-            - rsyslog_config is changed
-            - rsyslog_config.rc == 0
-          block:
-            - name: Forward logging to haproxy.log file
-              blockinfile:
-                content: |
-                  if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
-                  & stop
-                create: yes
-                path: /etc/rsyslog.d/openstack-haproxy.conf
-              vars:
-                facility: {get_param: HAProxySyslogFacility}
-              register: logconfig
-            - name: restart rsyslog service after logging conf change
-              service:
-                name: rsyslog
-                state: restarted
-              when: logconfig is changed
         - name: create persistent directories
           file:
             path: "{{ item.path }}"
