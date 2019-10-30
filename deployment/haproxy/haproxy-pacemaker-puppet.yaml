@@ -287,28 +287,13 @@ outputs:
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
       host_prep_tasks:
         - {get_attr: [HAProxyBase, role_data, host_prep_tasks]}
-        - name: Check if rsyslog exists
-          shell: systemctl is-active rsyslog
-          register: rsyslog_config
-        - when:
-            - rsyslog_config is changed
-            - rsyslog_config.rc == 0
-          block:
-            - name: Forward logging to haproxy.log file
-              blockinfile:
-                content: |
-                  if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
-                  & stop
-                create: yes
-                path: /etc/rsyslog.d/openstack-haproxy.conf
-              vars:
-                facility: {get_param: HAProxySyslogFacility}
-              register: logconfig
-            - name: restart rsyslog service after logging conf change
-              service:
-                name: rsyslog
-                state: restarted
-              when: logconfig is changed
+        - name: haproxy logs readme
+          copy:
+            dest: /var/log/haproxy/readme.txt
+            content: |
+              Log files from the haproxy containers can be found under
+              /var/log/containers/haproxy.
+          ignore_errors: true
         - name: create persistent directories
           file:
             path: "{{ item.path }}"
@@ -318,16 +303,34 @@ outputs:
             - { 'path': /var/log/containers/haproxy, 'setype': var_log_t }
             - { 'path': /var/lib/haproxy, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/haproxy, 'setype': svirt_sandbox_file_t }
-        - name: haproxy logs readme
-          copy:
-            dest: /var/log/haproxy/readme.txt
-            content: |
-              Log files from the haproxy containers can be found under
-              /var/log/containers/haproxy.
-          ignore_errors: true
       metadata_settings:
         {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
+        - name: Configure rsyslog for HAproxy container managed by Pacemaker
+          when: step|int == 1
+          block:
+            - name: Check if rsyslog exists
+              shell: systemctl is-active rsyslog
+              register: rsyslog_config
+            - when:
+                - rsyslog_config is changed
+                - rsyslog_config.rc == 0
+              block:
+                - name: Forward logging to haproxy.log file
+                  blockinfile:
+                    content: |
+                      if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
+                      & stop
+                    create: yes
+                    path: /etc/rsyslog.d/openstack-haproxy.conf
+                  vars:
+                    facility: {get_param: HAProxySyslogFacility}
+                  register: logconfig
+                - name: restart rsyslog service after logging conf change
+                  service:
+                    name: rsyslog
+                    state: restarted
+                  when: logconfig is changed
         - name: HAproxy tag container image for pacemaker
           when: step|int == 1
           import_role:
