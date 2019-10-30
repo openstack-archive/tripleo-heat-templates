@@ -105,7 +105,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'DesignateProducerLoggingSource': ['default'],
     'DesignateSinkLoggingSource': ['default'],
     'DesignateWorkerLoggingSource': ['default'],
-    'Ec2ApiLoggingSource': ['default'],
     'GlanceApiLoggingSource': ['default'],
     'GnocchiApiLoggingSource': ['default'],
     'HeatApiCfnLoggingSource': ['default'],
@@ -190,7 +189,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     }
 
 PREFERRED_CAMEL_CASE = {
-    'ec2api': 'Ec2Api',
     'haproxy': 'HAProxy',
     'metrics-qdr': 'MetricsQdr'
 }
