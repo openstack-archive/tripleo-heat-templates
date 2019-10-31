@@ -95,12 +95,12 @@ outputs:
         tripleo::profile::base::novajoin::oslomsg_rpc_username: {get_param: RabbitUserName}
         tripleo::profile::base::novajoin::oslomsg_use_ssl: {get_param: RabbitClientUseSSL}
         tripleo::profile::base::novajoin::service_password: {get_param: NovajoinPassword}
-        nova::metadata::novajoin::api::bind_address:
+        nova::metadata::novajoin::api::bind_address: &novajoin_address
           str_replace:
-             template:
-               "%{hiera('$NETWORK')}"
-             params:
-               $NETWORK:  {get_param: [ServiceNetMap, NovajoinNetwork]}
+            template:
+              "%{hiera('novajoin_network')}"
+            params:
+              novajoin_network: {get_param: [ServiceNetMap, NovajoinNetwork]}
         nova::metadata::novajoin::api::join_listen_port: 9090
         nova::metadata::novajoin::api::project_name: service
         nova::metadata::novajoin::api::keystone_auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
@@ -122,13 +122,17 @@ outputs:
           nova::metadata::novajoin::auth::tenant: 'service'
           nova::metadata::novajoin::auth::password: {get_param: NovajoinPassword}
           nova::metadata::novajoin::auth::region: {get_param: KeystoneRegion}
-        nova_metadata: &nova_vendordata
-          novajoin_address:
+          nova::metadata::novajoin::auth::configure_endpoint: true
+          nova::metadata::novajoin::auth::public_url: &novajoin_endpoint
             str_replace:
-               template:
-                 "%{hiera('$NETWORK')}"
-               params:
-                 $NETWORK:  {get_param: [ServiceNetMap, NovajoinNetwork]}
+              template:
+                "http://%{hiera('novajoin_network')}:9090/v1/"
+              params:
+                novajoin_network: {get_param: [ServiceNetMap, NovajoinNetwork]}
+          nova::metadata::novajoin::auth::internal_url: *novajoin_endpoint
+          nova::metadata::novajoin::auth::admin_url: *novajoin_endpoint
+        nova_metadata: &nova_vendordata
+          novajoin_address: *novajoin_address
           nova::vendordata::vendordata_jsonfile_path: '/etc/novajoin/cloud-config-novajoin.json'
           nova::vendordata::vendordata_providers: ['StaticJSON', 'DynamicJSON']
           # TODO(jaosorior): Add TLS support here. Novajoin is currently not
@@ -137,7 +141,11 @@ outputs:
           # this is only meant to be used in a single node containerized
           # undercloud. Multinode support will come later.
           nova::vendordata::vendordata_dynamic_targets:
-            - "join@http://%{hiera('novajoin_address')}:9090/v1/"
+            - str_replace:
+                template:
+                  "join@http://%{hiera('novajoin_network')}:9090/v1/"
+                params:
+                  novajoin_network: {get_param: [ServiceNetMap, NovajoinNetwork]}
           nova::vendordata::vendordata_dynamic_failure_fatal: true
           nova::vendordata::vendordata_dynamic_auth_auth_type: 'password'
           nova::vendordata::vendordata_dynamic_auth_auth_url:
