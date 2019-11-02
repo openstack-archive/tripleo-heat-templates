@@ -438,26 +438,30 @@ outputs:
             - { 'path': /srv/node, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/swift, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/containers/swift, 'setype': svirt_sandbox_file_t }
-        - name: Check if rsyslog exists
-          shell: systemctl list-unit-files --type=service | grep -q rsyslog
-          register: rsyslog_config
-          failed_when: rsyslog_config.rc == 2
-        - block:
-            - name: Forward logging to swift.log file
-              copy:
-                content: |
-                  # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
-                  local2.*                 /var/log/containers/swift/swift.log
-                  &                        stop
-                dest: /etc/rsyslog.d/openstack-swift.conf
-              register: logconfig
-            - name: Restart rsyslogd service after logging conf change
-              service: name=rsyslog state=restarted
+      deploy_steps_tasks:
+        - name: Configure rsyslog for swift-proxy
+          when: step|int == 1
+          block:
+            - name: Check if rsyslog exists
+              shell: systemctl list-unit-files --type=service | grep -q rsyslog
+              register: rsyslog_config
+              failed_when: rsyslog_config.rc == 2
+            - block:
+                - name: Forward logging to swift.log file
+                  copy:
+                    content: |
+                      # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
+                      local2.*                 /var/log/containers/swift/swift.log
+                      &                        stop
+                    dest: /etc/rsyslog.d/openstack-swift.conf
+                  register: logconfig
+                - name: Restart rsyslogd service after logging conf change
+                  service: name=rsyslog state=restarted
+                  when:
+                    - logconfig is changed
               when:
-                - logconfig is changed
-          when:
-            - rsyslog_config is changed
-            - rsyslog_config.rc == 0
+                - rsyslog_config is changed
+                - rsyslog_config.rc == 0
       update_tasks:
         - name: Check swift containers log folder/symlink exists
           stat:
