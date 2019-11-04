@@ -105,22 +105,25 @@ parameters:
     tags:
       - role_specific
 
-outputs:
-  role_data:
-    description: Role data for the Open vSwitch service.
-    value:
-      service_name: openvswitch
-      config_settings:
+conditions:
+  emc_disable: {equals: [{get_param: OvsDisableEMC}, true]}
+
+resources:
+
+  RoleParametersDpdk:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
         map_replace:
           - map_replace:
-            - vswitch::dpdk::driver_type: OvsDpdkDriverType
-              vswitch::dpdk::host_core_list: OvsDpdkCoreList
-              vswitch::dpdk::pmd_core_list: OvsPmdCoreList
-              vswitch::dpdk::memory_channels: OvsDpdkMemoryChannels
-              vswitch::dpdk::socket_mem: OvsDpdkSocketMemory
-              vswitch::dpdk::disable_emc: OvsDisableEMC
-              vswitch::dpdk::revalidator_cores: OvsRevalidatorCores
-              vswitch::dpdk::handler_cores: OvsHandlerCores
+            - lcore: OvsDpdkCoreList
+              pmd: OvsPmdCoreList
+              memory_channels: OvsDpdkMemoryChannels
+              socket_mem: OvsDpdkSocketMemory
+              disable_emc: OvsDisableEMC
+              revalidator: OvsRevalidatorCores
+              handler: OvsHandlerCores
             - values: {get_param: [RoleParameters]}
           - values:
               OvsDpdkCoreList: {get_param: OvsDpdkCoreList}
@@ -131,3 +134,37 @@ outputs:
               OvsDisableEMC: {get_param: OvsDisableEMC}
               OvsRevalidatorCores: {get_param: OvsRevalidatorCores}
               OvsHandlerCores: {get_param: OvsHandlerCores}
+
+  BootParams:
+    type: ./../kernel/kernel-boot-params-baremetal-ansible.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+  role_data:
+    description: Role data for the Open vSwitch service.
+    value:
+      service_name: openvswitch
+      deploy_steps_tasks:
+        - get_attr: [BootParams, role_data, deploy_steps_tasks]
+        - - name: Run ovs-dpdk role
+            when: step|int == 0
+            include_role:
+              name: tripleo-ovs-dpdk
+            vars:
+              tripleo_ovs_dpdk_pmd_core_list: {get_attr: [RoleParametersDpdk, value, pmd]}
+              tripleo_ovs_dpdk_lcore_list: {get_attr: [RoleParametersDpdk, value, lcore]}
+              tripleo_ovs_dpdk_memory_channels: {get_attr: [RoleParametersDpdk, value, memory_channels]}
+              tripleo_ovs_dpdk_socket_memory: {get_attr: [RoleParametersDpdk, value, socket_mem]}
+              tripleo_ovs_dpdk_revalidator_cores: {get_attr: [RoleParametersDpdk, value, revalidator]}
+              tripleo_ovs_dpdk_handler_cores: {get_attr: [RoleParametersDpdk, value, handler]}
+              tripleo_ovs_dpdk_emc_insertion_probablity:
+                if:
+                - emc_disable
+                - 0
+                - ''
