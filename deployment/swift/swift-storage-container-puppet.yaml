@@ -606,26 +606,6 @@ outputs:
               Log files from swift containers can be found under
               /var/log/containers/swift and /var/log/containers/httpd/swift-*.
           ignore_errors: true
-        - name: Check if rsyslog exists
-          shell: systemctl list-unit-files --type=service | grep -q rsyslog
-          register: rsyslog_config
-          failed_when: rsyslog_config.rc == 2
-        - block:
-            - name: Forward logging to swift.log file
-              copy:
-                content: |
-                  # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
-                  local2.*                 /var/log/containers/swift/swift.log
-                  &                        stop
-                dest: /etc/rsyslog.d/openstack-swift.conf
-              register: logconfig
-            - name: Restart rsyslogd service after logging conf change
-              service: name=rsyslog state=restarted
-              when:
-                - logconfig is changed
-          when:
-            - rsyslog_config is changed
-            - rsyslog_config.rc == 0
         - name: Set fact for SwiftRawDisks
           set_fact:
             swift_raw_disks: {get_param: SwiftRawDisks}
@@ -645,6 +625,30 @@ outputs:
             state: mounted
           with_items: "{{ swift_raw_disks }}"
           when: swift_raw_disks
+      deploy_steps_tasks:
+        - name: Configure rsyslog for swift-storage
+          when: step|int == 1
+          block:
+            - name: Check if rsyslog exists
+              shell: systemctl list-unit-files --type=service | grep -q rsyslog
+              register: rsyslog_config
+              failed_when: rsyslog_config.rc == 2
+            - block:
+                - name: Forward logging to swift.log file
+                  copy:
+                    content: |
+                      # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
+                      local2.*                 /var/log/containers/swift/swift.log
+                      &                        stop
+                    dest: /etc/rsyslog.d/openstack-swift.conf
+                  register: logconfig
+                - name: Restart rsyslogd service after logging conf change
+                  service: name=rsyslog state=restarted
+                  when:
+                    - logconfig is changed
+              when:
+                - rsyslog_config is changed
+                - rsyslog_config.rc == 0
       update_tasks:
         - name: Ensure rsyncd pid file is absent
           file:
