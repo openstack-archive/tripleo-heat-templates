@@ -1,0 +1,109 @@
+---
+# Copyright 2019 Red Hat, Inc.
+# All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+
+- name: Run check
+  hosts: localhost
+  name: Render Ansible tasks for roles templates
+  vars:
+    # This variable is set to 9999, so we will not execute actually
+    # any task. Still, the Ansible interpreter will check for syntax
+    # issues wich is the intention of this playbook.
+    step: 9999
+    # In the future this list should be extended to
+    # ANSIBLE_TASKS_SECTIONS defined in yaml-validate.py
+    # including also deployment tasks
+    tasks_list: >
+      update_tasks
+      post_update_tasks
+      external_update_tasks
+      upgrade_tasks
+      post_upgrade_tasks
+      external_upgrade_tasks
+      fast_forward_upgrade_tasks
+      fast_forward_post_upgrade_tasks
+    # In the future this list shoud be extended to support
+    # automatically any role definition in t-h-t/roles/*
+    # Currently we have a --all option check allservices
+    # in the resource registry
+    roles_list: >
+      Compute
+  tasks:
+  - name: set basic tht folder path
+    fail:
+      msg: >-
+        The variable `tht_root` set this option and try again. On
+        the CLI this can be defined with "-e tht_root=/path/to/tht"
+    when:
+      - tht_root is undefined
+
+  - name: Set temp dir var
+    set_fact:
+      tmp_folder: "{{ tht_root }}/../tht-rendered"
+
+  - name: Get Ansible Galaxy roles
+    command: >-
+      ansible-galaxy install
+      --roles-path {{ tht_root }}/tripleo_heat_templates/tests/roles/
+      -fr
+      {{ tht_root }}/tripleo_heat_templates/tests/tht-role-requirements.yml
+
+  - name: Create temp folder
+    file:
+      state: directory
+      path: "{{ tmp_folder }}"
+
+  # This task will render all the jinja templates in t-h-t.
+  - name: Process templates
+    command: >
+      python {{ tht_root }}/tools/process-templates.py \
+          -r {{ tht_root }}/roles_data.yaml \
+          -o {{ tmp_folder }}
+    args:
+      chdir: "{{ tht_root }}"
+
+  # This task will call the render tool based on the tasks list
+  # using all the services defined by default in the resource registry
+  - name: Render the ansible tasks per role
+    command: >
+      python {{ tht_root }}/tools/render-ansible-tasks.py \
+          --output {{ tmp_folder }}/rendered-tasks/ \
+          --ansible-tasks {{ tasks_list}} \
+          --all
+    args:
+      chdir: "{{ tmp_folder }}"
+
+  # To check changes in the tool we check the script passing 1 task type and
+  # 1 role
+  - name: Render the ansible tasks for 1 role and 1 task type as an example
+    command: >
+      python {{ tht_root }}/tools/render-ansible-tasks.py \
+          --output {{ tmp_folder }}/rendered-tasks/ \
+          --ansible-tasks update_tasks \
+          --roles-list Compute
+    args:
+      chdir: "{{ tmp_folder }}"
+
+  - name: Find rendered Ansible tasks
+    find:
+      paths: "{{ tmp_folder }}/rendered-tasks/"
+      patterns: "*.yml"
+      recurse: false
+    register: find_result
+
+  - name: Import rendered Ansible tasks
+    include_tasks: "{{ item.path }}"
+    with_items: "{{ find_result.files }}"
