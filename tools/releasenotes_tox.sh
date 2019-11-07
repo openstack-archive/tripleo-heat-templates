@@ -2,7 +2,7 @@
 
 rm -rf releasenotes/build
 
-sphinx-build -a -E -W \
+sphinx-build -a -E -W --keep-going \
     -d releasenotes/build/doctrees \
     -b html \
     releasenotes/source releasenotes/build/html
