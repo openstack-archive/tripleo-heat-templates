@@ -378,14 +378,11 @@ def infile_processing(infiles):
             )
             # When python 27 support is removed, we will be able to use:
             #   z = {**x, **y} to merge the dicts.
-            infile_data.get(
-                'environment',
-                {}
-            ).update(
+            if infile_data.get('environment', None) is None:
+                infile_data['environment'] = {}
+            infile_data['environment'].update(
                 {'TRIPLEO_CONFIG_HASH': config_hash}
             )
-            env = infile_data.get('environment')
-            infile_data['environment'] = env
 
         outfile = os.path.join(
             os.path.dirname(
