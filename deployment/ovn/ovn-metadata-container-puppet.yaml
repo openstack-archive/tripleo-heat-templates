@@ -246,40 +246,35 @@ outputs:
             - name: set conditions
               set_fact:
                 haproxy_wrapper_enabled: {get_param: OVNEnableHaproxyDockerWrapper}
-                debug_enabled: {get_param: Debug}
-                docker_additional_sockets: {get_param: DockerAdditionalSockets}
-            - name: create kill_scripts directory within /var/lib/neutron
-              file:
-                state: directory
-                path: /var/lib/neutron/kill_scripts
-            - name: create haproxy kill script
-              when: haproxy_wrapper_enabled|bool
-              copy:
-                dest: /var/lib/neutron/kill_scripts/haproxy-kill
-                mode: 0755
-                content: {get_file: ../neutron/kill-script}
+                debug_enabled:
+                  if:
+                    - service_debug_unset
+                    - {get_param: Debug }
+                    - {get_param: NeutronWrapperDebug}
+            - name: Create ovn metadata systemd wrappers
+              include_role:
+                name: tripleo-systemd-wrapper
+              vars:
+                tripleo_systemd_wrapper_cmd: "{{ ovn_wrapper_item.cmd }}"
+                tripleo_systemd_wrapper_config_bind_mount: "/var/lib/config-data/puppet-generated/neutron:/etc/neutron:ro"
+                tripleo_systemd_wrapper_container_cli: "{{ container_cli }}"
+                tripleo_systemd_wrapper_debug: "{{ debug_enabled }}"
+                tripleo_systemd_wrapper_docker_additional_sockets: {get_param: DockerAdditionalSockets}
+                tripleo_systemd_wrapper_image_name: {get_param: ContainerOvnMetadataImage}
+                tripleo_systemd_wrapper_service_dir: /var/lib/neutron
+                tripleo_systemd_wrapper_service_kill_script: "{{ ovn_wrapper_item.kill_script }}"
+                tripleo_systemd_wrapper_service_name: "{{ ovn_wrapper_item.name }}"
+              loop_control:
+                loop_var: ovn_wrapper_item
+              loop:
+                - name: ovn_metadata_haproxy
+                  cmd: >-
+                      $(if [ -f /usr/sbin/haproxy-systemd-wrapper ]; then
+                      echo "/usr/sbin/haproxy -Ds";
+                      else
+                      echo "/usr/sbin/haproxy -Ws"; fi)
+                  kill_script: haproxy-kill
       docker_config:
-        step_2:
-          create_haproxy_wrapper:
-            start_order: 1
-            detach: false
-            net: host
-            pid: host
-            user: root
-            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-              list_concat:
-                -
-                  - '/container_puppet_apply.sh'
-                  - '4'
-                  - 'file'
-                  - 'include ::tripleo::profile::base::neutron::ovn_metadata_agent_wrappers'
-            image: {get_param: ContainerOvnMetadataImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                -
-                  - /run/openvswitch:/run/openvswitch:shared,z
-                  - /var/lib/neutron:/var/lib/neutron:shared,z
         step_4:
           setup_ovs_manager:
             start_order: 0
@@ -328,7 +323,7 @@ outputs:
                 -
                   if:
                     - haproxy_wrapper_enabled
-                    - - /var/lib/neutron/ovn_metadata_haproxy_wrapper:/usr/local/bin/haproxy:ro
+                    - - /var/lib/neutron/ovn_metadata_haproxy/wrapper:/usr/local/bin/haproxy:ro
                     - null
                 - if:
                   - internal_tls_enabled
