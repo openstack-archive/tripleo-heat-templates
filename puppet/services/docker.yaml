@@ -160,10 +160,16 @@ outputs:
             set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
           - name: Set puppet_docker_is_outofsync fact
             set_fact: puppet_docker_is_outofsync={{ puppet_docker_noop_output.stdout|trim|int >= 1 }}
-          - name: Stop all containers
+          - name: Stop all containers except ceph or neutron side containers
             # xargs is preferable to docker stop $(docker ps -q) as that might generate a
             # a too long command line
-            shell: docker ps -q | xargs --no-run-if-empty -n1 docker stop
+            # We need to make sure connectivity stays by keeping alive ceph and the side containers
+            shell: |
+              {% raw %}
+              docker ps --format "{{.ID}} {{.Names}}" | grep -v ceph- |\
+              grep -v neutron-.*qdhcp | grep -v neutron-.*qrouter | grep -v neutron-radvd |\
+              awk '{print $1}' | xargs --no-run-if-empty docker stop
+              {% endraw %}
             # If we ship a config change which requires docker restart, change the when condition:
             # when: puppet_docker_is_outofsync or docker_rpm_needs_update
             when: docker_rpm_needs_update
