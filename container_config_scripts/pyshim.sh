@@ -18,7 +18,7 @@
 # Unfortunately THT doesn't know which version of python might be in a
 # container so we need this script to be able to try python3 or python2
 # depending on availability.  Since this is a temporary shim until we've
-# fully cut over to python3, we check for the existance of python3 first
+# fully cut over to python3, we check for the existence of python3 first
 # before falling back to python2. This will help in the transition from
 # python2 based containers to python3.
 
