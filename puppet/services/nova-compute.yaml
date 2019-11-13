@@ -136,6 +136,34 @@ parameters:
       - range: { min: 512 }
     tags:
       - role_specific
+  NovaReservedHugePages:
+    description: >
+      A list of valid key=value which reflect NUMA node ID,
+      page size (Default unit is KiB) and number of pages to be reserved.
+      Example -
+      NovaReservedHugePages: ["node:0,size:2048,count:64","node:1,size:1GB,count:1"]
+      will reserve on NUMA node 0 64 pages of 2MiB and on NUMA node 1 1 page of 1GiB
+    type: comma_delimited_list
+    default: []
+    tags:
+      - role_specific
+  KernelArgs:
+    default: ""
+    type: string
+    description: Kernel Args to apply to the host
+    tags:
+      - role_specific
+  OvsDpdkSocketMemory:
+    default: ""
+    description: >
+      Sets the amount of hugepage memory to assign per NUMA node. It is
+      recommended to use the socket closest to the PCIe slot used for the
+      desired DPDK NIC.  The format should be in "<socket 0 mem>, <socket 1
+      mem>, <socket n mem>", where the value is specified in MB.  For example:
+      "1024,0".
+    type: string
+    tags:
+      - role_specific
   MonitoringSubscriptionNovaCompute:
     default: 'overcloud-nova-compute'
     type: string
@@ -224,6 +252,17 @@ conditions:
         - equals: [{get_param: [RoleParameters, NovaEnableRbdBackend]}, '']
         - equals: [{get_param: NovaEnableRbdBackend}, true]
 
+  reserved_huge_pages_set:
+    not:
+      and:
+      - equals: [{get_param: [RoleParameters, NovaReservedHugePages]}, ""]
+      - equals: [{get_param: NovaReservedHugePages}, []]
+
+  ovs_dpdk_socket_memory_not_set:
+    and:
+    - equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]
+    - equals: [{get_param: OvsDpdkSocketMemory}, ""]
+
 resources:
   NovaBase:
     type: ./nova-base.yaml
@@ -246,6 +285,7 @@ resources:
           - map_replace:
             - nova::compute::vcpu_pin_set: NovaVcpuPinSet
               nova::compute::reserved_host_memory: NovaReservedHostMemory
+              nova::compute::reserved_huge_pages: NovaReservedHugePages
               nova::compute::libvirt::rx_queue_size: NovaLibvirtRxQueueSize
               nova::compute::libvirt::tx_queue_size: NovaLibvirtTxQueueSize
               nova::compute::libvirt::volume_use_multipath: NovaLibvirtVolumeUseMultipath
@@ -263,6 +303,51 @@ resources:
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
               NovaReservedHostMemory: {get_param: NovaReservedHostMemory}
+              NovaReservedHugePages:
+                #"repeat" function is run for the case when OvsDpdkSocketMemory is set
+                # and  when neither global or role based NovaReservedHugePages are set.
+                if:
+                - reserved_huge_pages_set
+                - get_param: NovaReservedHugePages
+                - if:
+                  - ovs_dpdk_socket_memory_not_set
+                  - get_param: NovaReservedHugePages
+                  - repeat:
+                      for_each:
+                        <%node%>:
+                          yaql:
+                            expression: range(0,len($.data.dpdk_p)).join(",").split(",")
+                            data:
+                              dpdk_p:
+                                if:
+                                - {equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]}
+                                - str_split: [',',{get_param: OvsDpdkSocketMemory}]
+                                - str_split: [',',{get_param: [RoleParameters, OvsDpdkSocketMemory]}]
+                        <%size%>:
+                          yaql:
+                            expression: let(hzx => regex("([0-9]+[K|M|G])").search($.data.kern_p+$.data.kern_g)) -> let(hz =>switch($hzx = "4K" => "4", $hzx = "2M" => "2048", $hzx = "1G" => "1048576", $hzx  => "2048", $hzx = null => "2048")) -> [$hz]*len($.data.dpdk_p)
+                            data:
+                              dpdk_p:
+                                if:
+                                - {equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]}
+                                - str_split: [',',{get_param: OvsDpdkSocketMemory}]
+                                - str_split: [',',{get_param: [RoleParameters, OvsDpdkSocketMemory]}]
+                              kern_p: {get_param: [RoleParameters, KernelArgs]}
+                              kern_g: {get_param: KernelArgs}
+                        <%count%>:
+                          yaql:
+                            expression: let(hzx => regex("([0-9]+[K|M|G])").search($.data.kern_p+$.data.kern_g)) -> let(hz =>int(switch($hzx = "4K" => "4", $hzx = "2M" => "2048", $hzx = "1G" => "1048576", $hzx  => "2048", $hzx = null => "2048"))) -> $.data.dpdk_p.select(int($)*1024/$hz).join(",").split(',')
+                            data:
+                              dpdk_p:
+                                if:
+                                - {equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]}
+                                - str_split: [',',{get_param: OvsDpdkSocketMemory}]
+                                - str_split: [',',{get_param: [RoleParameters, OvsDpdkSocketMemory]}]
+                              kern_p: {get_param: [RoleParameters, KernelArgs]}
+                              kern_g: {get_param: KernelArgs}
+                      template: >-
+                        node:<%node%>,size:<%size%>,count:<%count%>
+                      permutations: false
               NovaLibvirtRxQueueSize: {get_param: NovaLibvirtRxQueueSize}
               NovaLibvirtTxQueueSize: {get_param: NovaLibvirtTxQueueSize}
               NovaLibvirtVolumeUseMultipath: {get_param: NovaLibvirtVolumeUseMultipath}
