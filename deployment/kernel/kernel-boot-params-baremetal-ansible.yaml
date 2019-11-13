@@ -58,8 +58,22 @@ parameters:
     type: number
     description: Timeout in seconds to specify the wait time for ansible node reboot
 
-conditions:
-  is_host_config_required: {not: {equals: [{get_param: [RoleParameters, KernelArgs]}, ""]}}
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - tuned_profile: TunedProfileName
+              isolated_cores: IsolCpusList
+              kernel_args: KernelArgs
+            - values: {get_param: [RoleParameters]}
+          - values:
+              TunedProfileName: {get_param: TunedProfileName}
+              IsolCpusList: {get_param: IsolCpusList}
+              KernelArgs: {get_param: KernelArgs}
 
 outputs:
   role_data:
@@ -67,39 +81,20 @@ outputs:
     value:
       service_name: boot_params_service
       deploy_steps_tasks:
-        - if:
-          - is_host_config_required
-          - - name: Configure kernel args, tuned and reboot
-              when: step|int == 0
-              vars:
-                _KERNEL_ARGS_: {get_param: [RoleParameters, KernelArgs]}
-                _TUNED_PROFILE_NAME_: {get_param: [RoleParameters, TunedProfileName]}
-                _TUNED_CORES_: {get_param: [RoleParameters, IsolCpusList]}
-              block:
-                - import_tasks: ../boot_param_tasks.yaml
-
-                - name: Update gid for hugetlbfs to kolla's gid
-                  group:
-                    name: hugetlbfs
-                    gid: 42477
-                  when: reboot_required is defined and reboot_required
-
-                # Reboot the node
-                - name: Reboot after kernel args update
-                  shell: "sleep 2 && /sbin/shutdown -r now"
-                  async: 1
-                  poll: 0
-                  ignore_errors: true
-                  become: yes
-                  when: reboot_required is defined and reboot_required
-
-                - name:  Wait for the connection to be ready on the restarted node
-                  wait_for_connection:
-                    connect_timeout: 20
-                    sleep: 5
-                    delay: 30
-                    timeout:
-                      get_param: NodeRebootWaitTimeout
-                  when: reboot_required is defined and reboot_required
-          - null
-
+        # TODO(skramaja): Tasks of Tuned TripleO service can be used here
+        # But the configuration in that service has to be moved from host_prep_tasks to step 0 of deploy_step_tasks
+        - name: Configure tuned before reboot
+          when: step|int == 0
+          import_role:
+            name: tuned
+          vars:
+            tuned_profile: {get_attr: [RoleParametersValue, value, tuned_profile]}
+            tuned_isolated_cores: {get_attr: [RoleParametersValue, value, isolated_cores]}
+        - name: Configure kernel args and reboot
+          when: step|int == 0
+          import_role:
+            name: tripleo-kernel
+            tasks_from: kernelargs.yml
+          vars:
+            tripleo_kernel_args: {get_attr: [RoleParametersValue, value, kernel_args]}
+            tripleo_kernel_reboot_timeout: {get_param: NodeRebootWaitTimeout}
