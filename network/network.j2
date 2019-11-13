@@ -127,10 +127,24 @@ parameters:
       when the subnet is created.
     type: json
 {%- endfor %}
+  ManageNetworks:
+    default: true
+    type: boolean
+    description: >
+      Manage the network and related resources (subnets and segments) with
+      either create, update, or delete operations (depending on the stack
+      operation). Does not apply to ports which will always be managed as
+      needed. Defaults to true. For multi-stack use cases where the network
+      related resources have already been managed by a separate stack, this
+      parameter can be set to false.
+
+conditions:
+  manage_networks: {get_param: ManageNetworks}
 
 resources:
   {{network.name}}Network:
     type: OS::Neutron::Net
+    condition: manage_networks
 {%- if network.external_resource_network_id|default('') %}
     external_id: {{ network.external_resource_network_id }}
 {%- endif %}
@@ -145,6 +159,7 @@ resources:
 
   {{network.name}}Subnet:
     type: OS::Neutron::Subnet
+    condition: manage_networks
 {%- if network.external_resource_subnet_id|default('') %}
     external_id: {{ network.external_resource_subnet_id }}
 {%- endif %}
@@ -168,6 +183,7 @@ resources:
 {% for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
   {{network.name}}Segment_{{subnet}}:
     type: OS::Neutron::Segment
+    condition: manage_networks
     # NOTE(hjensas): Depends-On here to ensure we always create the base subnet
     #   first. We can only set the segment for existing subnet if there is only
     #   one segment and only one existing subnet on the network.
@@ -184,6 +200,7 @@ resources:
 
   {{network.name}}Subnet_{{subnet}}:
     type: OS::Neutron::Subnet
+    condition: manage_networks
 {%- if network.subnets[subnet].external_resource_subnet_id|default('') %}
     external_id: {{ network.subnets[subnet].external_resource_subnet_id }}
 {%- endif %}
@@ -212,8 +229,24 @@ outputs:
     description: List of {{network.name}} network's subnets in CIDR notation.
     value:
       list_concat:
-      - - {get_attr: [{{network.name}}Subnet, cidr]}
-      -
+        if:
+          - manage_networks
+          - - - {get_attr: [{{network.name}}Subnet, cidr]}
+            -
 {%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
-        - {get_attr: [{{network.name}}Subnet_{{subnet}}, cidr]}
+              - {get_attr: [{{network.name}}Subnet_{{subnet}}, cidr]}
+{%- endfor %}
+          - -
+{%- if network.ipv6 or ipv6_override %}
+              - {{network.ipv6_subnet|default(network.ip_subnet|default(""))}}
+{%- else %}
+              - "{{network.ip_subnet|default("")}}"
+{%- endif %}
+            -
+{%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
+{%-     if network.ipv6 or ipv6_override %}
+              - "{{network.subnets[subnet]['ipv6_subnet']|default(network.subnets[subnet]['ip_subnet']|default(""))}}"
+{%-     else %}
+              - "{{network.subnets[subnet]['ip_subnet']|default("")}}"
+{%-     endif %}
 {%- endfor %}
