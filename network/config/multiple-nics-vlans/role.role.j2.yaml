@@ -1,0 +1,231 @@
+{#- Convert net map or net list to internal list of networks #}
+{#- NOTE(hjensas): For backward compatibility support role data with both #}
+{#-                networks map (new schema) and network list (old schema). #}
+{%- if role.networks is mapping %}
+{%-     set _role_networks = [] %}
+{%-     for key, val in role.networks.items() %}
+{%-         set _ = _role_networks.append(key) %}
+{%-     endfor %}
+{%- else %}
+{%-     set _role_networks = role.networks %}
+{%- endif %}
+heat_template_version: rocky
+description: >
+  Software Config to drive os-net-config to configure multiple interfaces for the {{role.name}} role.
+parameters:
+  ControlPlaneIp:
+    default: ''
+    description: IP address/subnet on the ctlplane network
+    type: string
+  ControlPlaneSubnetCidr:
+    default: ''
+    description: >
+      The subnet CIDR of the control plane network. (The parameter is
+      automatically resolved from the ctlplane subnet's cidr attribute.)
+    type: string
+  ControlPlaneDefaultRoute:
+    default: ''
+    description: The default route of the control plane network. (The parameter
+      is automatically resolved from the ctlplane subnet's gateway_ip attribute.)
+    type: string
+  ControlPlaneStaticRoutes:
+    default: []
+    description: >
+      Routes for the ctlplane network traffic.
+      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
+      Unless the default is changed, the parameter is automatically resolved
+      from the subnet host_routes attribute.
+    type: json
+  ControlPlaneMtu:
+    default: 1500
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the network.
+      (The parameter is automatically resolved from the ctlplane network's mtu attribute.)
+    type: number
+{% for network in networks if network.enabled|default(true) and network.name in role.networks %}
+  {{network.name}}IpSubnet:
+    default: ''
+    description: IP address/subnet on the {{network.name_lower}} network
+    type: string
+{%- if network.vlan %}
+  {{network.name}}NetworkVlanID:
+    default: {{network.vlan|default(1)}}
+    description: Vlan ID for the {{network.name_lower}} network traffic.
+    type: number
+{%- endif %}
+  {{network.name}}Mtu:
+    default: {{network.mtu|default('1500')}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
+    type: number
+{%- if network.name in role.default_route_networks %}
+  {{network.name}}InterfaceDefaultRoute:
+    default: ''
+    description: default route for the {{network.name_lower}} network
+    type: string
+{%- endif %}
+  {{network.name}}InterfaceRoutes:
+    default: []
+    description: >
+      Routes for the {{network.name_lower}} network traffic.
+      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
+      Unless the default is changed, the parameter is automatically resolved
+      from the subnet host_routes attribute.
+    type: json
+{%- endfor %}
+{% for network in networks if network.name == "External" and 'external_bridge' in role.tags and not network.name in role.networks %}
+  {{network.name}}Mtu:
+    default: {{network.mtu|default('1500')}}
+    description: The maximum transmission unit (MTU) size(in bytes) that is
+      guaranteed to pass through the data path of the segments in the
+      {{network.name}} network.
+    type: number
+{% endfor %}
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: >
+      DNS servers to use for the Overcloud (2 max for some implementations).
+      If not set the nameservers configured in the ctlplane subnet's
+      dns_nameservers attribute will be used.
+    type: comma_delimited_list
+  DnsSearchDomains: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS search domains to be added (in order) to resolv.conf.
+    type: comma_delimited_list
+{%- if role.name == 'ComputeOvsDpdk' %}
+  NumDpdkInterfaceRxQueues:
+    description: Number of Rx Queues required for DPDK bond or DPDK ports
+    default: 1
+    type: number
+{%- endif %}
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: ../../scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: interface
+                name: nic1
+                mtu:
+                  get_param: ControlPlaneMtu
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                domain:
+                  get_param: DnsSearchDomains
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneSubnetCidr
+                routes:
+                  list_concat_unique:
+                    - get_param: ControlPlaneStaticRoutes
+{%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
+                    - - default: true
+                        next_hop:
+                          get_param: ControlPlaneDefaultRoute
+{%- endif %}
+{%- set nics_used = [1] %}
+{%- for network in networks if network.enabled|default(true) and network.name not in role.networks_skip_config|default([]) %}
+{%-     if network.name not in ["External", "Tenant"] %}
+{%-         if network.name in _role_networks %}
+              - type: interface
+                name: nic{{loop.index + 1}}
+                mtu:
+                  get_param: {{network.name}}Mtu
+                use_dhcp: false
+              - type: vlan
+                device: nic{{loop.index + 1}}
+                mtu:
+                  get_param: {{network.name}}Mtu
+                vlan_id:
+                  get_param: {{network.name}}NetworkVlanID
+                addresses:
+                - ip_netmask:
+                    get_param: {{network.name}}IpSubnet
+                routes:
+                  list_concat_unique:
+                    - get_param: {{network.name}}InterfaceRoutes
+{%-             if network.name in role.default_route_networks %}
+                    - - default: true
+                        next_hop:
+                          get_param: {{network.name}}InterfaceDefaultRoute
+{%-             endif %}
+{%-         endif %}
+{#- We need bridge also for ComputeDVR and Computes with OVN #}
+{%-     elif network.name in role.networks or 'external_bridge' in role.tags %}
+              - type: ovs_bridge
+{%-         if network.name == "External" %}
+                name: bridge_name
+{%-         else %}
+                name: br-{{network.name_lower}}
+{%-         endif %}
+                mtu:
+                  get_param: {{network.name}}Mtu
+                dns_servers:
+                  get_param: DnsServers
+                use_dhcp: false
+                members:
+                - type: interface
+                  name: nic{{loop.index + 1}}
+                  mtu:
+                    get_param: {{network.name}}Mtu
+                  use_dhcp: false
+                  primary: true
+{%-         if network.name in _role_networks %}
+                - type: vlan
+                  mtu:
+                    get_param: InternalApiMtu
+                  vlan_id:
+                    get_param: InternalApiNetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: {{network.name}}IpSubnet
+                  routes:
+                    list_concat_unique:
+                      - get_param: {{network.name}}InterfaceRoutes
+{%-               if network.name in role.default_route_networks %}
+                      - - default: true
+                          next_hop:
+                            get_param: {{network.name}}InterfaceDefaultRoute
+{%-             endif %}
+{%-         endif %}
+{%-     endif %}
+{#- This hack gets around Jinja scope limitations to update nics_used within loop. #}
+{%- set _ = nics_used.append(loop.index) %}
+{%- endfor %}
+{%- if role.name == 'ComputeOvsDpdk' %}
+              # Used as a provider network with external DHCP
+              - type: ovs_user_bridge
+                name: br-dpdk0
+                members:
+                - type: ovs_dpdk_bond
+                  name: dpdkbond0
+                  rx_queue:
+                    get_param: NumDpdkInterfaceRxQueues
+                  members:
+                  - type: ovs_dpdk_port
+                    name: dpdk0
+                    members:
+                    - type: interface
+                      name: nic{{nics_used[-1] + 1}}
+                  - type: ovs_dpdk_port
+                    name: dpdk1
+                    members:
+                    - type: interface
+                      name: nic{{nics_used[-1] + 2}}
+{%- endif %}
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl
