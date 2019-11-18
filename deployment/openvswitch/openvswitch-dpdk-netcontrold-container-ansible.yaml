@@ -1,0 +1,81 @@
+heat_template_version: rocky
+
+description: >
+  netcontrold configuration for ovs-dpdk
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ContainerOpenvswitchNetcontroldImage:
+    description: netcontrold container image
+    type: string
+  DockerOpenvswitchUlimit:
+    default: ['nofile=16384']
+    description: ulimit for Openvswitch Container
+    type: comma_delimited_list
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the netcontrold service
+    value:
+      service_name: openvswitch_dpdk_netcontrold
+      kolla_config:
+        /var/lib/kolla/config_files/ovs_dpdk_netcontrold.json:
+          command: "/usr/local/bin/ncd_watch"
+      docker_config:
+        step_5:
+          openvswitch_dpdk_netcontrold:
+            image: {get_param: ContainerOpenvswitchNetcontroldImage}
+            net: host
+            pid: host
+            privileged: true
+            security_opt: 'label=disable'
+            restart: always
+            depends_on:
+              - openvswitch
+            ulimit: {get_param: DockerOpenvswitchUlimit}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovs_dpdk_netcontrold.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /sys/kernel/debug:/sys/kernel/debug
+                  - /run/openvswitch:/run/openvswitch:shared,z
+                  - /var/log/containers/netcontrold:/var/log/netcontrold:z
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories - /var/log/containers/netcontrold
+          file:
+            path: "/var/log/containers/netcontrold"
+            state: directory
+            setype: "svirt_sandbox_file_t"
