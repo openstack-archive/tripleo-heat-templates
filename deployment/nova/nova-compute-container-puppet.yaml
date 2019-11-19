@@ -769,18 +769,12 @@ outputs:
               - resume_guests_state_on_host_boot_enabled|bool
               - container_cli == 'docker'
             block:
-              - name: make sure libvirt-client is installed
-                when: resume_guests_state_on_host_boot_enabled|bool
-                package:
-                  name: libvirt-client
-                  state: present
               - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
                 copy:
                   dest: /etc/systemd/system/libvirt-guests.service
                   content: |
                     [Unit]
                     Description=Suspend/Resume Running libvirt Guests
-                    Requires=virt-guest-shutdown.target
                     After=network.target
                     After=time-sync.target
                     After=virt-guest-shutdown.target
@@ -791,12 +785,12 @@ outputs:
                     Documentation=https://libvirt.org
 
                     [Service]
-                    EnvironmentFile=-/etc/sysconfig/libvirt-guests
+                    EnvironmentFile=-/var/lib/config-data/puppet-generated/nova_libvirt/etc/sysconfig/libvirt-guests
                     # Hack just call traditional service until we factor
                     # out the code
-                    ExecStart=/usr/libexec/libvirt-guests.sh start
+                    ExecStart=/bin/{{container_cli}} exec nova_libvirt /bin/sh -x /usr/libexec/libvirt-guests.sh start
                     ExecStop=/bin/{{container_cli}} stop nova_compute
-                    ExecStop=/usr/libexec/libvirt-guests.sh stop
+                    ExecStop=/bin/{{container_cli}}  exec nova_libvirt /bin/sh -x /usr/libexec/libvirt-guests.sh stop
                     Type=oneshot
                     RemainAfterExit=yes
                     StandardOutput=journal+console
@@ -808,7 +802,6 @@ outputs:
                 systemd:
                   name: libvirt-guests
                   enabled: yes
-                  state: started
                   daemon_reload: yes
           - name: install tripleo_nova_libvirt_guests systemd unit file (podman)
             when:
@@ -819,7 +812,6 @@ outputs:
                 systemd:
                   name: libvirt-guests
                   enabled: no
-                  state: stopped
                   masked: yes
                   daemon_reload: yes
               - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
