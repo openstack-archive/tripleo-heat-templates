@@ -142,21 +142,25 @@ def rm_container(name):
         if stderr:
             LOG.debug(stderr)
 
+    def rm_process_call(rm_cli_cmd):
+        stdout, stderr, retval = local_subprocess_call(
+            cmd=rm_cli_cmd)
+        if stdout:
+            LOG.debug(stdout)
+        if stderr and 'Error response from daemon' in stderr:
+            LOG.debug(stderr)
+
     LOG.info('Removing container: %s' % name)
     rm_cli_cmd = [CLI_CMD, 'rm']
+    rm_cli_cmd.append(name)
+    rm_process_call(rm_cli_cmd)
     # --storage is used as a mitigation of
     # https://github.com/containers/libpod/issues/3906
     # Also look https://bugzilla.redhat.com/show_bug.cgi?id=1747885
     if CONTAINER_CLI == 'podman':
-        rm_cli_cmd.extend(['--storage'])
-    rm_cli_cmd.append(name)
-    stdout, stderr, retval = local_subprocess_call(
-        cmd=rm_cli_cmd
-    )
-    if stdout:
-        LOG.debug(stdout)
-    if stderr and 'Error response from daemon' in stderr:
-        LOG.debug(stderr)
+        rm_storage_cli_cmd = [CLI_CMD, 'rm', '--storage']
+        rm_storage_cli_cmd.append(name)
+        rm_process_call(rm_storage_cli_cmd)
 
 
 def mp_puppet_config(*args):
