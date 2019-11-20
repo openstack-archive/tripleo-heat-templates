@@ -81,6 +81,31 @@ outputs:
     description: Role data for the Memcached API role.
     value:
       service_name: memcached
+      firewall_rules:
+        # https://access.redhat.com/security/cve/cve-2018-1000115
+        # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
+        # Memcached traffic shouldn't be open on the internet.
+        # Even if binding is configured on internal_api network, enforce it
+        # via firewall as well.
+        if:
+          - memcached_network_unset
+          - map_merge:
+              repeat:
+                for_each:
+                  <%net_cidr%>:
+                    get_param:
+                      - ServiceData
+                      - net_cidr_map
+                      - {get_param: [ServiceNetMap, MemcachedNetwork]}
+                template:
+                  '121 memcached <%net_cidr%>':
+                    dport: 11211
+                    proto: 'tcp'
+                    source: <%net_cidr%>
+          - '121 memcached':
+              dport: 11211
+              proto: 'tcp'
+              source: {get_param: MemcachedIpSubnet}
       monitoring_subscription: {get_param: MonitoringSubscriptionMemcached}
       config_settings:
         # NOTE: bind IP is found in hiera replacing the network name with the local node IP
@@ -113,31 +138,6 @@ outputs:
                 - 'v'
                 - ''
         memcached::disable_cachedump: true
-        tripleo::memcached::firewall_rules:
-          # https://access.redhat.com/security/cve/cve-2018-1000115
-          # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
-          # Memcached traffic shouldn't be open on the internet.
-          # Even if binding is configured on internal_api network, enforce it
-          # via firewall as well.
-          if:
-            - memcached_network_unset
-            - map_merge:
-                repeat:
-                  for_each:
-                    <%net_cidr%>:
-                      get_param:
-                        - ServiceData
-                        - net_cidr_map
-                        - {get_param: [ServiceNetMap, MemcachedNetwork]}
-                  template:
-                    '121 memcached <%net_cidr%>':
-                      dport: 11211
-                      proto: 'tcp'
-                      source: <%net_cidr%>
-            - '121 memcached':
-                dport: 11211
-                proto: 'tcp'
-                source: {get_param: MemcachedIpSubnet}
       service_config_settings:
         collectd:
             tripleo.collectd.plugins.memcached:
