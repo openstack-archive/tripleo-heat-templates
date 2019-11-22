@@ -121,7 +121,7 @@ if [ -z "$NO_ARCHIVE" ]; then
     echo "Ensuring the removed config files are also purged in ${puppet_generated_path}:"
     cat $TMPFILE | sort
     cat $TMPFILE | xargs -n1 -r -I{} \
-        bash -c "test -f ${puppet_generated_path}/{} && rm -f ${puppet_generated_path}/{}"
+        bash -c "rm -f ${puppet_generated_path}/{}"
     exec 5>&1
     exec 1>$TMPFILE2
     find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0
