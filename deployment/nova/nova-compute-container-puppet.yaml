@@ -998,19 +998,33 @@ outputs:
             # Some tasks are running from the Undercloud which has
             # the OpenStack clients installed.
             - name: Get nova-compute service ID
-              shell: openstack compute service list --service nova-compute --host {{ ansible_fqdn }} --column ID --format value
+              command: openstack compute service list --service nova-compute --column ID --column Host --format yaml
               register: nova_compute_service_result
               delegate_to: localhost
               check_mode: no
-            - name: Set fact nova_compute_service_id
+              changed_when: false
+            - name: Set fact for nova_compute services
               set_fact:
-                nova_compute_service_id: "{{ nova_compute_service_result.stdout }}"
+                nova_compute_service: "{{ nova_compute_service_result.stdout | from_yaml | selectattr('Host', 'match', ansible_fqdn ~ '.*') | list }}"
               delegate_to: localhost
               check_mode: no
+            - name: Check search output
+              fail:
+                msg: >-
+                  Found multiple `{{ ansible_fqdn }}`, which is unexpected.
+                  This means that the FQDN of the selected device to disable is
+                  either wrong or is sharing a name with another host, which is
+                  also wrong. Please correct this issue before continuing. Nova
+                  service list return data can be found here
+                  -> {{ nova_compute_service }}.
+              when:
+                - (nova_compute_service | length) > 1
             - name: Disable nova-compute service
-              command: openstack compute service set {{ ansible_fqdn }} nova-compute --disable
+              command: openstack compute service set {{ nova_compute_service[0].Host }} nova-compute --disable
               delegate_to: localhost
               check_mode: no
+              when:
+                - (nova_compute_service | length) < 1
             - name: Stop nova-compute healthcheck container
               service:
                 name: tripleo_nova_compute_healthcheck
@@ -1024,9 +1038,11 @@ outputs:
                 enabled: no
               become: true
             - name: Delete nova-compute service
-              command: openstack compute service delete {{ nova_compute_service_id }}
+              command: openstack compute service delete {{ nova_compute_service[0].ID }}
               delegate_to: localhost
               check_mode: no
+              when:
+                - (nova_compute_service | length) < 1
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
