@@ -80,11 +80,17 @@ parameters:
     default: true
     description: Configure the nova flavor for the amphora.
     type: boolean
+  NeutronMechanismDrivers:
+    default: 'ovn'
+    description: |
+        The mechanism drivers for the Neutron tenant network.
+    type: comma_delimited_list
 
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
+  is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
 
 resources:
 
@@ -169,6 +175,12 @@ outputs:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
+          -
+            if:
+              - is_ovn_in_neutron_mechanism_driver
+              - octavia::api::provider_drivers: 'amphora: Octavia Amphora Driver.,octavia: Deprecated alias of the Octavia Amphora driver.,ovn: Octavia OVN driver.'
+              - {}
+
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_octavia_api:
@@ -206,6 +218,17 @@ outputs:
               dest: "/etc/httpd/conf.d"
               merge: false
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/octavia
+              owner: octavia:octavia
+              recurse: true
+        /var/lib/kolla/config_files/octavia_driver_agent.json:
+          command: /usr/bin/octavia-driver-agent --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/driver-agent.log --config-dir /etc/octavia/conf.d/common
+          config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
@@ -276,6 +299,7 @@ outputs:
                       - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
                       - /var/log/containers/octavia:/var/log/octavia:z
+                      - /var/run/octavia:/var/run/octavia:shared,z
                       - /var/log/containers/httpd/octavia-api:/var/log/httpd:z
                       -
                         if:
@@ -289,6 +313,26 @@ outputs:
                           - ''
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            - if:
+                - is_ovn_in_neutron_mechanism_driver
+                - octavia_driver_agent:
+                    start_order: 2
+                    image: *octavia_api_image
+                    net: host
+                    privileged: true
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/octavia_driver_agent.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/octavia/:/var/lib/kolla/config_files/src:ro
+                          - /var/log/containers/octavia:/var/log/octavia:z
+                          - /var/run/octavia:/var/run/octavia:shared,z
+                    environment:
+                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                - {}
+
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -298,6 +342,7 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/octavia, 'setype': svirt_sandbox_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/httpd/octavia-api, 'setype': svirt_sandbox_file_t, 'mode': '0750' }
+            - { 'path': /var/run/octavia, 'setype': svirt_sandbox_file_t, 'mode': '0750'  }
       update_tasks:
         - name: Set internal tls variable
           set_fact:
