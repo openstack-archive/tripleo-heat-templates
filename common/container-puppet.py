@@ -200,7 +200,12 @@ def mp_puppet_config(*args):
             CLI_CMD,
             'run',
             '--user',
-            'root',
+            # Using '0' and not 'root' because it seems podman is susceptible to a race condition
+            # https://bugzilla.redhat.com/show_bug.cgi?id=1776766 and
+            # https://bugs.launchpad.net/tripleo/+bug/1803544 which are still lurking
+            # by using a UID we skip the code that parses /etc/passwd entirely and basically
+            # paper over this issue
+            '0',
             '--name',
             uname,
             '--env',
