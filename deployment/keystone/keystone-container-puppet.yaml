@@ -275,6 +275,9 @@ parameters:
     default: ''
     description: >-
       OAuth 2.0 introspection endpoint for mod_auth_openidc
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
 
 resources:
 
@@ -641,6 +644,35 @@ outputs:
             user: root
             command:
               [ 'keystone', 'pkill', '--signal', 'USR1', 'httpd' ]
+      external_deploy_tasks:
+        - name: Manage clouds.yaml files
+          when:
+            - step|int == 1
+            - not ansible_check_mode|bool
+          block:
+            - name: Create /etc/openstack directory if it does not exist
+              become: true
+              file:
+                mode: '0755'
+                owner: root
+                path: /etc/openstack
+                state: directory
+            - name: Configure /etc/openstack/clouds.yaml
+              include_role:
+                name: tripleo-keystone-resources
+                tasks_from: clouds
+              vars:
+                tripleo_keystone_resources_cloud_name: {get_param: RootStackName}
+                tripleo_keystone_resources_cloud_config:
+                  auth:
+                    auth_url: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+                    password: {get_param: AdminPassword}
+                    project_domain_name: Default
+                    project_name: admin
+                    user_domain_name: Default
+                    username: admin
+                  identity_api_version: '3'
+                  region_name: {get_param: KeystoneRegion}
       container_puppet_tasks:
         # Keystone endpoint creation occurs only on single node
         step_3:
