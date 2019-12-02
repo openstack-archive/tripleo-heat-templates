@@ -10,6 +10,14 @@ parameters:
   DockerOvnDbsConfigImage:
     description: image
     type: string
+  ClusterCommonTag:
+    default: false
+    description: When set to false, a pacemaker service is configured
+                 to use a floating tag for its container image name,
+                 e.g. 'REGISTRY/NAMESPACE/IMAGENAME:pcmklatest'. When
+                 set to true, the service uses a floating prefix as
+                 well, e.g. 'cluster-common-tag/IMAGENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -61,6 +69,7 @@ parameters:
 
 conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
+  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
 
 resources:
 
@@ -88,12 +97,15 @@ outputs:
         map_merge:
           - get_attr: [OVNDbsBase, role_data, config_settings]
           - tripleo::profile::pacemaker::ovn_dbs_bundle::ovn_dbs_docker_image: &ovn_dbs_image_pcmklatest
-              list_join:
-                - ':'
-                - - yaql:
-                      data: {get_param: DockerOvnDbsImage}
-                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
-                  - 'pcmklatest'
+              yaql:
+                data:
+                  if:
+                    - common_tag_enabled
+                    - yaql:
+                        data: {get_param: DockerOvnDbsImage}
+                        expression: concat("cluster-common-tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                    - {get_param: DockerOvnDbsImage}
+                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
           - tripleo::profile::pacemaker::ovn_dbs_bundle::nb_db_port: {get_param: OVNNorthboundServerPort}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::dbs_timeout: {get_param: OVNDBSPacemakerTimeout}
