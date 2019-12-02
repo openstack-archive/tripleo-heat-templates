@@ -78,6 +78,9 @@ parameters:
     type: string
     default: 'messagingv2'
     description: Driver or drivers to handle sending notifications.
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
 
 conditions:
 
@@ -123,11 +126,46 @@ outputs:
           dport:
             - 8776
             - 13776
+      keystone_resources:
+        cinder:
+          users:
+            cinder:
+              password: {get_param: CinderPassword}
+              roles:
+                - admin
+                - service
+        cinderv2:
+          endpoints:
+            public: {get_param: [EndpointMap, CinderV2Public, uri]}
+            internal: {get_param: [EndpointMap, CinderV2Internal, uri]}
+            admin: {get_param: [EndpointMap, CinderV2Admin, uri]}
+          users:
+            cinderv2:
+              password: {get_param: CinderPassword}
+              roles:
+                - admin
+                - service
+          region: {get_param: KeystoneRegion}
+          service: 'volumev2'
+        cinderv3:
+          endpoints:
+            public: {get_param: [EndpointMap, CinderV3Public, uri]}
+            internal: {get_param: [EndpointMap, CinderV3Internal, uri]}
+            admin: {get_param: [EndpointMap, CinderV3Admin, uri]}
+          users:
+            cinderv3:
+              password: {get_param: CinderPassword}
+              roles:
+                - admin
+                - service
+          region: {get_param: KeystoneRegion}
+          service: 'volumev3'
       monitoring_subscription: {get_param: MonitoringSubscriptionCinderApi}
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
           - get_attr: [ApacheServiceBase, role_data, config_settings]
+          - keystone_resources_managed: false
           - cinder::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             cinder::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             cinder::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
@@ -185,17 +223,6 @@ outputs:
           - rsyslog:
               tripleo_logging_sources_cinder_api:
                 - {get_param: CinderApiLoggingSource}
-        keystone:
-          cinder::keystone::auth::tenant: 'service'
-          cinder::keystone::auth::public_url_v2: {get_param: [EndpointMap, CinderV2Public, uri]}
-          cinder::keystone::auth::internal_url_v2: {get_param: [EndpointMap, CinderV2Internal, uri]}
-          cinder::keystone::auth::admin_url_v2: {get_param: [EndpointMap, CinderV2Admin, uri]}
-          cinder::keystone::auth::public_url_v3: {get_param: [EndpointMap, CinderV3Public, uri]}
-          cinder::keystone::auth::internal_url_v3: {get_param: [EndpointMap, CinderV3Internal, uri]}
-          cinder::keystone::auth::admin_url_v3: {get_param: [EndpointMap, CinderV3Admin, uri]}
-          cinder::keystone::auth::password: {get_param: CinderPassword}
-          cinder::keystone::auth::region: {get_param: KeystoneRegion}
-          cinder::keystone::auth::roles: ['admin', 'service']
         mysql:
           cinder::db::mysql::password: {get_param: CinderPassword}
           cinder::db::mysql::user: cinder
@@ -413,3 +440,20 @@ outputs:
           when:
             - step|int == 8
             - is_bootstrap_node|bool
+      external_deploy_tasks:
+        - name: Manage Cinder Volume Type
+          become: true
+          vars:
+            default_volume_type: {get_param: CinderDefaultVolumeType}
+          environment:
+            OS_CLOUD: {get_param: RootStackName}
+          when:
+            - step|int == 5
+            - not ansible_check_mode|bool
+          shell: |
+            if ! openstack volume type show "{{ default_volume_type }}"; then
+                openstack volume type create --public "{{ default_volume_type }}"
+            fi
+          args:
+            executable: /bin/bash
+          changed_when: false
