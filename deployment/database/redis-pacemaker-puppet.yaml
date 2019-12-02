@@ -10,6 +10,14 @@ parameters:
   ContainerRedisConfigImage:
     description: The container image to use for the redis config_volume
     type: string
+  ClusterCommonTag:
+    default: false
+    description: When set to false, a pacemaker service is configured
+                 to use a floating tag for its container image name,
+                 e.g. 'REGISTRY/NAMESPACE/IMAGENAME:pcmklatest'. When
+                 set to true, the service uses a floating prefix as
+                 well, e.g. 'cluster-common-tag/IMAGENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -65,6 +73,7 @@ conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   redis_ipv6: {get_param: RedisIPv6}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
 
 resources:
 
@@ -99,12 +108,15 @@ outputs:
             redis::notify_service: false
             redis::managed_by_cluster_manager: true
             tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image_pcmklatest
-              list_join:
-                - ':'
-                - - yaql:
-                      data: {get_param: ContainerRedisImage}
-                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
-                  - 'pcmklatest'
+              yaql:
+                data:
+                  if:
+                    - common_tag_enabled
+                    - yaql:
+                        data: {get_param: ContainerRedisImage}
+                        expression: concat("cluster-common-tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                    - {get_param: ContainerRedisImage}
+                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::database::redis_bundle::control_port: 3124
             tripleo::profile::pacemaker::database::redis_bundle::container_backend: {get_param: ContainerCli}
             tripleo::stunnel::manage_service: false
