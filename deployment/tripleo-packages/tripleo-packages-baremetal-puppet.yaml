@@ -355,6 +355,37 @@ outputs:
             - step|int == 3
             - os_net_config_need_upgrade.stdout
             - os_net_config_has_config.rc == 0
+        - name: check podman version
+          block:
+            - name: get current podman version
+              command: "podman --version"
+              register: podman_current_version
+
+            - name: get next podman version
+              shell: |
+                set -o pipefail
+                dnf info -q podman | awk '/^Version/{print $NF}'
+              register: podman_next_version
+          when:
+            - (step | int) == 3
+
+        - name: Special podman handling.
+          when:
+            - (step | int) == 3
+            - "'podman version 1.0.' in podman_current_version.stdout"
+            - "'1.0' not in podman_next_version.stdout[0:3]"
+          block:
+            - debug:
+                msg: "NEED SOME MAGIC TO PREVENT REBALANCE ON CEPH NODE"
+            - debug:
+                msg: "Maybe some magic to the sidecar container metadata api (less important)"
+            - name: update podman
+              package:
+                name: podman
+                ensure: latest
+            - name: migrate the locks
+              command: podman system migrate
+
         # Exclude ansible until https://github.com/ansible/ansible/issues/56636
         # is available
         - name: Update all packages
