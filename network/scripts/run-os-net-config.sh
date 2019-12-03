@@ -80,7 +80,7 @@ if [ -n '$network_config' ]; then
         network_config_hook
     fi
 
-    sed -i "s/bridge_name/${bridge_name:-''}/" /etc/os-net-config/config.json
+    sed -i "s/: \"bridge_name/: \"${bridge_name:-''}/" /etc/os-net-config/config.json
     sed -i "s/interface_name/${interface_name:-''}/" /etc/os-net-config/config.json
 
     set +e
