@@ -220,7 +220,7 @@ def convert(filename, script_path):
 def check_old_style(filename):
 
     with open(filename, 'r') as f:
-        tpl = yaml.load(f.read(), Loader=yaml.FullLoader)
+        tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
 
         if isinstance(tpl.get('resources', {}), dict):
             for r in (tpl.get('resources', {})).items():
