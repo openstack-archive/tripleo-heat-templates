@@ -105,9 +105,28 @@ parameters:
     description: Use Leapp for operating system upgrade
     type: boolean
     default: true
+  ContainerCli:
+    type: string
+    default: 'podman'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
+  PacemakerBundleOperationTimeout:
+    type: string
+    default: ''
+    description: The timeout for start, monitor and stop operations
+                 run by the container resource agent, in seconds.
+                 When set to default '', the timeout comes from
+                 pacemaker's default operation timeouts (20s). When
+                 set to default and podman is used, force the timeout
+                 to 120s.
+    constraints:
+      - allowed_pattern: "([1-9][0-9]*s)?"
 
 conditions:
   pcmk_tls_priorities_empty: {equals: [{get_param: PacemakerTLSPriorities}, '']}
+  pcmk_bundle_op_timeout_empty: {equals: [{get_param: PacemakerBundleOperationTimeout}, '']}
+  podman_enabled: {equals: [{get_param: ContainerCli}, 'podman']}
 
 outputs:
   role_data:
@@ -153,6 +172,20 @@ outputs:
           - pcmk_tls_priorities_empty
           - {}
           - tripleo::pacemaker::tls_priorities: {get_param: PacemakerTLSPriorities}
+        -
+          if:
+          -  and:
+             - pcmk_bundle_op_timeout_empty
+             - not: podman_enabled
+          - {}
+          - tripleo::profile::base::pacemaker::resource_op_defaults:
+              bundle:
+                name: timeout
+                value:
+                  if:
+                  - pcmk_bundle_op_timeout_empty
+                  - '120s'
+                  - {get_param: PacemakerBundleOperationTimeout}
       service_config_settings:
         fluentd:
           tripleo_fluentd_groups_pacemaker:
