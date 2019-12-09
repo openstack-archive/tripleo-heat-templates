@@ -584,4 +584,4 @@ if __name__ == '__main__':
     infile_processing(infiles=glob.glob(STARTUP_CONFIGS))
 
     if not SUCCESS:
-        raise SystemExit()
+        raise SystemExit(1)
