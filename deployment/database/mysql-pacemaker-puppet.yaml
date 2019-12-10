@@ -10,6 +10,14 @@ parameters:
   ContainerMysqlConfigImage:
     description: The container image to use for the mysql config_volume
     type: string
+  ClusterCommonTag:
+    default: false
+    description: When set to false, a pacemaker service is configured
+                 to use a floating tag for its container image name,
+                 e.g. 'REGISTRY/NAMESPACE/IMAGENAME:pcmklatest'. When
+                 set to true, the service uses a floating prefix as
+                 well, e.g. 'cluster-common-tag/IMAGENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -93,6 +101,7 @@ conditions:
   puppet_debug_enabled: {get_param: ConfigDebug}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
+  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
 
 outputs:
   role_data:
@@ -133,12 +142,15 @@ outputs:
             tripleo::profile::pacemaker::database::mysql::ca_file:
               get_param: InternalTLSCAFile
             tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image_pcmklatest
-              list_join:
-                - ':'
-                - - yaql:
-                      data: {get_param: ContainerMysqlImage}
-                      expression: $.data.rightSplit(separator => ":", maxSplits => 1)[0]
-                  - 'pcmklatest'
+              yaql:
+                data:
+                  if:
+                    - common_tag_enabled
+                    - yaql:
+                        data: {get_param: ContainerMysqlImage}
+                        expression: concat("cluster-common-tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                    - {get_param: ContainerMysqlImage}
+                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::database::mysql_bundle::control_port: 3123
             tripleo::profile::pacemaker::database::mysql_bundle::container_backend: {get_param: ContainerCli}
             tripleo::profile::pacemaker::database::mysql_bundle::bind_address:
