@@ -314,3 +314,64 @@
             label: "{{ item[0] }}"
           tags:
             - container_startup_configs
+
+        - name: gather facts needed by role
+          setup:
+            gather_subset: "!min,python"
+          when: ansible_python is not defined
+          tags:
+            - container_config_tasks
+
+        - name: set python_cmd
+          set_fact:
+            python_cmd: "python{{ ansible_python.version.major }}"
+            cacheable: true
+          when: python_cmd is not defined
+          tags:
+            - container_config_tasks
+
+        - name: Set host puppet debugging fact string
+          set_fact:
+            host_puppet_config_debug: "--debug --verbose"
+          when:
+            - enable_puppet | bool
+            - enable_debug | bool
+          tags:
+            - host_config
+
+        - name: Check for /etc/puppet/check-mode directory for check mode
+          stat:
+            path: /etc/puppet/check-mode
+          register: check_mode_dir
+          when: ansible_check_mode|bool
+          tags:
+            - host_config
+            - container_config
+
+        - name: Create /etc/puppet/check-mode/hieradata directory for check mode
+          file:
+            path: /etc/puppet/check-mode/hieradata
+            state: directory
+            setype: svirt_sandbox_file_t
+            selevel: s0
+            recurse: true
+          check_mode: no
+          when:
+            - ansible_check_mode|bool
+            - not check_mode_dir.stat.exists
+          tags:
+            - host_config
+            - container_config
+
+        - name: Create puppet check-mode files if they don't exist for check mode
+          shell: |
+            cp -a /etc/puppet/hiera.yaml /etc/puppet/check-mode/hiera.yaml
+            cp -a /etc/puppet/hieradata/* /etc/puppet/check-mode/hieradata/
+            sed -i 's/\/etc\/puppet\/hieradata/\/etc\/puppet\/check-mode\/hieradata/' /etc/puppet/check-mode/hiera.yaml
+          when:
+            - ansible_check_mode|bool
+            - not check_mode_dir.stat.exists
+          check_mode: no
+          tags:
+            - host_config
+            - container_config
