@@ -410,6 +410,7 @@ def mp_puppet_config(*args):
             log.error('%s run failed after %s attempt(s): %s' % (common_dcmd,
                                                                  cmd_stderr,
                                                                  count))
+            rm_container(uname)
             log.warning('Retrying running container: %s' % config_volume)
         else:
             if cmd_stdout:
