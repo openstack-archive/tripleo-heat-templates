@@ -131,38 +131,6 @@ def get_config_hash(config_volume):
     return hash_data
 
 
-def rm_container(name):
-    if os.environ.get('SHOW_DIFF', None):
-        LOG.info('Diffing container: %s' % name)
-        stdout, stderr, retval = local_subprocess_call(
-            cmd=[CLI_CMD, 'diff', name]
-        )
-        if stdout:
-            LOG.debug(stdout)
-        if stderr:
-            LOG.debug(stderr)
-
-    def rm_process_call(rm_cli_cmd):
-        stdout, stderr, retval = local_subprocess_call(
-            cmd=rm_cli_cmd)
-        if stdout:
-            LOG.debug(stdout)
-        if stderr and 'Error response from daemon' in stderr:
-            LOG.debug(stderr)
-
-    LOG.info('Removing container: %s' % name)
-    rm_cli_cmd = [CLI_CMD, 'rm']
-    rm_cli_cmd.append(name)
-    rm_process_call(rm_cli_cmd)
-    # --storage is used as a mitigation of
-    # https://github.com/containers/libpod/issues/3906
-    # Also look https://bugzilla.redhat.com/show_bug.cgi?id=1747885
-    if CONTAINER_CLI == 'podman':
-        rm_storage_cli_cmd = [CLI_CMD, 'rm', '--storage']
-        rm_storage_cli_cmd.append(name)
-        rm_process_call(rm_storage_cli_cmd)
-
-
 def mp_puppet_config(*args):
     (
         config_volume,
@@ -193,7 +161,8 @@ def mp_puppet_config(*args):
         uname = RUNNER.unique_container_name(
             'container-puppet-%s' % config_volume
         )
-        rm_container(uname)
+        LOG.info('Removing container: %s' % uname)
+        RUNNER.remove_container(uname)
         pull_image(config_image)
 
         common_dcmd = [
@@ -326,7 +295,8 @@ def mp_puppet_config(*args):
                 if stderr:
                     LOG.warning(stderr)
                 # only delete successful runs, for debugging
-                rm_container(uname)
+                LOG.info('Removing container: %s' % uname)
+                RUNNER.remove_container(uname)
                 break
             time.sleep(3)
             LOG.error(
@@ -337,7 +307,8 @@ def mp_puppet_config(*args):
                 )
             )
 
-            rm_container(uname)
+            LOG.info('Removing container: %s' % uname)
+            RUNNER.remove_container(uname)
             LOG.warning('Retrying running container: %s' % config_volume)
         else:
             if stdout:
