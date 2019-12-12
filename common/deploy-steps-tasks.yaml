@@ -17,6 +17,8 @@
         - host_config
 
     - name: Run puppet host configuration for step {{ step }}
+      async: 3600
+      poll: 0
       when: enable_puppet|bool
       shell: >-
         set -o pipefail;
@@ -29,21 +31,32 @@
         {{ ansible_check_mode | bool | ternary('--hiera_config /etc/puppet/check-mode/hiera.yaml', '') }}
         /var/lib/tripleo-config/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}puppet_step_config.pp
         2>&1 | logger -s -t puppet-user
-      changed_when: outputs.rc == 2
-      register: outputs
-      failed_when: false
+      register: puppet_host_async_result
       no_log: true
       tags:
         - host_config
       check_mode: no
 
+    - name: Wait for puppet host configuration to finish
+      async_status:
+        jid: "{{ puppet_host_async_result.ansible_job_id }}"
+      register: puppet_host_outputs
+      until: puppet_host_outputs.finished
+      retries: 1200
+      delay: 3
+      failed_when:
+        - (not puppet_host_outputs.finished) or (puppet_host_outputs.rc is defined and puppet_host_outputs.rc not in [0, 2])
+      tags:
+        - host_config
+
     - name: "Debug output for task: Run puppet host configuration for step {{ step }}"
       debug:
-        var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
+        var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
       when:
         - enable_puppet | bool
-        - outputs.rc is defined
-      failed_when: outputs.rc not in [0, 2]
+        - puppet_host_outputs.rc is defined
+      changed_when: puppet_host_outputs.rc == 2
+      failed_when: puppet_host_outputs.rc not in [0, 2]
       tags:
         - host_config
       ignore_errors: "{{ ansible_check_mode|bool }}"
@@ -66,6 +79,8 @@
     ######################################
 
     - name: Run container-puppet tasks (generate config) during step {{ step }}
+      async: 3600
+      poll: 0
       shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
       environment:
         NET_HOST: 'true'
@@ -81,19 +96,27 @@
         CONTAINER_HEALTHCHECK_DISABLED: "{{ container_healthcheck_disabled }}"
         SHORT_HOSTNAME: "{{ ansible_hostname }}"
       when: step|int == 1
-      changed_when: false
       check_mode: no
-      register: outputs
-      failed_when: false
-      no_log: true
+      register: generate_config_async_result
+      tags:
+        - container_config
+
+    - name: Wait for container-puppet tasks (generate config) to finish
+      async_status:
+        jid: "{{ generate_config_async_result.ansible_job_id }}"
+      register: generate_config_outputs
+      until: generate_config_outputs.finished
+      retries: 1200
+      delay: 3
+      when: step|int == 1
       tags:
         - container_config
 
     - name: "Debug output for task: Run container-puppet tasks (generate config) during step {{ step }}"
       debug:
-        var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
-      when: outputs.rc is defined
-      failed_when: outputs.rc != 0
+        var: generate_config_outputs.stdout_lines | default([]) | union(generate_config_outputs.stderr_lines | default([]))
+      when: generate_config_outputs.rc is defined
+      failed_when: generate_config_outputs.rc != 0
       tags:
         - container_config
       ignore_errors: "{{ ansible_check_mode|bool }}"
@@ -135,6 +158,8 @@
       when: enable_paunch|default(true)
       block:
         - name: Start containers for step {{ step }} using paunch
+          async: 3600
+          poll: 0
           environment:
             TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
           paunch:
@@ -146,16 +171,25 @@
             healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
             managed_by: "tripleo-{{ tripleo_role_name }}"
             debug: "{{ enable_debug | bool }}"
-          register: outputs
-          failed_when: false
+          register: start_containers_async_result
+          tags:
+            - container_startup_configs
+
+        - name: Wait for containers to start for step {{ step }} using paunch
+          async_status:
+            jid: "{{ start_containers_async_result.ansible_job_id }}"
+          register: start_containers_outputs
+          until: start_containers_outputs.finished
+          retries: 1200
+          delay: 3
           tags:
             - container_startup_configs
 
         - name: "Debug output for task: Start containers for step {{ step }}"
           debug:
-            var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
-          when: outputs.rc is defined
-          failed_when: outputs.rc != 0
+            var: start_containers_outputs.stdout_lines | default([]) | union(start_containers_outputs.stderr_lines | default([]))
+          when: start_containers_outputs.rc is defined
+          failed_when: start_containers_outputs.rc != 0
           tags:
             - container_startup_configs
 
@@ -213,6 +247,8 @@
       when: host_container_puppet_tasks is defined
 
     - name: Run container-puppet tasks (bootstrap tasks) for step {{ step }}
+      async: 3600
+      poll: 0
       shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
       environment:
         CONFIG: /var/lib/container-puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json
@@ -226,17 +262,28 @@
         SHORT_HOSTNAME: "{{ ansible_hostname }}"
         PROCESS_COUNT: "{{ docker_puppet_process_count }}"
       when: host_container_puppet_tasks is defined
-      changed_when: false
-      register: outputs
-      failed_when: false
+      register: bootstrap_tasks_async_result
       no_log: true
+      tags:
+        - container_config_tasks
+
+    - name: Wait for container-puppet tasks (bootstrap tasks) for step {{ step }} to finish
+      async_status:
+        jid: "{{ bootstrap_tasks_async_result.ansible_job_id }}"
+      register: bootstrap_tasks_outputs
+      until: bootstrap_tasks_outputs.finished
+      retries: 1200
+      delay: 3
+      when: host_container_puppet_tasks is defined
       tags:
         - container_config_tasks
 
     - name: "Debug output for task: Run container-puppet tasks (bootstrap tasks) for step {{ step }}"
       debug:
-        var: outputs.stdout_lines | default([]) | union(outputs.stderr_lines | default([]))
-      when: outputs.rc is defined
-      failed_when: outputs.rc != 0
+        var: bootstrap_tasks_outputs.stdout_lines | default([]) | union(bootstrap_tasks_outputs.stderr_lines | default([]))
+      when:
+        - host_container_puppet_tasks is defined
+        - bootstrap_tasks_outputs.rc is defined
+      failed_when: bootstrap_tasks_outputs.rc != 0
       tags:
         - container_config_tasks
