@@ -336,6 +336,8 @@ def mp_puppet_config(*args):
                     count
                 )
             )
+
+            rm_container(uname)
             LOG.warning('Retrying running container: %s' % config_volume)
         else:
             if stdout:
