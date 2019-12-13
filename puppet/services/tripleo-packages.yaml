@@ -65,6 +65,11 @@ parameters:
       major-upgrade-composable-steps.yaml and major-upgrade-converge.yaml
       environment files.
     default: ''
+  SkipPackageUpdate:
+    default: 'false'
+    description: Set to true to skip the update all packages
+    type: boolean
+
 
 outputs:
   role_data:
@@ -262,9 +267,16 @@ outputs:
             - step|int == 3
             - os_net_config_need_upgrade.stdout
             - os_net_config_has_config.rc == 0
+        - name: Set boolean skip_package_update
+          set_fact:
+            skip_package_update: {get_param: SkipPackageUpdate}
         - name: Update all packages
-          when: step|int == 3
-          package: name=* state=latest
+          when:
+            - step|int == 3
+            - not skip_package_update|bool
+          package:
+            name: '*'
+            state: latest
       update_tasks:
         - name: Check for existing yum.pid
           stat:  path=/var/run/yum.pid
@@ -273,9 +285,16 @@ outputs:
         - name: Exit if existing yum process
           fail: msg="ERROR existing yum.pid detected - can't continue! Please ensure there is no other package update process for the duration of the minor update worfklow. Exiting."
           when: (step|int == 0 or step|int == 3) and yum_pid_file.stat.exists
+        - name: Set boolean skip_package_update
+          set_fact:
+            skip_package_update: {get_param: SkipPackageUpdate}
         - name: Update all packages
-          package: name=* state=latest
-          when: step == "3"
+          when:
+            - step|int == 3
+            - not skip_package_update|bool
+          package:
+            name: '*'
+            state: latest
         # This is failsafe unless openvswitch package does something to the systemd service state.
         - name: Ensure openvswitch is running after update
           when: step|int == 3
