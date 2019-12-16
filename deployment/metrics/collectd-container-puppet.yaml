@@ -636,6 +636,44 @@ outputs:
                   - /usr/lib/systemd/system:/usr/lib/systemd/system:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      deploy_steps_tasks:
+        - name: set enable_sensubility fact
+          set_fact:
+            enable_sensubility: {get_param: CollectdEnableSensubility}
+        - name: Configure rsyslog for container healthchecks
+          when:
+            - step|int == 1
+          block:
+            - name: Check if rsyslog exists
+              shell: systemctl list-unit-files --type=service | grep -q rsyslog
+              register: rsyslog_config
+              failed_when: rsyslog_config.rc == 2
+            - name: Configure if we can
+              when:
+                - rsyslog_config is changed
+                - rsyslog_config.rc == 0
+              block:
+                - name: Log healthchecks in dedicated file
+                  when:
+                    - enable_sensubility|bool
+                  register: logconfig_add
+                  copy:
+                    dest: /etc/rsyslog.d/openstack-healthcheck.conf
+                    content: |
+                      if $programname startswith 'healthcheck_' then -/var/log/containers/collectd/healthchecks.log
+                      & stop
+                - name: Remove healthcheck log
+                  when:
+                    - not enable_sensubility|bool
+                  register: logconfig_rm
+                  file:
+                    path: /etc/rsyslog.d/openstack-healthcheck.conf
+                    state: absent
+                - name: Reload rsyslogd if needed
+                  when: logconfig_add is changed or logconfig_rm is changed
+                  service:
+                    name: rsyslog
+                    state: restarted
       host_prep_tasks:
         - name: create persistent directories
           file:
