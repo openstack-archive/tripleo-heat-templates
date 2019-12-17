@@ -40,6 +40,21 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  DerivePciWhitelistEnabled:
+    default: true
+    description: Whether to enable or not the pci passthrough whitelist automation.
+    type: boolean
+    tags:
+      - role_specific
+
+conditions:
+
+  derive_pci_whitelist_enabled:
+    or:
+      - and:
+        - equals: [{get_param: DerivePciWhitelistEnabled}, true]
+        - equals: [{get_param: [RoleParameters, DerivePciWhitelistEnabled]}, '']
+      - equals: [{get_param: [RoleParameters, DerivePciWhitelistEnabled]}, true]
 
 resources:
 
@@ -126,20 +141,23 @@ outputs:
       host_prep_tasks:
         list_concat:
           - {get_attr: [NeutronLogging, host_prep_tasks]}
-          - - name: "creating directory"
-              file:
-                state: directory
-                path: /var/lib/pci_passthrough_whitelist_scripts
-                owner: root
-                group: root
-                mode: 0750
-            - name: derive pci passthrough whitelist
-              copy:
-                content: {get_file: ./derive_pci_passthrough_whitelist.py}
-                dest: '/var/lib/pci_passthrough_whitelist_scripts/derive_pci_passthrough_whitelist.py'
-                mode: 0700
-            - name: run derive_pci_passthrough_whitelist.py
-              command:  /var/lib/pci_passthrough_whitelist_scripts/derive_pci_passthrough_whitelist.py
+          - - if:
+                - derive_pci_whitelist_enabled
+                - - name: "creating directory"
+                    file:
+                      state: directory
+                      path: /var/lib/pci_passthrough_whitelist_scripts
+                      owner: root
+                      group: root
+                      mode: 0750
+                  - name: derive pci passthrough whitelist
+                    copy:
+                      content: {get_file: ./derive_pci_passthrough_whitelist.py}
+                      dest: '/var/lib/pci_passthrough_whitelist_scripts/derive_pci_passthrough_whitelist.py'
+                      mode: 0700
+                  - name: run derive_pci_passthrough_whitelist.py
+                    command:  /var/lib/pci_passthrough_whitelist_scripts/derive_pci_passthrough_whitelist.py
+                - []
       metadata_settings:
         get_attr: [NeutronSriovAgentBase, role_data, metadata_settings]
       upgrade_tasks:
