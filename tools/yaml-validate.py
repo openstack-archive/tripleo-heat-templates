@@ -361,6 +361,23 @@ def validate_controller_dashboard(filename, tpl):
     return 0
 
 
+def validate_controller_storage_nfs(filename, tpl, exclude_service=()):
+    control_role_filename = os.path.join(os.path.dirname(filename),
+                                         './Controller.yaml')
+    with open(control_role_filename, 'r') as f:
+        control_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+
+    control_role_services = control_role_tpl[0]['ServicesDefault']
+    for role in tpl:
+        if role['name'] == 'ControllerStorageNfs':
+            services = [x for x in role['ServicesDefault'] if (x not in exclude_service)]
+            if sorted(services) != sorted(control_role_services):
+                print('ERROR: ServicesDefault in %s is different from '
+                      'ServicesDefault in roles/Controller.yaml' % filename)
+                return 1
+    return 0
+
+
 def validate_hci_role(hci_role_filename, hci_role_tpl):
     role_files = ['HciCephAll', 'HciCephFile', 'HciCephMon', 'HciCephObject']
     if hci_role_filename in ['./roles/' + x + '.yaml' for x in role_files]:
@@ -1107,6 +1124,14 @@ def validate(filename, param_map):
         if filename.startswith('./roles/ComputeHCI.yaml') or \
                 filename.startswith('./roles/ComputeHCIOvsDpdk.yaml'):
             retval |= validate_hci_computehci_role(filename, tpl)
+
+        if filename.startswith('./roles/ControllerStorageNfs.yaml'):
+            exclude = [
+                'OS::TripleO::Services::CephNfs']
+            retval |= validate_controller_storage_nfs(filename, tpl, exclude)
+
+        if filename.startswith('./roles/ControllerStorageDashboard.yaml'):
+            retval |= validate_controller_dashboard(filename, tpl)
 
         if filename.startswith('./roles/ComputeOvsDpdk.yaml') or \
                 filename.startswith('./roles/ComputeSriov.yaml') or \
