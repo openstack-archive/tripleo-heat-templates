@@ -146,10 +146,6 @@ def _prepare_ssh_environment(mistral):
     mistral.executions.create('tripleo.validations.v1.copy_ssh_key')
 
 
-def _upload_validations_to_swift(mistral):
-    mistral.executions.create('tripleo.validations.v1.upload_validations')
-
-
 def _create_default_plan(mistral):
     plan_exists = [True for c in sdk.list_containers() if
                    c['name'] == 'overcloud']
@@ -189,9 +185,8 @@ try:
         _create_default_plan(mistral)
         if tripleo_validations_enabled:
             _prepare_ssh_environment(mistral)
-            _upload_validations_to_swift(mistral)
-            print('INFO: Undercloud post - Validations executed and '
-                  'uploaded to Swift.')
+            print("INFO: Undercloud post - "
+                  "SSH Keys for TripleO Validations deployed.")
 except Exception:
     print('ERROR: Undercloud Post - Failed.')
     raise
