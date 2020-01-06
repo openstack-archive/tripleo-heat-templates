@@ -216,7 +216,6 @@ parameters:
   ContainerImageRegistryCredentials:
     type: json
     hidden: true
-    default: {}
     description: |
       Mapping of image registry hosts to login credentials. Must be in the following example format
 
@@ -224,6 +223,22 @@ parameters:
           username: pa55word
         '192.0.2.1:8787':
           registry_username: password
+    default: {}
+  CephExtraKeys:
+    type: json
+    hidden: true
+    description: |
+      List of maps describing extra keys which will be created on the deployed
+      Ceph cluster. Uses ceph-ansible/library/ceph_key.py ansible module. Each
+      item in the list must be in the following example format
+        - name: "client.glance"
+          caps:
+            mgr: "allow *"
+            mon: "profile rbd"
+            osd: "profile rbd pool=images"
+          key: "AQBRgQ9eAAAAABAAv84zEilJYZPNuJ0Iwn9Ndg=="
+          mode: "0600"
+    default: []
 
 parameter_groups:
 - label: deprecated
@@ -402,63 +417,65 @@ resources:
                         application: openstack_gnocchi
                   - {get_param: CephPools}
           openstack_keys: &openstack_keys
-          - name:
-              list_join:
-              - '.'
-              - - client
-                - {get_param: CephClientUserName}
-            key: {get_param: CephClientKey}
-            caps:
-              mgr: "allow *"
-              mon: "profile rbd"
-              osd:
-                list_join:
-                - ', '
-                - repeat:
-                    template: 'profile rbd pool=<%pool%>'
-                    for_each:
-                      <%pool%>:
-                        list_concat_unique:
-                        - - {get_param: CinderRbdPoolName}
-                          - {get_param: CinderBackupRbdPoolName}
-                          - if:
-                            - equals: [{get_param: [RoleParameters, NovaRbdPoolName]}, '']
-                            - {get_param: NovaRbdPoolName}
-                            - {get_param: [RoleParameters, NovaRbdPoolName]}
-                          - {get_param: GlanceRbdPoolName}
-                        - if:
-                          - equals: [{get_param: GnocchiRbdPoolName}, '']
-                          - []
-                          - [{get_param: GnocchiRbdPoolName}]
-                        # CinderRbdExtraPools is a list (do not indent further)
-                        - {get_param: CinderRbdExtraPools}
-                        - yaql:
-                            data: {get_param: CephPools}
-                            expression: $.data.select($.name)
-            mode: "0600"
-          - name:
-              list_join:
-              - '.'
-              - - client
-                - {get_param: ManilaCephFSCephFSAuthId}
-            key: {get_param: CephManilaClientKey}
-            caps:
-              mgr: "allow *"
-              mon: "allow r, allow command 'auth del', allow command 'auth caps', allow command 'auth get', allow command 'auth get-or-create'"
-              mds: "allow *"
-              osd: "allow rw"
-            mode: "0600"
-          - name:
-              list_join:
-              - '.'
-              - - client
-                - {get_param: CephRgwClientName}
-            key: {get_param: CephRgwKey}
-            caps:
-              mgr: "allow *"
-              mon: "allow rw"
-              osd: "allow rwx"
-            mode: "0600"
+            list_concat_unique:
+              - - name:
+                    list_join:
+                    - '.'
+                    - - client
+                      - {get_param: CephClientUserName}
+                  key: {get_param: CephClientKey}
+                  caps:
+                    mgr: "allow *"
+                    mon: "profile rbd"
+                    osd:
+                      list_join:
+                      - ', '
+                      - repeat:
+                          template: 'profile rbd pool=<%pool%>'
+                          for_each:
+                            <%pool%>:
+                              list_concat_unique:
+                              - - {get_param: CinderRbdPoolName}
+                                - {get_param: CinderBackupRbdPoolName}
+                                - if:
+                                  - equals: [{get_param: [RoleParameters, NovaRbdPoolName]}, '']
+                                  - {get_param: NovaRbdPoolName}
+                                  - {get_param: [RoleParameters, NovaRbdPoolName]}
+                                - {get_param: GlanceRbdPoolName}
+                              - if:
+                                - equals: [{get_param: GnocchiRbdPoolName}, '']
+                                - []
+                                - [{get_param: GnocchiRbdPoolName}]
+                              # CinderRbdExtraPools is a list (do not indent further)
+                              - {get_param: CinderRbdExtraPools}
+                              - yaql:
+                                  data: {get_param: CephPools}
+                                  expression: $.data.select($.name)
+                  mode: "0600"
+                - name:
+                    list_join:
+                    - '.'
+                    - - client
+                      - {get_param: ManilaCephFSCephFSAuthId}
+                  key: {get_param: CephManilaClientKey}
+                  caps:
+                    mgr: "allow *"
+                    mon: "allow r, allow command 'auth del', allow command 'auth caps', allow command 'auth get', allow command 'auth get-or-create'"
+                    mds: "allow *"
+                    osd: "allow rw"
+                  mode: "0600"
+                - name:
+                    list_join:
+                    - '.'
+                    - - client
+                      - {get_param: CephRgwClientName}
+                  key: {get_param: CephRgwKey}
+                  caps:
+                    mgr: "allow *"
+                    mon: "allow rw"
+                    osd: "allow rwx"
+                  mode: "0600"
+              - {get_param: CephExtraKeys}
           keys: *openstack_keys
           ceph_conf_overrides:
             if:
