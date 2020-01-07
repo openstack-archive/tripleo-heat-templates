@@ -1121,7 +1121,8 @@ def validate(filename, param_map):
             retval = validate_role_name(filename)
 
         if filename.startswith('./roles/ComputeHCI.yaml') or \
-                filename.startswith('./roles/ComputeHCIOvsDpdk.yaml'):
+                filename.startswith('./roles/ComputeHCIOvsDpdk.yaml') or \
+                filename.startswith('./roles/ComputeHCISriov.yaml'):
             retval |= validate_hci_computehci_role(filename, tpl)
 
         if filename.startswith('./roles/ControllerStorageNfs.yaml'):
