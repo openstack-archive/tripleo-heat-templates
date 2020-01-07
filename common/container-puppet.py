@@ -70,7 +70,7 @@ def pull_image(name):
     _, _, rc = local_subprocess_call(cmd=[CLI_CMD, 'inspect', name])
     if rc == 0:
         LOG.info('Image already exists: %s' % name)
-        return 0
+        return
 
     retval = -1
     count = 0
@@ -91,7 +91,6 @@ def pull_image(name):
         LOG.debug(stdout)
     if stderr:
         LOG.debug(stderr)
-    return retval
 
 
 def match_config_volumes(prefix, config):
@@ -132,12 +131,6 @@ def get_config_hash(config_volume):
     return hash_data
 
 
-def pull_container_image(*args):
-    (config_volume, puppet_tags, manifest, config_image, volumes, privileged, check_mode, keep_container) = args[0]
-    retval = pull_image(config_image)
-    return retval
-
-
 def mp_puppet_config(*args):
     (
         config_volume,
@@ -170,6 +163,7 @@ def mp_puppet_config(*args):
         )
         LOG.info('Removing container: %s' % uname)
         RUNNER.remove_container(uname)
+        pull_image(config_image)
 
         common_dcmd = [
             CLI_CMD,
@@ -542,20 +536,9 @@ if __name__ == '__main__':
         PROCESS_MAP.append(PROCESS_ITEM)
         LOG.debug('- %s' % PROCESS_ITEM)
 
-    PROCESS = multiprocessing.Pool(int(os.environ.get('PROCESS_COUNT', 2)))
-    # Download all container images concurrently
-    RETURNCODES = list(PROCESS.map(pull_container_image, PROCESS_MAP))
-    if any(RETURNCODES):
-        LOG.error('Not all images could be pulled. Aborting')
-        raise SystemExit(1)
-
     # Fire off processes to perform each configuration.  Defaults
     # to the number of CPUs on the system.
-    # https://bugzilla.redhat.com/show_bug.cgi?id=1757845
-    # To prevent a race in podman that could mess up overlayfs mount
-    # points, run the containers sequentially, to create their
-    # overlayfs mount points without concurrency.
-    PROCESS = multiprocessing.Pool(1)
+    PROCESS = multiprocessing.Pool(int(os.environ.get('PROCESS_COUNT', 2)))
     RETURNCODES = list(PROCESS.map(mp_puppet_config, PROCESS_MAP))
     CONFIG_VOLUMES = [pm[0] for pm in PROCESS_MAP]
     SUCCESS = True
