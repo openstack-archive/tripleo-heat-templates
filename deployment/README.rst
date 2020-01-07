@@ -328,3 +328,11 @@ implementation of this hook needs to conform to the following:
 
 * This needs to define an output called `metadata` which will be given to the
   Nova Server resource as the instance's metadata.
+
+Keystone resources management
+-----------------------------
+
+Keystone resources, such as users, roles, domains, endpoints, services, role
+assignments, are now managed by `tripleo-keystone-resources`_ Ansible role.
+
+.. _tripleo-keystone-resources: https://docs.openstack.org/tripleo-ansible/latest/roles/role-tripleo-keystone-resources.html
