@@ -1,0 +1,72 @@
+heat_template_version: rocky
+
+description: >
+  Configures a test container volume
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  ContainerCli:
+    type: string
+    default: 'podman'
+    description: CLI tool used to manage containers.
+    constraints:
+      - allowed_values: ['docker', 'podman']
+  ContainerTestVolumeName:
+    type: string
+    default: 'testvolume'
+    description: Name of the test volume to create
+
+outputs:
+  role_data:
+    description: Role data for a test container volume
+    value:
+      service_name: test_container_volume
+      config_settings: {}
+      step_config: ''
+      service_config_settings: {}
+      deploy_steps_tasks:
+        - name: Manage test container volume
+          when:
+            - step|int == 2
+          block:
+            - name: Create Test Volume facts
+              set_fact:
+                test_container_cli: {get_param: ContainerCli}
+                test_container_volume_name: {get_param: ContainerTestVolumeName}
+            - name: Check if volume exists
+              become: true
+              shell: |
+                {{ test_container_cli }} volume list -q | grep -q "{{ test_container_volume_name }}"
+              register: test_container_list
+              failed_when: false
+            - name: Create volume
+              become: true
+              when:
+                - test_container_list.rc == 1
+              shell: >
+                {{ test_container_cli }} volume create {{ test_container_volume_name }}
