@@ -231,6 +231,37 @@ outputs:
               Log files from sensu containers can be found under
               /var/log/containers/sensu.
           ignore_errors: true
+      deploy_steps_tasks:
+        # This code is only valid for podman container engine.
+        if:
+          - docker_enabled
+          - null
+          -
+            - name: Configure rsyslog for container healthchecks
+              when:
+                - step|int == 1
+              block:
+                - name: Check if rsyslog exists
+                  shell: systemctl list-unit-files --type=service | grep -q rsyslog
+                  register: rsyslog_config
+                  failed_when: rsyslog_config.rc == 2
+                - name: Configure if we can
+                  when:
+                    - rsyslog_config is changed
+                    - rsyslog_config.rc == 0
+                  block:
+                    - name: Log healthchecks in dedicated file
+                      register: logconfig_add
+                      copy:
+                        dest: /etc/rsyslog.d/openstack-healthcheck.conf
+                        content: |
+                          if $programname startswith 'healthcheck_' then -/var/log/containers/sensu/healthchecks.log
+                          & stop
+                    - name: Reload rsyslogd if needed
+                      when: logconfig_add is changed
+                      service:
+                        name: rsyslog
+                        state: restarted
       # TODO: Removal of package
       upgrade_tasks: []
       post_upgrade_tasks:
