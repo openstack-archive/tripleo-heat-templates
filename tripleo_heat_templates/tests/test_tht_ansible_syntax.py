@@ -21,10 +21,13 @@ def test_tht_ansible_syntax(pytestconfig):
     tht_root = str(pytestconfig.invocation_params.dir)
     role_path = os.path.join(tht_root,
                              "tripleo_heat_templates/tests/roles/tripleo-ansible/tripleo-ansible/tripleo_ansible/roles")
+    mod_path = os.path.join(tht_root,
+                             "tripleo_heat_templates/tests/roles/tripleo-ansible/tripleo-ansible/tripleo_ansible/ansible_plugins/modules")
     play_path = os.path.join(tht_root,
                              "tripleo_heat_templates/tests/test_tht_ansible_syntax.yml")
 
     os.environ["ANSIBLE_ROLES_PATH"] = role_path
+    os.environ["ANSIBLE_LIBRARY"] = mod_path
 
     run = ansible_runner.run(
         playbook=play_path,
