@@ -1,0 +1,82 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack Glance service for DCN/Edge configured with Puppet
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+
+resources:
+
+  GlanceApiBase:
+    type: ./glance-api-container-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+outputs:
+
+  glance_api_edge_uri:
+    description: URI of the glance-api service runing at the edge site.
+    value: &glance_api_edge_uri
+      str_replace:
+        template:
+          "PROTOCOL://%{hiera('NETWORK')}:9292"
+        params:
+          PROTOCOL:
+            if:
+            - internal_tls_enabled
+            - https
+            - http
+          NETWORK: {get_param: [ServiceNetMap, GlanceApiEdgeNetwork]}
+
+  role_data:
+    description: Role data for the Glance API role for DCN/Edge.
+    value:
+      map_merge:
+        - get_attr: [GlanceApiBase, role_data]
+        - service_name: glance_api_edge
+          service_config_settings:
+            map_merge:
+              - get_attr: [GlanceApiBase, role_data, service_config_settings]
+              - cinder_volume:
+                  cinder::glance::glance_api_servers: *glance_api_edge_uri
+                nova_compute:
+                  nova::glance_api_servers: *glance_api_edge_uri
+
