@@ -338,6 +338,67 @@ outputs:
               register: output
               retries: 5
               until: output.rc == 0
+        - name: Create hiera data to upgrade cinder_backup in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set cinder_backup upgrade node facts in a single-node environment
+              set_fact:
+                cinder_backup_short_node_names_upgraded: "{{ cinder_backup_short_node_names }}"
+                cinder_backup_node_names_upgraded: "{{ cinder_backup_node_names }}"
+                cacheable: no
+              when: groups['cinder_backup'] | length <= 1
+            - name: set cinder_backup upgrade node facts from the limit option
+              set_fact:
+                cinder_backup_short_node_names_upgraded: "{{ cinder_backup_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cinder_backup_node_names_upgraded: "{{ cinder_backup_node_names_upgraded|default([]) + [item] }}"
+                cacheable: no
+              when:
+                - groups['cinder_backup'] | length > 1
+                - item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ cinder_backup_node_names }}"
+            - debug:
+                msg: "Prepare cinder_backup upgrade for {{ cinder_backup_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade cinder_backup without
+                  staged upgrade.  You need to use the limit option in order
+                  to do so.
+              when: >-
+                cinder_backup_short_node_names_upgraded is not defined or
+                cinder_backup_short_node_names_upgraded | length == 0 or
+                cinder_backup_node_names_upgraded is not defined or
+                cinder_backup_node_names_upgraded | length == 0
+            - name: remove cinder_backup init container on upgrade-scaleup to force re-init
+              shell: |
+                if podman inspect cinder_backup_init_bundle &> /dev/null; then
+                    podman rm cinder_backup_init_bundle
+                fi
+              when: cinder_backup_short_node_names_upgraded | length > 1
+            - name: add the cinder_backup short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: cinder_backup_short_node_names_override
+                tripleo_upgrade_value: "{{ cinder_backup_short_node_names_upgraded }}"
+            - name: add the cinder_backup long name to hiera data for the upgrade
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: cinder_backup_node_names_override
+                tripleo_upgrade_value: "{{ cinder_backup_node_names_upgraded }}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: "{{ item }}"
+              loop:
+                - cinder_backup_short_node_names_override
+                - cinder_backup_node_names_override
+              when: cinder_backup_short_node_names_upgraded | length == cinder_backup_node_names | length
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
