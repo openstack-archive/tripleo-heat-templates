@@ -262,27 +262,14 @@ outputs:
         - name: Stop MySQL server and ensure redo log is cleaned up before upgrade
           when: step|int == 2
           block:
-            - name: Retrieve mysql container configuration from paunch
-              shell:
-                str_replace:
-                  # Use a Jinja template below to force str_replace
-                  # to quote the resulting string
-                  template: &mysql_template '{{ "paunch" }} list --default-runtime RUNTIME -f json -c container -c image | jq -r ''.[] | select(.container=="mysql") + {"cli":"RUNTIME"}'''
-                  params:
-                    RUNTIME: "{{ container_cli }}"
-              register: mysql_paunch
-            - name: Retrieve mysql container configuration from paunch (docker)
-              shell:
-                str_replace:
-                  template: *mysql_template
-                  params:
-                    RUNTIME: "docker"
-              register: mysql_paunch_docker
-              when: '"mysql" not in mysql_paunch.stdout'
-            - name: Mysql container facts
+            - name: Get Mysql container image name before upgrade
+              podman_container_info:
+                name: mysql
+              register: mysql_infos
+            - name: Set fact for Mysql container image before upgrade
               set_fact:
-                mysql_json: "{{ mysql_paunch_docker.stdout if mysql_paunch_docker.changed else mysql_paunch.stdout | from_json }}"
-            - name: Mysql container image after upgrade
+                pre_upgrade_mysql_image: "{{ mysql_infos.containers.0.ImageName }}"
+            - name: Set fact for Mysql container image after upgrade
               set_fact:
                 post_upgrade_mysql_image: {get_param: ContainerMysqlImage}
             - name: Redo log clean-up script
@@ -300,21 +287,21 @@ outputs:
               set_fact:
                 mysql_clean_up_volumes: *mysql_volumes
             - name: Stop the current mysql container
-              shell: |
-                {{ mysql_json.cli }} update --restart=unless-stopped mysql
-                {{ mysql_json.cli }} stop mysql
-              when: mysql_json.image is defined and mysql_json.image != post_upgrade_mysql_image
+              systemd:
+                state: stopped
+                name: tripleo_mysql
+              when: pre_upgrade_mysql_image != post_upgrade_mysql_image
             - name: Clean up redo log by running a transient mysql server
               shell:
                 str_replace:
                   template:
-                    "{{ mysql_json.cli }} run --rm -u root --net=host ENV VOLUMES \"IMAGE\" /bin/bash -ecx \"SCRIPT\""
+                    "{{ container_cli }} run --rm -u root --net=host ENV VOLUMES \"IMAGE\" /bin/bash -ecx \"SCRIPT\""
                   params:
                     ENV: '-e "KOLLA_CONFIG_STRATEGY=COPY_ALWAYS"'
-                    IMAGE: "{{ mysql_json.image }}"
+                    IMAGE: "{{ pre_upgrade_mysql_image }}"
                     VOLUMES: "-v {{ mysql_clean_up_volumes | join(' -v ') }}"
                     SCRIPT: "{{ mysql_clean_up_script }}"
-              when: mysql_json.image is defined and mysql_json.image != post_upgrade_mysql_image
+              when: pre_upgrade_mysql_image != post_upgrade_mysql_image
       post_upgrade_tasks:
         - name: Check and upgrade Mysql database after major version upgrade
           command: "{{ container_cli }} exec -u root mysql mysql_upgrade"
