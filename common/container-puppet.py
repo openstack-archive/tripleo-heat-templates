@@ -550,7 +550,9 @@ if __name__ == '__main__':
     # Update the startup configs with the config hash we generated above
     STARTUP_CONFIGS = os.environ.get(
         'STARTUP_CONFIG_PATTERN',
-        '/var/lib/tripleo-config/docker-container-startup-config-step_*.json'
+        '/var/lib/tripleo-config/'
+        'container-startup-config/'
+        'step_' + os.environ.get('STEP', '6') + '/*.json'
     )
     LOG.debug('STARTUP_CONFIG_PATTERN: %s' % STARTUP_CONFIGS)
     # Run infile processing
