@@ -13,8 +13,8 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
+import argparse
 import logging
-from optparse import OptionParser
 import os
 import six
 import sys
@@ -54,16 +54,16 @@ timeout = 10
 nova_cfg = '/etc/nova/nova.conf'
 
 if __name__ == '__main__':
-    parser = OptionParser(usage="usage: %prog [options]")
-    parser.add_option('-k', '--insecure',
-                      action="store_false",
-                      dest='insecure',
-                      default=True,
-                      help='Allow insecure connection when using SSL')
+    parser = argparse.ArgumentParser(usage='%(prog)s [options]')
+    parser.add_argument('-k', '--insecure',
+                        action="store_false",
+                        dest='insecure',
+                        default=True,
+                        help='Allow insecure connection when using SSL')
 
-    (options, args) = parser.parse_args()
+    args = parser.parse_args()
     LOG.debug('Running with parameter insecure = %s',
-              options.insecure)
+              args.insecure)
 
     if os.path.isfile(nova_cfg):
         try:
@@ -88,7 +88,7 @@ if __name__ == '__main__':
                                        'project_domain_name'),
         user_domain_name=config.get('neutron',
                                     'user_domain_name'))
-    sess = session.Session(auth=auth, verify=options.insecure)
+    sess = session.Session(auth=auth, verify=args.insecure)
 
     # Wait until this host is listed in the service list
     for i in range(iterations):
