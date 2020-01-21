@@ -93,6 +93,21 @@ def pull_image(name):
         LOG.debug(stderr)
 
 
+def get_config_base(prefix, volume):
+    # crawl the volume's path upwards until we find the
+    # volume's base, where the hashed config file resides
+    path = volume
+    base = prefix.rstrip(os.path.sep)
+    base_generated = os.path.join(base, 'puppet-generated')
+    while path.startswith(prefix):
+        dirname = os.path.dirname(path)
+        if dirname == base or dirname == base_generated:
+            return path
+        else:
+            path = dirname
+    raise ValueError("Could not find config's base for '%s'" % volume)
+
+
 def match_config_volumes(prefix, config):
     # Match the mounted config volumes - we can't just use the
     # key as e.g "novacomute" consumes config-data/nova
@@ -106,8 +121,8 @@ def match_config_volumes(prefix, config):
             )
         )
         raise
-    return sorted([os.path.dirname(v.split(":")[0]) for v in volumes if
-                   v.startswith(prefix)])
+    return sorted([get_config_base(prefix, v.split(":")[0])
+                   for v in volumes if v.startswith(prefix)])
 
 
 def get_config_hash(config_volume):
