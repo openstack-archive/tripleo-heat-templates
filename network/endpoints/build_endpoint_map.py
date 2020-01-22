@@ -267,43 +267,40 @@ def check_up_to_date(output_filename=None, input_filename=None):
 
 
 def get_options():
-    from optparse import OptionParser
+    import argparse
 
-    parser = OptionParser('usage: %prog'
-                          ' [-i INPUT_FILE] [-o OUTPUT_FILE] [--check]',
-                          description=__doc__)
-    parser.add_option('-i', '--input', dest='input_file', action='store',
-                      default=None,
-                      help='Specify a different endpoint data file')
-    parser.add_option('-o', '--output', dest='output_file', action='store',
-                      default=None,
-                      help='Specify a different endpoint map template file')
-    parser.add_option('-c', '--check', dest='check', action='store_true',
-                      default=False, help='Check that the output file is '
-                                          'up to date with the data')
-    parser.add_option('-d', '--debug', dest='debug', action='store_true',
-                      default=False, help='Print stack traces on error')
+    parser = argparse.ArgumentParser(
+        usage="%(prog)s [-i INPUT_FILE] [-o OUTPUT_FILE] [--check]",
+        description=__doc__)
+    parser.add_argument('-i', '--input', dest='input_file', action='store',
+                        default=None,
+                        help='Specify a different endpoint data file')
+    parser.add_argument('-o', '--output', dest='output_file', action='store',
+                        default=None,
+                        help='Specify a different endpoint map template file')
+    parser.add_argument('-c', '--check', dest='check', action='store_true',
+                        default=False, help='Check that the output file is '
+                                            'up to date with the data')
+    parser.add_argument('-d', '--debug', dest='debug', action='store_true',
+                        default=False, help='Print stack traces on error')
 
     return parser.parse_args()
 
 
 def main():
-    options, args = get_options()
-    if args:
-        print('Warning: ignoring positional args: %s' % ' '.join(args),
-              file=sys.stderr)
+    args = get_options()
 
     try:
-        if options.check:
-            if not check_up_to_date(options.output_file, options.input_file):
+        if args.check:
+            if not check_up_to_date(args.output_file, args.input_file):
                 print('EndpointMap template does not match input data. Please '
                       'run the build_endpoint_map.py tool to update the '
                       'template.', file=sys.stderr)
                 sys.exit(2)
         else:
-            build_endpoint_map(options.output_file, options.input_file)
+            build_endpoint_map(args.output_file, args.input_file)
     except Exception as exc:
-        if options.debug:
+        if args.debug:
             raise
         print('%s: %s' % (type(exc).__name__, str(exc)), file=sys.stderr)
         sys.exit(1)
