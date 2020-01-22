@@ -1,0 +1,64 @@
+- name: Run container-puppet tasks (generate config) during step 1
+  async: 3600
+  poll: 0
+  shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
+  environment:
+    NET_HOST: 'true'
+    DEBUG: '{{ docker_puppet_debug | bool }}'
+    PROCESS_COUNT: "{{ docker_puppet_process_count }}"
+    CONTAINER_CLI: "{{ container_cli }}"
+    CONFIG: '/var/lib/container-puppet/{{ ansible_check_mode | bool | ternary("check-mode/", "") }}container-puppet.json'
+    CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | bool | ternary("/check-mode", "") }}'
+    CHECK_MODE: '{{ ansible_check_mode | bool | ternary(1, 0) }}'
+    STARTUP_CONFIG_PATTERN: '/var/lib/tripleo-config/container-startup-config/*/{{ ansible_check_mode | bool | ternary("check-mode/", "") }}*.json'
+    MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet | default(true)}}'
+    CONTAINER_LOG_STDOUT_PATH: "{{ container_log_stdout_path }}"
+    CONTAINER_HEALTHCHECK_DISABLED: "{{ container_healthcheck_disabled }}"
+    SHORT_HOSTNAME: "{{ ansible_hostname }}"
+  check_mode: no
+  register: generate_config_async_result
+  tags:
+    - container_config
+
+- name: Wait for container-puppet tasks (generate config) to finish
+  async_status:
+    jid: "{{ generate_config_async_result.ansible_job_id }}"
+  register: generate_config_outputs
+  until: generate_config_outputs.finished
+  retries: 1200
+  delay: 3
+  tags:
+    - container_config
+
+- name: "Debug output for task: Run container-puppet tasks (generate config) during step 1"
+  debug:
+    var: generate_config_outputs.stdout_lines | default([]) | union(generate_config_outputs.stderr_lines | default([]))
+  when: generate_config_outputs.rc is defined
+  failed_when: generate_config_outputs.rc != 0
+  tags:
+    - container_config
+  ignore_errors: "{{ ansible_check_mode|bool }}"
+
+- name: Diff container-puppet.py puppet-generated changes for check mode
+  shell: |
+    diff -ruN --no-dereference -q /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
+    diff -ruN --no-dereference /var/lib/config-data/puppet-generated /var/lib/config-data/check-mode/puppet-generated
+  register: diff_results
+  tags:
+    - container_config
+  check_mode: no
+  when:
+    - ansible_check_mode|bool
+    - ansible_diff_mode
+  failed_when: false
+  changed_when: diff_results.rc == 1
+
+- name: Diff container-puppet.py puppet-generated changes for check mode
+  debug:
+    var: diff_results.stdout_lines
+  changed_when: diff_results.rc == 1
+  when:
+    - ansible_check_mode|bool
+    - ansible_diff_mode
+  tags:
+    - container_config
