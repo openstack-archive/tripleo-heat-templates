@@ -172,55 +172,8 @@
       tags:
         - container_config_tasks
 
-    - name: Write container-puppet-tasks json file for {{ansible_hostname}} step {{step}}
-      no_log: True
-      copy:
-        content: "{{host_container_puppet_tasks|to_nice_json}}"
-        dest: "/var/lib/container-puppet/container-puppet-tasks{{step}}.json"
-        force: yes
-        mode: '0600'
-      tags:
-        - container_config_tasks
+    - name: Include container-puppet tasks for step {{step}}
+      include_tasks: host-container-puppet-tasks.yaml
       when: host_container_puppet_tasks is defined
-
-    - name: Run container-puppet tasks (bootstrap tasks) for step {{ step }}
-      async: 3600
-      poll: 0
-      shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
-      environment:
-        CONFIG: /var/lib/container-puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json
-        CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | bool | ternary("/check-mode", "") }}'
-        NET_HOST: "true"
-        NO_ARCHIVE: "true"
-        STEP: "{{ step }}"
-        CONTAINER_CLI: "{{ container_cli }}"
-        DEBUG: "{{ docker_puppet_debug }}"
-        MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet}}'
-        SHORT_HOSTNAME: "{{ ansible_hostname }}"
-        PROCESS_COUNT: "{{ docker_puppet_process_count }}"
-      when: host_container_puppet_tasks is defined
-      register: bootstrap_tasks_async_result
-      no_log: true
-      tags:
-        - container_config_tasks
-
-    - name: Wait for container-puppet tasks (bootstrap tasks) for step {{ step }} to finish
-      async_status:
-        jid: "{{ bootstrap_tasks_async_result.ansible_job_id }}"
-      register: bootstrap_tasks_outputs
-      until: bootstrap_tasks_outputs.finished
-      retries: 1200
-      delay: 3
-      when: host_container_puppet_tasks is defined
-      tags:
-        - container_config_tasks
-
-    - name: "Debug output for task: Run container-puppet tasks (bootstrap tasks) for step {{ step }}"
-      debug:
-        var: bootstrap_tasks_outputs.stdout_lines | default([]) | union(bootstrap_tasks_outputs.stderr_lines | default([]))
-      when:
-        - host_container_puppet_tasks is defined
-        - bootstrap_tasks_outputs.rc is defined
-      failed_when: bootstrap_tasks_outputs.rc != 0
       tags:
         - container_config_tasks
