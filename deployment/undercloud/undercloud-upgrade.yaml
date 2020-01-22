@@ -72,8 +72,17 @@ outputs:
         #     change with every major upgrade so this special handling will
         #     eventually replace the special handling of upgrading the
         #     openvswitch package "in place"
+        - name: Get current OpenvSwitch package name
+          register: ovs_pkg_out
+          shell:
+            rpm -qa | awk -F- '/^(openvswitch[0-9]+\.[0-9]+-|openvswitch-2)/{print $1}'
+        - name: Don't update if not present
+          set_fact:
+            run_ovs_update: "{{ (ovs_pkg_out.stdout | length) > 0 }}"
         - name: Block for gathering information for upgrading OpenvSwitch layered product packaging
-          when: step|int == 2
+          when:
+            - step|int == 2
+            - run_ovs_update|bool
           block:
             - name: Process rhosp-openvswitch layered package for new version number
               shell: |
@@ -88,11 +97,6 @@ outputs:
               set_fact:
                 new_ovs_version: "{{ rhosp_package_result.stdout }}"
               when: ovs_lp_packaging|default(false)
-
-            - name: Get current OpenvSwitch package name
-              register: ovs_pkg_out
-              shell:
-                rpm -qa | awk -F- '/^(openvswitch[0-9]+\.[0-9]+-|openvswitch-2)/{print $1}'
             - name: Get version from current OpenvSwitch package
               register: ovs_version_out
               shell:
@@ -135,7 +139,7 @@ outputs:
         - name: Check for openvswitch upgrade if not layered package installs
           when:
             - step|int == 2
-            - run_ovs_update|default(true)
+            - run_ovs_update|bool
           block:
             - name: check if an upgrade is required
               register: ovs_need_upgrade
@@ -175,7 +179,7 @@ outputs:
                 - "{{ovs_list_of_rpms.stdout_lines}}"
           when:
             - step|int == 2
-            - run_ovs_update|default(true)
+            - run_ovs_update|bool
             - ovs_packaging_issue|default(false)|succeeded
             - ovs_need_upgrade.stdout|default('')
         # The openvswitch package disables the systemd service on install. When installing
