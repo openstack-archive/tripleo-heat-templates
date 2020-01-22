@@ -355,7 +355,10 @@ if not os.path.exists(sh_script):
 
             # Exclude read-only mounted directories/files which we do not want
             # to copy or delete.
-            ro_files="/etc/puppetlabs/ /opt/puppetlabs/"
+            ro_files="/etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
+            ro_files+="/etc/pki/ca-trust/source/anchors /etc/pki/tls/certs/ca-bundle.crt "
+            ro_files+="/etc/pki/tls/certs/ca-bundle.trust.crt /etc/pki/tls/cert.pem "
+            ro_files+="/etc/hosts /etc/localtime"
             for ro in $ro_files; do
                 if [ -e "$ro" ]; then
                     exclude_files+=" --exclude=$ro"
