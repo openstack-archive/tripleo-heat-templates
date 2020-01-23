@@ -342,21 +342,14 @@ parameters:
   CollectdContainerHealthCheckCommand:
     type: string
     default: |
-      output=''
-      for i in $(systemctl list-timers --no-pager --no-legend "tripleo*healthcheck.timer" | awk '{print $14}'); do
-        i=${i%.timer}
-        if result=$(systemctl show $i --property=ActiveState | awk '{split($0,a,/=/); print a[2]}'); then
-          if [ "$result" == 'failed' ]; then
-            timestamp=$(systemctl show $i --property=InactiveEnterTimestamp | awk '{print $2, $3}' )
-            log=$(journalctl -u $i -t podman --since "${timestamp}" --no-pager --output=cat --directory /var/log/journal)
-            if [ !  -z  "$output" ]; then
-              output="$i: $log ; $output"
-            else
-              output="$i: $log"
-            fi
-          fi
-        fi
-      done
+      output=""
+      while read line ; do
+        i=$(echo $line | awk '//{gsub(/:/, "", $0); print $5}')
+        log=$(echo $line | awk '{split($0,a,/:\s+Error:\s+/); print a[2]}')
+        log=${log:0:-1}
+        output+=" ; ${i}: ${log}"
+      done < <(egrep "^[a-zA-Z]{3}\s+[0-9]{2}\s+[0-9\:]{8}\s+.*\s+.*:\s+[Ee]rror\:" /var/log/collectd/healthchecks.log)
+      truncate -s0 /var/log/collectd/healthchecks.log
       if [ ! -z "${output}" ]; then
         echo ${output:3} && exit 2;
       fi
@@ -631,9 +624,7 @@ outputs:
                   - /var/lib/config-data/puppet-generated/collectd:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/collectd:/var/log/collectd:rw,z
                   - /var/run/:/var/run:rw
-                  - /var/log/journal:/var/log/journal:ro
                   - /sys/fs/cgroup:/sys/fs/cgroup:ro
-                  - /usr/lib/systemd/system:/usr/lib/systemd/system:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
