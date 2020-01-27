@@ -206,6 +206,40 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['swift', 'file', 'rbd', 'cinder']
+  GlanceBackendID:
+    type: string
+    default: 'default_backend'
+    description: The default backend's identifier.
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9_-]+"
+  GlanceStoreDescription:
+    type: string
+    default: 'Default glance store backend.'
+    description: User facing description for the Glance backend.
+  GlanceMultistoreConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring additional glance backends. The
+      hash key is the backend ID, and the value is a dictionary of parameter
+      values unique to that backend. Multiple rbd backends are allowed, but
+      cinder, file and swift backends are limited to one each. Example:
+        # Default glance store is rbd.
+        GlanceBackend: rbd
+        GlanceStoreDescription: 'Default rbd store'
+        # GlanceMultistoreConfig specifies a second rbd backend, plus a cinder
+        # backend.
+        GlanceMultistoreConfig:
+          rbd2_store:
+            GlanceBackend: rbd
+            GlanceStoreDescription: 'Second rbd store'
+            CephClusterName: ceph2
+            # Override CephClientUserName if this cluster uses a different
+            # client name.
+            CephClientUserName: client2
+          cinder_store:
+            GlanceBackend: cinder
+            GlanceStoreDescription: 'Cinder store'
   CephClientUserName:
     default: openstack
     type: string
@@ -236,17 +270,35 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  cinder_backend_enabled: {equals: [{get_param: GlanceBackend}, cinder]}
+  cinder_backend_enabled:
+    or:
+    - equals:
+      - get_param: GlanceBackend
+      - cinder
+    - equals:
+      - yaql:
+          expression: $.data.values().any($.get("GlanceBackend", "") = "cinder")
+          data: {get_param: GlanceMultistoreConfig}
+      - true
   cinder_multipathd_enabled:
     and:
     - cinder_backend_enabled
     - equals:
       - get_param: MultipathdEnable
       - true
-  rbd_backend_enabled: {equals: [{get_param: GlanceBackend}, rbd]}
+  rbd_backend_enabled:
+    or:
+    - equals:
+      - get_param: GlanceBackend
+      - rbd
+    - equals:
+      - yaql:
+          expression: $.data.values().any($.get("GlanceBackend", "") = "rbd")
+          data: {get_param: GlanceMultistoreConfig}
+      - true
   enable_image_conversion:
     and:
-      - equals: [{get_param: GlanceBackend}, rbd]
+      - rbd_backend_enabled
       - equals: [{get_param: NovaEnableRbdBackend}, true]
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   glance_workers_unset: {equals : [{get_param: GlanceWorkers}, '']}
@@ -259,9 +311,7 @@ conditions:
     - glance_netapp_nfs_enabled
     - and:
       # Keep this for compat, but ignore NovaEnableRbdBackend if it's a role param
-      - equals:
-        - get_param: GlanceBackend
-        - rbd
+      - rbd_backend_enabled
       - equals:
         - get_param: NovaEnableRbdBackend
         - true
@@ -409,6 +459,9 @@ outputs:
             glance::backend::rbd::rbd_store_pool: {get_param: GlanceRbdPoolName}
             glance::backend::rbd::rbd_store_user: {get_param: CephClientUserName}
             glance_backend: {get_param: GlanceBackend}
+            tripleo::profile::base::glance::api::glance_backend_id: {get_param: GlanceBackendID}
+            tripleo::profile::base::glance::api::glance_store_description: {get_param: GlanceStoreDescription}
+            tripleo::profile::base::glance::api::multistore_config: {get_param: GlanceMultistoreConfig}
             glance::notify::rabbitmq::notification_driver: {get_param: NotificationDriver}
           -
             if:
@@ -483,17 +536,31 @@ outputs:
               merge: true
               preserve_properties: true
           permissions:
-            - path: /var/lib/glance
-              owner: glance:glance
-              recurse: true
-            - path:
-                str_replace:
-                  template: /etc/ceph/CLUSTER.client.USER.keyring
-                  params:
-                    CLUSTER: {get_param: CephClusterName}
-                    USER: {get_param: CephClientUserName}
-              owner: glance:glance
-              perm: '0600'
+            list_concat:
+              -
+                - path: /var/lib/glance
+                  owner: glance:glance
+                  recurse: true
+                - path:
+                    str_replace:
+                      template: /etc/ceph/CLUSTER.client.USER.keyring
+                      params:
+                        CLUSTER: {get_param: CephClusterName}
+                        USER: {get_param: CephClientUserName}
+                  owner: glance:glance
+                  perm: '0600'
+              - repeat:
+                  template:
+                    path: /etc/ceph/<%keyring%>
+                    owner: glance:glance
+                    perm: '0600'
+                  for_each:
+                    <%keyring%>:
+                      yaql:
+                        expression: let(u => $.data.user) -> $.data.multistore.values().where($.get("CephClusterName")).select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                        data:
+                          user: {get_param: CephClientUserName}
+                          multistore: {get_param: GlanceMultistoreConfig}
         /var/lib/kolla/config_files/glance_api_tls_proxy.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
