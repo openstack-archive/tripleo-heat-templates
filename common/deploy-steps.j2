@@ -421,7 +421,8 @@ outputs:
             DOCKER_PUPPET_MOUNT_HOST_PUPPET: {get_param: DockerPuppetMountHostPuppet}
             SELINUX_MODE: {get_param: SELinuxMode}
           template: |
-            - hosts: DEPLOY_SOURCE_HOST
+            - &gather_facts_undercloud
+              hosts: DEPLOY_SOURCE_HOST
               name: Gather facts from undercloud
               gather_facts: yes
               any_errors_fatal: yes
@@ -429,24 +430,40 @@ outputs:
               tags:
                 - facts
 
-            - hosts: DEPLOY_TARGET_HOST
+            - &gather_facts_overcloud
+              hosts: DEPLOY_TARGET_HOST
               name: Gather facts from overcloud
               gather_facts: yes
               any_errors_fatal: yes
               tags:
                 - facts
 
-            - hosts: all
+            - &load_global_variables
+              hosts: all
               name: Load global variables
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               any_errors_fatal: yes
               tasks:
                 - include_vars: global_vars.yaml
                   no_log: true
+                - name: ensure we get the right selinux context
+                  shell: |-
+                    set -o pipefail
+                    if [[ -e /var/lib/config-data ]]; then
+                      chcon -R -t svirt_sandbox_file_t /var/lib/config-data
+                      exit 2
+                    fi
+                  args:
+                    executable: /bin/bash
+                    warn: no
+                  register: _selinux_config_data
+                  changed_when: _selinux_config_data.rc == 2
+                  failed_when: _selinux_config_data.rc not in [0,2]
               tags:
                 - always
 
-            - hosts: DEPLOY_TARGET_HOST
+            - &render_overcloud_group_vars
+              hosts: DEPLOY_TARGET_HOST
               name: Render all_nodes data as group_vars for overcloud
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               any_errors_fatal: yes
@@ -469,7 +486,8 @@ outputs:
               tags:
                 - facts
 
-            - hosts: DEPLOY_TARGET_HOST
+            - &set_overcloud_group_vars
+              hosts: DEPLOY_TARGET_HOST
               name: Set all_nodes data as group_vars for overcloud
               gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
               any_errors_fatal: yes
@@ -951,50 +969,11 @@ outputs:
             DOCKER_PUPPET_PROCESS_COUNT: {get_param: DockerPuppetProcessCount}
             DOCKER_PUPPET_MOUNT_HOST_PUPPET: {get_param: DockerPuppetMountHostPuppet}
           template: |
-            - hosts: DEPLOY_SOURCE_HOST
-              name: Gather facts from undercloud
-              gather_facts: yes
-              become: false
-            - hosts: DEPLOY_TARGET_HOST
-              name: Gather facts from overcloud
-              gather_facts: yes
-            - hosts: all
-              name: Load global variables
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - include_vars: global_vars.yaml
-                  no_log: true
-            - hosts: DEPLOY_TARGET_HOST
-              name: Render all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Render all_nodes data as group_vars for overcloud
-                  delegate_to: localhost
-                  become: false
-                  run_once: true
-                  when: not ansible_check_mode|bool
-                  block:
-                  - name: Get current user
-                    command: whoami
-                    register: whoami
-                  - name: render all_nodes data as group_vars for overcloud
-                    template:
-                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
-                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
-                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-              tags:
-                - facts
-            - hosts: DEPLOY_TARGET_HOST
-              name: Set all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Set all_nodes data as group_vars for overcloud
-                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
-                  no_log: true
-                  when: not ansible_check_mode|bool
-              tags:
-                - facts
+            - *gather_facts_undercloud
+            - *gather_facts_overcloud
+            - *load_global_variables
+            - *render_overcloud_group_vars
+            - *set_overcloud_group_vars
 {%- for role in roles %}
             - hosts: {{role.name}}
               name: Run update
@@ -1237,58 +1216,11 @@ outputs:
             BOOTSTRAP_SERVER_ID: {get_attr: [BootstrapServerId, value]}
             ENABLE_DEBUG: {get_param: ConfigDebug}
           template: |
-            - hosts: DEPLOY_SOURCE_HOST:DEPLOY_TARGET_HOST
-              name: Gather facts from undercloud
-              gather_facts: no
-              become: false
-              tags: always
-              tasks:
-                - name: Force facts refresh before upgrade.
-                  setup:
-
-            - hosts: all
-              name: Load global variables
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - include_vars: global_vars.yaml
-                  no_log: true
-                - name: ensure we get the right selinux context
-                  command: chcon -R -t svirt_sandbox_file_t /var/lib/config-data
-                  args:
-                    warn: no
-              tags:
-                - always
-            - hosts: DEPLOY_TARGET_HOST
-              name: Render all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Render all_nodes data as group_vars for overcloud
-                  delegate_to: localhost
-                  become: false
-                  run_once: true
-                  when: not ansible_check_mode|bool
-                  block:
-                  - name: Get current user
-                    command: whoami
-                    register: whoami
-                  - name: render all_nodes data as group_vars for overcloud
-                    template:
-                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
-                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
-                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-              tags:
-                - facts
-            - hosts: DEPLOY_TARGET_HOST
-              name: Set all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Set all_nodes data as group_vars for overcloud
-                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
-                  no_log: true
-                  when: not ansible_check_mode|bool
-              tags:
-                - facts
+            - *gather_facts_undercloud
+            - *gather_facts_overcloud
+            - *load_global_variables
+            - *render_overcloud_group_vars
+            - *set_overcloud_group_vars
 {%- for step in range(0,upgrade_steps_max) %}
             - hosts: DEPLOY_TARGET_HOST
               name: Upgrade tasks for step {{step}}
@@ -1370,59 +1302,11 @@ outputs:
             CONTAINER_LOG_STDOUT_PATH: {get_param: ContainerLogStdoutPath}
             CONTAINER_HEALTHCHECK_DISABLED: {get_param: ContainerHealthcheckDisabled}
           template: |
-            - hosts: DEPLOY_SOURCE_HOST
-              name: Gather facts from undercloud
-              gather_facts: yes
-              become: false
-              tags:
-                - always
-                - facts
-            # facts from overcloud may be needed for external installer inventory
-            - hosts: DEPLOY_TARGET_HOST
-              name: Gather facts from overcloud
-              gather_facts: yes
-              tags:
-                - always
-                - facts
-            - hosts: all
-              name: Load global variables
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - include_vars: global_vars.yaml
-                  no_log: true
-              tags:
-                - always
-            - hosts: DEPLOY_TARGET_HOST
-              name: Render all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Render all_nodes data as group_vars for overcloud
-                  delegate_to: localhost
-                  become: false
-                  run_once: true
-                  when: not ansible_check_mode|bool
-                  block:
-                  - name: Get current user
-                    command: whoami
-                    register: whoami
-                  - name: render all_nodes data as group_vars for overcloud
-                    template:
-                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
-                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
-                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-              tags:
-                - facts
-            - hosts: DEPLOY_TARGET_HOST
-              name: Set all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Set all_nodes data as group_vars for overcloud
-                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
-                  no_log: true
-                  when: not ansible_check_mode|bool
-              tags:
-                - facts
+            - *gather_facts_undercloud
+            - *gather_facts_overcloud
+            - *load_global_variables
+            - *render_overcloud_group_vars
+            - *set_overcloud_group_vars
 {%- for step in range(external_upgrade_steps_max) %}
             - hosts: DEPLOY_SOURCE_HOST
               name: External upgrade step {{step}}
@@ -1502,55 +1386,13 @@ outputs:
             # Collect the facts from the overcloud nodes but ignore unreachable
             # nodes in the case of a dead node which needs to be part of the
             # scale-down operation.
-            - hosts: DEPLOY_SOURCE_HOST:DEPLOY_TARGET_HOST
-              name: Gather facts from overcloud
-              gather_facts: no
+            - <<: *gather_facts_undercloud
               ignore_unreachable: True
-              tags:
-                - always
-                - facts
-              tasks:
-                - name: Force facts refresh before scale.
-                  setup:
-            - hosts: all
-              name: Load global variables
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - include_vars: global_vars.yaml
-                  no_log: true
-              tags:
-                - always
-            - hosts: DEPLOY_TARGET_HOST
-              name: Render all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Render all_nodes data as group_vars for overcloud
-                  delegate_to: localhost
-                  become: false
-                  run_once: true
-                  when: not ansible_check_mode|bool
-                  block:
-                  - name: Get current user
-                    command: whoami
-                    register: whoami
-                  - name: render all_nodes data as group_vars for overcloud
-                    template:
-                      src: "{{ '{{' }} lookup('first_found', lookup('config', 'DEFAULT_ROLES_PATH') | map('regex_replace', '$', '/tripleo-hieradata') | list) ~ '/templates/all_nodes.j2' {{ '}}'}}"
-                      dest: "{{ '{{' }} playbook_dir {{ '}}' }}/group_vars/overcloud.json"
-                      owner: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-                      group: "{{ '{{' }} whoami.stdout {{ '}}' }}"
-              tags:
-                - facts
-            - hosts: DEPLOY_TARGET_HOST
-              name: Set all_nodes data as group_vars for overcloud
-              gather_facts: {{ '"{{' }} gather_facts | default(false) {{ '}}"' }}
-              tasks:
-                - name: Set all_nodes data as group_vars for overcloud
-                  include_vars: "{{ '{{ ' }} playbook_dir {{ ' }}' }}/group_vars/overcloud.json"
-                  no_log: true
-                  when: not ansible_check_mode|bool
-              tags:
-                - facts
+            - <<: *gather_facts_overcloud
+              ignore_unreachable: True
+            - *load_global_variables
+            - *render_overcloud_group_vars
+            - *set_overcloud_group_vars
             - hosts: DEPLOY_TARGET_HOST
               name: Scaling
               # NOTE(cloudnull): This is set to true explicitly so that we have up-to-date facts
