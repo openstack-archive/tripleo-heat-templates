@@ -80,8 +80,11 @@ EOF_CAT
 
     for iface in $(ls /sys/class/net | grep -v -e ^lo$ -e ^vnet$); do
         local mac_addr_type="$(cat /sys/class/net/${iface}/addr_assign_type)"
+        local vf_parent="/sys/class/net/${iface}/device/physfn"
         if [ "$mac_addr_type" != "0" ]; then
             echo "Device has generated MAC, skipping."
+        elif [[ -d $vf_parent ]]; then
+            echo "Device (${iface}) is a SR-IOV VF, skipping."
         else
             HAS_LINK="$(cat /sys/class/net/${iface}/carrier || echo 0)"
 
