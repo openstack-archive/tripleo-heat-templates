@@ -1,0 +1,63 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack containerized Keystone service
+
+parameters:
+  ContainerPankoApiImage:
+    description: image
+    type: string
+
+outputs:
+  cmd_extra_args:
+    description: Extra command line arguments for running the service in the container.
+    value: "--log-dir= --log-file="
+  config_settings:
+    description: Extra hieradata needed to log to stdout.
+    value:
+      panko::wsgi::apache::access_log_file: /var/log/httpd/access.log
+      panko::wsgi::apache::error_log_file: /var/log/httpd/error_log
+  docker_config:
+    description: Extra containers needed for logging to stdout or a sidecar container.
+    value:
+      step_2:
+        panko_api_apache_error_logs:
+          start_order: 1
+          image: {get_param: ContainerPankoApiImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/error_log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/error_log && mkfifo /var/log/httpd/error_log && while true; do cat /var/log/httpd/error_log; done']
+          volumes:
+            - PankoApiLogs:/var/log/
+        panko_api_apache_access_logs:
+          start_order: 1
+          image: {get_param: ContainerPankoApiImage}
+          user: root
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/httpd/access.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/httpd && rm -f /var/log/httpd/access.log && mkfifo /var/log/httpd/access.log && while true; do cat /var/log/httpd/access.log; done']
+          volumes:
+            - PankoApiLogs:/var/log/
+        panko_api_logs:
+          start_order: 2
+          image: {get_param: ContainerPankoApiImage}
+          user: panko
+          privileged: false
+          restart: always
+          healthcheck:
+            test: '[ -p /var/log/panko/app.log ]'
+          command: ['/bin/bash', '-c', 'mkdir -p /var/log/panko && rm -f /var/log/panko/app.log && mkfifo /var/log/panko/app.log && while true; do cat /var/log/panko/app.log; done']
+          volumes:
+            - PankoApiLogs:/var/log/
+  volumes:
+    description: The volumes needed to log to stdout or a sidecar container.
+    value:
+      - PankoApiLogs:/var/log/
+  host_prep_tasks:
+    description: Extra ansible tasks needed for logging to files in the host.
+    value: null

@@ -41,6 +41,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  CeilometerEnablePanko:
+    default: true
+    description: Check if panko need to be enabled or not.
+    type: boolean
   MonitoringSubscriptionCeilometerNotification:
     default: 'overcloud-ceilometer-agent-notification'
     type: string
@@ -59,6 +63,9 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+conditions:
+  ceilometer_enable_panko: {equals: [{get_param: CeilometerEnablePanko}, True]}
 
 outputs:
   role_data:
@@ -90,7 +97,18 @@ outputs:
                   dest: "/"
                   merge: true
                   preserve_properties: true
+              - if:
+                  - ceilometer_enable_panko
+                  - - source: "/var/lib/kolla/config_files/src-panko/*"
+                      dest: "/"
+                      merge: true
+                      preserve_properties: true
+                  - null
 
+          permissions:
+            - path: /etc/panko
+              owner: root:ceilometer
+              recurse: true
       docker_config:
         step_3:
           ceilometer_init_log:
@@ -114,6 +132,7 @@ outputs:
                 -
                   - /var/lib/kolla/config_files/ceilometer_agent_notification.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ceilometer/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/puppet-generated/panko/:/var/lib/kolla/config_files/src-panko:ro
                   - /var/log/containers/ceilometer:/var/log/ceilometer:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
