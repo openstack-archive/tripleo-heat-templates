@@ -228,3 +228,34 @@ outputs:
             - step|int == 1
             - release == 'rocky'
             - neutron_metadata_agent_enabled|bool
+      post_upgrade_tasks:
+        - name: Check for neutron user
+          getent:
+            database: passwd
+            key: neutron
+          ignore_errors: True
+        - name: Set neutron_user_avail
+          set_fact:
+            neutron_user_avail: "{{ getent_passwd is defined }}"
+        - when:
+            - step|int == 2
+            - neutron_user_avail|bool
+          block:
+            - name: Ensure r/w access for existing files after upgrade
+              become: true
+              shell: |
+                umask 0002
+                setfacl -d -R -m u:neutron:rwx /var/lib/neutron
+                setfacl -R -m u:neutron:rw /var/lib/neutron
+                find /var/lib/neutron -type d -exec setfacl -m u:neutron:rwx '{}' \;
+            - name: Provide access to domain sockets
+              become: true
+              shell: |
+                umask 0002
+                setfacl -m u:neutron:rwx "{{ item }}"
+              with_items:
+                - /var/lib/neutron/metadata_proxy
+                - /var/lib/neutron/keepalived-state-change
+                - /var/lib/neutron
+              # These files are not necessarily present
+              ignore_errors: True
