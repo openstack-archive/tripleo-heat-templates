@@ -509,9 +509,11 @@ for infile in infiles:
     if config_hash:
         log.debug("Updating config hash for %s, config_volume=%s hash=%s" % (c_name, config_volume, config_hash))
         # When python 27 support is removed, we will be able to use z = {**x, **y} to merge the dicts.
-        infile_data.get('environment', {}).update({'TRIPLEO_CONFIG_HASH': config_hash})
-        env = infile_data.get('environment')
-        infile_data['environment'] = env
+        if infile_data.get('environment', None) is None:
+            infile_data['environment'] = {}
+        infile_data['environment'].update(
+            {'TRIPLEO_CONFIG_HASH': config_hash}
+        )
 
     outfile = os.path.join(os.path.dirname(infile), "hashed-" + os.path.basename(infile))
     with open(outfile, 'w') as out_f:
