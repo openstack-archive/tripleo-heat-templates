@@ -44,9 +44,58 @@ parameters:
   MonitoringSubscriptionCeilometerNotification:
     default: 'overcloud-ceilometer-agent-notification'
     type: string
+  MetricsQdrPort:
+    default: '5666'
+    description: Service name or port number on which the qdrouterd will accept
+                 connections. This argument must be string, even if the numeric
+                 form is used.
+    type: string
+  CeilometerQdrPublishEvents:
+    default: false
+    description: Whether to send events to MetricsQdr service.
+    type: boolean
+  CeilometerQdrPublishMetrics:
+    default: false
+    description: Whether to send telemetry data to MetricsQdr service.
+    type: boolean
+  CeilometerQdrEventsConfig:
+    default:
+      driver: amqp
+      topic: ceilometer/event.sample
+    description: Configuration for notifier publisher for events.
+    type: json
+  CeilometerQdrMetricsConfig:
+    default:
+      driver: amqp
+      topic: ceilometer/metering.sample
+    description: Configuration for notifier publisher for metrics.
+    type: json
+  ManageEventPipeline:
+    default: true
+    description: Whether to manage event_pipeline.yaml.
+    type: boolean
+  EventPipelinePublishers:
+    default: []
+    description: >
+        A list of publishers to put in event_pipeline.yaml. When the
+        collector is used, override this with notifier:// publisher.
+        If zaqar is enabled, you can also publish to a zaqar queue
+        by including "zaqar://?queue=queue_name" in this list.
+        Set ManageEventPipeline to true for override to take effect.
+    type: comma_delimited_list
+  ManagePipeline:
+    default: false
+    description: Whether to manage pipeline.yaml.
+    type: boolean
+  PipelinePublishers:
+    default: []
+    description: >
+        A list of publishers to put in pipeline.yaml. When the
+        collector is used, override this with notifier:// publisher.
+        Set ManagePipeline to true for override to take effect.
+    type: comma_delimited_list
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -60,6 +109,12 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+conditions:
+  ceilometer_qdr_publish:
+    or:
+      - {equals: [{get_param: CeilometerQdrPublishEvents}, true]}
+      - {equals: [{get_param: CeilometerQdrPublishMetrics}, true]}
+
 outputs:
   role_data:
     description: Role data for the Ceilometer Agent Notification role.
@@ -67,7 +122,26 @@ outputs:
       service_name: ceilometer_agent_notification
       monitoring_subscription: {get_param: MonitoringSubscriptionCeilometerNotification}
       config_settings:
-        get_attr: [CeilometerServiceBase, role_data, config_settings]
+        map_merge:
+          - get_attr: [CeilometerServiceBase, role_data, config_settings]
+          - ceilometer::agent::notification::manage_event_pipeline: {get_param: ManageEventPipeline}
+            ceilometer::agent::notification::manage_pipeline: {get_param: ManagePipeline}
+            tripleo::profile::base::ceilometer::agent::notification::notifier_enabled: {get_param: CeilometerQdrPublishMetrics}
+            tripleo::profile::base::ceilometer::agent::notification::notifier_events_enabled: {get_param: CeilometerQdrPublishEvents}
+            tripleo::profile::base::ceilometer::agent::notification::pipeline_publishers: {get_param: PipelinePublishers}
+            tripleo::profile::base::ceilometer::agent::notification::event_pipeline_publishers: {get_param: EventPipelinePublishers}
+            tripleo::profile::base::ceilometer::agent::notification::notifier_params: {get_param: CeilometerQdrMetricsConfig}
+            tripleo::profile::base::ceilometer::agent::notification::notifier_event_params: {get_param: CeilometerQdrEventsConfig}
+          - if: #Ceilometer connection to qdr
+            - ceilometer_qdr_publish
+            - tripleo::profile::base::ceilometer::agent::notification::notifier_host_addr:
+                str_replace:
+                  template:
+                    "%{hiera('$NETWORK')}"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+              tripleo::profile::base::ceilometer::agent::notification::notifier_host_port: {get_param: MetricsQdrPort}
+            - {}
       service_config_settings:
         map_merge:
           - get_attr: [CeilometerServiceBase, role_data, service_config_settings]
