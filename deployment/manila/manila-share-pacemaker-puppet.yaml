@@ -317,6 +317,67 @@ outputs:
               register: output
               retries: 5
               until: output.rc == 0
+        - name: Create hiera data to upgrade manila_share in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set manila_share upgrade node facts in a single-node environment
+              set_fact:
+                manila_share_short_node_names_upgraded: "{{ manila_share_short_node_names }}"
+                manila_share_node_names_upgraded: "{{ manila_share_node_names }}"
+                cacheable: no
+              when: groups['manila_share'] | length <= 1
+            - name: set manila_share upgrade node facts from the limit option
+              set_fact:
+                manila_share_short_node_names_upgraded: "{{ manila_share_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                manila_share_node_names_upgraded: "{{ manila_share_node_names_upgraded|default([]) + [item] }}"
+                cacheable: no
+              when:
+                - groups['manila_share'] | length > 1
+                - item.split('.')[0] in ansible_limit.split(',')
+              loop: "{{ manila_share_node_names }}"
+            - debug:
+                msg: "Prepare manila_share upgrade for {{ manila_share_short_node_names_upgraded }}"
+            - fail:
+                msg: >
+                  You can't upgrade manila_share without
+                  staged upgrade.  You need to use the limit option in order
+                  to do so.
+              when: >-
+                manila_share_short_node_names_upgraded is not defined or
+                manila_share_short_node_names_upgraded | length == 0 or
+                manila_share_node_names_upgraded is not defined or
+                manila_share_node_names_upgraded | length == 0
+            - name: remove manila_share init container on upgrade-scaleup to force re-init
+              shell: |
+                if podman inspect manila_share_init_bundle &> /dev/null; then
+                    podman rm manila_share_init_bundle
+                fi
+              when: manila_share_short_node_names_upgraded | length > 1
+            - name: add the manila_share short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: manila_share_short_node_names_override
+                tripleo_upgrade_value: "{{ manila_share_short_node_names_upgraded }}"
+            - name: add the manila_share long name to hiera data for the upgrade
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: manila_share_node_names_override
+                tripleo_upgrade_value: "{{ manila_share_node_names_upgraded }}"
+            - name: remove the extra hiera data needed for the upgrade.
+              include_role:
+                name: tripleo-upgrade-hiera
+                tasks_from: remove.yml
+              vars:
+                tripleo_upgrade_key: "{{ item }}"
+              loop:
+                - manila_share_short_node_names_override
+                - manila_share_node_names_override
+              when: manila_share_short_node_names_upgraded | length == manila_share_node_names | length
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
