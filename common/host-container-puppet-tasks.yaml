@@ -8,41 +8,74 @@
   tags:
     - container_config_tasks
 
-- name: Run container-puppet tasks (bootstrap tasks) for step {{ step }}
-  async: 3600
-  poll: 0
-  shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
-  environment:
-    CONFIG: /var/lib/container-puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json
-    CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | bool | ternary("/check-mode", "") }}'
-    NET_HOST: "true"
-    NO_ARCHIVE: "true"
-    STEP: "{{ step }}"
-    CONTAINER_CLI: "{{ container_cli }}"
-    DEBUG: "{{ docker_puppet_debug }}"
-    MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet}}'
-    SHORT_HOSTNAME: "{{ ansible_hostname }}"
-    PROCESS_COUNT: "{{ docker_puppet_process_count }}"
-  register: bootstrap_tasks_async_result
-  no_log: true
-  tags:
-    - container_config_tasks
-
-- name: Wait for container-puppet tasks (bootstrap tasks) for step {{ step }} to finish
-  async_status:
-    jid: "{{ bootstrap_tasks_async_result.ansible_job_id }}"
-  register: bootstrap_tasks_outputs
-  until: bootstrap_tasks_outputs.finished
-  retries: 1200
-  delay: 3
-  tags:
-    - container_config_tasks
-
-- name: "Debug output for task: Run container-puppet tasks (bootstrap tasks) for step {{ step }}"
-  debug:
-    var: bootstrap_tasks_outputs.stdout_lines | default([]) | union(bootstrap_tasks_outputs.stderr_lines | default([]))
+- name: Block for container-puppet tasks (bootstrap tasks) for step {{ step }} with paunch
   when:
-    - bootstrap_tasks_outputs.rc is defined
-  failed_when: bootstrap_tasks_outputs.rc != 0
+    - enable_paunch|default(true)
   tags:
     - container_config_tasks
+  block:
+    - name: Run container-puppet tasks (bootstrap tasks) for step {{ step }} with paunch
+      async: 3600
+      poll: 0
+      shell: "{{ python_cmd }} /var/lib/container-puppet/container-puppet.py"
+      environment:
+        CONFIG: /var/lib/container-puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json
+        CONFIG_VOLUME_PREFIX: '/var/lib/config-data{{ ansible_check_mode | bool | ternary("/check-mode", "") }}'
+        NET_HOST: "true"
+        NO_ARCHIVE: "true"
+        STEP: "{{ step }}"
+        CONTAINER_CLI: "{{ container_cli }}"
+        DEBUG: "{{ docker_puppet_debug }}"
+        MOUNT_HOST_PUPPET: '{{docker_puppet_mount_host_puppet}}'
+        SHORT_HOSTNAME: "{{ ansible_hostname }}"
+        PROCESS_COUNT: "{{ docker_puppet_process_count }}"
+      register: bootstrap_tasks_async_result
+      no_log: true
+
+    - name: Wait for container-puppet tasks (bootstrap tasks) for step {{ step }} to finish
+      async_status:
+        jid: "{{ bootstrap_tasks_async_result.ansible_job_id }}"
+      register: bootstrap_tasks_outputs
+      until: bootstrap_tasks_outputs.finished
+      retries: 1200
+      delay: 3
+
+    - name: "Debug output for task: Run container-puppet tasks (bootstrap tasks) for step {{ step }}"
+      debug:
+        var: bootstrap_tasks_outputs.stdout_lines | default([]) | union(bootstrap_tasks_outputs.stderr_lines | default([]))
+      when:
+        - bootstrap_tasks_outputs.rc is defined
+      failed_when: bootstrap_tasks_outputs.rc != 0
+
+- name: Block for container-puppet tasks (bootstrap tasks) for step {{ step }} with tripleo-ansible
+  when:
+    - not enable_paunch|default(true)
+  tags:
+    - container_config_tasks
+  block:
+    - name: "Generate container puppet configs for step {{ step }}"
+      container_puppet_config:
+        check_mode: '{{ ansible_check_mode | bool | ternary(1, 0) }}'
+        config_vol_prefix: "/var/lib/config-data{{ ansible_check_mode | bool | ternary('/check-mode', '') }}"
+        debug: "{{ docker_puppet_debug | bool }}"
+        net_host: true
+        no_archive: true
+        puppet_config: "/var/lib/container-puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}container-puppet-tasks{{ step }}.json"
+        short_hostname: "{{ ansible_hostname }}"
+        step: "{{ step }}"
+
+    - name: "Manage Puppet containers (bootstrap tasks) for step {{ step }} with tripleo-ansible"
+      include_role:
+        name: tripleo-container-manage
+      vars:
+        tripleo_container_manage_concurrency: "{{ docker_puppet_process_count }}"
+        tripleo_container_manage_systemd_order: false
+        tripleo_container_manage_systemd_teardown: false
+        tripleo_container_manage_config: "/var/lib/tripleo-config/container-puppet-config/step_{{ step }}"
+        tripleo_container_manage_config_patterns: 'container-puppet-*.json'
+        tripleo_container_manage_config_id: "tripleo_puppet_step{{ step }}"
+        tripleo_container_manage_debug: "{{ docker_puppet_debug | bool }}"
+        # puppet with --detailed-exitcodes will return 0 for success and
+        # no changes and 2 for success and resource changes. Other
+        # numbers are failures
+        tripleo_container_manage_valid_exit_code: [0, 2]

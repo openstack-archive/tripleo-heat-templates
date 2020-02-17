@@ -22,6 +22,10 @@ if [ -n "$PUPPET_TAGS" ]; then
     TAGS="--tags \"$PUPPET_TAGS\""
 fi
 
+if [ ! -z ${STEP_CONFIG+x} ]; then
+    echo -e "${STEP_CONFIG}" | tee /etc/config.pp
+fi
+
 CHECK_MODE=""
 if [ -d "/tmp/puppet-check-mode" ]; then
     mkdir -p /etc/puppet/check-mode
