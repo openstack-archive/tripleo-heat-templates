@@ -52,6 +52,10 @@ parameters:
     description: Port of the OVN Southbound DB server
     type: number
     default: 6642
+  EnableLoadBalancer:
+    default: true
+    description: Whether to deploy a LoadBalancer, set to false when an external load balancer is used.
+    type: boolean
   ConfigDebug:
     default: false
     description: Whether to run config management (e.g. Puppet) in debug mode.
@@ -87,6 +91,7 @@ conditions:
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
+  use_external_load_balancer: {equals: [{get_param: EnableLoadBalancer}, false]}
 
 resources:
 
@@ -135,7 +140,16 @@ outputs:
           - tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::container_backend: {get_param: ContainerCli}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::dbs_timeout: {get_param: OVNDBSPacemakerTimeout}
-          - tripleo::haproxy::ovn_dbs_manage_lb: false
+          - tripleo::haproxy::ovn_dbs_manage_lb:
+              if:
+                - use_external_load_balancer
+                - true
+                - false
+          - tripleo::profile::pacemaker::ovn_dbs_bundle::listen_on_master_ip_only:
+              if:
+                - use_external_load_balancer
+                - 'yes'
+                - 'no'
           - if:
             - internal_tls_enabled
             - generate_service_certificates: true
