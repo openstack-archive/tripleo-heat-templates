@@ -343,6 +343,7 @@ outputs:
             - {}
             - keystone::cors::allowed_origin: {get_param: KeystoneCorsAllowedOrigin}
           - keystone_enable_member: {get_param: KeystoneEnableMember}
+          - keystone_resources_managed: false
           - keystone::database_connection:
               make_url:
                 scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
@@ -688,11 +689,46 @@ outputs:
                     username: admin
                   identity_api_version: '3'
                   region_name: {get_param: KeystoneRegion}
+        - name: Manage Keystone resources
+          become: true
+          when:
+            - step|int == 4
+            - not ansible_check_mode|bool
+          block:
+            - name: Manage Keystone resources for OpenStack services
+              include_role:
+                name: tripleo-keystone-resources
+              vars:
+                tripleo_keystone_resources_catalog_config: "{{ keystone_resources }}"
+                tripleo_keystone_resources_service_project: 'service'
+                tripleo_keystone_resources_cloud_name: {get_param: RootStackName}
+                tripleo_keystone_resources_region: {get_param: KeystoneRegion}
+                tripleo_keystone_resources_admin_endpoint: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+                tripleo_keystone_resources_public_endpoint: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+                tripleo_keystone_resources_internal_endpoint: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+                tripleo_keystone_resources_admin_password: {get_param: AdminPassword}
+                tripleo_keystone_resources_member_role_enabled: {get_param: KeystoneEnableMember}
+            - name: is Keystone LDAP enabled
+              set_fact:
+                keystone_ldap_domain_enabled: {get_param: KeystoneLDAPDomainEnable}
+            - name: Set fact for tripleo_keystone_ldap_domains
+              set_fact:
+                tripleo_keystone_ldap_domains: {get_param: KeystoneLDAPBackendConfigs}
+              when: keystone_ldap_domain_enabled|bool
+            - name: Manage Keystone domains from LDAP config
+              when: keystone_ldap_domain_enabled|bool
+              include_role:
+                name: tripleo-keystone-resources
+                tasks_from: domains
+              vars:
+                tripleo_keystone_resources_catalog_config: "{{ keystone_resources }}"
+                tripleo_keystone_resources_cloud_name: {get_param: RootStackName}
+                batched_tripleo_keystone_resources_domains: "{{ tripleo_keystone_ldap_domains | list }}"
       container_puppet_tasks:
         # Keystone endpoint creation occurs only on single node
         step_3:
           config_volume: 'keystone_init_tasks'
-          puppet_tags: 'keystone_config,keystone_domain_config,keystone_endpoint,keystone_identity_provider,keystone_role,keystone_service,keystone_tenant,keystone_user,keystone_user_role,keystone_domain'
+          puppet_tags: 'keystone_config'
           step_config: 'include ::tripleo::profile::base::keystone'
           config_image: *keystone_config_image
       host_prep_tasks: {get_attr: [KeystoneLogging, host_prep_tasks]}
