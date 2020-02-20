@@ -9,7 +9,8 @@ yum install -y \
     openvswitch \
     python3-heat-agent* \
     lvm2 \
-    openstack-selinux
+    openstack-selinux \
+    tmpwatch
 
 ln -s -f /usr/share/openstack-puppet/modules/* /etc/puppet/modules
 
