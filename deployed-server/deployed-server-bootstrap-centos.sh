@@ -9,7 +9,8 @@ yum install -y \
     os-net-config \
     openvswitch \
     python-heat-agent* \
-    openstack-selinux
+    openstack-selinux \
+    tmpwatch
 
 ln -s -f /usr/share/openstack-puppet/modules/* /etc/puppet/modules
 
