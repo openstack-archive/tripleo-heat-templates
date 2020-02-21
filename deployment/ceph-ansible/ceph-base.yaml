@@ -151,13 +151,14 @@ parameters:
   ManilaCephFSMetadataPoolName:
     default: manila_metadata
     type: string
-  # DEPRECATED options for compatibility with older versions
+  # start DEPRECATED options for compatibility with older versions
   ManilaCephFSDataPoolPGNum:
     default: 128
     type: number
   ManilaCephFSMetadataPoolPGNum:
     default: 128
     type: number
+  # end DEPRECATED options for compatibility with older versions
   ManilaCephFSShareBackendName:
     default: cephfs
     type: string
@@ -189,6 +190,7 @@ parameters:
     default: {}
     description: Mapping of Ansible environment variables to override defaults.
     type: json
+  # start DEPRECATED options for compatibility with older versions
   SwiftFetchDirGetTempurl:
     default: ''
     description: A temporary Swift URL to download the fetch_directory from.
@@ -206,6 +208,7 @@ parameters:
                  config-download, e.g. the mistral user in the mistral-executor
                  container is able to read/write to /var/lib/mistral/ceph_fetch
     type: string
+  # end DEPRECATED options for compatibility with older versions
   CephOsdPercentageMin:
     default: 66
     description: The minimum percentage of Ceph OSDs which must be running and
@@ -281,6 +284,9 @@ parameter_groups:
   parameters:
   - ManilaCephFSDataPoolPGNum
   - ManilaCephFSMetadataPoolPGNum
+  - LocalCephAnsibleFetchDirectoryBackup
+  - SwiftFetchDirGetTempurl
+  - SwiftFetchDirPutTempurl
 
 conditions:
   deprecated_data_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSDataPoolPGNum}, 128]}}
@@ -607,6 +613,9 @@ outputs:
                     expression: dict($.data.keys().select($.toLower()).zip($.data.values()))
                     data: {get_param: NodeDataLookup}
                 ceph_external_multi_config: {get_param: CephExternalMultiConfig}
+            - name: include common ceph defaults
+              include_role:
+                name: tripleo_ceph_common
             - name: create ceph-ansible working direcotry
               include_role:
                 name: tripleo_ceph_work_dir
@@ -623,9 +632,6 @@ outputs:
               set_fact:
                 ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
                 ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
-                local_ceph_ansible_fetch_directory_backup: {get_param: LocalCephAnsibleFetchDirectoryBackup}
-                swift_get_url: {get_param: SwiftFetchDirGetTempurl}
-                swift_put_url: {get_param: SwiftFetchDirPutTempurl}
                 ceph_ansible_environment_variables:
                   yaql:
                     data: {get_param: CephAnsibleEnvironmentVariables}
@@ -639,17 +645,9 @@ outputs:
               include_role:
                 name: tripleo_ceph_uuid
                 tasks_from: gather
-            - name: create copy of ceph-ansible fetch directory
-              include_role:
-                name: tripleo_ceph_fetch_dir
-                tasks_from: create
             - name: run ceph-ansible
               include_role:
                 name: tripleo_ceph_run_ansible
-            - name: backup and clean fetch directory
-              include_role:
-                name: tripleo_ceph_fetch_dir
-                tasks_from: backup_and_clean
             - name: ensure ceph health is OK before proceeding
               import_role:
                 role: ceph
