@@ -10,7 +10,8 @@ yum install -y \
     openvswitch \
     python-heat-agent* \
     openstack-selinux \
-    tmpwatch
+    tmpwatch \
+    rsync
 
 ln -s -f /usr/share/openstack-puppet/modules/* /etc/puppet/modules
 
