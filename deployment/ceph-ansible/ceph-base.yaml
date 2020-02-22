@@ -117,6 +117,13 @@ parameters:
   GlanceRbdPoolName:
     default: images
     type: string
+  GlanceBackend:
+    default: swift
+    description: The short name of the Glance backend to use. Should be one
+      of swift, rbd, cinder, or file
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd', 'cinder']
   GnocchiRbdPoolName:
     default: metrics
     type: string
@@ -283,6 +290,29 @@ parameters:
       package. This value can be used by tripleo-validations to double check
       the right ceph-ansible version is installed.
     default: 'centos-ceph-nautilus'
+  CinderEnableRbdBackend:
+    default: false
+    description: Whether to enable or not the Rbd backend for Cinder
+    type: boolean
+  NovaEnableRbdBackend:
+    default: false
+    description: Whether to enable the Rbd backend for Nova ephemeral storage.
+    type: boolean
+    tags:
+      - role_specific
+  CinderBackupBackend:
+    default: swift
+    description: The short name of the Cinder Backup backend to use.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'ceph', 'nfs']
+  GnocchiBackend:
+    default: swift
+    description: The short name of the Gnocchi backend to use. Should be one
+      of swift, rbd, file or s3.
+    type: string
+    constraints:
+    - allowed_values: ['swift', 'file', 'rbd', 's3']
 
 parameter_groups:
 - label: deprecated
@@ -384,6 +414,85 @@ resources:
           rgw_swift_account_in_url: 'true'
           rgw_trust_forwarded_https: 'true'
 
+  CephBasePoolVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          gnocchi_pool:
+            name: {get_param: GnocchiRbdPoolName}
+            enabled:
+              if:
+                - equals:
+                    - {get_param: GnocchiBackend}
+                    - 'rbd'
+                - true
+                - false
+          nova_pool:
+            name: {get_param: NovaRbdPoolName}
+            enabled: {get_param: NovaEnableRbdBackend}
+          glance_pool:
+            name: {get_param: GlanceRbdPoolName}
+            enabled:
+              if:
+                - equals:
+                    - {get_param: GlanceBackend}
+                    - 'rbd'
+                - true
+                - false
+          cinder_pool:
+            name: {get_param: CinderRbdPoolName}
+            enabled: {get_param: CinderEnableRbdBackend}
+            cinder_extra_pools: {get_param: CinderRbdExtraPools}
+          cinder_backup_pool:
+            name: {get_param: CinderBackupRbdPoolName}
+            enabled:
+              if:
+                - equals:
+                    - {get_param: CinderBackupBackend}
+                    - 'ceph'
+                - true
+                - false
+          extra_pools: {get_param: CephPools}
+          pg_num: {get_param: CephPoolDefaultPgNum}
+
+  CephManilaPoolVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          data: {get_param: ManilaCephFSDataPoolName}
+          metadata: {get_param: ManilaCephFSMetadataPoolName}
+          data_pg_num:
+            if:
+            - deprecated_data_pool_pgnum
+            - {get_param: ManilaCephFSDataPoolPGNum}
+            - {get_param: CephPoolDefaultPgNum}
+          metadata_pg_num:
+            if:
+            - deprecated_metadata_pool_pgnum
+            - {get_param: ManilaCephFSMetadataPoolPGNum}
+            - {get_param: CephPoolDefaultPgNum}
+
+  CephKeyVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          openstack_client:
+            name: {get_param: CephClientUserName}
+            key: {get_param: CephClientKey}
+          manila:
+            name: {get_param: ManilaCephFSCephFSAuthId}
+            key: {get_param: CephManilaClientKey}
+          radosgw:
+            name: {get_param: CephRgwClientName}
+            key: {get_param: CephRgwKey}
+          extra_keys: {get_param: CephExtraKeys}
+
   CephBaseAnsibleVars:
     type: OS::Heat::Value
     properties:
@@ -433,98 +542,6 @@ resources:
             list_join:
               - ','
               - get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephClusterNetwork]}]
-          openstack_pools:
-            yaql:
-              expression: $.data.toDict($.get('name')).values()
-              data:
-                list_concat_unique:
-                  - repeat:
-                      template:
-                        name: <%pool%>
-                        pg_num: {get_param: CephPoolDefaultPgNum}
-                        rule_name: replicated_rule
-                        application: rbd
-                      for_each:
-                        <%pool%>:
-                          list_concat_unique:
-                            - - {get_param: CinderRbdPoolName}
-                              - {get_param: CinderBackupRbdPoolName}
-                              - if:
-                                - equals: [{get_param: [RoleParameters, NovaRbdPoolName]}, '']
-                                - {get_param: NovaRbdPoolName}
-                                - {get_param: [RoleParameters, NovaRbdPoolName]}
-                              - {get_param: GlanceRbdPoolName}
-                            # CinderRbdExtraPools is a list (do not indent further)
-                            - {get_param: CinderRbdExtraPools}
-                  - if:
-                    - equals: [{get_param: GnocchiRbdPoolName}, '']
-                    - []
-                    - - name: {get_param: GnocchiRbdPoolName}
-                        pg_num: {get_param: CephPoolDefaultPgNum}
-                        rule_name: replicated_rule
-                        application: openstack_gnocchi
-                  - {get_param: CephPools}
-          openstack_keys: &openstack_keys
-            list_concat_unique:
-              - - name:
-                    list_join:
-                    - '.'
-                    - - client
-                      - {get_param: CephClientUserName}
-                  key: {get_param: CephClientKey}
-                  caps:
-                    mgr: "allow *"
-                    mon: "profile rbd"
-                    osd:
-                      list_join:
-                      - ', '
-                      - repeat:
-                          template: 'profile rbd pool=<%pool%>'
-                          for_each:
-                            <%pool%>:
-                              list_concat_unique:
-                              - - {get_param: CinderRbdPoolName}
-                                - {get_param: CinderBackupRbdPoolName}
-                                - if:
-                                  - equals: [{get_param: [RoleParameters, NovaRbdPoolName]}, '']
-                                  - {get_param: NovaRbdPoolName}
-                                  - {get_param: [RoleParameters, NovaRbdPoolName]}
-                                - {get_param: GlanceRbdPoolName}
-                              - if:
-                                - equals: [{get_param: GnocchiRbdPoolName}, '']
-                                - []
-                                - [{get_param: GnocchiRbdPoolName}]
-                              # CinderRbdExtraPools is a list (do not indent further)
-                              - {get_param: CinderRbdExtraPools}
-                              - yaql:
-                                  data: {get_param: CephPools}
-                                  expression: $.data.select($.name)
-                  mode: "0600"
-                - name:
-                    list_join:
-                    - '.'
-                    - - client
-                      - {get_param: ManilaCephFSCephFSAuthId}
-                  key: {get_param: CephManilaClientKey}
-                  caps:
-                    mgr: "allow *"
-                    mon: "allow r, allow command 'auth del', allow command 'auth caps', allow command 'auth get', allow command 'auth get-or-create'"
-                    mds: "allow *"
-                    osd: "allow rw"
-                  mode: "0600"
-                - name:
-                    list_join:
-                    - '.'
-                    - - client
-                      - {get_param: CephRgwClientName}
-                  key: {get_param: CephRgwKey}
-                  caps:
-                    mgr: "allow *"
-                    mon: "allow rw"
-                    osd: "allow rwx"
-                  mode: "0600"
-              - {get_param: CephExtraKeys}
-          keys: *openstack_keys
           ceph_conf_overrides:
             if:
             - ceph_config_overrides_with_sections
@@ -545,26 +562,6 @@ resources:
             - ipv6
             - ipv4
           dashboard_enabled: {get_param: CephEnableDashboard}
-          # Prefer CephPoolDefaultPgNum unless the (deprecated)
-          # params value is different from their default.
-          cephfs_data_pool:
-            application: cephfs
-            name: {get_param: ManilaCephFSDataPoolName}
-            pg_num:
-              if:
-              - deprecated_data_pool_pgnum
-              - {get_param: ManilaCephFSDataPoolPGNum}
-              - {get_param: CephPoolDefaultPgNum}
-            rule_name: replicated_rule
-          cephfs_metadata_pool:
-            application: cephfs
-            name: {get_param: ManilaCephFSMetadataPoolName}
-            pg_num:
-              if:
-              - deprecated_metadata_pool_pgnum
-              - {get_param: ManilaCephFSMetadataPoolPGNum}
-              - {get_param: CephPoolDefaultPgNum}
-            rule_name: replicated_rule
           cephfs: {get_param: ManilaCephFSShareBackendName}
 
 outputs:
@@ -605,6 +602,11 @@ outputs:
                 fail_without_deps: true
                 packages: lvm2
                 tripleo_delegate_to: "{{ groups['overcloud'] | default([]) }}"
+            - name: set tripleo-ceph-prepare facts
+              set_fact:
+                ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
+                manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
+                ceph_keys: {get_attr: [CephKeyVars, value, vars]}
             - name: set ceph-ansible facts
               set_fact:
                 blacklisted_hostnames: {get_param: DeploymentServerBlacklist}
