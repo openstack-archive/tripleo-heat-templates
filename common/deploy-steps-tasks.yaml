@@ -1,242 +1,239 @@
-    # Note the indentation here is required as it's joined
-    # to create a playbook in deploy-steps.j2
+#####################################################
+# Per step puppet configuration of the baremetal host
+#####################################################
 
-    #####################################################
-    # Per step puppet configuration of the baremetal host
-    #####################################################
+- name: Write the config_step hieradata
+  no_log: True
+  copy:
+    content: "{{ dict(step=step|int) | to_json }}"
+    dest: /etc/puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}hieradata/config_step.json
+    force: true
+    mode: '0600'
+  check_mode: no
+  tags:
+    - host_config
 
-    - name: Write the config_step hieradata
-      no_log: True
-      copy:
-        content: "{{ dict(step=step|int) | to_json }}"
-        dest: /etc/puppet/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}hieradata/config_step.json
+- name: Run puppet host configuration for step {{ step }}
+  async: 3600
+  poll: 0
+  when: enable_puppet|bool
+  shell: >-
+    set -o pipefail;
+    puppet apply {{ host_puppet_config_debug | default('') }}
+    --modulepath=/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
+    --detailed-exitcodes
+    --summarize
+    --color=false
+    {{ ansible_check_mode | bool | ternary('--noop', '') }}
+    {{ ansible_check_mode | bool | ternary('--hiera_config /etc/puppet/check-mode/hiera.yaml', '') }}
+    /var/lib/tripleo-config/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}puppet_step_config.pp
+    2>&1 | logger -s -t puppet-user
+  register: puppet_host_async_result
+  no_log: true
+  tags:
+    - host_config
+  check_mode: no
+
+- name: Wait for puppet host configuration to finish
+  async_status:
+    jid: "{{ puppet_host_async_result.ansible_job_id }}"
+  register: puppet_host_outputs
+  until: puppet_host_outputs.finished
+  retries: 1200
+  delay: 3
+  failed_when:
+    - (not puppet_host_outputs.finished) or (puppet_host_outputs.rc is defined and puppet_host_outputs.rc not in [0, 2])
+  tags:
+    - host_config
+
+- name: "Debug output for task: Run puppet host configuration for step {{ step }}"
+  debug:
+    var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
+  when:
+    - not ansible_check_mode|bool
+    - enable_puppet | bool
+    - puppet_host_outputs.rc is defined
+  changed_when: puppet_host_outputs.rc == 2
+  failed_when: puppet_host_outputs.rc not in [0, 2]
+  tags:
+    - host_config
+
+#######################################
+# Pre-cache facts for puppet containers
+#######################################
+# We don't want the pre-cache tasks to be skipped in dry-run so we force
+# check_mode to "no".
+# https://bugzilla.redhat.com/show_bug.cgi?id=1738529
+- name: Pre-cache facts for container-puppet.py
+  check_mode: no
+  tags:
+    - container_config
+    - container_config_tasks
+  block:
+    - name: Create puppet caching structures
+      file:
+        path: /var/lib/container-puppet/puppetlabs
+        state: directory
+        setype: svirt_sandbox_file_t
+        selevel: s0
+        recurse: True
+    - name: Check for facter.conf
+      check_mode: false
+      stat:
+        path: "/var/lib/container-puppet/puppetlabs/facter.conf"
+      register: _facter_conf_file
+    # See LP#1852606 for context
+    - name: Remove facter.conf if directory
+      check_mode: false
+      become: true
+      file:
+        path: "/var/lib/container-puppet/puppetlabs/facter.conf"
+        state: absent
         force: true
-        mode: '0600'
-      check_mode: no
-      tags:
-        - host_config
+      when:
+        - _facter_conf_file.stat.isdir is defined
+        - _facter_conf_file.stat.isdir
+    - name: Write facter cache config
+      copy:
+        dest: /var/lib/container-puppet/puppetlabs/facter.conf
+        content: |
+          facts : {
+            ttls: [
+              { "kernel" : 8 hour },
+              { "memory" : 8 hour },
+              { "networking" : 8 hour },
+              { "operating system" : 8 hour },
+              { "processor" : 8 hour },
+            ]
+          }
+        setype: svirt_sandbox_file_t
+        selevel: s0
+    - name: Cleanup facter cache if exists
+      file:
+        path: /opt/puppetlabs/facter
+        state: absent
+      ignore_errors: True
+    - name: Pre-cache facts
+      check_mode: false
+      command: facter --config /var/lib/container-puppet/puppetlabs/facter.conf
+      no_log: True
+      ignore_errors: True
+      register: _facter_cache_run
+    - name: Facter error output when failed
+      check_mode: false
+      debug:
+        msg: "{{ _facter_cache_run.stderr }}"
+      when: _facter_cache_run is failed
+    - name: Sync cached facts
+      check_mode: false
+      synchronize:
+        src: /opt/puppetlabs/
+        dest: /var/lib/container-puppet/puppetlabs/
+      delegate_to: "{{ inventory_hostname }}"
+      when: _facter_cache_run is succeeded
 
-    - name: Run puppet host configuration for step {{ step }}
+#######################################
+# Generate config via puppet containers
+#######################################
+
+- name: Include container-puppet tasks (generate config) during step 1
+  include_tasks: generate-config-tasks.yaml
+  when: step|int == 1
+  tags:
+    - container_config
+
+#####################################
+# Per step starting of the containers
+#####################################
+
+# Note container-puppet.py generates the hashed-*.json file, which is a copy of
+# the *step_n.json with a hash of the generated external config added
+# This acts as a salt to enable restarting the container if config changes
+- name: Per step starting of the containers using Paunch
+  when: enable_paunch|default(true)
+  block:
+    - name: Start containers for step {{ step }} using paunch
       async: 3600
       poll: 0
-      when: enable_puppet|bool
-      shell: >-
-        set -o pipefail;
-        puppet apply {{ host_puppet_config_debug | default('') }}
-        --modulepath=/etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-        --detailed-exitcodes
-        --summarize
-        --color=false
-        {{ ansible_check_mode | bool | ternary('--noop', '') }}
-        {{ ansible_check_mode | bool | ternary('--hiera_config /etc/puppet/check-mode/hiera.yaml', '') }}
-        /var/lib/tripleo-config/{{ ansible_check_mode | bool | ternary('check-mode/', '') }}puppet_step_config.pp
-        2>&1 | logger -s -t puppet-user
-      register: puppet_host_async_result
-      no_log: true
-      tags:
-        - host_config
-      check_mode: no
-
-    - name: Wait for puppet host configuration to finish
-      async_status:
-        jid: "{{ puppet_host_async_result.ansible_job_id }}"
-      register: puppet_host_outputs
-      until: puppet_host_outputs.finished
-      retries: 1200
-      delay: 3
-      failed_when:
-        - (not puppet_host_outputs.finished) or (puppet_host_outputs.rc is defined and puppet_host_outputs.rc not in [0, 2])
-      tags:
-        - host_config
-
-    - name: "Debug output for task: Run puppet host configuration for step {{ step }}"
-      debug:
-        var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
-      when:
-        - not ansible_check_mode|bool
-        - enable_puppet | bool
-        - puppet_host_outputs.rc is defined
-      changed_when: puppet_host_outputs.rc == 2
-      failed_when: puppet_host_outputs.rc not in [0, 2]
-      tags:
-        - host_config
-
-    #######################################
-    # Pre-cache facts for puppet containers
-    #######################################
-    # We don't want the pre-cache tasks to be skipped in dry-run so we force
-    # check_mode to "no".
-    # https://bugzilla.redhat.com/show_bug.cgi?id=1738529
-    - name: Pre-cache facts for container-puppet.py
-      check_mode: no
-      tags:
-        - container_config
-        - container_config_tasks
-      block:
-        - name: Create puppet caching structures
-          file:
-            path: /var/lib/container-puppet/puppetlabs
-            state: directory
-            setype: svirt_sandbox_file_t
-            selevel: s0
-            recurse: True
-        - name: Check for facter.conf
-          check_mode: false
-          stat:
-            path: "/var/lib/container-puppet/puppetlabs/facter.conf"
-          register: _facter_conf_file
-        # See LP#1852606 for context
-        - name: Remove facter.conf if directory
-          check_mode: false
-          become: true
-          file:
-            path: "/var/lib/container-puppet/puppetlabs/facter.conf"
-            state: absent
-            force: true
-          when:
-            - _facter_conf_file.stat.isdir is defined
-            - _facter_conf_file.stat.isdir
-        - name: Write facter cache config
-          copy:
-            dest: /var/lib/container-puppet/puppetlabs/facter.conf
-            content: |
-              facts : {
-                ttls: [
-                  { "kernel" : 8 hour },
-                  { "memory" : 8 hour },
-                  { "networking" : 8 hour },
-                  { "operating system" : 8 hour },
-                  { "processor" : 8 hour },
-                ]
-              }
-            setype: svirt_sandbox_file_t
-            selevel: s0
-        - name: Cleanup facter cache if exists
-          file:
-            path: /opt/puppetlabs/facter
-            state: absent
-          ignore_errors: True
-        - name: Pre-cache facts
-          check_mode: false
-          command: facter --config /var/lib/container-puppet/puppetlabs/facter.conf
-          no_log: True
-          ignore_errors: True
-          register: _facter_cache_run
-        - name: Facter error output when failed
-          check_mode: false
-          debug:
-            msg: "{{ _facter_cache_run.stderr }}"
-          when: _facter_cache_run is failed
-        - name: Sync cached facts
-          check_mode: false
-          synchronize:
-            src: /opt/puppetlabs/
-            dest: /var/lib/container-puppet/puppetlabs/
-          delegate_to: "{{ inventory_hostname }}"
-          when: _facter_cache_run is succeeded
-
-    #######################################
-    # Generate config via puppet containers
-    #######################################
-
-    - name: Include container-puppet tasks (generate config) during step 1
-      include_tasks: generate-config-tasks.yaml
-      when: step|int == 1
-      tags:
-        - container_config
-
-    #####################################
-    # Per step starting of the containers
-    #####################################
-
-    # Note container-puppet.py generates the hashed-*.json file, which is a copy of
-    # the *step_n.json with a hash of the generated external config added
-    # This acts as a salt to enable restarting the container if config changes
-    - name: Per step starting of the containers using Paunch
-      when: enable_paunch|default(true)
-      block:
-        - name: Start containers for step {{ step }} using paunch
-          async: 3600
-          poll: 0
-          environment:
-            TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
-          paunch:
-            config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
-            config_id: "tripleo_step{{ step }}"
-            action: apply
-            container_cli: "{{ container_cli }}"
-            container_log_stdout_path: "{{ container_log_stdout_path }}"
-            healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
-            managed_by: "tripleo-{{ tripleo_role_name }}"
-            debug: "{{ enable_debug | bool }}"
-          register: outputs
-          register: start_containers_async_result
-          tags:
-            - container_startup_configs
-
-        - name: Wait for containers to start for step {{ step }} using paunch
-          async_status:
-            jid: "{{ start_containers_async_result.ansible_job_id }}"
-          register: start_containers_outputs
-          until: start_containers_outputs.finished
-          retries: 1200
-          delay: 3
-          tags:
-            - container_startup_configs
-
-        - name: "Debug output for task: Start containers for step {{ step }}"
-          debug:
-            var: start_containers_outputs.stdout_lines | default([]) | union(start_containers_outputs.stderr_lines | default([]))
-          when: start_containers_outputs.rc is defined
-          failed_when: start_containers_outputs.rc != 0
-          tags:
-            - container_startup_configs
-
-    - name: Per step starting of the containers using tripleo-ansible
-      when: not enable_paunch|default(true)
       environment:
         TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
-      block:
-        - name: "Manage containers for step {{ step }} with tripleo-ansible"
-          include_role:
-            name: tripleo-container-manage
-          vars:
-            tripleo_container_manage_concurrency: 5
-            tripleo_container_manage_systemd_order: true
-            tripleo_container_manage_cli: "{{ container_cli }}"
-            tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
-            tripleo_container_manage_config_id: "tripleo_step{{ step }}"
-            tripleo_container_manage_debug: "{{ enable_debug | bool }}"
-            tripleo_container_manage_healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
-            tripleo_container_manage_log_path: "{{ container_log_stdout_path }}"
-            tripleo_container_manage_config_patterns: '*.json'
-            tripleo_container_manage_check_puppet_config: true
-          tags:
-            - container_startup_configs
-
-    ########################################################
-    # Bootstrap tasks - run any tasks that have been defined
-    ########################################################
-
-    - name: "Clean container_puppet_tasks for {{ansible_hostname}} step {{step}}"
-      file:
-        path: /var/lib/container-puppet/container-puppet-tasks{{step}}.json
-        state: absent
+      paunch:
+        config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
+        config_id: "tripleo_step{{ step }}"
+        action: apply
+        container_cli: "{{ container_cli }}"
+        container_log_stdout_path: "{{ container_log_stdout_path }}"
+        healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
+        managed_by: "tripleo-{{ tripleo_role_name }}"
+        debug: "{{ enable_debug | bool }}"
+      register: outputs
+      register: start_containers_async_result
       tags:
-        - container_config_tasks
+        - container_startup_configs
 
-    - name: Calculate container_puppet_tasks for {{ansible_hostname}} step {{step}}
-      set_fact:
-        host_container_puppet_tasks: "{{host_container_puppet_tasks|default([]) + [item]}}"
-      loop: "{{container_puppet_tasks.get('step_' + step, [])}}"
-      when: (groups[item.service_name] | default ([]) | map('extract', hostvars, 'inventory_hostname') | sort | first) == ansible_hostname
+    - name: Wait for containers to start for step {{ step }} using paunch
+      async_status:
+        jid: "{{ start_containers_async_result.ansible_job_id }}"
+      register: start_containers_outputs
+      until: start_containers_outputs.finished
+      retries: 1200
+      delay: 3
+      tags:
+        - container_startup_configs
+
+    - name: "Debug output for task: Start containers for step {{ step }}"
+      debug:
+        var: start_containers_outputs.stdout_lines | default([]) | union(start_containers_outputs.stderr_lines | default([]))
+      when: start_containers_outputs.rc is defined
+      failed_when: start_containers_outputs.rc != 0
+      tags:
+        - container_startup_configs
+
+- name: Per step starting of the containers using tripleo-ansible
+  when: not enable_paunch|default(true)
+  environment:
+    TRIPLEO_MINOR_UPDATE: '{{ tripleo_minor_update | default(false) }}'
+  block:
+    - name: "Manage containers for step {{ step }} with tripleo-ansible"
+      include_role:
+        name: tripleo-container-manage
       vars:
-        container_puppet_tasks: "{{ lookup('file', tripleo_role_name + '/container_puppet_tasks.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+        tripleo_container_manage_concurrency: 5
+        tripleo_container_manage_systemd_order: true
+        tripleo_container_manage_cli: "{{ container_cli }}"
+        tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_{{ step }}"
+        tripleo_container_manage_config_id: "tripleo_step{{ step }}"
+        tripleo_container_manage_debug: "{{ enable_debug | bool }}"
+        tripleo_container_manage_healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
+        tripleo_container_manage_log_path: "{{ container_log_stdout_path }}"
+        tripleo_container_manage_config_patterns: '*.json'
+        tripleo_container_manage_check_puppet_config: true
       tags:
-        - container_config_tasks
+        - container_startup_configs
 
-    - name: Include container-puppet tasks for step {{step}}
-      include_tasks: host-container-puppet-tasks.yaml
-      when: host_container_puppet_tasks is defined
-      tags:
-        - container_config_tasks
+########################################################
+# Bootstrap tasks - run any tasks that have been defined
+########################################################
+
+- name: "Clean container_puppet_tasks for {{ansible_hostname}} step {{step}}"
+  file:
+    path: /var/lib/container-puppet/container-puppet-tasks{{step}}.json
+    state: absent
+  tags:
+    - container_config_tasks
+
+- name: Calculate container_puppet_tasks for {{ansible_hostname}} step {{step}}
+  set_fact:
+    host_container_puppet_tasks: "{{host_container_puppet_tasks|default([]) + [item]}}"
+  loop: "{{container_puppet_tasks.get('step_' + step, [])}}"
+  when: (groups[item.service_name] | default ([]) | map('extract', hostvars, 'inventory_hostname') | sort | first) == ansible_hostname
+  vars:
+    container_puppet_tasks: "{{ lookup('file', tripleo_role_name + '/container_puppet_tasks.yaml', errors='ignore') | default({}, True) | from_yaml }}"
+  tags:
+    - container_config_tasks
+
+- name: Include container-puppet tasks for step {{step}}
+  include_tasks: host-container-puppet-tasks.yaml
+  when: host_container_puppet_tasks is defined
+  tags:
+    - container_config_tasks
