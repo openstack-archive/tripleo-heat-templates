@@ -18,14 +18,19 @@ resources:
       config: |
         #!/bin/bash
         set -eux
-        swap_partition=$(realpath /dev/disk/by-label/$swap_partition_label)
-        if [ -f "$swap_partition" ]; then
-          swapon $swap_partition
-          echo "$swap_partition swap swap defaults 0 0" >> /etc/fstab
+        if [ -e "/dev/disk/by-label/${swap_partition_label}" ]; then
+          swap_partition=$(realpath /dev/disk/by-label/${swap_partition_label})
+          if ! grep -qe "${swap_partition}" /etc/fstab; then
+            echo "$swap_partition swap swap defaults 0 0" | tee -a /etc/fstab
+          fi
         else
-          echo "$swap_partition needs to be a valid path"
-          echo "Check that $swap_partition_label is a valid partition label"
+          for item in $(lsblk -f --output FSTYPE,UUID | awk '/swap/ {print $2}'); do
+            if ! grep -qe "${item}" /etc/fstab; then
+              echo -e "UUID=${item} swap swap defaults 0 0" | tee -a /etc/fstab
+            fi
+          done
         fi
+        swapon -a
       inputs:
         - name: swap_partition_label
           description: Swap partition label
