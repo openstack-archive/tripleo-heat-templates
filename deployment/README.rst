@@ -67,7 +67,8 @@ are available for containerized services.
 
  * config_settings: This section contains service specific hiera data
    can be used to generate config files for each service. This data
-   is ultimately processed via the container-puppet.py tool which
+   is ultimately processed via the container-puppet.py tool (in new versions
+   it's handled by the container_puppet_config module in tripleo-ansible) which
    generates config files for each service according to the settings here.
 
  * kolla_config: Contains YAML that represents how to map config files
@@ -107,10 +108,10 @@ are available for containerized services.
        this container.
 
  * container_puppet_tasks: This section provides data to drive the
-   container-puppet.py tool directly. The task is executed for the
+   puppet containers tooling directly. The task is executed for the
    defined steps before the corresponding docker_config's step. Puppet
    always sees the step number overrided as the step #6. It might be useful
-   for initialization of things. See container-puppet.py for formatting.
+   for initialization of things.
    Note that the tasks are executed only once for the bootstrap node per a
    role in the cluster. Make sure the puppet manifest ensures the wanted
    "at most once" semantics. That may be achieved via the
