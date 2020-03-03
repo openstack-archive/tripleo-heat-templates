@@ -86,13 +86,6 @@ parameters:
     default: true
     description: Configure the nova flavor for the amphora.
     type: boolean
-  # We enable the driver agent and configure the OVN provider by default if OVN
-  # is enabled.
-  NeutronMechanismDrivers:
-    default: 'ovn'
-    description: |
-        The mechanism drivers for the Neutron tenant network.
-    type: comma_delimited_list
   OctaviaEnableDriverAgent:
     default: true
     description:  Set to false if the driver agent needs to be disabled for some reason.
@@ -102,7 +95,6 @@ conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
-  is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
   enable_driver_agent: {equals: [{get_param: OctaviaEnableDriverAgent}, true]}
 
 resources:
@@ -112,6 +104,16 @@ resources:
 
   MySQLClient:
     type: ../database/mysql-client.yaml
+
+  OctaviaProviderConfig:
+    type: ./providers/ovn-provider-config.yaml
+    properties:
+      EndpointMap: {get_param: EndpointMap}
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
 
   OctaviaBase:
     type: ./octavia-base.yaml
@@ -154,6 +156,7 @@ outputs:
         map_merge:
           - {get_attr: [OctaviaBase, role_data, config_settings]}
           - {get_attr: [OctaviaWorker, role_data, config_settings]}
+          - {get_attr: [OctaviaProviderConfig, role_data, config_settings]}
           - octavia::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
             octavia::keystone::authtoken::auth_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
             octavia::policy::policies: {get_param: OctaviaApiPolicies}
@@ -207,10 +210,8 @@ outputs:
                     - 'octavia: Deprecated alias of the Octavia Amphora driver.'
                   -
                     if:
-                      - and:
-                          - is_ovn_in_neutron_mechanism_driver
-                          - enable_driver_agent
-                      - ['ovn: Octavia OVN driver.']
+                      - enable_driver_agent
+                      - {get_attr: [OctaviaProviderConfig, role_data, provider_driver_labels]}
                       - []
 
       service_config_settings:
@@ -228,29 +229,40 @@ outputs:
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
-        puppet_tags: octavia_config
+        puppet_tags:
+          list_join:
+            - ','
+            - - octavia_config
+              - {get_attr: [OctaviaProviderConfig, role_data, puppet_tags]}
         step_config:
           list_join:
             - "\n"
             - - "include tripleo::profile::base::octavia::api"
+              - {get_attr: [OctaviaProviderConfig, role_data, step_config]}
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: ContainerOctaviaConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
-            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
-              dest: "/etc/httpd/conf.d"
-              merge: false
-              preserve_properties: true
-            - source: "/var/lib/kolla/config_files/src/*"
-              dest: "/"
-              merge: true
-              preserve_properties: true
+            list_concat:
+              -
+                - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+                  dest: "/etc/httpd/conf.d"
+                  merge: false
+                  preserve_properties: true
+                - source: "/var/lib/kolla/config_files/src/*"
+                  dest: "/"
+                  merge: true
+                  preserve_properties: true
+              - {get_attr: [OctaviaProviderConfig, role_data, kolla_config_files]}
           permissions:
-            - path: /var/log/octavia
-              owner: octavia:octavia
-              recurse: true
+            list_concat:
+              -
+                - path: /var/log/octavia
+                  owner: octavia:octavia
+                  recurse: true
+              - {get_attr: [OctaviaProviderConfig, role_data, kolla_permissions]}
         /var/lib/kolla/config_files/octavia_driver_agent.json:
           command: /usr/bin/octavia-driver-agent --config-file /usr/share/octavia/octavia-dist.conf --config-file /etc/octavia/octavia.conf --log-file /var/log/octavia/driver-agent.log --config-dir /etc/octavia/conf.d/common
           config_files:
@@ -271,6 +283,7 @@ outputs:
           config_image: {get_param: ContainerOctaviaConfigImage}
           volumes:
             - /var/lib/config-data/puppet-generated/nova/etc/nova:/etc/nova:ro
+      metadata_settings: {get_attr: [OctaviaProviderConfig, role_data, metadata_settings]}
       docker_config:
         # Kolla_bootstrap/db_sync runs before permissions set by kolla_config
         step_2:
@@ -336,6 +349,7 @@ outputs:
                         - internal_tls_enabled
                         - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                         - []
+                    - {get_attr: [OctaviaProviderConfig, role_data, volumes]}
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - if:
