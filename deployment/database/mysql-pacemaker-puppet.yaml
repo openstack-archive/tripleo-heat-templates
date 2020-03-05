@@ -588,6 +588,24 @@ outputs:
                     LOG_DIR: '/var/log/containers/mysql'
 
       external_upgrade_tasks:
+        # https://bugs.launchpad.net/tripleo/+bug/1753247
+        # OC pacemaker part, UC or non pacemaker part is in deployment steps
+        - name: Rename old neutron database to ovs_neutron
+          shell: >
+            if [ -d /var/lib/mysql/neutron ] ; then
+              mysql -e "CREATE DATABASE IF NOT EXISTS \`ovs_neutron\`;"
+              for table in `mysql -B -N -e "SHOW TABLES;" neutron`
+                do
+                  mysql -e "RENAME TABLE \`neutron\`.\`$table\` to \`ovs_neutron\`.\`$table\`"
+                done
+              mysql -e "DROP DATABASE \`neutron\`;"
+            fi
+          become: true
+          tags:
+            - never
+            - system_upgrade_stop_services
+          when:
+            - step|int == 2
         - vars:
             mysql_upgrade_transfer: {get_param: MysqlUpgradeTransfer}
           when:

@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Mistral API service
 
 parameters:
+  ContainerMistralApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerMistralApiImage:
     description: image
     type: string
@@ -76,6 +80,7 @@ parameters:
     description: Keystone region for endpoint
 
 conditions:
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerMistralApiImageStein},'']}}
   mistral_workers_zero: {equals : [{get_param: MistralWorkers}, 0]}
   cors_allowed_origin_unset: {equals : [{get_param: MistralCorsAllowedOrigin}, '']}
 
@@ -191,22 +196,46 @@ outputs:
               - /var/log/containers/mistral:/var/log/mistral:z
             command: ['/bin/bash', '-c', 'chown -R mistral:mistral /var/log/mistral']
         step_3:
-          mistral_db_sync:
-            start_order: 0
-            image: *mistral_api_image
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/mistral/etc/mistral/:/etc/mistral/:ro
-                  - /var/log/containers/mistral:/var/log/mistral:z
-            command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf --openstack_actions_mapping_path=/etc/mistral/mapping.json upgrade head'"
-            environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+          map_merge:
+            - mistral_db_sync:
+                start_order: 1
+                image: *mistral_api_image
+                net: host
+                privileged: false
+                detach: false
+                user: root
+                volumes: &mistral_api_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/mistral/etc/mistral/:/etc/mistral/:ro
+                      - /var/log/containers/mistral:/var/log/mistral:z
+                command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf upgrade head'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            - if:
+                - fast_forward_upgrade
+                - mistral_db_sync_stein:
+                    start_order: 0
+                    image: {get_param: ContainerMistralApiImageStein}
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes: *mistral_api_volumes
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    # Here we sadly just expect that if we can't run mistral-db-manage curent
+                    # it means we already updated. If there is any issue with the service the
+                    # upgrade will continue regardless...
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml mistral_api_short_bootstrap_node_name | grep `/bin/hostname -s` && sudo -u mistral mistral-db-manage --config-file /etc/mistral/mistral.conf current && sudo -u mistral mistral-db-manage --config-file /etc/mistral/mistral.conf upgrade head ; exit 0"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           mistral_api:
             start_order: 15

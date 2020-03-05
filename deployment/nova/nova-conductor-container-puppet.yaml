@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Nova Conductor service
 
 parameters:
+  ContainerNovaConductorImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerNovaConductorImage:
     description: image
     type: string
@@ -66,6 +70,7 @@ parameters:
       - role_specific
 
 conditions:
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerNovaConductorImageStein},'']}}
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
 
 resources:
@@ -164,22 +169,42 @@ outputs:
         step_2:
           get_attr: [NovaLogging, docker_config, step_2]
         step_3:
-          nova_db_sync:
-            image: &nova_conductor_image {get_param: ContainerNovaConductorImage}
-            start_order: 3 # Runs after nova-api tasks if installed on this host
-            net: host
-            detach: false
-            volumes: &nova_conductor_bootstrap_volumes
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaLogging, volumes]}
-                -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
-            user: root
-            command: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync'"
-            environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+          map_merge:
+            - nova_db_sync:
+                image: &nova_conductor_image {get_param: ContainerNovaConductorImage}
+                start_order: 6 # Runs after nova-api tasks if installed on this host
+                net: host
+                detach: false
+                volumes: &nova_conductor_bootstrap_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NovaLogging, volumes]}
+                    -
+                      - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                      - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                user: root
+                command: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            - if:
+                - fast_forward_upgrade
+                - nova_db_sync_stein:
+                    image: {get_param: ContainerNovaConductorImageStein}
+                    start_order: 1 # Runs after nova-api db sync Stein
+                    net: host
+                    detach: false
+                    volumes: *nova_conductor_bootstrap_volumes
+                    user: root
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml nova_conductor_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u nova /usr/bin/nova-manage db version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/nova/db/sqlalchemy/migrate_repo/versions | grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1)  RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u nova /usr/bin/nova-manage db sync; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           nova_conductor:
             image: *nova_conductor_image

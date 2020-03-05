@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Neutron API service
 
 parameters:
+  ContainerNeutronApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerNeutronApiImage:
     description: image
     type: string
@@ -178,6 +182,7 @@ parameter_groups:
   - NeutronL3HA
 
 conditions:
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerNeutronApiImageStein},'']}}
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
   neutron_rpc_workers_unset: {equals : [{get_param: NeutronRpcWorkers}, '']}
@@ -449,25 +454,50 @@ outputs:
         step_2:
           get_attr: [NeutronLogging, docker_config, step_2]
         step_3:
-          neutron_db_sync:
-            image: &neutron_api_image {get_param: ContainerNeutronApiImage}
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NeutronLogging, volumes]}
-                -
-                  - /var/lib/config-data/neutron/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/neutron/etc/neutron:/etc/neutron:ro
-            command: ['/usr/bin/bootstrap_host_exec', 'neutron_api', 'neutron-db-manage', 'upgrade', 'heads']
-            # FIXME: we should make config file permissions right
-            # and run as neutron user
-            #command: "/usr/bin/bootstrap_host_exec neutron_api su neutron -s /bin/bash -c 'neutron-db-manage upgrade heads'"
-            environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+          map_merge:
+            - neutron_db_sync:
+                start_order: 1
+                image: &neutron_api_image {get_param: ContainerNeutronApiImage}
+                net: host
+                privileged: false
+                detach: false
+                user: root
+                volumes: &neutron_api_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NeutronLogging, volumes]}
+                    -
+                      - /var/lib/config-data/neutron/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                      - /var/lib/config-data/neutron/etc/neutron:/etc/neutron:ro
+                command: ['/usr/bin/bootstrap_host_exec', 'neutron_api', 'neutron-db-manage', 'upgrade', 'heads']
+                # FIXME: we should make config file permissions right
+                # and run as neutron user
+                #command: "/usr/bin/bootstrap_host_exec neutron_api su neutron -s /bin/bash -c 'neutron-db-manage upgrade heads'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            - if:
+                - fast_forward_upgrade
+                - neutron_db_sync_stein:
+                    start_order: 0
+                    image: &neutron_api_image_stein {get_param: ContainerNeutronApiImageStein}
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes: *neutron_api_volumes
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    # Here we sadly just expect that if we can't run neutron-db-manage curent
+                    # it means we already updated. If there is any issue with the service the
+                    # upgrade will continue regardless...
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml neutron_api_short_bootstrap_node_name | grep `/bin/hostname -s` && neutron-db-manage --subproject neutron current && neutron-db-manage upgrade heads ; exit 0 "
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           map_merge:
             - neutron_api:

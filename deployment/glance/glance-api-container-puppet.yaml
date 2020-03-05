@@ -260,6 +260,10 @@ parameters:
     default: []
     description: list of optional volumes to be mounted
     type: comma_delimited_list
+  ContainerGlanceApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerGlanceApiImage:
     description: image
     type: string
@@ -269,6 +273,7 @@ parameters:
 
 conditions:
 
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerGlanceApiImageStein},'']}}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   cinder_backend_enabled:
     or:
@@ -576,40 +581,64 @@ outputs:
         step_2:
           get_attr: [GlanceLogging, docker_config, step_2]
         step_3:
-          glance_api_db_sync:
-            image: &glance_api_image {get_param: ContainerGlanceApiImage}
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes: &glance_volumes
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [GlanceLogging, volumes]}
-                - {get_param: GlanceApiOptVolumes}
-                -
-                  - /var/lib/kolla/config_files/glance_api.json:/var/lib/kolla/config_files/config.json
-                  - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
-                  - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
-                  - /var/lib/glance:/var/lib/glance:slave
-                -
-                  if:
-                    - cinder_backend_enabled
-                    - - /dev:/dev
-                      - /etc/iscsi:/etc/iscsi
-                      - /var/lib/iscsi:/var/lib/iscsi:z
-                    - []
-                -
-                  if:
-                    - cinder_multipathd_enabled
-                    - - /etc/multipath:/etc/multipath:z
-                      - /etc/multipath.conf:/etc/multipath.conf:ro
-                    - []
-            environment:
-              KOLLA_BOOTSTRAP: true
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-            command: "/usr/bin/bootstrap_host_exec glance_api su glance -s /bin/bash -c '/usr/local/bin/kolla_start'"
+          map_merge:
+            - glance_api_db_sync:
+                image: &glance_api_image {get_param: ContainerGlanceApiImage}
+                start_order: 1
+                net: host
+                privileged: false
+                detach: false
+                user: root
+                volumes: &glance_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [GlanceLogging, volumes]}
+                    - {get_param: GlanceApiOptVolumes}
+                    -
+                      - /var/lib/kolla/config_files/glance_api.json:/var/lib/kolla/config_files/config.json
+                      - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
+                      - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
+                      - /var/lib/glance:/var/lib/glance:slave
+                    -
+                      if:
+                        - cinder_backend_enabled
+                        - - /dev:/dev
+                          - /etc/iscsi:/etc/iscsi
+                          - /var/lib/iscsi:/var/lib/iscsi:z
+                        - []
+                    -
+                      if:
+                        - cinder_multipathd_enabled
+                        - - /etc/multipath:/etc/multipath:z
+                          - /etc/multipath.conf:/etc/multipath.conf:ro
+                        - []
+                environment:
+                  KOLLA_BOOTSTRAP: true
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                command: "/usr/bin/bootstrap_host_exec glance_api su glance -s /bin/bash -c '/usr/local/bin/kolla_start'"
+            - if:
+                - fast_forward_upgrade
+                - glance_api_db_sync_stein:
+                    start_order: 0
+                    image: {get_param: ContainerGlanceApiImageStein}
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes: *glance_volumes
+                    environment:
+                      KOLLA_BOOTSTRAP: true
+                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml glance_api_short_bootstrap_node_name | grep `/bin/hostname -s` && OUT=$( sudo -u glance -E /usr/local/bin/kolla_start 2>&1 ) || if [[ $OUT =~ train ]]; then echo 'DB is already up to date' ; else echo $OUT; exit 1; fi"
+                - {}
         step_4:
           map_merge:
             - glance_api:

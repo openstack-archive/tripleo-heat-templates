@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Cinder API service
 
 parameters:
+  ContainerCinderApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerCinderApiImage:
     description: image
     type: string
@@ -90,6 +94,7 @@ parameters:
 
 conditions:
 
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerCinderApiImageStein},'']}}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   cinder_workers_zero: {equals : [{get_param: CinderWorkers}, 0]}
 
@@ -286,26 +291,62 @@ outputs:
               - /var/log/containers/httpd/cinder-api:/var/log/httpd:z
             command: ['/bin/bash', '-c', 'chown -R cinder:cinder /var/log/cinder']
         step_3:
-          cinder_api_db_sync:
-            image: *cinder_api_image
-            net: host
-            privileged: false
-            detach: false
-            user: root
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/cinder/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
-                  - /var/log/containers/cinder:/var/log/cinder:z
-                  - /var/log/containers/httpd/cinder-api:/var/log/httpd:z
-            command:
-              - '/usr/bin/bootstrap_host_exec'
-              - 'cinder_api'
-              - "su cinder -s /bin/bash -c 'cinder-manage db sync --bump-versions'"
-            environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+          map_merge:
+            - cinder_api_db_sync:
+                start_order: 2
+                image: *cinder_api_image
+                net: host
+                privileged: false
+                detach: false
+                user: root
+                volumes: &cinder_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/cinder/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                      - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+                      - /var/log/containers/cinder:/var/log/cinder:z
+                      - /var/log/containers/httpd/cinder-api:/var/log/httpd:z
+                command:
+                  - '/usr/bin/bootstrap_host_exec'
+                  - 'cinder_api'
+                  - "su cinder -s /bin/bash -c 'cinder-manage db sync --bump-versions'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            - if:
+                - fast_forward_upgrade
+                - cinder_api_online_data_migrations_stein:
+                    start_order: 0
+                    image: &cinder_api_image_stein {get_param: ContainerCinderApiImageStein}
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes: *cinder_volumes
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml cinder_api_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u cinder cinder-manage db version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/cinder/db/sqlalchemy/migrate_repo/versions/ |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u cinder cinder-manage service list | grep -v Binary| tr '@' ' ' | awk '{print $1 \" \" $2}' | while read i ; do sudo -u cinder cinder-manage service remove $i ; done ; sudo -u cinder cinder-manage db online_data_migrations; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                  cinder_api_db_sync_stein:
+                    start_order: 1
+                    image: *cinder_api_image_stein
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes: *cinder_volumes
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml cinder_api_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u cinder cinder-manage db version )  _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/cinder/db/sqlalchemy/migrate_repo/versions/ |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u cinder cinder-manage db sync --bump-versions; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           cinder_api:
             image: *cinder_api_image
