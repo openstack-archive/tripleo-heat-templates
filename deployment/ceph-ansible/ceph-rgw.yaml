@@ -42,9 +42,13 @@ parameters:
     type: boolean
     default: false
     description: Parameter used to trigger the dashboard deployment.
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
   CephBase:
@@ -117,10 +121,46 @@ outputs:
             block:
               - name: set ceph-ansible group vars rgws
                 set_fact:
-                  ceph_ansible_group_vars_rgws: {get_attr: [CephRgwAnsibleVars, value, vars]}
+                  ceph_ansible_group_vars_rgws:
+                    if:
+                    - internal_tls_enabled
+                    - map_merge:
+                      - {get_attr: [CephRgwAnsibleVars, value, vars]}
+                      - radosgw_frontend_ssl_certificate: '/etc/pki/tls/certs/ceph_rgw.pem'
+                    - {get_attr: [CephRgwAnsibleVars, value, vars]}
               - name: generate ceph-ansible group vars rgws
                 copy:
                   dest: "{{playbook_dir}}/ceph-ansible/group_vars/rgws.yml"
                   content: "{{ceph_ansible_group_vars_rgws|to_nice_yaml}}"
       external_update_tasks: {get_attr: [CephBase, role_data, external_update_tasks]}
       external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
+      config_settings:
+        map_merge:
+          - if:
+            - internal_tls_enabled
+            -
+              generate_service_certificates: true
+              ceph_rgw_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ceph_rgw.crt'
+                service_key: '/etc/pki/tls/private/ceph_rgw.key'
+                service_pem: '/etc/pki/tls/certs/ceph_rgw.pem'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
+                principal:
+                  str_replace:
+                    template: "ceph_rgw/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-rgw-refresh.sh"
+            - {}
+      metadata_settings:
+        if:
+        - internal_tls_enabled
+        -
+          - service: ceph_rgw
+            network: {get_param: [ServiceNetMap, CephRgwNetwork]}
+            type: node
+        - null
