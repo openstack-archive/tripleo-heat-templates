@@ -32,19 +32,28 @@ parameters:
     type: json
   CephDashboardAdminUser:
     default: 'admin'
-    description: Admin user for grafana component
+    description: Admin user for the dashboard component
     type: string
   CephDashboardAdminPassword:
-    description: Admin password for grafana component
+    description: Admin password for the dashboard component
     type: string
     hidden: true
   CephEnableDashboard:
     type: boolean
     default: false
     description: Parameter used to trigger the dashboard deployment.
+  EnableInternalTLS:
+    type: boolean
+    default: false
 
 conditions:
   dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
+  internal_tls_enabled:
+    and:
+      - dashboard_enabled
+      - equals:
+          - get_param: EnableInternalTLS
+          - true
 
 resources:
   CephBase:
@@ -70,6 +79,8 @@ resources:
           dashboard_rgw_api_port: {get_param: [EndpointMap, CephRgwInternal, port]}
           dashboard_rgw_api_scheme: {get_param: [EndpointMap, CephRgwInternal, protocol]}
           dashboard_rgw_api_no_ssl_verify: false
+          dashboard_port: 8444
+          dashboard_frontend_vip: {get_param: [EndpointMap, CephGrafanaInternal, host]}
 
 outputs:
   role_data:
@@ -91,7 +102,15 @@ outputs:
             block:
               - name: set ceph-ansible group vars mgrs
                 set_fact:
-                  ceph_ansible_group_vars_mgrs: {get_attr: [CephMgrAnsibleVars, value, vars]}
+                  ceph_ansible_group_vars_mgrs:
+                    if:
+                    - internal_tls_enabled
+                    -
+                      map_merge:
+                      - {get_attr: [CephMgrAnsibleVars, value, vars]}
+                      - dashboard_crt: /etc/pki/tls/certs/ceph_dashboard.crt
+                      - dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
+                    - {get_attr: [CephMgrAnsibleVars, value, vars]}
               - name: generate ceph-ansible group vars mgrs
                 copy:
                   dest: "{{playbook_dir}}/ceph-ansible/group_vars/mgrs.yml"
@@ -100,13 +119,40 @@ outputs:
       external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
       config_settings:
         map_merge:
-        - tripleo::ceph_mgr::firewall_rules:
-            '113 ceph_mgr':
-              dport:
-                list_concat:
-                  - - '6800-7300'
-                  - if:
-                    - dashboard_enabled
-                    - - '8443'
-                    - []
-        - {}
+          - if:
+            - internal_tls_enabled
+            -
+              generate_service_certificates: true
+              ceph_dashboard_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ceph_dashboard.crt'
+                service_key: '/etc/pki/tls/private/ceph_dashboard.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+                principal:
+                  str_replace:
+                    template: "ceph_dashboard/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-dashboard-refresh.sh"
+            - {}
+          - tripleo::ceph_mgr::firewall_rules:
+              '113 ceph_mgr':
+                dport:
+                  list_concat:
+                    - - '6800-7300'
+                    - if:
+                      - dashboard_enabled
+                      - - '8444'
+                      - []
+          - {}
+      metadata_settings:
+        if:
+        - internal_tls_enabled
+        -
+          - service: ceph_dashboard
+            network: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+            type: node
+        - null
