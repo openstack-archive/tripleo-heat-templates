@@ -290,6 +290,12 @@ parameters:
     type: boolean
     description: Set to true if sensubility should be executed by exec plugin.
     default: false
+  CollectdSensubilityExecSudoRule:
+    type: string
+    description: >
+      Given rule will be created in /etc/sudoers.d for sensubility to enable it calling
+      restricted commands via sensubility executor.
+    default: ''
   CollectdSensubilityLogLevel:
     type: string
     description: Use for override the default logging level (WARNING).
@@ -381,6 +387,10 @@ conditions:
       - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
   enable_sensubility:
     equals: [{get_param: CollectdEnableSensubility}, true]
+  sensubility_needs_sudo:
+    not:
+      equals: [{get_param: CollectdSensubilityExecSudoRule}, '']
+
 
 resources:
   ContainersCommon:
@@ -526,46 +536,52 @@ outputs:
             - {}
           - if: # Collectd should run collectd-sensubility via collectd-exec
             - enable_sensubility
-            - tripleo::profile::base::metrics::collectd::enable_sensubility:
-                get_param: CollectdEnableSensubility
-              tripleo::profile::base::metrics::collectd::sensubility::connection:
-                get_param: CollectdSensubilityConnection
-              tripleo::profile::base::metrics::collectd::sensubility::log_level:
-                get_param: CollectdSensubilityLogLevel
-              tripleo::profile::base::metrics::collectd::sensubility::client_name:
-                str_replace:
-                  template: "%{hiera('fqdn_NETWORK')}"
-                  params:
-                    NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
-              tripleo::profile::base::metrics::collectd::sensubility::client_address:
-                str_replace:
-                  template: "%{hiera('NETWORK')}"
-                  params:
-                    NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
-              tripleo::profile::base::metrics::collectd::sensubility::keepalive_interval:
-                get_param: CollectdSensubilityKeepaliveInterval
-              tripleo::profile::base::metrics::collectd::sensubility::tmp_base_dir:
-                get_param: CollectdSensubilityTmpDir
-              tripleo::profile::base::metrics::collectd::sensubility::shell_path:
-                get_param: CollectdSensubilityShellPath
-              tripleo::profile::base::metrics::collectd::sensubility::worker_count:
-                get_param: CollectdSensubilityWorkerCount
-              tripleo::profile::base::metrics::collectd::sensubility::checks:
-                map_merge:
-                  - {get_param: CollectdSensubilityChecks}
-                  - check-container-health:
-                      standalone: true
-                      command: {get_param: CollectdContainerHealthCheckCommand}
-                      interval: {get_param: CollectdContainerHealthCheckInterval}
-                      handlers: {get_param: CollectdContainerHealthCheckHandlers}
-                      occurrences: {get_param: CollectdContainerHealthCheckOccurrences}
-                      refresh: {get_param: CollectdContainerHealthCheckRefresh}
+            - map_merge:
+              - if:
+                - sensubility_needs_sudo
+                - tripleo::profile::base::metrics::collectd::sensubility::exec_sudo_rule:
+                    get_param: CollectdSensubilityExecSudoRule
+                - {}
+              - tripleo::profile::base::metrics::collectd::enable_sensubility:
+                  get_param: CollectdEnableSensubility
+                tripleo::profile::base::metrics::collectd::sensubility::connection:
+                  get_param: CollectdSensubilityConnection
+                tripleo::profile::base::metrics::collectd::sensubility::log_level:
+                  get_param: CollectdSensubilityLogLevel
+                tripleo::profile::base::metrics::collectd::sensubility::client_name:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+                tripleo::profile::base::metrics::collectd::sensubility::client_address:
+                  str_replace:
+                    template: "%{hiera('NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, MetricsQdrNetwork]}
+                tripleo::profile::base::metrics::collectd::sensubility::keepalive_interval:
+                  get_param: CollectdSensubilityKeepaliveInterval
+                tripleo::profile::base::metrics::collectd::sensubility::tmp_base_dir:
+                  get_param: CollectdSensubilityTmpDir
+                tripleo::profile::base::metrics::collectd::sensubility::shell_path:
+                  get_param: CollectdSensubilityShellPath
+                tripleo::profile::base::metrics::collectd::sensubility::worker_count:
+                  get_param: CollectdSensubilityWorkerCount
+                tripleo::profile::base::metrics::collectd::sensubility::checks:
+                  map_merge:
+                    - {get_param: CollectdSensubilityChecks}
+                    - check-container-health:
+                        standalone: true
+                        command: {get_param: CollectdContainerHealthCheckCommand}
+                        interval: {get_param: CollectdContainerHealthCheckInterval}
+                        handlers: {get_param: CollectdContainerHealthCheckHandlers}
+                        occurrences: {get_param: CollectdContainerHealthCheckOccurrences}
+                        refresh: {get_param: CollectdContainerHealthCheckRefresh}
             - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: collectd
-        puppet_tags:  collectd_client_config
+        puppet_tags:  collectd_client_config,exec
         step_config: include ::tripleo::profile::base::metrics::collectd
         config_image: {get_param: ContainerCollectdConfigImage}
       kolla_config:
