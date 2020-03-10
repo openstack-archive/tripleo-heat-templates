@@ -1,0 +1,66 @@
+- hosts: "{{ deploy_source_host }}"
+  name: Gather facts from undercloud
+  gather_facts: yes
+  any_errors_fatal: yes
+  ignore_unreachable: "{{ ignore_unreachable | default(false) }}"
+  become: false
+  tags:
+    - facts
+
+- hosts: "{{ deploy_target_host }}"
+  name: Gather facts from overcloud
+  gather_facts: yes
+  any_errors_fatal: yes
+  ignore_unreachable: "{{ ignore_unreachable | default(false) }}"
+  tags:
+    - facts
+
+- hosts: all
+  name: Load global variables
+  gather_facts: "{{ gather_facts | default(false) }}"
+  any_errors_fatal: yes
+  tasks:
+    - include_vars: global_vars.yaml
+      no_log: true
+
+    - name: ensure we get the right selinux context
+      shell: |-
+        set -o pipefail
+        if [[ -e /var/lib/config-data ]]; then
+          chcon -R -t svirt_sandbox_file_t /var/lib/config-data
+        exit 2
+        fi
+      args:
+        executable: /bin/bash
+        warn: no
+      register: _selinux_config_data
+      changed_when: _selinux_config_data.rc == 2
+      failed_when: _selinux_config_data.rc not in [0,2]
+  tags:
+    - always
+
+- hosts: "{{ deploy_target_host }}"
+  name: Render all_nodes data as group_vars for overcloud
+  gather_facts: "{{ gather_facts | default(false) }}"
+  any_errors_fatal: yes
+  tasks:
+    - name: Render all_nodes data as group_vars for overcloud
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: not ansible_check_mode|bool
+      tripleo_all_nodes_data:
+  tags:
+    - facts
+
+- hosts: "{{ deploy_target_host }}"
+  name: Set all_nodes data as group_vars for overcloud
+  gather_facts: "{{ gather_facts | default(false) }}"
+  any_errors_fatal: yes
+  tasks:
+    - name: Set all_nodes data as group_vars for overcloud
+      include_vars: "{{ playbook_dir }}/group_vars/overcloud.json"
+      no_log: true
+      when: not ansible_check_mode|bool
+  tags:
+    - facts
