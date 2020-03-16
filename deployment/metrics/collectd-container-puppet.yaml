@@ -87,7 +87,6 @@ parameters:
       - load
       - memory
       - processes
-      - tcpconns
       - unixsock
       - uptime
     type: comma_delimited_list
@@ -382,6 +381,10 @@ parameters:
     type: number
     description: The number of seconds sensu-plugin-aware handlers should wait before taking second action.
     default: 90
+  EnableSTF:
+    type: boolean
+    description: Set to true to enable configuration for STF client.
+    default: false
 
 conditions:
   amqp_connection:
@@ -402,11 +405,12 @@ conditions:
       - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
   enable_sensubility:
     equals: [{get_param: CollectdEnableSensubility}, true]
+  enable_stf:
+    equals: [{get_param: EnableSTF}, true]
   enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
   sensubility_needs_sudo:
     not:
       equals: [{get_param: CollectdSensubilityExecSudoRule}, '']
-
 
 resources:
   ContainersCommon:
@@ -426,17 +430,39 @@ outputs:
             collectd::recurse: true
             collectd::purge_config: true
             collectd::minimum_version: "5.7"
+            collectd::interval: {get_param: CollectdDefaultPollingInterval}
             collectd::plugin::unixsock::socketgroup: root
             collectd::plugin::unixsock::socketfile: /var/run/collectd-socket
             collectd::plugin::unixsock::deletesocket: true
-            collectd::interval: {get_param: CollectdDefaultPollingInterval}
+            collectd::plugin::cpu::reportbycpu: true
+            collectd::plugin::cpu::reportbystate: true
+            collectd::plugin::cpu::reportnumcpu: false
+            collectd::plugin::cpu::valuespercentage: true
+            collectd::plugin::df::ignoreselected: true
+            collectd::plugin::df::reportbydevice: true
+            collectd::plugin::df::fstypes: ['xfs']
+            collectd::plugin::load::reportrelative: true
+            collectd::plugin::virt::connection: "qemu:///system"
+            collectd::plugin::virt::extra_stats: "cpu_util disk disk_err pcpu job_stats_background perf vcpupin"
+            collectd::plugin::virt::hostname_format: "hostname"
             tripleo.collectd.plugins.collectd:
               yaql:
                 data:
                   default_plugins: {get_param: CollectdDefaultPlugins}
+                  stf_plugins:
+                    if:
+                    - enable_stf
+                    - - cpu
+                      - df
+                      - load
+                      - connectivity
+                      - intel_rdt
+                      - ipmi
+                      - procevent
+                    - []
                   extra_plugins: {get_param: CollectdExtraPlugins}
                 expression: >
-                  ($.data.default_plugins + $.data.extra_plugins)
+                  ($.data.default_plugins + $.data.stf_plugins + $.data.extra_plugins)
                   .flatten().distinct()
           - if: # Collectd connected to QDR
             - amqp_connection
