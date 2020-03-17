@@ -160,9 +160,9 @@ if [ -z "$NO_ARCHIVE" ]; then
             excluded_original_passwords+=" --exclude=/var/lib/config-data/*${p}"
         fi
     done
-    # We need to exclude the swift ring backups as those change over time and
-    # containers do not need to restart if they change
-    EXCLUDE=--exclude='*/etc/swift/backups/*'\ --exclude='*/etc/libvirt/passwd.db'\ ${excluded_original_passwords}
+    # We need to exclude the swift rings and backups as those change over time
+    # and containers do not need to restart if they change
+    EXCLUDE=--exclude='*/etc/swift/backups/*'\ --exclude='*/etc/swift/*.ring.gz'\ --exclude='*/etc/swift/*.builder'\ --exclude='*/etc/libvirt/passwd.db'\ ${excluded_original_passwords}
 
     # We need to repipe the tar command through 'tar xO' to force text
     # output because otherwise the sed command cannot work. The sed is
