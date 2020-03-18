@@ -16,15 +16,37 @@ import os
 import ansible_runner
 
 
-def test_tht_ansible_syntax(pytestconfig):
+role_paths = [
+    'tripleo-ansible/tripleo-ansible/tripleo_ansible/roles'
+]
 
+module_paths = [
+    'tripleo-ansible/tripleo-ansible/tripleo_ansible/ansible_plugins/modules'
+]
+
+
+def append_path(path, new):
+    if path == '':
+        return new
+    else:
+        return path + ':' + new
+
+
+def test_tht_ansible_syntax(pytestconfig):
+    role_path = ''
+    mod_path = ''
     tht_root = str(pytestconfig.invocation_params.dir)
-    role_path = os.path.join(tht_root,
-                             "tripleo_heat_templates/tests/roles/tripleo-ansible/tripleo-ansible/tripleo_ansible/roles")
-    mod_path = os.path.join(tht_root,
-                             "tripleo_heat_templates/tests/roles/tripleo-ansible/tripleo-ansible/tripleo_ansible/ansible_plugins/modules")
-    play_path = os.path.join(tht_root,
-                             "tripleo_heat_templates/tests/test_tht_ansible_syntax.yml")
+    tht_test_path = os.path.join(tht_root, 'tripleo_heat_templates/tests')
+
+    for r in role_paths:
+        role_path = append_path(
+            role_path, os.path.join(tht_test_path, r))
+
+    for m in module_paths:
+        mod_path = append_path(
+            mod_path, os.path.join(tht_test_path, m))
+
+    play_path = os.path.join(tht_test_path, 'test_tht_ansible_syntax.yml')
 
     os.environ["ANSIBLE_ROLES_PATH"] = role_path
     os.environ["ANSIBLE_LIBRARY"] = mod_path
