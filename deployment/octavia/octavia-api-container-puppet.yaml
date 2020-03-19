@@ -80,17 +80,24 @@ parameters:
     default: true
     description: Configure the nova flavor for the amphora.
     type: boolean
+  # We enable the driver agent and configure the OVN provider by default if OVN
+  # is enabled.
   NeutronMechanismDrivers:
     default: 'ovn'
     description: |
         The mechanism drivers for the Neutron tenant network.
     type: comma_delimited_list
+  OctaviaEnableDriverAgent:
+    default: true
+    description:  Set to false if the driver agent needs to be disabled for some reason.
+    type: boolean
 
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
+  enable_driver_agent: {equals: [{get_param: OctaviaEnableDriverAgent}, true]}
 
 resources:
 
@@ -173,11 +180,19 @@ outputs:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, OctaviaApiNetwork]}
-          -
-            if:
-              - is_ovn_in_neutron_mechanism_driver
-              - octavia::api::provider_drivers: 'amphora: The Octavia Amphora driver.,octavia: Deprecated alias of the Octavia Amphora driver.,ovn: Octavia OVN driver.'
-              - {}
+          - octavia::api::provider_drivers:
+              list_join:
+                - ','
+                - list_concat:
+                  - - 'amphora: The Octavia Amphora driver.'
+                    - 'octavia: Deprecated alias of the Octavia Amphora driver.'
+                  -
+                    if:
+                      - and:
+                          - is_ovn_in_neutron_mechanism_driver
+                          - enable_driver_agent
+                      - ['ovn: Octavia OVN driver.']
+                      - []
 
       service_config_settings:
         fluentd:
@@ -314,7 +329,7 @@ outputs:
                 environment:
                   - KOLLA_CONFIG_STRATEGY=COPY_ALWAYS
             - if:
-                - is_ovn_in_neutron_mechanism_driver
+                - enable_driver_agent
                 - octavia_driver_agent:
                     start_order: 2
                     image: *octavia_api_image
