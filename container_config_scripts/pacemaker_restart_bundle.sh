@@ -14,6 +14,17 @@ WAIT_TARGET_ANYWHERE=${5:-_}
 TRIPLEO_MINOR_UPDATE="${TRIPLEO_MINOR_UPDATE:-false}"
 
 
+bundle_can_be_restarted() {
+    local bundle=$1
+    # As long as the resource bundle is managed by pacemaker and is
+    # not meant to stay stopped, no matter the state of any inner
+    # pcmk_remote or ocf resource, we should restart it to give it a
+    # chance to read the new config.
+    [ "$(crm_resource --meta -r $1 -g is-managed 2>/dev/null)" != "false" ] && \
+    [ "$(crm_resource --meta -r $1 -g target-role 2>/dev/null)" != "Stopped" ]
+}
+
+
 if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
     if hiera -c /etc/puppet/hiera.yaml stack_action | grep -q -x CREATE; then
         # Do not restart during initial deployment, as the resource
@@ -24,8 +35,12 @@ if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
         # every node the resource runs on, after the service's configs
         # have been updated on all nodes. So we need to run pcs only
         # once (e.g. on the service's boostrap node).
-        echo "$(date -u): Restarting ${BUNDLE_NAME} globally"
-        /usr/bin/bootstrap_host_exec $TRIPLEO_SERVICE /sbin/pcs resource restart --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
+        if bundle_can_be_restarted ${BUNDLE_NAME}; then
+            echo "$(date -u): Restarting ${BUNDLE_NAME} globally"
+            /usr/bin/bootstrap_host_exec $TRIPLEO_SERVICE /sbin/pcs resource restart --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
+        else
+            echo "$(date -u): No global restart needed for ${BUNDLE_NAME}."
+        fi
     fi
 else
     # During a minor update workflow however, a host gets fully
@@ -36,12 +51,7 @@ else
     # up to date.
     HOST=$(facter hostname)
 
-    # As long as the resource bundle is managed by pacemaker and is
-    # not meant to stay stopped, no matter the state of any inner
-    # pcmk_remote or ocf resource, we should restart it to give it a
-    # chance to read the new config.
-    if [ "$(crm_resource --meta -r ${BUNDLE_NAME} -g is-managed 2>/dev/null)" != "false" ] && \
-       [ "$(crm_resource --meta -r ${BUNDLE_NAME} -g target-role 2>/dev/null)" != "Stopped" ]; then
+    if bundle_can_be_restarted ${BUNDLE_NAME}; then
 	# if the resource is running locally, restart it
 	if crm_resource -r $BUNDLE_NAME --locate 2>&1 | grep -w -q "${HOST}"; then
             echo "$(date -u): Restarting ${BUNDLE_NAME} locally on '${HOST}'"
