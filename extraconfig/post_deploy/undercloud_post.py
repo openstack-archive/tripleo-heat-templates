@@ -16,8 +16,6 @@ import openstack
 import os
 import subprocess
 
-from keystoneauth1 import exceptions as ks_exceptions
-from mistralclient.api import base as mistralclient_exc
 from mistralclient.api import client as mistralclient
 
 
@@ -115,61 +113,15 @@ def _configure_workbooks_and_workflows(mistral):
     print('INFO: Undercloud post - Mistral workbooks configured successfully.')
 
 
-def _store_passwords_in_mistral_env(mistral):
-    """Store required passwords in a mistral environment"""
-    env_name = 'tripleo.undercloud-config'
-    config_data = {
-        'undercloud_ceilometer_snmpd_password':
-            CONF['snmp_readonly_user_password'],
-        'undercloud_db_password':
-            CONF['undercloud_db_password'],
-        'undercloud_db_host':
-            CONF['undercloud_db_host']
-    }
-    try:
-        mistral.environments.get(env_name).variables
-        mistral.environments.update(
-            name=env_name,
-            description='Undercloud configuration parameters',
-            variables=json.dumps(config_data, sort_keys=True))
-    except (ks_exceptions.NotFound, mistralclient_exc.APIException):
-        # The environment is not created, we need to create it
-        mistral.environments.create(
-            name=env_name,
-            description='Undercloud configuration parameters',
-            variables=json.dumps(config_data, sort_keys=True))
-    print('INFO: Undercloud post - Mistral environment configured '
-          'successfully.')
-
-
-def _prepare_ssh_environment(mistral):
-    mistral.executions.create('tripleo.validations.v1.copy_ssh_key')
-
-
-def _create_default_plan(mistral):
-    plan_exists = [True for c in sdk.list_containers() if
-                   c['name'] == 'overcloud']
-    if not plan_exists and os.path.isdir(THT_DIR):
-        mistral.executions.create(
-            'tripleo.plan_management.v1.create_deployment_plan',
-            workflow_input={'container': 'overcloud',
-                            'use_default_templates': True})
-        print('INFO: Undercloud post - Default plan overcloud created.')
-
-
 nova_api_enabled = 'true' in _run_command(
     ['hiera', 'nova_api_enabled']).lower()
 mistral_api_enabled = 'true' in _run_command(
     ['hiera', 'mistral_api_enabled']).lower()
-tripleo_validations_enabled = 'true' in _run_command(
-    ['hiera', 'tripleo_validations_enabled']).lower()
 
 if not nova_api_enabled:
     print('WARNING: Undercloud Post - Nova API is disabled.')
 if not mistral_api_enabled:
     print('WARNING: Undercloud Post - Mistral API is disabled.')
-if not tripleo_validations_enabled:
-    print('WARNING: Undercloud Post - Tripleo validations is disabled.')
 
 sdk = openstack.connect(CONF['cloud_name'])
 
@@ -181,12 +133,6 @@ try:
         mistral = mistralclient.client(mistral_url=sdk.workflow.get_endpoint(),
                                        session=sdk.session)
         _configure_workbooks_and_workflows(mistral)
-        _store_passwords_in_mistral_env(mistral)
-        _create_default_plan(mistral)
-        if tripleo_validations_enabled:
-            _prepare_ssh_environment(mistral)
-            print("INFO: Undercloud post - "
-                  "SSH Keys for TripleO Validations deployed.")
 except Exception:
     print('ERROR: Undercloud Post - Failed.')
     raise
