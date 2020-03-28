@@ -62,18 +62,39 @@ outputs:
                     dport: 22
           - {get_param: ExtraFirewallRules}
       host_prep_tasks:
-        - if:
+        list_concat:
+          - - name: Prevent Nftables to set up any rules
+              copy:
+                dest: /etc/sysconfig/nftables.conf
+                content: |
+                  # This file has been explicitely emptied and disabled by TripleO
+                  # so that nftables and iptables do not race each other
+              register: nftablesconf
+            - when: nftablesconf is changed
+              block:
+                - name: Flush Nftables rules when nftables.conf changed
+                  command: /usr/sbin/nft flush ruleset
+                - name: Restart iptables to restore firewall after flushing nftables
+                  systemd:
+                    state: reloaded
+                    name: "{{item}}"
+                  loop:
+                     - iptables.service
+                     - ip6tables.service
+          - if:
             - no_ctlplane
-            - name: Failure - ctlplane subnet is unset
-              fail:
+            - -
+                name: Ensure ctlplane subnet is set
+                fail:
                 msg: |
                   No CIDRs found in the ctlplane network tags.
                   Please refer to the documentation in order to
                   set the correct network tags in DeployedServerPortMap.
-            - name: Notice - ctlplane subnet is set
-              debug:
-                msg: |
-                  CIDRs found in the ctlplane network tags.
+            - -
+                name: Notice - ctlplane subnet is set
+                debug:
+                  msg: |
+                    CIDRs found in the ctlplane network tags.
       deploy_steps_tasks:
         - when:
             - (step|int) == 0
