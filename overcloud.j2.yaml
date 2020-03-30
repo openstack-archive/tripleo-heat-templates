@@ -399,11 +399,10 @@ resources:
   VipHosts:
     type: OS::Heat::Value
     properties:
-      type: string
+      type: json
       value:
-        list_join:
-        - "\n"
-        - - str_replace:
+        entries:
+          - str_replace:
               template: IP  HOST
               params:
                 IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
@@ -791,34 +790,31 @@ resources:
             for_each:
               hostname: {get_param: DeploymentServerBlacklist}
 
+  # Single value comma delimited lists may be stored in strings
+  # that fails lists concat. Make them always lists (nested are OK)
   HostsValue:
     type: OS::Heat::Value
     properties:
+      type: json
       value:
-        list_join:
-        - "\n"
-        - {get_param: UndercloudHostsEntries}
-        - - if:
-            - add_vips_to_etc_hosts
-            - {get_attr: [VipHosts, value]}
-            - ''
-        -
+        entries:
+            - - {get_param: UndercloudHostsEntries}
+            - - if:
+                - add_vips_to_etc_hosts
+                - {get_attr: [VipHosts, value, entries]}
+                - []
 {%- for role in roles %}
-          - list_join:
-            - ""
-            - {get_attr: [{{role.name}}, hosts_entry]}
+            - {get_attr: [{{role.name}}, hosts_entry, entries]}
 {%- endfor %}
-        - {get_param: ExtraHostFileEntries}
+            - - {get_param: ExtraHostFileEntries}
 
   HostsEntryValue:
     type: OS::Heat::Value
     properties:
       value:
-        list_join:
-          - ' '
-          - str_split:
-            - '\n'
-            - {get_attr: [HostsValue, value]}
+        yaql:
+          expression: coalesce($.data, []).where($ != null).where($ != []).flatten().distinct()
+          data: {get_attr: [HostsValue, value, entries]}
 
   CloudNames:
     type: OS::Heat::Value
@@ -1130,8 +1126,8 @@ resources:
       VipHostsEntries:
         if:
           - add_vips_to_etc_hosts
-          - {get_attr: [VipHosts, value]}
-          - ''
+          - {get_attr: [VipHosts, value, entries]}
+          - []
       KeystoneResourcesConfigs:
         map_merge:
 {% for role in roles %}
@@ -1165,10 +1161,9 @@ outputs:
       hostname-based access to the deployed nodes (useful for testing without
       setting up a DNS).
     value:
-      list_join:
-      - "\n"
-      - - {get_attr: [HostsEntryValue, value]}
-      - - {get_attr: [VipHosts, value]}
+      list_concat_unique:
+        - {get_attr: [HostsEntryValue, value]}
+        - {get_attr: [VipHosts, value, entries]}
   EnabledServices:
     description: The services enabled on each role
     value:
