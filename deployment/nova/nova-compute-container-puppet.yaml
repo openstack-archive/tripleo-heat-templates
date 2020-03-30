@@ -779,16 +779,9 @@ outputs:
             privileged: false
             detach: false
             volumes:
-              list_concat:
-                # podman fails to relable if nova_nfs_enabled where we have
-                # the nfs share mounted to /var/lib/nova/instances
-                -
-                  if:
-                  - nova_nfs_enabled
-                  - - /var/lib/nova:/var/lib/nova:shared
-                  - - /var/lib/nova:/var/lib/nova:shared,z
-                -
-                  - /var/lib/container-config-scripts/:/container-config-scripts/:z
+              - /var/lib/nova:/var/lib/nova:shared
+              - /var/lib/_nova_secontext:/var/lib/_nova_secontext:shared,z
+              - /var/lib/container-config-scripts/:/container-config-scripts/:z
             command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_statedir_ownership.py"
             environment:
               # NOTE: this should force this container to re-run on each
@@ -831,13 +824,7 @@ outputs:
                       - /sys/class/net:/sys/class/net
                       - /sys/bus/pci:/sys/bus/pci
                       - /boot:/boot:ro
-                    -
-                      # podman fails to relable if nova_nfs_enabled where we have
-                      # the nfs share mounted to /var/lib/nova/instances
-                      if:
-                      - nova_nfs_enabled
-                      - - /var/lib/nova:/var/lib/nova:shared
-                      - - /var/lib/nova:/var/lib/nova:shared,z
+                      - /var/lib/nova:/var/lib/nova:shared
                     -
                       if:
                       - {equals: [{get_param: MultipathdEnable}, true]}
@@ -876,7 +863,17 @@ outputs:
       host_prep_tasks:
         list_concat:
         - {get_attr: [NovaLogging, host_prep_tasks]}
-        - - name: Mount Nova NFS Share
+        - - name: create persistent directories
+            file:
+              path: "{{ item.path }}"
+              state: directory
+              setype: "{{ item.setype }}"
+            with_items:
+              - { 'path': /var/lib/nova, 'setype': container_file_t }
+              - { 'path': /var/lib/_nova_secontext, 'setype': container_file_t}
+              - { 'path': /var/lib/nova/instances, 'setype': container_file_t }
+              - { 'path': /var/lib/libvirt, 'setype': container_file_t }
+          - name: Mount Nova NFS Share
             vars:
               nfs_backend_enable: {get_attr: [RoleParametersValue, value, nfs_backend_enable]}
               nfs_share: {get_attr: [RoleParametersValue, value, nfs_share]}
@@ -967,15 +964,6 @@ outputs:
                   name: tripleo_nova_libvirt_guests
                   enabled: yes
                   daemon_reload: yes
-          - name: create persistent directories
-            file:
-              path: "{{ item.path }}"
-              state: directory
-              setype: "{{ item.setype }}"
-            with_items:
-              - { 'path': /var/lib/nova, 'setype': container_file_t }
-              - { 'path': /var/lib/nova/instances, 'setype': container_file_t }
-              - { 'path': /var/lib/libvirt, 'setype': container_file_t }
           - name: ensure ceph configurations exist
             file:
               path: /etc/ceph
