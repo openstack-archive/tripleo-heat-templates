@@ -17,6 +17,7 @@ from __future__ import print_function
 import logging
 import os
 import pwd
+import selinux
 import stat
 import sys
 
@@ -42,6 +43,7 @@ class PathManager(object):
         self.is_dir = stat.S_ISDIR(statinfo.st_mode)
         self.uid = statinfo.st_uid
         self.gid = statinfo.st_gid
+        self.secontext = selinux.lgetfilecon(self.path)[1]
 
     def __str__(self):
         return "uid: {} gid: {} path: {}{}".format(
@@ -83,6 +85,27 @@ class PathManager(object):
                      uid,
                      gid)
 
+    def chcon(self, context):
+        # If dir returns whether to recusively set context
+        try:
+            try:
+                selinux.lsetfilecon(self.path, context)
+                LOG.info('Setting selinux context of %s to %s',
+                     self.path, context)
+                return True
+            except OSError as e:
+                if self.is_dir and e.errno == 95:
+                    # Operation not supported, assume NFS mount and skip
+                    LOG.info('Setting selinux context not supported for %s',
+                             self.path)
+                    return False
+                else:
+                    raise
+        except Exception:
+            LOG.error('Could not set selinux context of %s to %s:',
+                          self.path, context)
+            raise
+
 
 class NovaStatedirOwnershipManager(object):
     """Class to manipulate the ownership of the nova statedir (/var/lib/nova).
@@ -106,17 +129,19 @@ class NovaStatedirOwnershipManager(object):
        docker nova uid/gid is not known in this context).
     """
     def __init__(self, statedir, upgrade_marker='upgrade_marker',
-                 nova_user='nova'):
+                 nova_user='nova', secontext_marker='../_nova_secontext'):
         self.statedir = statedir
         self.nova_user = nova_user
 
         self.upgrade_marker_path = os.path.join(statedir, upgrade_marker)
+        self.secontext_marker_path = os.path.normpath(os.path.join(statedir, secontext_marker))
         self.upgrade = os.path.exists(self.upgrade_marker_path)
 
         self.target_uid, self.target_gid = self._get_nova_ids()
         self.previous_uid, self.previous_gid = self._get_previous_nova_ids()
         self.id_change = (self.target_uid, self.target_gid) != \
             (self.previous_uid, self.previous_gid)
+        self.target_secontext = self._get_secontext()
 
     def _get_nova_ids(self):
         nova_uid, nova_gid = pwd.getpwnam(self.nova_user)[2:4]
@@ -129,7 +154,13 @@ class NovaStatedirOwnershipManager(object):
         else:
             return self._get_nova_ids()
 
-    def _walk(self, top):
+    def _get_secontext(self):
+        if os.path.exists(self.secontext_marker_path):
+            return selinux.lgetfilecon(self.secontext_marker_path)[1]
+        else:
+            return None
+
+    def _walk(self, top, chcon=True):
         for f in os.listdir(top):
             pathname = os.path.join(top, f)
 
@@ -141,7 +172,10 @@ class NovaStatedirOwnershipManager(object):
             if pathinfo.is_dir:
                 # Always chown the directories
                 pathinfo.chown(self.target_uid, self.target_gid)
-                self._walk(pathname)
+                chcon_r = chcon
+                if chcon:
+                    chcon_r = pathinfo.chcon(self.target_secontext)
+                self._walk(pathname, chcon_r)
             elif self.id_change:
                 # Only chown files if it's an upgrade and the file is owned by
                 # the host nova uid/gid
@@ -151,6 +185,8 @@ class NovaStatedirOwnershipManager(object):
                     self.target_gid if pathinfo.gid == self.previous_gid
                     else pathinfo.gid
                 )
+                if chcon:
+                    pathinfo.chcon(self.target_secontext)
 
     def run(self):
         LOG.info('Applying nova statedir ownership')
@@ -162,8 +198,12 @@ class NovaStatedirOwnershipManager(object):
         pathinfo = PathManager(self.statedir)
         LOG.info("Checking %s", pathinfo)
         pathinfo.chown(self.target_uid, self.target_gid)
+        chcon = self.target_secontext is not None
 
-        self._walk(self.statedir)
+        if chcon:
+            pathinfo.chcon(self.target_secontext)
+
+        self._walk(self.statedir, chcon)
 
         if self.upgrade:
             LOG.info('Removing upgrade_marker %s',

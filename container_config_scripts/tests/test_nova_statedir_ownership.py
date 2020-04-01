@@ -17,12 +17,24 @@ import contextlib
 import mock
 import six
 import stat
+import sys
 
 from oslotest import base
 
+
+class FakeSelinux(object):
+    @staticmethod
+    def lgetfilecon(path):
+        pass
+
+    @staticmethod
+    def lsetfilecon(path, context):
+        pass
+sys.modules["selinux"] = FakeSelinux
+
 from container_config_scripts.nova_statedir_ownership import \
-    NovaStatedirOwnershipManager
-from container_config_scripts.nova_statedir_ownership import PathManager
+    NovaStatedirOwnershipManager  # noqa: E402
+from container_config_scripts.nova_statedir_ownership import PathManager  # noqa: E402
 
 # Real chown would require root, so in order to test this we need to fake
 # all of the methods that interact with the filesystem
@@ -43,60 +55,83 @@ class FakeStatInfo(object):
 
 def generate_testtree1(nova_uid, nova_gid):
     return {
-        '/var/lib/nova':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
+        '/var/lib/nova': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'nfs': False,
+        },
+        '/var/lib/_nova_secontext': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'nfs': False,
+        },
+
+        '/var/lib/nova/instances': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
                          st_uid=nova_uid,
                          st_gid=nova_gid),
-        '/var/lib/nova/instances':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
-                         st_uid=nova_uid,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
-                         st_uid=nova_uid,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/bar':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=0,
-                         st_gid=0),
-        '/var/lib/nova/instances/foo/baz':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=nova_uid,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/abc':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=0,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/def':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=nova_uid,
-                         st_gid=0),
+            'nfs': False,
+        },
+        '/var/lib/nova/instances/foo': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'nfs': True,
+        },
+        '/var/lib/nova/instances/foo/bar': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=0,
+                                 st_gid=0),
+            'nfs': True,
+        },
+        '/var/lib/nova/instances/foo/baz': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'nfs': True,
+        },
+        '/var/lib/nova/instances/foo/abc': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=0,
+                                 st_gid=nova_gid),
+            'nfs': True,
+        },
+        '/var/lib/nova/instances/foo/def': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=nova_uid,
+                                 st_gid=0),
+            'nfs': True,
+        },
     }
 
 
 def generate_testtree2(marker_uid, marker_gid, *args, **kwargs):
     tree = generate_testtree1(*args, **kwargs)
     tree.update({
-        '/var/lib/nova/upgrade_marker':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=marker_uid,
-                         st_gid=marker_gid)
+        '/var/lib/nova/upgrade_marker': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=marker_uid,
+                                 st_gid=marker_gid),
+            'nfs': False,
+        }
     })
     return tree
 
 
 def generate_fake_stat(testtree):
     def fake_stat(path):
-        return testtree.get(path)
+        return testtree.get(path, {}).get('stat')
     return fake_stat
 
 
 def generate_fake_chown(testtree):
     def fake_chown(path, uid, gid):
         if uid != -1:
-            testtree[path].st_uid = uid
+            testtree[path]['stat'].st_uid = uid
         if gid != -1:
-            testtree[path].st_gid = gid
+            testtree[path]['stat'].st_gid = gid
     return fake_chown
 
 
@@ -123,6 +158,14 @@ def generate_fake_unlink(testtree):
     return fake_unlink
 
 
+def generate_fake_lsetfilecon(testtree):
+    def fake_lsetfilecon(path, context):
+        if testtree[path]['nfs']:
+            e = OSError('Operation not supported')
+            e.errno = 95
+            raise e
+
+
 @contextlib.contextmanager
 def fake_testtree(testtree):
     fake_stat = generate_fake_stat(testtree)
@@ -130,6 +173,7 @@ def fake_testtree(testtree):
     fake_exists = generate_fake_exists(testtree)
     fake_listdir = generate_fake_listdir(testtree)
     fake_unlink = generate_fake_unlink(testtree)
+    fake_lsetfilecon = generate_fake_lsetfilecon(testtree)
     with mock.patch('os.chown',
                     side_effect=fake_chown) as fake_chown:
         with mock.patch('os.path.exists',
@@ -144,17 +188,27 @@ def fake_testtree(testtree):
                                 'os.unlink',
                                 side_effect=fake_unlink
                                 ) as fake_unlink:
-                            yield (fake_chown,
-                                   fake_exists,
-                                   fake_listdir,
-                                   fake_stat,
-                                   fake_unlink)
+                            with mock.patch(
+                                    'selinux.lgetfilecon',
+                                    return_value=[10, 'newcontext'],
+                                    ) as fake_lgetfilecon:
+                                with mock.patch(
+                                        'selinux.lsetfilecon',
+                                        side_effect=fake_lsetfilecon,
+                                        ) as fake_lsetfilecon:
+                                    yield (fake_chown,
+                                           fake_exists,
+                                           fake_listdir,
+                                           fake_stat,
+                                           fake_unlink,
+                                           fake_lgetfilecon,
+                                           fake_lsetfilecon)
 
 
 def assert_ids(testtree, path, uid, gid):
-    statinfo = testtree[path]
+    statinfo = testtree[path]['stat']
     assert (uid, gid) == (statinfo.st_uid, statinfo.st_gid), \
-        "{}: expected {}:{} actual {}:{}".format(
+        "{}: expected ownership {}:{} actual {}:{}".format(
             path, uid, gid, statinfo.st_uid, statinfo.st_gid
         )
 
@@ -219,9 +273,13 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
     def test_no_upgrade_marker(self):
         testtree = generate_testtree1(current_uid, current_gid)
 
-        with fake_testtree(testtree) as (fake_chown, _, _, _, _):
+        with fake_testtree(testtree) as (fake_chown, _, _, _, _, _, fake_lsetfilecon):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
             fake_chown.assert_not_called()
+            fake_lsetfilecon.assert_any_call('/var/lib/nova', 'newcontext')
+            fake_lsetfilecon.assert_any_call('/var/lib/nova/instances/foo', 'newcontext')
+            chcon_paths = [x[0][0] for x in fake_lsetfilecon.call_args_list]
+            self.assertNotIn('/var/lib/nova/instances/foo/bar', chcon_paths)
 
     def test_upgrade_marker_no_id_change(self):
         testtree = generate_testtree2(current_uid,
@@ -229,7 +287,7 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
                                       current_uid,
                                       current_gid)
 
-        with fake_testtree(testtree) as (fake_chown, _, _, _, fake_unlink):
+        with fake_testtree(testtree) as (fake_chown, _, _, _, fake_unlink, _, _):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
             fake_chown.assert_not_called()
             fake_unlink.assert_called_with('/var/lib/nova/upgrade_marker')
@@ -248,13 +306,17 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
             if k == '/var/lib/nova/upgrade_marker':
                 # Ignore the marker, it should be deleted
                 continue
+            if k == '/var/lib/_nova_secontext':
+                # Ignore, outside tree
+                continue
+            v = v['stat']
             if v.st_uid == other_uid or v.st_gid == other_gid:
                 expected_changes[k] = (
                     current_uid if v.st_uid == other_uid else v.st_uid,
                     current_gid if v.st_gid == other_gid else v.st_gid
                 )
 
-        with fake_testtree(testtree) as (_, _, _, _, fake_unlink):
+        with fake_testtree(testtree) as (_, _, _, _, fake_unlink, _, _):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
             for fn, expected in six.iteritems(expected_changes):
                 assert_ids(testtree, fn, expected[0], expected[1])
