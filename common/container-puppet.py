@@ -393,9 +393,8 @@ def infile_processing(infiles):
         config_hash = '-'.join(config_hashes)
         if config_hash:
             LOG.debug(
-                "Updating config hash for %s, config_volume=%s hash=%s" % (
+                "Updating config hash for %s, hash=%s" % (
                     c_name,
-                    config_volume,
                     config_hash
                 )
             )
