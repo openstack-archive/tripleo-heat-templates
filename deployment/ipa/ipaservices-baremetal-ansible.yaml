@@ -61,8 +61,16 @@ parameters:
     type: boolean
   IdMEnrollBaseServer:
     default: True
-    description: Set to true to enroll the base server (computes, controllers)
+    description:  Set to true to enroll the base server (computes, controllers)
     type: boolean
+  IdMZoneSplitIPv4:
+    default: 1
+    description:  The level by which the PTR DNS record is split when creating zones.
+    type: string
+  IdMZoneSplitIPv6:
+    default: 1
+    description:  The level by which the PTR DNS record is split when creating zones.
+    type: string
 
 outputs:
   role_data:
@@ -76,18 +84,22 @@ outputs:
           when: step|int == 1
           block:
             - include_role:
-              name: tripleo_ipa_registration
-              apply:
-                environment:
-                  IPA_USER: "nova/{{ ansible_fqdn }}"
-                  IPA_HOST: {get_param: IdMServer}
-                  KRB5_CLIENT_KTNAME: {get_param: IdMNovaKeytab}
+                name: tripleo_ipa_registration
               vars:
                 tripleo_ipa_enroll_base_server: {get_param: IdMEnrollBaseServer}
                 tripleo_ipa_delegate_server: "{{ item }}"
                 tripleo_ipa_base_server_fqdn: "{{hostvars[item]['fqdn_canonical']}}"
                 tripleo_ipa_server_metadata: "{{hostvars[item]['service_metadata_settings'] | to_json }}"
               loop: "{{ groups.certmonger_user }}"
+            - include_role:
+                name: tripleo_ipa_dns
+              vars:
+                tripleo_ipa_ptr_zone_split_ipv4: {get_param: IdMZoneSplitIPv4}
+                tripleo_ipa_ptr_zone_split_ipv6: {get_param: IdMZoneSplitIPv6}
+              environment:
+                IPA_HOST: {get_param: IdMServer}
+                IPA_USER: "nova/{{ ansible_fqdn }}"
+                KRB5_CLIENT_KTNAME: {get_param: IdMNovaKeytab}
       deploy_steps_tasks:
         - name: enroll the node as an ipa client
           when: step|int == 1
