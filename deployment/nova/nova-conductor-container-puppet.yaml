@@ -58,9 +58,14 @@ parameters:
     description: The password for the nova service and db account
     type: string
     hidden: true
+  NovaAdditionalCell:
+    default: false
+    description: Whether this is an cell additional to the default cell.
+    type: boolean
 
 conditions:
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
+  is_not_additional_cell: {equals: [{get_param: NovaAdditionalCell}, false]}
 
 resources:
 
@@ -86,6 +91,27 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaApiDBClient:
+    type: ./nova-apidb-client-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NovaDBClient:
+    type: ./nova-db-client-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+
 outputs:
   role_data:
     description: Role data for the Nova Conductor service.
@@ -94,27 +120,28 @@ outputs:
       monitoring_subscription: {get_param: MonitoringSubscriptionNovaConductor}
       config_settings:
         map_merge:
-          - {get_attr: [NovaBase, role_data, config_settings]}
-          - {get_attr: [NovaLogging, config_settings]}
+          - get_attr: [NovaBase, role_data, config_settings]
+          # FIXME(owalsh): NovaApiDBClient should be conditional on is_not_additional_cell
+          # however cell conductor currently requires api db access for affinity checks
+          - get_attr: [NovaApiDBClient, role_data, config_settings]
+          - get_attr: [NovaDBClient, role_data, config_settings]
+          - get_attr: [NovaLogging, config_settings]
           -
             if:
             - nova_workers_zero
             - {}
             - nova::conductor::workers: {get_param: NovaWorkers}
       service_config_settings:
+        rabbitmq: {get_attr: [NovaBase, role_data, service_config_settings], rabbitmq}
+        mysql:
+          map_merge:
+            # FIXME(owalsh): NovaApiDBClient should be conditional on is_not_additional_cell
+            # however cell conductor currently requires api db access for affinity checks
+            - get_attr: [NovaApiDBClient, role_data, service_config_settings, mysql]
+            - get_attr: [NovaDBClient, role_data, service_config_settings, mysql]
         rsyslog:
           tripleo_logging_sources_nova_conductor:
             - {get_param: NovaConductorLoggingSource}
-        mysql:
-          map_merge:
-          - {get_attr: [NovaBase, role_data, service_config_settings, mysql]}
-          - nova::db::mysql::password: {get_param: NovaPassword}
-            nova::db::mysql::user: nova
-            nova::db::mysql::host: {get_param: [EndpointMap, MysqlCellInternal, host_nobrackets]}
-            nova::db::mysql::dbname: nova
-            nova::db::mysql::allowed_hosts:
-              - '%'
-              - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova
@@ -158,7 +185,14 @@ outputs:
                   - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                   - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
             user: root
-            command: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync'"
+            command:
+              str_replace:
+                template: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync DB_SYNC_ARGS'"
+                params:
+                  if:
+                    - is_not_additional_cell
+                    - DB_SYNC_ARGS: ""
+                    - DB_SYNC_ARGS: "--local_cell"
             environment:
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
