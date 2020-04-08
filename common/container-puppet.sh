@@ -72,7 +72,7 @@ verbosity=""
 
 # Disables archiving
 if [ -z "$NO_ARCHIVE" ]; then
-    archivedirs=("/etc" "/root" "/opt" "/var/lib/ironic/tftpboot" "/var/lib/ironic/httpboot" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
+    archivedirs=("/etc" "/root" "/opt" "/var/www" "/var/spool/cron" "/var/lib/nova/.ssh")
     rsync_srcs=""
     for d in "${archivedirs[@]}"; do
         if [ -d "$d" ]; then
