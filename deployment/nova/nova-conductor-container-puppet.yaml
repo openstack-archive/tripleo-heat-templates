@@ -68,10 +68,15 @@ parameters:
     type: boolean
     tags:
       - role_specific
+  NovaAdditionalCell:
+    default: false
+    description: Whether this is an cell additional to the default cell.
+    type: boolean
 
 conditions:
   fast_forward_upgrade: {not: {equals: [{get_param: ContainerNovaConductorImageStein},'']}}
   nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
+  is_not_additional_cell: {equals: [{get_param: NovaAdditionalCell}, false]}
 
 resources:
 
@@ -97,6 +102,26 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  NovaApiDBClient:
+    type: ./nova-apidb-client-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  NovaDBClient:
+    type: ./nova-db-client-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
   RoleParametersValue:
     type: OS::Heat::Value
     properties:
@@ -108,7 +133,6 @@ resources:
             - values: {get_param: [RoleParameters]}
           - values:
               NovaEnableNUMALiveMigration: {get_param: NovaEnableNUMALiveMigration}
-
 outputs:
   role_data:
     description: Role data for the Nova Conductor service.
@@ -119,6 +143,10 @@ outputs:
         map_merge:
           - {get_attr: [NovaBase, role_data, config_settings]}
           - {get_attr: [NovaLogging, config_settings]}
+          # FIXME(owalsh): NovaApiDBClient should be conditional on is_not_additional_cell
+          # however cell conductor currently requires api db access for affinity checks
+          - {get_attr: [NovaApiDBClient, role_data, config_settings]}
+          - {get_attr: [NovaDBClient, role_data, config_settings]}
           - {get_attr: [RoleParametersValue, value]}
           -
             if:
@@ -131,14 +159,10 @@ outputs:
             - {get_param: NovaConductorLoggingSource}
         mysql:
           map_merge:
-          - {get_attr: [NovaBase, role_data, service_config_settings, mysql]}
-          - nova::db::mysql::password: {get_param: NovaPassword}
-            nova::db::mysql::user: nova
-            nova::db::mysql::host: {get_param: [EndpointMap, MysqlCellInternal, host_nobrackets]}
-            nova::db::mysql::dbname: nova
-            nova::db::mysql::allowed_hosts:
-              - '%'
-              - "%{hiera('mysql_bind_host')}"
+            # FIXME(owalsh): NovaApiDBClient should be conditional on is_not_additional_cell
+            # however cell conductor currently requires api db access for affinity checks
+            - get_attr: [NovaApiDBClient, role_data, service_config_settings, mysql]
+            - get_attr: [NovaDBClient, role_data, service_config_settings, mysql]
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: nova
@@ -189,7 +213,15 @@ outputs:
                       - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
                       - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
                 user: root
-                command: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync'"
+                command:
+                  str_replace:
+                    template: "/usr/bin/bootstrap_host_exec nova_conductor su nova -s /bin/bash -c '/usr/bin/nova-manage db sync DB_SYNC_ARGS'"
+                    params:
+                      if:
+                        - is_not_additional_cell
+                        - DB_SYNC_ARGS: ""
+                        - DB_SYNC_ARGS: "--local_cell"
+
                 environment:
                   TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
             - if:
