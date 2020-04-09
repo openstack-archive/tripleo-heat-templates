@@ -686,7 +686,7 @@ def validate_docker_service_mysql_usage(filename, tpl):
         if not search(puppet_config, match_mysqlclient, no_op):
             print("ERROR: containerized service %s uses mysql but "
                   "puppet_config section does not include "
-                  "::tripleo::profile::base::database::mysql::client"
+                  "tripleo::profile::base::database::mysql::client"
                   % filename)
             return 1
 

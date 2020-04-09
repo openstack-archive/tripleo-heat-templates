@@ -170,7 +170,7 @@ def mp_puppet_config(*args):
 
     with tempfile.NamedTemporaryFile() as tmp_man:
         with open(tmp_man.name, 'w') as man_file:
-            man_file.write('include ::tripleo::packages\n')
+            man_file.write('include tripleo::packages\n')
             man_file.write(manifest)
 
         uname = RUNNER.unique_container_name(
