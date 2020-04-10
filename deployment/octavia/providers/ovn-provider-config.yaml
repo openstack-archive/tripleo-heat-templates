@@ -1,0 +1,134 @@
+heat_template_version: rocky
+
+parameters:
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  NeutronMechanismDrivers:
+    default: 'ovn'
+    description: |
+        The mechanism drivers for the Neutron tenant network.
+    type: comma_delimited_list
+  OctaviaOvnProviderProtocol:
+    default: ''
+    description: |
+        The protocol used by OVN driver to connect to northbound database.
+    type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+
+conditions:
+
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
+  ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, internal_tls_enabled]}
+  octavia_provider_ovn_protocol_unset: {equals: [{get_param: OctaviaOvnProviderProtocol}, '']}
+
+outputs:
+  role_data:
+    description: OVN provider driver configuraton
+    value:
+      config_settings:
+        map_merge:
+            -
+              if:
+                - octavia_provider_ovn_protocol_unset
+                - if:
+                  - internal_tls_enabled
+                  - tripleo::profile::base::octavia::provider::ovn::protocol: 'ssl'
+                  - tripleo::profile::base::octavia::provider::ovn::protocol: 'tcp'
+                - tripleo::profile::base::octavia::provider::ovn::protocol: {get_param: OctaviaOvnProviderProtocol}
+            - if:
+              - ovn_and_tls
+              - tripleo::profile::base::octavia::provider::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
+                tripleo::profile::base::octavia::provider::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/ovn_octavia.crt'
+                tripleo::profile::base::octavia::provider::ovn::ovn_nb_private_key: '/etc/pki/tls/private/ovn_octavia.key'
+                generate_service_certificates: true
+                ovn_octavia_certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/ovn_octavia.crt'
+                  service_key: '/etc/pki/tls/private/ovn_octavia.key'
+                  hostname:
+                    str_replace:
+                      template: "%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                  principal:
+                    str_replace:
+                      template: "ovn_octavia/%{hiera('fqdn_NETWORK')}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              - {}
+      puppet_tags: octavia_ovn_provider_config
+      provider_driver_labels:
+        if:
+          - is_ovn_in_neutron_mechanism_driver
+          - ['ovn: Octavia OVN driver.']
+          - []
+      step_config:
+          if:
+            - is_ovn_in_neutron_mechanism_driver
+            - "include tripleo::profile::base::octavia::provider::ovn"
+            - "\n"
+      metadata_settings:
+        if:
+          - ovn_and_tls
+          - - service: ovn_octavia
+              network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              type: node
+          - null
+      volumes:
+         if:
+           - ovn_and_tls
+           -
+             - /etc/pki/tls/certs/ovn_octavia.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_octavia.crt:ro
+             - /etc/pki/tls/private/ovn_octavia.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/ovn_octavia.key:ro
+           - []
+      kolla_permissions:
+        if:
+          - ovn_and_tls
+          -
+            - path: /etc/pki/tls/certs/ovn_octavia.crt
+              owner: octavia:octavia
+              perm: '0644'
+            - path: /etc/pki/tls/private/ovn_octavia.key
+              owner: octavia:octavia
+              perm: '0640'
+          - []
+      kolla_config_files:
+        if:
+          - ovn_and_tls
+          -
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          - []
