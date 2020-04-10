@@ -18,6 +18,9 @@ import subprocess
 
 CTLPLANE_NETWORK_NAME = 'ctlplane'
 CONF = json.loads(os.environ['config'])
+CLOUD_DOMAIN = 'ctlplane.' + (CONF['cloud_domain'] + '.'
+                              if not CONF['cloud_domain'].endswith('.')
+                              else CONF['cloud_domain'])
 
 
 def _run_command(args, env=None, name=None):
@@ -57,13 +60,15 @@ def _ensure_neutron_network(sdk):
                 name=CTLPLANE_NETWORK_NAME,
                 provider_network_type='flat',
                 provider_physical_network=CONF['physical_network'],
-                mtu=CONF['mtu'])
+                mtu=CONF['mtu'],
+                dns_domain=CLOUD_DOMAIN)
             print('INFO: Network created %s' % network)
         else:
             network = sdk.network.update_network(
                 network[0].id,
                 name=CTLPLANE_NETWORK_NAME,
-                mtu=CONF['mtu'])
+                mtu=CONF['mtu'],
+                dns_domain=CLOUD_DOMAIN)
             print('INFO: Network updated %s' % network)
     except Exception:
         print('ERROR: Network create/update failed.')

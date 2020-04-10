@@ -922,6 +922,7 @@ resources:
     type: OS::TripleO::Network::Ports::ControlPlaneVipPort
     properties:
       name: control_virtual_ip
+      dns_name: {str_split: ['.', {get_param: CloudNameCtlplane}, 0]}
       network: {get_param: NeutronControlPlaneID}
       fixed_ips:
         if:
@@ -942,6 +943,7 @@ resources:
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: redis_virtual_ip
+      DnsName: null
       NetworkName: {get_attr: [ServiceNetMap, service_net_map, RedisNetwork]}
       ServiceName: redis
       FixedIPs:
@@ -962,6 +964,7 @@ resources:
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
       ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
       PortName: ovn_dbs_virtual_ip
+      DnsName: null
       NetworkName: {get_attr: [ServiceNetMap, service_net_map, OvnDbsNetwork]}
       ServiceName: ovn_dbs
       FixedIPs:
@@ -974,24 +977,9 @@ resources:
   {%- if network.name == 'External' %}
   # The public VIP is on the External net, falls back to ctlplane
   PublicVirtualIP:
-    depends_on: [Networks, ServiceNetMap]
-    type: OS::TripleO::Network::Ports::ExternalVipPort
-    properties:
-      ControlPlaneIP: {get_attr: [ControlVirtualIP, fixed_ips, 0, ip_address]}
-      ControlPlaneSubnetCidr:
-        if:
-          - ctlplane_subnet_cidr_set
-          - {get_param: ControlPlaneSubnetCidr}
-          - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
-      ControlPlaneNetwork: {get_param: NeutronControlPlaneID}
-      PortName: public_virtual_ip
-      FixedIPs:
-        if:
-        - public_virtual_fixed_ip_set
-        - {get_param: PublicVirtualFixedIPs}
-        - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
   {%- else %}
   {{network.name}}VirtualIP:
+  {%- endif %}
     depends_on: [Networks, ServiceNetMap]
     type: OS::TripleO::Network::Ports::{{network.name}}VipPort
     properties:
@@ -1001,13 +989,29 @@ resources:
           - ctlplane_subnet_cidr_set
           - {get_param: ControlPlaneSubnetCidr}
           - {str_split: ['/', {get_attr: [ControlVirtualIP, subnets, 0, cidr]}, 1]}
+      {%- if network.name == 'External' %}
+      PortName: public_virtual_ip
+      DnsName: {str_split: ['.', {get_param: CloudName}, 0]}
+      {%- else %}
       PortName: {{network.name_lower}}_virtual_ip
+      {%- endif %}
+      {%- if network.name == 'InternalApi' %}
+      DnsName: {str_split: ['.', {get_param: CloudNameInternal}, 0]}
+      {%- elif network.name == 'StorageMgmt' %}
+      DnsName: {str_split: ['.', {get_param: CloudNameStorageManagement}, 0]}
+      {%- elif network.name not in ['External', 'InternalApi', 'StorageMgmt'] %}
+      DnsName: {str_split: ['.', {get_param: CloudName{{network.name}}}, 0]}
+      {%- endif %}
       FixedIPs:
         if:
+        {%- if network.name == 'External' %}
+        - public_virtual_fixed_ip_set
+        - {get_param: PublicVirtualFixedIPs}
+        {%- else %}
         - {{network.name_lower}}_virtual_fixed_ip_set
         - {get_param: {{network.name}}VirtualFixedIPs}
+        {%- endif %}
         - [{subnet: {get_attr: [ServiceNetMap, vip_subnet_map, {{network.name}}]}}]
-  {% endif %}
 {%- endfor %}
 
   VipMap:
