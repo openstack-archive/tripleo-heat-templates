@@ -56,7 +56,7 @@ if __name__ == '__main__':
         project_domain_name=config.get('placement', 'user_domain_name'),
         auth_url=config.get('placement', 'auth_url')+'/v3')
     sess = session.Session(auth=auth, verify=False)
-    keystone = client.Client(session=sess)
+    keystone = client.Client(session=sess, interface='internal')
 
     iterations_endpoint = iterations
     placement_endpoint_url = None
