@@ -223,6 +223,17 @@ outputs:
             container_image_latest: *cinder_volume_image_pcmklatest
 
       update_tasks:
+        - name: Tear-down non-HA cinder_volume container
+          when:
+            - step|int == 1
+          block: &cinder_volume_teardown_nonha
+            - name: Remove non-HA cinder_volume container
+              include_role:
+                name: tripleo_container_rm
+              vars:
+                tripleo_container_cli: "{{ container_cli }}"
+                tripleo_containers_to_rm:
+                  - cinder_volume
         - name: cinder_volume fetch and retag container image for pacemaker
           when: step|int == 2
           block: &cinder_volume_fetch_retag_container_tasks
@@ -249,6 +260,10 @@ outputs:
                 - old_cinder_volume_image_id.stdout != new_cinder_volume_image_id.stdout
 
       upgrade_tasks:
+        - name: Tear-down non-HA cinder_volume container
+          when:
+            - step|int == 0
+          block: *cinder_volume_teardown_nonha
         - name: Prepare switch of cinder_volume image name
           when:
             - step|int == 0
@@ -330,7 +345,7 @@ outputs:
               when:
                 - groups['cinder_volume'] | length > 1
                 - item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ cinder_volume_node_names }}"
+              loop: "{{ cinder_volume_node_names | default([]) }}"
             - fail:
                 msg: >
                   You can't upgrade cinder_volume without

@@ -284,6 +284,19 @@ outputs:
             container_image_latest: *ovn_dbs_image_pcmklatest
 
       update_tasks:
+        - name: Tear-down non-HA ovn-dbs containers
+          when:
+            - step|int == 1
+          block: &ovn_dbs_teardown_nonha
+            - name: Remove non-HA ovn-dbs containers
+              include_role:
+                name: tripleo_container_rm
+              vars:
+                tripleo_container_cli: "{{ container_cli }}"
+                tripleo_containers_to_rm:
+                  - ovn_north_db_server
+                  - ovn_south_db_server
+                  - ovn_northd
         # When a schema change happens, the newer slaves don't connect
         # back to the older master and end up timing out.  So we clean
         # up the error here until we get a fix for
@@ -357,6 +370,10 @@ outputs:
                 - ovn_dbs_current_image.stdout != ovn_dbs_image_latest
 
       upgrade_tasks:
+        - name: Tear-down non-HA ovn-dbs container
+          when:
+            - step|int == 0
+          block: *ovn_dbs_teardown_nonha
         - name: Prepare switch of ovn-dbs image name
           when:
             - step|int == 0
@@ -437,7 +454,7 @@ outputs:
               when:
                 - groups['ovn_dbs'] | length > 1
                 - item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ ovn_dbs_short_node_names }}"
+              loop: "{{ ovn_dbs_short_node_names | default([]) }}"
             - fail:
                 msg: >
                   You can't upgrade ovn_dbs without staged

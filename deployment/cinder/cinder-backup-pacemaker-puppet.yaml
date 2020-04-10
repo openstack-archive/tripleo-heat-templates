@@ -236,6 +236,17 @@ outputs:
             container_image: {get_param: ContainerCinderBackupImage}
             container_image_latest: *cinder_backup_image_pcmklatest
       update_tasks:
+        - name: Tear-down non-HA cinder-backup container
+          when:
+            - step|int == 1
+          block: &cinder_backup_teardown_nonha
+            - name: Remove non-HA cinder-backup container
+              include_role:
+                name: tripleo_container_rm
+              vars:
+                tripleo_container_cli: "{{ container_cli }}"
+                tripleo_containers_to_rm:
+                  - cinder_backup
         - name: cinder_backup fetch and retag container image for pacemaker
           when: step|int == 2
           block: &cinder_backup_fetch_retag_container_tasks
@@ -262,6 +273,10 @@ outputs:
                 - old_cinder_backup_image_id.stdout != new_cinder_backup_image_id.stdout
 
       upgrade_tasks:
+        - name: Tear-down non-HA cinder_backup container
+          when:
+            - step|int == 0
+          block: *cinder_backup_teardown_nonha
         - name: Prepare switch of cinder_backup image name
           when:
             - step|int == 0
@@ -343,7 +358,7 @@ outputs:
               when:
                 - groups['cinder_backup'] | length > 1
                 - item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ cinder_backup_node_names }}"
+              loop: "{{ cinder_backup_node_names | default([]) }}"
             - fail:
                 msg: >
                   You can't upgrade cinder_backup without
