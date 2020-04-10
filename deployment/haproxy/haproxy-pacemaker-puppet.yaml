@@ -308,6 +308,27 @@ outputs:
             - { 'path': /var/log/containers/haproxy, 'setype': var_log_t, 'mode': '0750' }
             - { 'path': /var/lib/haproxy, 'setype': svirt_sandbox_file_t }
             - { 'path': /var/log/haproxy, 'setype': svirt_sandbox_file_t }
+        - name: Run puppet on the host to apply IPtables rules
+          shell: |
+            set +e
+            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
+                --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
+            rc=$?
+            set -e
+            set +ux
+            if [ $rc -eq 2 -o $rc -eq 0 ]; then
+                exit 0
+            fi
+            exit $rc
+          vars:
+            puppet_execute: "if hiera('enable_load_balancer', true) { class {'::tripleo::haproxy': use_internal_certificates => false, manage_firewall => hiera('tripleo::firewall::manage_firewall', true), }}"
+            puppet_tags: tripleo::firewall::rule
+            puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
+            puppet_debug:
+              if:
+                - puppet_debug_enabled
+                - '--debug --verbose'
+                - ''
       metadata_settings:
         {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
@@ -343,28 +364,6 @@ outputs:
           vars:
             container_image: {get_param: ContainerHAProxyImage}
             container_image_latest: *haproxy_image_pcmklatest
-        - name: Run puppet on the host to apply IPtables rules
-          when: step|int == 2
-          shell: |
-            set +e
-            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
-                --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-            rc=$?
-            set -e
-            set +ux
-            if [ $rc -eq 2 -o $rc -eq 0 ]; then
-                exit 0
-            fi
-            exit $rc
-          vars:
-            puppet_execute: include ::tripleo::profile::base::haproxy
-            puppet_tags: tripleo::firewall::rule
-            puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-            puppet_debug:
-              if:
-                - puppet_debug_enabled
-                - '--debug --verbose'
-                - ''
       update_tasks:
         - name: Set HAProxy upgrade facts
           block: &haproxy_update_upgrade_facts
