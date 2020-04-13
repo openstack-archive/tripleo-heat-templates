@@ -98,7 +98,7 @@ if [ -z "$NO_ARCHIVE" ]; then
 
     # Exclude read-only mounted directories/files which we do not want
     # to copy or delete.
-    ro_files="/etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
+    ro_files="/etc/puppet/ /etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
     ro_files+="/etc/pki/ca-trust/source/anchors /etc/pki/tls/certs/ca-bundle.crt "
     ro_files+="/etc/pki/tls/certs/ca-bundle.trust.crt /etc/pki/tls/cert.pem "
     ro_files+="/etc/hosts /etc/localtime"
