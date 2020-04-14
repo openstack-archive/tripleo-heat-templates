@@ -1053,28 +1053,22 @@ outputs:
                 - ksm.service
                 - ksmtuned.service
       deploy_steps_tasks:
-        - name: validate nova compute container state
-          when:
-            - container_cli == 'podman'
-            - not container_healthcheck_disabled
-            - step|int == 6 #FIXME: there is no step6
+        - name: validate nova-compute container state
+          podman_container_info:
+            name: nova_compute
+          register: nova_compute_infos
+          failed_when:
+            - "'healthy' not in nova_compute_infos.containers.0.Healthcheck.Status"
+          retries: 10
+          delay: 30
           tags:
             - opendev-validation
             - opendev-validation-nova
-          block:
-            - name: Get nova-compute healthcheck status
-              register: nova_compute_healthcheck_state
-              systemd:
-                name: tripleo_nova_compute_healthcheck
-              retries: 10
-              delay: 30
-              until: nova_compute_healthcheck_state.status.ExecMainPID != '0' and
-                nova_compute_healthcheck_state.status.ActiveState in ['inactive', 'failed']
-              failed_when: false
-            - name: Fail if nova-compute healthcheck report failed status
-              fail:
-                msg: nova-compute isn't working (healthcheck failed)
-              when: nova_compute_healthcheck_state.status.ExecMainStatus != '0'
+          when:
+            - false
+            - container_cli == 'podman'
+            - not container_healthcheck_disabled
+            - step|int == 6 #FIXME: there is no step6
       external_post_deploy_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       upgrade_tasks:
         - name: Remove openstack-nova-compute and python-nova package during upgrade

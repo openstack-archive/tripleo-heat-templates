@@ -754,21 +754,22 @@ outputs:
                 tripleo_keystone_resources_cloud_name: {get_param: RootStackName}
                 batched_tripleo_keystone_resources_domains: "{{ tripleo_keystone_ldap_domains | list }}"
       deploy_steps_tasks:
-        - name: validate keystone service state
-          when:
-            - container_cli == 'podman'
-            - not container_healthcheck_disabled
-            - step|int == 4
+        - name: validate keystone container state
+          podman_container_info:
+            name: keystone
+          register: keystone_infos
+          failed_when:
+            - "'healthy' not in keystone_infos.containers.0.Healthcheck.Status"
+          retries: 10
+          delay: 30
           tags:
             - opendev-validation
             - opendev-validation-keystone
-          block:
-            - name: Get keystone service healthcheck status
-              import_role:
-                name: healthcheck_service_status
-              vars:
-                inflight_healthcheck_services:
-                  - tripleo_keystone_healthcheck
+          when:
+            - false
+            - container_cli == 'podman'
+            - not container_healthcheck_disabled
+            - step|int == 4
       container_puppet_tasks:
         # Keystone endpoint creation occurs only on single node
         step_3:
