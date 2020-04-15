@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Keystone service
 
 parameters:
+  ContainerKeystoneImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerKeystoneImage:
     description: image
     type: string
@@ -309,6 +313,7 @@ resources:
 
 conditions:
 
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerKeystoneImageStein},'']}}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   keystone_fernet_tokens: {equals: [{get_param: KeystoneTokenProvider}, "fernet"]}
   keystone_ldap_domain_enabled: {equals: [{get_param: KeystoneLDAPDomainEnable}, True]}
@@ -592,62 +597,88 @@ outputs:
         step_2:
           get_attr: [KeystoneLogging, docker_config, step_2]
         step_3:
-          keystone_db_sync:
-            image: &keystone_image {get_param: ContainerKeystoneImage}
-            net: host
-            user: root
-            privileged: false
-            detach: false
-            volumes: &keystone_volumes
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [KeystoneLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/keystone:/var/lib/kolla/config_files/src:ro
-                - if:
-                    - internal_tls_enabled
-                    - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                    - []
-                - if:
-                    - internal_tls_enabled
-                    - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    - []
-            environment:
-              map_merge:
-                - {get_attr: [KeystoneLogging, environment]}
-                - KOLLA_BOOTSTRAP: true
-                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-            command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
-          keystone:
-            start_order: 2
-            image: *keystone_image
-            net: host
-            privileged: false
-            restart: always
-            healthcheck:
-              test: /openstack/healthcheck
-            volumes: *keystone_volumes
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-          keystone_bootstrap:
-            start_order: 3
-            action: exec
-            user: root
-            command:
-              [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap' ]
-            environment:
-              KOLLA_BOOTSTRAP: true
-              OS_BOOTSTRAP_PASSWORD: {get_param: AdminPassword}
-              OS_BOOTSTRAP_USERNAME: 'admin'
-              OS_BOOTSTRAP_PROJECT_NAME: 'admin'
-              OS_BOOTSTRAP_ROLE_NAME: 'admin'
-              OS_BOOTSTRAP_SERVICE_NAME: 'keystone'
-              OS_BOOTSTRAP_ADMIN_URL: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
-              OS_BOOTSTRAP_PUBLIC_URL: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
-              OS_BOOTSTRAP_INTERNAL_URL: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-              OS_BOOTSTRAP_REGION_ID: {get_param: KeystoneRegion}
+          map_merge:
+            - keystone_db_sync:
+                start_order: 1
+                image: &keystone_image {get_param: ContainerKeystoneImage}
+                net: host
+                user: root
+                privileged: false
+                detach: false
+                volumes: &keystone_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [KeystoneLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/keystone:/var/lib/kolla/config_files/src:ro
+                    - if:
+                        - internal_tls_enabled
+                        - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                        - []
+                    - if:
+                        - internal_tls_enabled
+                        - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+                        - []
+                environment:
+                  map_merge:
+                    - {get_attr: [KeystoneLogging, environment]}
+                    - KOLLA_BOOTSTRAP: true
+                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
+              keystone:
+                start_order: 2
+                image: *keystone_image
+                net: host
+                privileged: false
+                restart: always
+                healthcheck:
+                  test: /openstack/healthcheck
+                volumes: *keystone_volumes
+                environment:
+                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+              keystone_bootstrap:
+                start_order: 3
+                action: exec
+                user: root
+                command:
+                  [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap' ]
+                environment:
+                  KOLLA_BOOTSTRAP: true
+                  OS_BOOTSTRAP_PASSWORD: {get_param: AdminPassword}
+                  OS_BOOTSTRAP_USERNAME: 'admin'
+                  OS_BOOTSTRAP_PROJECT_NAME: 'admin'
+                  OS_BOOTSTRAP_ROLE_NAME: 'admin'
+                  OS_BOOTSTRAP_SERVICE_NAME: 'keystone'
+                  OS_BOOTSTRAP_ADMIN_URL: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+                  OS_BOOTSTRAP_PUBLIC_URL: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+                  OS_BOOTSTRAP_INTERNAL_URL: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+                  OS_BOOTSTRAP_REGION_ID: {get_param: KeystoneRegion}
+            - if:
+                - fast_forward_upgrade
+                - keystone_db_sync_stein:
+                    start_order: 0
+                    image: {get_param: ContainerKeystoneImageStein}
+                    net: host
+                    user: root
+                    privileged: false
+                    detach: false
+                    volumes: *keystone_volumes
+                    environment:
+                      map_merge:
+                        - {get_attr: [KeystoneLogging, environment]}
+                        - KOLLA_BOOTSTRAP: true
+                          KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                          TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml keystone_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( /usr/local/bin/kolla_set_configs && /usr/bin/keystone-manage --config-file /etc/keystone/keystone.conf db_version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/keystone/common/sql/migrate_repo/versions |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION > $DB_VERSION )); then /usr/local/bin/kolla_start ; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                - {}
         step_4:
           # There are cases where we need to refresh keystone after the resource provisioning,
           # such as the case of using LDAP backends for domains. So we trigger a graceful

@@ -201,6 +201,10 @@ parameters:
   ContainerCephDaemonImage:
     description: image
     type: string
+  ContainerCeph3DaemonImage:
+    description: image
+    type: string
+    default: ''
   CephAnsiblePlaybookVerbosity:
     default: 1
     description: The number of '-v', '-vv', etc. passed to ansible-playbook command
@@ -333,6 +337,7 @@ parameter_groups:
   - SwiftFetchDirPutTempurl
 
 conditions:
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerCeph3DaemonImage},'']}}
   deprecated_data_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSDataPoolPGNum}, 128]}}
   deprecated_metadata_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSMetadataPoolPGNum}, 128]}}
   dashboard_is_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
@@ -381,23 +386,46 @@ resources:
         host:
           if:
           - custom_registry_host
-          - yaql:
-              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
-              data: {get_param: ContainerCephDaemonImage}
+          -
+            if:
+            - fast_forward_upgrade
+            - yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: ContainerCeph3DaemonImage}
+            - yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
+                data: {get_param: ContainerCephDaemonImage}
           - docker.io
         image:
           if:
           - custom_registry_host
-          - yaql:
-              expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[2]
-              data: {get_param: ContainerCephDaemonImage}
-          - yaql:
-              expression: $.data.rightSplit(':', 1)[0]
-              data: {get_param: ContainerCephDaemonImage}
+          -
+            if:
+            - fast_forward_upgrade
+            - yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[2]
+                data: {get_param: ContainerCeph3DaemonImage}
+            - yaql:
+                expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[2]
+                data: {get_param: ContainerCephDaemonImage}
+          -
+            if:
+            - fast_forward_upgrade
+            - yaql:
+                expression: $.data.rightSplit(':', 1)[0]
+                data: {get_param: ContainerCeph3DaemonImage}
+            - yaql:
+                expression: $.data.rightSplit(':', 1)[0]
+                data: {get_param: ContainerCephDaemonImage}
         image_tag:
-          yaql:
-            expression: $.data.rightSplit(':', 1)[1]
-            data: {get_param: ContainerCephDaemonImage}
+          if:
+          - fast_forward_upgrade
+          - yaql:
+              expression: $.data.rightSplit(':', 1)[1]
+              data: {get_param: ContainerCeph3DaemonImage}
+          - yaql:
+              expression: $.data.rightSplit(':', 1)[1]
+              data: {get_param: ContainerCephDaemonImage}
 
   DefaultCephConfigOverrides:
     type: OS::Heat::Value

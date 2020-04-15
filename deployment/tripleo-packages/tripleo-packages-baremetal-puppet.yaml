@@ -114,16 +114,44 @@ outputs:
             - system_upgrade_prepare
           when: step|int == 3
           block:
-            - name: remove all OpenStack packages
+            - name: Hack around broken ceph-common rpm removing /etc/ceph /var/lib/ceph
+              ignore_errors: true
               shell: |
-                yum -y remove *el7ost* -- \
-                  -*openvswitch* \
-                  -python2-babel \
-                  -python2-dateutil \
-                  -python2-ipaddress \
-                  -python2-jinja2 \
-                  -python2-markupsafe \
-                  -python2-six
+                rpm -e --nodeps --noscripts ceph-common
+            - name: remove all OpenStack packages
+              shell: >-
+                yum -y remove
+                *el7ost*
+                galera*
+                haproxy*
+                httpd
+                kernel-devel
+                mysql*
+                pacemaker*
+                python-jsonpointer
+                qemu-kvm-common-rhev
+                qemu-img-rhev
+                rabbit*
+                redis*
+                --
+                -*openvswitch*
+                -python-docker
+                -python-PyMySQL
+                -python-pysocks
+                -python2-asn1crypto
+                -python2-babel
+                -python2-cffi
+                -python2-cryptography
+                -python2-dateutil
+                -python2-idna
+                -python2-ipaddress
+                -python2-jinja2
+                -python2-jsonpatch
+                -python2-markupsafe
+                -python2-pyOpenSSL
+                -python2-requests
+                -python2-six
+                -python2-urllib3
               when: upgrade_leapp_enabled
             - name: install leapp
               package:
@@ -138,6 +166,10 @@ outputs:
             - system_upgrade_prepare
           when: step|int == 4
           block:
+            - name: set leapp options
+              shell: >
+                leapp answer --section remove_pam_pkcs11_module_check.confirm=True --add
+              when: upgrade_leapp_enabled
             - name: run leapp upgrade (download packages)
               shell: >
                 {% if upgrade_leapp_devel_skip|default(false) %}{{ upgrade_leapp_devel_skip }}{% endif %}
@@ -165,6 +197,8 @@ outputs:
               meta: clear_facts
             - name: Force facts refresh after OS upgrade to refresh cache.
               setup:
+            - name: Set the python to python3
+              shell: alternatives --set python /usr/bin/python3
 
         - name: Package and repo update tasks
           when: step|int == 0

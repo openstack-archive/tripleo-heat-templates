@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Nova API service
 
 parameters:
+  ContainerNovaApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerNovaApiImage:
     description: image
     type: string
@@ -104,6 +108,7 @@ parameters:
 
 conditions:
 
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerNovaApiImageStein},'']}}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
   mysql_ipv6_use_ip_address:
@@ -341,64 +346,94 @@ outputs:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
         step_3:
-          nova_api_db_sync:
-            start_order: 0 # Runs before nova-conductor dbsync
-            image: &nova_api_image {get_param: ContainerNovaApiImage}
-            net: host
-            detach: false
-            user: root
-            volumes: &nova_api_bootstrap_volumes
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaApiLogging, volumes]}
-                -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
-            environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          nova_api_map_cell0:
-            start_order: 1 # Runs before nova-conductor dbsync
-            image: *nova_api_image
-            net: host
-            detach: false
-            user: root
-            volumes: *nova_api_bootstrap_volumes
-            command:
-              str_replace:
-                template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
-                params:
-                  CELL0DB:
-                    list_join:
-                    - ''
-                    - - '{scheme}'
-                      - '://'
-                      - '{username}'
-                      - ':'
-                      - '{password}'
-                      - '@'
-                      -
-                        if:
-                          - mysql_ipv6_use_ip_address
-                          - '[{hostname}]'
-                          - '{hostname}'
-                      - '/'
-                      - 'nova_cell0'
-                      - '?'
-                      - '{query}'
-          nova_api_ensure_default_cell:
-            start_order: 2 # Runs before nova-conductor dbsync
-            image: *nova_api_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - *nova_api_bootstrap_volumes
-                -
-                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
-                  - /var/lib/container-config-scripts/nova_api_ensure_default_cell.sh:/nova_api_ensure_default_cell.sh:ro
-            user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
+          map_merge:
+            - nova_api_db_sync:
+                start_order: 3 # Runs before nova-conductor dbsync
+                image: &nova_api_image {get_param: ContainerNovaApiImage}
+                net: host
+                detach: false
+                user: root
+                volumes: &nova_api_bootstrap_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NovaApiLogging, volumes]}
+                    -
+                      - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                      - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+              nova_api_map_cell0:
+                start_order: 4 # Runs before nova-conductor dbsync
+                image: *nova_api_image
+                net: host
+                detach: false
+                user: root
+                volumes: *nova_api_bootstrap_volumes
+                command:
+                  str_replace:
+                    template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
+                    params:
+                      CELL0DB:
+                        list_join:
+                        - ''
+                        - - '{scheme}'
+                          - '://'
+                          - '{username}'
+                          - ':'
+                          - '{password}'
+                          - '@'
+                          -
+                            if:
+                              - mysql_ipv6_use_ip_address
+                              - '[{hostname}]'
+                              - '{hostname}'
+                          - '/'
+                          - 'nova_cell0'
+                          - '?'
+                          - '{query}'
+              nova_api_ensure_default_cell:
+                start_order: 5 # Runs before nova-conductor dbsync
+                image: *nova_api_image
+                net: host
+                detach: false
+                volumes:
+                  list_concat:
+                    - *nova_api_bootstrap_volumes
+                    -
+                      - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
+                      - /var/lib/container-config-scripts/nova_api_ensure_default_cell.sh:/nova_api_ensure_default_cell.sh:ro
+                user: root
+                command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
+            - if:
+                - fast_forward_upgrade
+                - nova_api_db_sync_stein:
+                    start_order: 0 # Runs before nova-conductor dbsync Stein
+                    image: &nova_api_image_stein {get_param: ContainerNovaApiImageStein}
+                    net: host
+                    detach: false
+                    user: root
+                    volumes: *nova_api_bootstrap_volumes
+                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
+                    # version and version provided by package so we can check if we need
+                    # update or not.
+                    command:
+                      - '/bin/bash'
+                      - '-c'
+                      - "/bin/hiera -c /etc/puppet/hiera.yaml nova_api_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u nova /usr/bin/nova-manage api_db version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/nova/db/sqlalchemy/api_migrations/migrate_repo/versions |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u nova /usr/bin/nova-manage api_db sync; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                  nova_api_online_data_migrations_stein:
+                    start_order: 2 # Runs after nova-conductor dbsync Stein
+                    image: *nova_api_image_stein
+                    net: host
+                    detach: false
+                    user: root
+                    volumes: *nova_api_bootstrap_volumes
+                    command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage db online_data_migrations'"
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           nova_api:
             start_order: 2

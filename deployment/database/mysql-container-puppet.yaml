@@ -196,6 +196,36 @@ outputs:
             volumes: *mysql_volumes
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          mysql_neutron_db_rename:
+            start_order: 3
+            detach: false
+            image: *mysql_image
+            volumes:
+              list_concat:
+                - *mysql_volumes
+                - - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+                  # required for bootstrap_host_exec
+                  - /etc/puppet:/etc/puppet:ro
+                  - /var/lib/config-data/puppet-generated/mysql/root:/root:rw #provides .my.cnf for puppet, changed on password update
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            net: host
+            user: root
+            # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
+            command:
+              - 'bash'
+              - '-ec'
+              -
+                list_join:
+                  - "\n"
+                  - - 'if [ -d /var/lib/mysql/neutron ] ; then'
+                    - 'mysql -e "CREATE DATABASE IF NOT EXISTS \`ovs_neutron\`;"'
+                    - 'for table in `mysql -B -N -e "SHOW TABLES;" neutron`'
+                    - 'do'
+                    - 'mysql -e "RENAME TABLE \`neutron\`.\`$table\` to \`ovs_neutron\`.\`$table\`"'
+                    - 'done'
+                    - 'mysql -e "DROP DATABASE \`neutron\`;"'
+                    - 'fi'
         step_3:
           # sync credentials config on the running container if it was
           # changed by the docker_puppet_task during step 2

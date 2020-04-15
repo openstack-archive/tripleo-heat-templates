@@ -302,10 +302,8 @@ outputs:
               preserve_properties: true
       docker_config:
         step_3:
-          # The puppet config sets this up but we don't have a way to mount the named
-          # volume during the configuration stage.  We just need to create this
-          # directory and make sure it's owned by swift.
           swift_setup_srv:
+            start_order: 1
             image: &swift_account_image {get_param: ContainerSwiftAccountImage}
             net: none
             user: root
@@ -314,6 +312,7 @@ outputs:
               - /srv/node:/srv/node:z
           # FIXME (cschwede): remove this once the pid file setting is disabled
           swift_rsync_fix:
+            start_order: 1
             image: {get_param: ContainerSwiftObjectImage}
             net: host
             user: root
@@ -604,6 +603,20 @@ outputs:
         - name: Set swift_use_local_disks fact
           set_fact:
             swift_use_local_disks: {get_param: SwiftUseLocalDir}
+        - name: Move deprecated UC Swift storage directory if it exists
+          shell: |
+            set -o pipefail
+            EXIT_CODE=0
+            if [ -d /srv/node/1 ]; then
+              mv /srv/node/1 /srv/node/d1
+              EXIT_CODE=2
+            fi
+            exit ${EXIT_CODE}
+          args:
+            executable: /bin/bash
+          register: _move_dir
+          changed_when: _move_dir.rc == 2
+          failed_when: _move_dir.rc not in [0,2]
         - name: Create Swift d1 directory if needed
           file:
             path: "/srv/node/d1"
