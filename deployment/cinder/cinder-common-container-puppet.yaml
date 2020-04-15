@@ -106,36 +106,47 @@ outputs:
                     - 'M'
                 args:
                   creates: /var/lib/cinder/cinder-volumes
-              - name: cinder create LVM volume group
-                shell: |
-                  if ! losetup /dev/loop2; then
-                    losetup /dev/loop2 /var/lib/cinder/cinder-volumes
+              - name: Get or create LVM loopback device
+                shell: |-
+                  exit_code=0
+                  existing_device=$(losetup -j /var/lib/cinder/cinder-volumes -l -O NAME | tail -n-1)
+                  if [[ -z "${existing_device}" ]]; then
+                      losetup -f /var/lib/cinder/cinder-volumes --show
+                      exit_code=2
+                  else
+                      echo ${existing_device%$'\n'*}
                   fi
-                  if ! pvdisplay | grep cinder-volumes; then
-                    pvcreate /dev/loop2
-                  fi
-                  if ! vgdisplay | grep cinder-volumes; then
-                    vgcreate cinder-volumes /dev/loop2
-                  fi
+                  exit ${exit_code}
                 args:
                   executable: /bin/bash
-                  creates: /dev/loop2
+                register: _loopback_device
+                changed_when: _loopback_device.rc == 2
+                failed_when: _loopback_device.rc not in [0,2]
+              - name: Create LVM volume group
+                lvg:
+                  vg: "cinder-volumes"
+                  pvs: "{{ _loopback_device.stdout }}"
+                  state: present
               - name: cinder create service to run losetup for LVM on startup
                 copy:
                   dest: /etc/systemd/system/cinder-lvm-losetup.service
                   content: |
                     [Unit]
                     Description=Cinder LVM losetup
-                    After=syslog.target
+                    DefaultDependencies=no
+                    Conflicts=umount.target
+                    Requires=lvm2-lvmetad.service systemd-udev-settle.service
+                    Before=local-fs.target umount.target
+                    After=lvm2-lvmetad.service systemd-udev-settle.service
 
                     [Service]
                     Type=oneshot
-                    ExecStart=/bin/bash -c '/sbin/losetup /dev/loop2 || /sbin/losetup /dev/loop2 /var/lib/cinder/cinder-volumes'
-                    ExecStop=/bin/bash -c '/sbin/losetup -d /dev/loop2'
+                    ExecStart=/sbin/losetup {{ _loopback_device.stdout }} /var/lib/cinder/cinder-volumes
+                    ExecStop=/sbin/losetup -d {{ _loopback_device.stdout }}
                     RemainAfterExit=yes
 
                     [Install]
-                    WantedBy=multi-user.target
+                    WantedBy=local-fs-pre.target
               - name: cinder enable the LVM losetup service
                 systemd:
                   name: cinder-lvm-losetup
