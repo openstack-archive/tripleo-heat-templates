@@ -48,6 +48,9 @@ parameters:
   BarbicanPkcs11CryptoATOSEnabled:
     type: boolean
     default: false
+  BarbicanPkcs11CryptoLunasaEnabled:
+    type: boolean
+    default: false
   BarbicanPkcs11CryptoThalesEnabled:
     type: boolean
     default: false
@@ -101,6 +104,11 @@ parameters:
     description: Hash of atos-hsm role variables used to
                  install ATOS client software.
     type: json
+  LunasaVars:
+    default: {}
+    description: Hash of lunasa-hsm role variables used to
+                 install Lunasa client software.
+    type: json
   BarbicanPassword:
     description: The password for the barbican service account.
     type: string
@@ -144,14 +152,16 @@ parameters:
       perform configuration on a Heat stack-update.
 
 conditions:
-  service_debug_unset: {equals : [{get_param: BarbicanDebug}, '']}
+  service_debug_unset:  {equals : [{get_param: BarbicanDebug}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   thales_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoThalesEnabled}, true]}
   atos_hsm_enabled:     {equals: [{get_param: BarbicanPkcs11CryptoATOSEnabled}, true]}
-  thales_or_atos_hsm_enabled:
+  lunasa_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoLunasaEnabled}, true]}
+  thales_or_atos_or_lunasa_hsm_enabled:
     or:
     - thales_hsm_enabled
     - atos_hsm_enabled
+    - lunasa_hsm_enabled
   pkcs11_plugin_enabled: {equals: [{get_param: BarbicanPkcs11CryptoEnabled}, true]}
   pkcs11_rewrap_pkeks: {equals: [{get_param: BarbicanPkcs11CryptoRewrapKeys}, true]}
 
@@ -398,7 +408,7 @@ outputs:
         - null
       deploy_steps_tasks:
         if:
-        - thales_or_atos_hsm_enabled
+        - thales_or_atos_or_lunasa_hsm_enabled
         - list_concat:
           -
             if:
@@ -432,6 +442,27 @@ outputs:
                       name: atos-hsm
                     vars:
                       {get_param: ATOSVars}
+              - null
+          -
+            if:
+              - lunasa_hsm_enabled
+              -
+                - name: Lunasa client install
+                  when: step|int == 2
+                  block:
+                  - name: install the lunasa client
+                    include_role:
+                      name: lunasa_hsm
+                    vars:
+                      {get_param: LunasaVars}
+                  - name: set the slot id in hieradata
+                    include_role:
+                      name: tripleo_hieradata
+                      tasks_from: ansible_hieradata.yml
+                    vars:
+                      hieradata_ansible_data:
+                        barbican::plugins::p11_crypto::p11_crypto_plugin_slot_id: "{{ lunasa_ha_slot }}"
+                    when: lunasa_ha_slot
               - null
         - null
       docker_config:
@@ -480,6 +511,14 @@ outputs:
                           -
                             - /etc/proteccio:/etc/proteccio
                             - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                          - null
+                      -
+                        if:
+                          - lunasa_hsm_enabled
+                          -
+                            - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                            - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
+                            - /usr/safenet/lunaclient:/usr/safenet/lunaclient
                           - null
                   environment:
                     # NOTE: this should force this container to re-run on each
@@ -671,6 +710,14 @@ outputs:
                           - /etc/proteccio:/etc/proteccio
                           - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
                         - null
+                    -
+                      if:
+                        - lunasa_hsm_enabled
+                        -
+                          - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                          - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
+                          - /usr/safenet/lunaclient:/usr/safenet/lunaclient
+                        - null
                 environment: &kolla_env
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - barbican_keystone_listener:
@@ -717,6 +764,14 @@ outputs:
                         -
                           - /etc/proteccio:/etc/proteccio
                           - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                        - null
+                    -
+                      if:
+                        - lunasa_hsm_enabled
+                        -
+                          - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                          - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
+                          - /usr/safenet/lunaclient:/usr/safenet/lunaclient
                         - null
                 environment: *kolla_env
       host_prep_tasks:
