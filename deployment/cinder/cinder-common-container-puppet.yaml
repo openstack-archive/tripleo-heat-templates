@@ -106,21 +106,26 @@ outputs:
                     - 'M'
                 args:
                   creates: /var/lib/cinder/cinder-volumes
+              - name: cinder create LVM loopback device
+                command:
+                    losetup -f /var/lib/cinder/cinder-volumes
+              - name: cinder identify the LVM loopback device
+                command:
+                    losetup -j /var/lib/cinder/cinder-volumes -n -O NAME
+                register: cinder_lvm_loopback_device
+              - name: set cinder_lvm_dev fact
+                set_fact:
+                  cinder_lvm_dev: "{{ cinder_lvm_loopback_device.stdout|default('') }}"
               - name: cinder create LVM volume group
                 shell: |
-                  if ! losetup /dev/loop2; then
-                    losetup /dev/loop2 /var/lib/cinder/cinder-volumes
-                  fi
                   if ! pvdisplay | grep cinder-volumes; then
-                    pvcreate /dev/loop2
+                    pvcreate {{ cinder_lvm_dev }}
                   fi
                   if ! vgdisplay | grep cinder-volumes; then
-                    vgcreate cinder-volumes /dev/loop2
+                    vgcreate cinder-volumes {{ cinder_lvm_dev }}
                   fi
-                  touch /dev/loop2cinder
                 args:
                   executable: /bin/bash
-                  creates: /dev/loop2cinder
               - name: cinder create service to run losetup for LVM on startup
                 copy:
                   dest: /etc/systemd/system/cinder-lvm-losetup.service
@@ -131,8 +136,8 @@ outputs:
 
                     [Service]
                     Type=oneshot
-                    ExecStart=/bin/bash -c '/sbin/losetup /dev/loop2 || /sbin/losetup /dev/loop2 /var/lib/cinder/cinder-volumes'
-                    ExecStop=/bin/bash -c '/sbin/losetup -d /dev/loop2'
+                    ExecStart=/bin/bash -c '/sbin/losetup {{ cinder_lvm_dev }} || /sbin/losetup {{ cinder_lvm_dev }} /var/lib/cinder/cinder-volumes'
+                    ExecStop=/bin/bash -c '/sbin/losetup -d {{ cinder_lvm_dev }}'
                     RemainAfterExit=yes
 
                     [Install]
