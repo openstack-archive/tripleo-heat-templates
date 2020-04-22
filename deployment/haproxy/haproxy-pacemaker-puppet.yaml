@@ -311,25 +311,16 @@ outputs:
             - { 'path': /var/log/haproxy, 'setype': container_file_t }
         - name: Run puppet on the host to apply IPtables rules
           shell: |
-            set +e
-            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
+            puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
                 --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-            rc=$?
-            set -e
-            set +ux
-            if [ $rc -eq 2 -o $rc -eq 0 ]; then
-                exit 0
-            fi
-            exit $rc
+          register: puppet_run
+          changed_when: puppet_run.rc == 2
+          failed_when: puppet_run.rc != 2 and puppet_run.rc != 0
           vars:
             puppet_execute: "if hiera('enable_load_balancer', true) { class {'::tripleo::haproxy': use_internal_certificates => false, manage_firewall => hiera('tripleo::firewall::manage_firewall', true), }}"
             puppet_tags: tripleo::firewall::rule
             puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-            puppet_debug:
-              if:
-                - puppet_debug_enabled
-                - '--debug --verbose'
-                - ''
+            puppet_debug: {get_param: ConfigDebug}
       metadata_settings:
         {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
