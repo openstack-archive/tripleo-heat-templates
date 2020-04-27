@@ -1019,6 +1019,9 @@ def validate_service_hiera_interpol(f, tpl):
             if ('tripleo::profile::base::designate::rndc_allowed_addresses' in
                     path):
                 continue
+            # Omit Neutron ml2 overlay_ip_version
+            if 'neutron::plugins::ml2::overlay_ip_version' in path:
+                continue
 
             # Omit if not a part of {get_param: [ServiceNetMap ...
             if not enter_lists and path[-1] != 'get_param':
