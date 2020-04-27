@@ -1,9 +1,8 @@
 heat_template_version: rocky
 
 description: >
-  Provides the list of Docker volumes and environment to be used by the
-  CinderVolume and CinderBackup services. The same list is used for
-  HA and non-HA deployments.
+  Provides the list of common container volumes and environment used by
+  various cinder services.
 
 parameters:
   EndpointMap:
@@ -52,10 +51,33 @@ parameters:
     default: false
     description: Whether to enable the multipath daemon
     type: boolean
+  CinderVolumeCluster:
+    default: ''
+    description: >
+      The cluster name used for deploying the cinder-volume service in an
+      active-active (A/A) configuration. This configuration requires the
+      Cinder backend drivers support A/A, and the cinder-volume service not
+      be managed by pacemaker. If these criteria are not met then the cluster
+      name must be left blank.
+    type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  EnableEtcdInternalTLS:
+    description: Controls whether etcd and the cinder-volume service use TLS
+                 for cinder's lock manager, even when the rest of the internal
+                 API network is using TLS.
+    type: boolean
+    default: false
 
 conditions:
 
   multipathd_enabled: {equals: [{get_param: MultipathdEnable}, true]}
+  cvol_active_active_tls_enabled:
+    and:
+      - not: {equals: [{get_param: CinderVolumeCluster}, '']}
+      - equals: [{get_param: EnableInternalTLS}, true]
+      - equals: [{get_param: EnableEtcdInternalTLS}, true]
 
 resources:
 
@@ -78,6 +100,22 @@ outputs:
         file:
           path: /etc/ceph
           state: directory
+
+  cinder_common_volumes:
+    description: Common volumes for all cinder services
+    value: &cinder_common_volumes
+      list_concat:
+        - {get_attr: [ContainersCommon, volumes]}
+        -
+          - /var/lib/config-data/puppet-generated/cinder:/var/lib/kolla/config_files/src:ro
+          - /var/log/containers/cinder:/var/log/cinder:z
+        -
+          if:
+            - cvol_active_active_tls_enabled
+            -
+              - /etc/pki/tls/certs/etcd.crt:/etc/pki/tls/certs/etcd.crt:ro
+              - /etc/pki/tls/private/etcd.key:/etc/pki/tls/private/etcd.key:ro
+            - []
 
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)
@@ -157,11 +195,10 @@ outputs:
     description: Volumes for the cinder-volume container (HA or non-HA)
     value:
       list_concat:
-        - {get_attr: [ContainersCommon, volumes]}
+        - *cinder_common_volumes
         - {get_param: CinderVolumeOptVolumes}
         -
           - /var/lib/kolla/config_files/cinder_volume.json:/var/lib/kolla/config_files/config.json:ro
-          - /var/lib/config-data/puppet-generated/cinder:/var/lib/kolla/config_files/src:ro
           - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
           - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
           - /lib/modules:/lib/modules:ro
@@ -170,7 +207,6 @@ outputs:
           - /sys:/sys
           - /var/lib/cinder:/var/lib/cinder:z
           - /var/lib/iscsi:/var/lib/iscsi:z
-          - /var/log/containers/cinder:/var/log/cinder:z
         -
           if:
           - multipathd_enabled
@@ -193,10 +229,9 @@ outputs:
     description: Volumes for the cinder-backup container (HA or non-HA)
     value:
       list_concat:
-        - {get_attr: [ContainersCommon, volumes]}
+        - *cinder_common_volumes
         -
           - /var/lib/kolla/config_files/cinder_backup.json:/var/lib/kolla/config_files/config.json:ro
-          - /var/lib/config-data/puppet-generated/cinder:/var/lib/kolla/config_files/src:ro
           - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
           - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
           - /dev/:/dev/
@@ -205,7 +240,6 @@ outputs:
           - /lib/modules:/lib/modules:ro
           - /var/lib/cinder:/var/lib/cinder:z
           - /var/lib/iscsi:/var/lib/iscsi:z
-          - /var/log/containers/cinder:/var/log/cinder:z
         -
           if:
           - multipathd_enabled

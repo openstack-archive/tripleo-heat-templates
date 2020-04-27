@@ -167,6 +167,23 @@ parameters:
       via the local IP for the Etcd network. If set to true, the ip
       on the local node will be used. If set to false, the VIP on the Etcd
       network will be used instead. Defaults to false.
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  EnableEtcdInternalTLS:
+    description: Controls whether etcd and the cinder-volume service use TLS
+                 for cinder's lock manager, even when the rest of the internal
+                 API network is using TLS.
+    type: boolean
+    default: false
+
+conditions:
+
+  cvol_active_active_tls_enabled:
+    and:
+      - not: {equals: [{get_param: CinderVolumeCluster}, '']}
+      - equals: [{get_param: EnableInternalTLS}, true]
+      - equals: [{get_param: EnableEtcdInternalTLS}, true]
 
 resources:
 
@@ -328,6 +345,23 @@ outputs:
             volumes: {get_attr: [CinderCommon, cinder_volume_volumes]}
             environment: {get_attr: [CinderCommon, cinder_volume_environment]}
       host_prep_tasks: {get_attr: [CinderCommon, cinder_volume_host_prep_tasks]}
+      deploy_steps_tasks:
+        - name: ensure cinder can access etcd's tls cert and key
+          become: true
+          acl:
+            path: "{{ item }}"
+            entity: "{{ 42407 | string }}"
+            etype: user
+            permissions: r
+            state: present
+          with_items:
+            - /etc/pki/tls/certs/etcd.crt
+            - /etc/pki/tls/private/etcd.key
+          vars:
+            cvol_active_active_tls_enabled: {if: [cvol_active_active_tls_enabled, true, false]}
+          when:
+            - cvol_active_active_tls_enabled|bool
+            - step|int == 3
       fast_forward_upgrade_tasks:
         - when:
             - step|int == 0
