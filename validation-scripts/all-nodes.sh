@@ -35,7 +35,7 @@ function ping_controller_ips() {
     if [[ $REMOTE_IP =~ ":" ]]; then
       networks=$(ip -6 r | grep -v default | cut -d " " -f 1 | grep -v "unreachable")
     else
-      networks=$(ip r | grep -v default | cut -d " " -f 1)
+      networks=$(ip r | grep -E '^([0-9]{1,3}\.?){4}' | cut -d " " -f 1)
     fi
     for LOCAL_NETWORK in $networks; do
       in_network=$($(get_python) -c "import ipaddress; net=ipaddress.ip_network(u'$LOCAL_NETWORK'); addr=ipaddress.ip_address(u'$REMOTE_IP'); print(addr in net)")
