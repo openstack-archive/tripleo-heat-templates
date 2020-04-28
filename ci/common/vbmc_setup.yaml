@@ -17,12 +17,8 @@ resources:
       group: script
       config: |
         #!/bin/bash
-        cd /etc/yum.repos.d
-        echo 'nameserver 1.1.1.1' > /etc/resolv.conf
-        curl https://opendev.org/openstack/tripleo-repos/raw/branch/master/tripleo_repos/main.py | python - current-tripleo
-        yum install -y python2-virtualbmc epel-release libvirt-client libvirt-daemon libvirt qemu-kvm-ev
-        yum install -y qemu-system-x86  # <-- needs epel
-        yum remove -y epel-release
+        set -e
+        dnf install -y python3-virtualbmc libvirt-client libvirt-daemon libvirt qemu-kvm
         systemctl start libvirtd virtualbmc
         git clone https://opendev.org/openstack/ironic /tmp/ironic
         mkdir -p /var/log/bmlogs
@@ -33,16 +29,6 @@ resources:
         ssh-keygen -P "" -f /etc/puppet/ci-key
         chmod 644 /etc/puppet/ci-key
         cat /etc/puppet/ci-key.pub >> /root/.ssh/authorized_keys
-
-        # neutron_api workaround for https://github.com/ansible/ansible/issues/42108
-        # remove when ansible v2.5.8+ is in the container image
-        cat << EOF | docker exec -i -u 0 neutron_api /bin/bash -x
-        yum install -y epel-release
-        yum update -y ansible
-
-        EOF
-
-        docker restart neutron_api
 
         LIBVIRT_STORAGE_POOL=${LIBVIRT_STORAGE_POOL:-"default"}
         LIBVIRT_STORAGE_POOL_PATH=${LIBVIRT_STORAGE_POOL_PATH:-/var/lib/libvirt/images}
@@ -60,9 +46,8 @@ resources:
             virsh pool-start $LIBVIRT_STORAGE_POOL
         fi
 
-        # nohup needed as vbmc seems to keep stdin open
-        nohup /tmp/ironic/devstack/tools/ironic/scripts/create-node.sh -n node1 -c 1 -m 3072 -d 10 -b br-ex -p 1161 -M 1350 -f qcow2 -a x86_64 -E qemu -e /usr/bin/qemu-system-x86_64 -l /var/log/bmlogs -A 66:0d:1d:d8:0b:11 > ~zuul/create-node-1.log 2>&1 < /dev/null
-        nohup /tmp/ironic/devstack/tools/ironic/scripts/create-node.sh -n node2 -c 1 -m 3072 -d 10 -b br-ex -p 1162 -M 1350 -f qcow2 -a x86_64 -E qemu -e /usr/bin/qemu-system-x86_64 -l /var/log/bmlogs -A 66:0d:1d:d8:0b:22 > ~zuul/create-node-2.log 2>&1 < /dev/null &
+        /tmp/ironic/devstack/tools/ironic/scripts/create-node.sh -n node1 -c 1 -m 3072 -d 10 -b br-ex -p 1161 -M 1350 -f qcow2 -a x86_64 -E qemu -l /var/log/bmlogs -A 66:0d:1d:d8:0b:11 > /var/log/bmlogs/create-node-1.log 2>&1 < /dev/null
+        /tmp/ironic/devstack/tools/ironic/scripts/create-node.sh -n node2 -c 1 -m 3072 -d 10 -b br-ex -p 1162 -M 1350 -f qcow2 -a x86_64 -E qemu -l /var/log/bmlogs -A 66:0d:1d:d8:0b:22 > /var/log/bmlogs/create-node-2.log 2>&1 < /dev/null
 
         vbmc --no-daemon add node1 --port 1161
         vbmc --no-daemon start node1
