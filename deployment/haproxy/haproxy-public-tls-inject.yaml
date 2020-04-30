@@ -173,42 +173,9 @@ outputs:
                 - container_id.stdout is defined
                 - container_id.stdout != ''
               block:
-                - name: set kolla_dir fact
-                  set_fact: kolla_dir="/var/lib/kolla/config_files/src-tls"
-
-                - name: assert {{ kolla_dir }}{{ cert_path }} exists
-                  stat:
-                    path: "{{ kolla_dir }}{{cert_path}}"
-                  register: kolla_cert_exists
-
+                - name: copy certificate from host to container
+                  shell: "{{ container_cli }} cp {{ cert_path }} {{ container_id.stdout }}:{{ cert_path }}"
                 - name: set certificate group on host via container
-                  shell: |
-                    if {{ container_cli }} ps | grep {{container_id.stdout}}; then
-                      {{ container_cli }} exec {{container_id.stdout}} chgrp haproxy {{kolla_dir}}{{cert_path}}
-                    # handle situation when container_cli is podman but
-                    # the containers are still under docker
-                    elif docker ps | grep {{container_id.stdout}}; then
-                      docker exec {{container_id.stdout}} chgrp haproxy {{kolla_dir}}{{cert_path}}
-                    else
-                      echo "Error: {{container_id.stdout}} container not found"
-                      exit 1
-                    fi
-                  when: kolla_cert_exists.stat.exists
-
-                - name: copy certificate from kolla directory to final location
-                  shell: |
-                    if {{ container_cli }} ps | grep {{container_id.stdout}}; then
-                      {{ container_cli }} exec {{container_id.stdout}} cp {{kolla_dir}}{{cert_path}} {{cert_path}}
-                    # handle situation when container_cli is podman but
-                    # the containers are still under docker
-                    elif docker ps | grep {{container_id.stdout}}; then
-                      docker exec {{container_id.stdout}} cp {{kolla_dir}}{{cert_path}} {{cert_path}}
-                    else
-                      echo "Error: {{container_id.stdout}} container not found"
-                      exit 1
-                    fi
-                  when: kolla_cert_exists.stat.exists
-
+                  command: "{{ container_cli }} exec --user root {{container_id.stdout}} chgrp haproxy {{ cert_path }}"
                 - name: send restart order to haproxy container
-                  command: "{{ container_cli }} kill --signal=HUP {{container_id.stdout}}"
-                  when: kolla_cert_exists.stat.exists
+                  command: "{{ container_cli }} kill --signal=HUP {{ container_id.stdout }}"
