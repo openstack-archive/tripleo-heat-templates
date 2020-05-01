@@ -146,6 +146,7 @@ outputs:
           - tripleo::profile::pacemaker::ovn_dbs_bundle::container_backend: {get_param: ContainerCli}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::dbs_timeout: {get_param: OVNDBSPacemakerTimeout}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::replication_probe_interval: {get_param: OVNDBSReplicationInterval}
+          - tripleo::profile::pacemaker::ovn_dbs_bundle::force_ocf: true
           - tripleo::haproxy::ovn_dbs_manage_lb:
               if:
                 - use_external_load_balancer
@@ -221,8 +222,8 @@ outputs:
               list_concat:
                 - - '/container_puppet_apply.sh'
                   - '3'
-                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,ovn_dbs_remove_old_cruft'
-                  - 'include tripleo::profile::base::pacemaker;include tripleo::profile::pacemaker::ovn_dbs_bundle'
+                  - 'ovn_dbs_remove_old_cruft'
+                  - 'include tripleo::profile::pacemaker::ovn_dbs_bundle'
                 - if:
                   - puppet_debug_enabled
                   - - '--debug'
@@ -245,26 +246,6 @@ outputs:
               # NOTE: this should force this container to re-run on each
               # update (scale-out, etc.)
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          ovn_dbs_restart_bundle:
-            start_order: 1
-            config_volume: ovn_dbs
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            environment:
-              TRIPLEO_MINOR_UPDATE: ''
-            command: /var/lib/container-config-scripts/pacemaker_restart_bundle.sh ovn_dbs ovndb_servers ovn-dbs-bundle Slave Master
-            image: {get_param: ContainerOvnDbsConfigImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
-                - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/ovn_dbs.crt:/etc/pki/tls/certs/ovn_dbs.crt:ro
-                    - /etc/pki/tls/private/ovn_dbs.key:/etc/pki/tls/private/ovn_dbs.key:ro
-                  - null
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -283,6 +264,21 @@ outputs:
           vars:
             container_image: {get_param: ContainerOvnDbsImage}
             container_image_latest: *ovn_dbs_image_pcmklatest
+        - name: OVNDbs HA Wrappers Step
+          when: step|int == 3
+          block: &ovn_dbs_puppet_bundle
+            - name: Ovn dbs puppet bundle
+              import_role:
+                name: tripleo_ha_wrapper
+              vars:
+                tripleo_ha_wrapper_service_name: ovn_dbs
+                tripleo_ha_wrapper_resource_name: ovndbs_servers
+                tripleo_ha_wrapper_bundle_name: ovn-dbs-bundle
+                tripleo_ha_wrapper_resource_state: Slave Master
+                tripleo_ha_wrapper_puppet_config_volume: ovn_dbs
+                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::ovn_dbs_bundle'
+                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
 
       update_tasks:
         - name: Tear-down non-HA ovn-dbs containers
@@ -368,6 +364,13 @@ outputs:
                 - ovn_dbs_current_image.stdout != ovn_dbs_image_latest
           vars:
             ovn_dbs_image_latest: *ovn_dbs_image_pcmklatest
+
+      post_update_tasks:
+        - name: Ovn dbs bundle post update
+          when: step|int == 1
+          block: *ovn_dbs_puppet_bundle
+          vars:
+            tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
         - name: Tear-down non-HA ovn-dbs container
