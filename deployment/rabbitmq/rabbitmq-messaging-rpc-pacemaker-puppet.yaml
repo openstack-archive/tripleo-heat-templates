@@ -192,7 +192,7 @@ outputs:
                       - {get_param: RabbitCookie}
                       - {get_param: [DefaultPasswords, rabbit_cookie]}
         step_2:
-          rabbitmq_init_bundle:
+          rabbitmq_wait_bundle:
             start_order: 0
             detach: false
             net: host
@@ -202,8 +202,8 @@ outputs:
               list_concat:
                 - - '/container_puppet_apply.sh'
                   - '2'
-                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,rabbitmq_policy,rabbitmq_user,rabbitmq_ready'
-                  - 'include tripleo::profile::base::pacemaker;include tripleo::profile::pacemaker::rabbitmq_bundle'
+                  - 'file,file_line,concat,augeas,rabbitmq_policy,rabbitmq_user,rabbitmq_ready'
+                  - 'include tripleo::profile::pacemaker::rabbitmq_bundle'
                 - if:
                   - puppet_debug_enabled
                   - - '--debug'
@@ -213,10 +213,6 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
                 - - /bin/true:/bin/epmd
-                - if:
-                  - docker_enabled
-                  - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               KOLLA_BOOTSTRAP: true
@@ -230,21 +226,6 @@ outputs:
                     passwords:
                       - {get_param: RabbitCookie}
                       - {get_param: [DefaultPasswords, rabbit_cookie]}
-          rabbitmq_restart_bundle:
-            start_order: 4
-            config_volume: rabbitmq
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            environment:
-              TRIPLEO_MINOR_UPDATE: ''
-            command: /var/lib/container-config-scripts/pacemaker_restart_bundle.sh oslo_messaging_rpc rabbitmq rabbitmq-bundle Started
-            image: {get_param: ContainerRabbitmqImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
-                - - /var/lib/config-data/puppet-generated/rabbitmq:/var/lib/kolla/config_files/src:ro
       metadata_settings:
         get_attr: [RabbitmqBase, role_data, metadata_settings]
       host_prep_tasks:
@@ -270,6 +251,21 @@ outputs:
           vars:
             container_image: {get_param: ContainerRabbitmqImage}
             container_image_latest: *rabbitmq_image_pcmklatest
+        - name: RabbitMQ RPC HA Wrappers Step
+          when: step|int == 2
+          block: &oslo_messaging_rpc_puppet_bundle
+            - name: Rabbitmq rpc puppet bundle
+              import_role:
+                name: tripleo_ha_wrapper
+              vars:
+                tripleo_ha_wrapper_service_name: oslo_messaging_rpc
+                tripleo_ha_wrapper_resource_name: rabbitmq
+                tripleo_ha_wrapper_bundle_name: rabbitmq-bundle
+                tripleo_ha_wrapper_resource_state: Started
+                tripleo_ha_wrapper_puppet_config_volume: rabbitmq
+                tripleo_ha_wrapper_puppet_execute: '["Rabbitmq_policy", "Rabbitmq_user"].each |String $val| { noop_resource($val) }; include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::rabbitmq_bundle'
+                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
 
       update_tasks:
         - name: Tear-down non-HA rabbitmq container
@@ -307,6 +303,13 @@ outputs:
                 container_image_latest: "{{rabbitmq_image_latest}}"
               when:
                 - old_rabbitmq_image_id.stdout != new_rabbitmq_image_id.stdout
+
+      post_update_tasks:
+        - name: Rabbitmq rpc bundle post update
+          when: step|int == 1
+          block: *oslo_messaging_rpc_puppet_bundle
+          vars:
+            tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
         - name: Tear-down non-HA rabbitmq container
@@ -418,7 +421,7 @@ outputs:
                 name: tripleo_container_rm
               vars:
                 tripleo_containers_to_rm:
-                  - rabbitmq_init_bundle
+                  - rabbitmq_wait_bundle
               when:
                 - oslo_messaging_rpc_short_node_names_upgraded | length > 1
             - name: add the oslo_messaging_rpc short name to hiera data for the upgrade.
