@@ -397,6 +397,30 @@ parameters:
     default: -1
     tags:
       - role_specific
+  NovaPMEMMappings:
+    type: string
+    description: >
+      PMEM namespace mappings as backend for vPMEM feature. This parameter
+      sets Nova's `pmem_namespaces` configuration options. PMEM namespaces
+      needs to be create manually or with conjunction with `NovaPMEMNamespaces`
+      parameter.
+      Requires format: $LABEL:$NSNAME[|$NSNAME][,$LABEL:$NSNAME[|$NSNAME]].
+    default: ""
+    tags:
+      - role_specific
+  NovaPMEMNamespaces:
+    type: string
+    description: >
+      Creates PMEM namespaces on the host server using `ndctl` tool
+      through Ansible.
+      Requires format: $SIZE:$NSNAME[,$SIZE:$NSNAME...].
+      $SIZE supports the suffixes "k" or "K" for KiB, "m" or "M" for MiB, "g"
+      or "G" for GiB and "t" or "T" for TiB.
+      NOTE: This requires properly configured NVDIMM regions and enough space
+      for requested namespaces.
+    default: ""
+    tags:
+      - role_specific
 
   # DEPRECATED: the following options are deprecated and are currently maintained
   # for backwards compatibility. They will be removed in future release.
@@ -494,6 +518,8 @@ resources:
               nova::ram_allocation_ratio: NovaRAMAllocationRatio
               nova::disk_allocation_ratio: NovaDiskAllocationRatio
               nova::compute::max_disk_devices_to_attach: NovaMaxDiskDevicesToAttach
+              nova::compute::libvirt::pmem_namespaces: NovaPMEMMappings
+              nova_pmem_namespaces: NovaPMEMNamespaces
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -566,6 +592,8 @@ resources:
               NovaRAMAllocationRatio: {get_param: NovaRAMAllocationRatio}
               NovaDiskAllocationRatio: {get_param: NovaDiskAllocationRatio}
               NovaMaxDiskDevicesToAttach: {get_param: NovaMaxDiskDevicesToAttach}
+              NovaPMEMMappings: {get_param: NovaPMEMMappings}
+              NovaPMEMNamespaces: {get_param: NovaPMEMNamespaces}
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
@@ -1069,6 +1097,14 @@ outputs:
             - container_cli == 'podman'
             - not container_healthcheck_disabled
             - step|int == 6 #FIXME: there is no step6
+        - name: manage PMEM namespaces for vPMEM
+          include_role:
+            name: tripleo_nvdimm
+          vars:
+            tripleo_nvdimm_pmem_namespaces: {get_attr: [RoleParametersValue, value, nova_pmem_namespaces]}
+          when:
+            - step|int == 1
+            - tripleo_nvdimm_pmem_namespaces != ''
       external_post_deploy_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       upgrade_tasks:
         - name: Remove openstack-nova-compute and python-nova package during upgrade
