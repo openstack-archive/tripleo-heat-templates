@@ -188,6 +188,26 @@ outputs:
           - get_attr: [NeutronBase, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
           - get_attr: [NeutronLogging, config_settings]
+          - tripleo::profile::base::neutron::l3_agent_wrappers::enable_keepalived_wrapper: {get_param: NeutronEnableKeepalivedWrapper}
+            tripleo::profile::base::neutron::l3_agent_wrappers::keepalived_process_wrapper: '/var/lib/neutron/keepalived_wrapper'
+            # TODO(beagles): this can be removed after a cleanup of the related puppet-tripleo code.
+            tripleo::profile::base::neutron::l3_agent_wrappers::keepalived_state_change_wrapper: '/var/lib/neutron/keepalived_state_change_wrapper'
+            tripleo::profile::base::neutron::l3_agent_wrappers::keepalived_image: {get_param: ContainerNeutronL3AgentImage}
+            tripleo::profile::base::neutron::l3_agent_wrappers::enable_haproxy_wrapper: {get_param: NeutronEnableHaproxyDockerWrapper}
+            tripleo::profile::base::neutron::l3_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/l3_haproxy_wrapper'
+            tripleo::profile::base::neutron::l3_agent_wrappers::haproxy_image: {get_param: ContainerNeutronL3AgentImage}
+            tripleo::profile::base::neutron::l3_agent_wrappers::enable_dibbler_wrapper: {get_param: NeutronEnableDibblerDockerWrapper}
+            tripleo::profile::base::neutron::l3_agent_wrappers::dibbler_process_wrapper: '/var/lib/neutron/dibbler_wrapper'
+            tripleo::profile::base::neutron::l3_agent_wrappers::dibbler_image: {get_param: ContainerNeutronL3AgentImage}
+            tripleo::profile::base::neutron::l3_agent_wrappers::enable_radvd_wrapper: {get_param: NeutronEnableRadvdDockerWrapper}
+            tripleo::profile::base::neutron::l3_agent_wrappers::radvd_process_wrapper: '/var/lib/neutron/radvd_wrapper'
+            tripleo::profile::base::neutron::l3_agent_wrappers::radvd_image: {get_param: ContainerNeutronL3AgentImage}
+            tripleo::profile::base::neutron::l3_agent_wrappers::debug:
+              if:
+                - service_debug_unset
+                - {get_param: Debug }
+                - {get_param: NeutronWrapperDebug}
+            tripleo::profile::base::neutron::container_cli: {get_param: ContainerCli}
           - neutron::agents::l3::debug:
               if:
               - service_debug_unset
@@ -249,39 +269,57 @@ outputs:
                     - service_debug_unset
                     - {get_param: Debug }
                     - {get_param: NeutronWrapperDebug}
-            - name: Create l3 systemd wrappers
-              include_role:
-                name: tripleo_systemd_wrapper
-              vars:
-                tripleo_systemd_wrapper_cmd: "{{ l3_wrapper_item.cmd }}"
-                tripleo_systemd_wrapper_config_bind_mount: "/var/lib/config-data/puppet-generated/neutron:/etc/neutron:ro"
-                tripleo_systemd_wrapper_container_cli: "{{ container_cli }}"
-                tripleo_systemd_wrapper_debug: "{{ debug_enabled }}"
-                tripleo_systemd_wrapper_docker_additional_sockets: {get_param: DockerAdditionalSockets}
-                tripleo_systemd_wrapper_image_name: {get_param: ContainerNeutronL3AgentImage}
-                tripleo_systemd_wrapper_service_dir: /var/lib/neutron
-                tripleo_systemd_wrapper_service_kill_script: "{{ l3_wrapper_item.kill_script }}"
-                tripleo_systemd_wrapper_service_name: "{{ l3_wrapper_item.name }}"
-              loop_control:
-                loop_var: l3_wrapper_item
-              loop:
-                - name: l3_keepalived
-                  cmd: exec /usr/sbin/keepalived -n -l -D
-                  kill_script: keepalived-kill
-                - name: l3_haproxy
-                  cmd: >-
-                      $(if [ -f /usr/sbin/haproxy-systemd-wrapper ]; then
-                      echo "exec /usr/sbin/haproxy -Ds";
-                      else
-                      echo "exec /usr/sbin/haproxy -Ws"; fi)
-                  kill_script: haproxy-kill
-                - name: l3_dibbler
-                  cmd: exec /usr/sbin/dibbler-client run
-                  kill_script: dibbler-kill
-                - name: l3_radvd
-                  cmd: exec /usr/sbin/radvd -n
-                  kill_script: radvd-kill
+                docker_additional_sockets: {get_param: DockerAdditionalSockets}
+            - name: create kill_scripts directory within /var/lib/neutron
+              file:
+                state: directory
+                path: /var/lib/neutron/kill_scripts
+            - name: create keepalived kill script
+              when: keepalived_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/keepalived-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
+            - name: create haproxy kill script
+              when: haproxy_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/haproxy-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
+            - name: create dibbler kill script
+              when: dibbler_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/dibbler-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
+            - name: create radvd kill script
+              when: radvd_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/radvd-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
       docker_config:
+        step_2:
+          create_keepalived_wrapper:
+            start_order: 1
+            detach: false
+            net: host
+            pid: host
+            user: root
+            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                -
+                  - '/container_puppet_apply.sh'
+                  - '4'
+                  - 'file'
+                  - 'include ::tripleo::profile::base::neutron::l3_agent_wrappers'
+            image: {get_param: ContainerNeutronL3AgentImage}
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
+                -
+                  - /run/openvswitch:/run/openvswitch:shared,z
+                  - /var/lib/neutron:/var/lib/neutron:shared,z
         step_4:
           neutron_l3_agent:
             start_order: 10
@@ -314,22 +352,22 @@ outputs:
                 -
                   if:
                     - keepalived_wrapper_enabled
-                    - - /var/lib/neutron/l3_keepalived/wrapper:/usr/local/bin/keepalived:ro
+                    - - /var/lib/neutron/keepalived_wrapper:/usr/local/bin/keepalived:ro
                     - null
                 -
                   if:
                     - haproxy_wrapper_enabled
-                    - - /var/lib/neutron/l3_haproxy/wrapper:/usr/local/bin/haproxy:ro
+                    - - /var/lib/neutron/l3_haproxy_wrapper:/usr/local/bin/haproxy:ro
                     - null
                 -
                   if:
                     - radvd_wrapper_enabled
-                    - - /var/lib/neutron/l3_radvd/wrapper:/usr/local/bin/radvd:ro
+                    - - /var/lib/neutron/radvd_wrapper:/usr/local/bin/radvd:ro
                     - null
                 -
                   if:
                     - dibbler_wrapper_enabled
-                    - - /var/lib/neutron/l3_dibbler/wrapper:/usr/local/bin/dibbler_client:ro
+                    - - /var/lib/neutron/dibbler_wrapper:/usr/local/bin/dibbler_client:ro
                     - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS

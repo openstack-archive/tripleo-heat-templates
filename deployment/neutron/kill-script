@@ -1,0 +1,71 @@
+#!/bin/bash
+{% if debug_enabled|bool -%}
+set -x
+{% endif -%}
+add_date() {
+  echo "$(date) $@"
+}
+
+# Set up script logging for debugging purpose.
+# It will be taken care of by logrotate since there is the .log
+# suffix.
+exec 3>&1 4>&2
+trap 'exec 2>&4 1>&3' 0 1 2 3
+exec 1>>/var/log/neutron/kill-script.log 2>&1
+
+SIG=$1
+PID=$2
+NETNS=$(ip netns identify ${PID})
+
+if [ "x${NETNS}" == "x" ]; then
+  add_date "No network namespace detected, exiting"
+  exit 1
+fi
+
+{% if container_cli == 'podman' %}
+CLI="nsenter --net=/run/netns/${NETNS} --preserve-credentials -m -t 1 podman"
+{% elif container_cli == 'docker' %}
+{% if docker_additional_sockets and docker_additional_sockets|length > 0-%}
+export DOCKER_HOST=unix://{{ docker_additional_sockets[0] }}
+{% endif -%}
+CLI='docker'
+{% else %}
+CLI='echo noop'
+{% endif %}
+
+kill_container() {
+  add_date "Stopping container $1 ($2)"
+  $CLI stop $2
+  add_date "Deleting container $1 ($2)"
+  $CLI rm $2
+}
+
+hup_container() {
+  add_date "Sending HUP signal to $1 ($2)"
+  $CLI kill --signal HUP $2
+}
+
+{% raw -%}
+if [ -f /proc/$PID/cgroup ]; then
+  # Get container ID based on process cgroups
+  CT_ID=$(awk 'BEGIN {FS="[-.]"} /name=/{print $3}' /proc/$PID/cgroup)
+  CT_NAME=$($CLI inspect -f '{{.Name}}' $CT_ID)
+
+  case $SIG in
+    HUP)
+      hup_container $CT_NAME $CT_ID
+      ;;
+    9)
+      kill_container $CT_NAME $CT_ID
+      ;;
+    *)
+      add_date "Unknown action ${SIG} for ${$CT_NAME} ${CT_ID}"
+      exit 1
+      ;;
+  esac
+
+else
+  add_date "No such PID: ${PID}"
+  exit 1
+fi
+{% endraw %}
