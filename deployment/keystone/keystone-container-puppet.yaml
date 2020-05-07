@@ -88,6 +88,10 @@ parameters:
     type: string
     constraints:
       - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+  EnableCache:
+    description: Enable caching with memcached
+    type: boolean
+    default: true
   EnableSQLAlchemyCollectd:
     type: boolean
     description: >
@@ -320,6 +324,7 @@ conditions:
   keystone_federation_enabled: {equals: [{get_param: KeystoneFederationEnable}, True]}
   keystone_openidc_enabled: {equals: [{get_param: KeystoneOpenIdcEnable}, True]}
   service_debug_unset: {equals : [{get_param: KeystoneDebug}, '']}
+  cache_enabled: {equals: [{get_param: EnableCache}, true]}
   enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
   # Security compliance
@@ -409,8 +414,6 @@ outputs:
             keystone::rabbit_heartbeat_timeout_threshold: 60
             keystone::bootstrap::service_project_name: 'service'
             keystone::bootstrap::project_name: 'admin'
-            keystone::cache_enabled: true
-            keystone::cache_backend: 'dogpile.cache.memcached'
             keystone::config::keystone_config:
               ec2/driver:
                 value: 'keystone.contrib.ec2.backends.sql.Ec2'
@@ -458,6 +461,12 @@ outputs:
                     $NETWORK: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
           -
             if:
+            - cache_enabled
+            - keystone::cache_enabled: true
+              keystone::cache_backend: 'dogpile.cache.memcached'
+            - {}
+          -
+            if:
             - keystone_federation_enabled
             -
               keystone_federation_enabled: True
@@ -468,30 +477,35 @@ outputs:
             if:
             - keystone_openidc_enabled
             -
-              keystone_openidc_enabled: True
-              keystone::federation::openidc::methods:
-                get_param: KeystoneAuthMethods
-              keystone::federation::openidc::keystone_url:
-                get_param: [EndpointMap, KeystonePublic, uri_no_suffix]
-              keystone::federation::openidc::idp_name:
-                get_param: KeystoneOpenIdcIdpName
-              keystone::federation::openidc::openidc_provider_metadata_url:
-                get_param: KeystoneOpenIdcProviderMetadataUrl
-              keystone::federation::openidc::openidc_client_id:
-                get_param: KeystoneOpenIdcClientId
-              keystone::federation::openidc::openidc_client_secret:
-                get_param: KeystoneOpenIdcClientSecret
-              keystone::federation::openidc::openidc_crypto_passphrase:
-                get_param: KeystoneOpenIdcCryptoPassphrase
-              keystone::federation::openidc::openidc_response_type:
-                get_param: KeystoneOpenIdcResponseType
-              keystone::federation::openidc::remote_id_attribute:
-                get_param: KeystoneOpenIdcRemoteIdAttribute
-              keystone::federation::openidc::openidc_enable_oauth:
-                get_param: KeystoneOpenIdcEnableOAuth
-              keystone::federation::openidc::openidc_introspection_endpoint:
-                get_param: KeystoneOpenIdcIntrospectionEndpoint
-              keystone::federation::openidc::openidc_cache_type: 'memcache'
+              map_merge:
+                - keystone_openidc_enabled: True
+                  keystone::federation::openidc::methods:
+                    get_param: KeystoneAuthMethods
+                  keystone::federation::openidc::keystone_url:
+                    get_param: [EndpointMap, KeystonePublic, uri_no_suffix]
+                  keystone::federation::openidc::idp_name:
+                    get_param: KeystoneOpenIdcIdpName
+                  keystone::federation::openidc::openidc_provider_metadata_url:
+                    get_param: KeystoneOpenIdcProviderMetadataUrl
+                  keystone::federation::openidc::openidc_client_id:
+                    get_param: KeystoneOpenIdcClientId
+                  keystone::federation::openidc::openidc_client_secret:
+                    get_param: KeystoneOpenIdcClientSecret
+                  keystone::federation::openidc::openidc_crypto_passphrase:
+                    get_param: KeystoneOpenIdcCryptoPassphrase
+                  keystone::federation::openidc::openidc_response_type:
+                    get_param: KeystoneOpenIdcResponseType
+                  keystone::federation::openidc::remote_id_attribute:
+                    get_param: KeystoneOpenIdcRemoteIdAttribute
+                  keystone::federation::openidc::openidc_enable_oauth:
+                    get_param: KeystoneOpenIdcEnableOAuth
+                  keystone::federation::openidc::openidc_introspection_endpoint:
+                    get_param: KeystoneOpenIdcIntrospectionEndpoint
+                -
+                  if:
+                  - cache_enabled
+                  - keystone::federation::openidc::openidc_cache_type: 'memcache'
+                  - {}
             - {}
           -
             if:
