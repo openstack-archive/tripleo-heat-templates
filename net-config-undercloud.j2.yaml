@@ -1,7 +1,8 @@
 heat_template_version: rocky
 description: >
   Software Config to drive os-net-config for a simple bridge configured with a
-  static IP address for the ctlplane network.
+  static IP address for the ctlplane network with optionally the admin and
+  public IPs too.
 parameters:
   ControlPlaneIp:
     default: ''
@@ -77,11 +78,16 @@ parameters:
     default: {}
     description: Custom JSON data to be used to override the os-net-config data in this template. This is meant to be used by net_config_override parameter in tripleoclient to provide an easy means to pass in custom net configs for the Undercloud.
     type: json
+  DeployedServerPortMap:
+    default: {}
+    type: json
 
 conditions:
   undercloud_net_config_override:
     not:
       equals: [{get_param: UndercloudNetConfigOverride}, {}]
+  control_virtual_ip_unset: {equals : [{get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}, '']}
+  public_virtual_ip_unset: {equals : [{get_param: [DeployedServerPortMap, 'public_virtual_ip', fixed_ips, 0, ip_address]}, '']}
 
 resources:
   OsNetConfigImpl:
@@ -116,6 +122,24 @@ resources:
                       - /
                       - - get_param: ControlPlaneIp
                         - get_param: ControlPlaneSubnetCidr
+                  -
+                    if:
+                    - control_virtual_ip_unset
+                    - {}
+                    - ip_netmask:
+                        list_join:
+                        - /
+                        - - {get_param: [DeployedServerPortMap, 'control_virtual_ip', fixed_ips, 0, ip_address]}
+                          - {str_split: ['/', {get_param: [DeployedServerPortMap, 'control_virtual_ip', subnets, 0, cidr]}, 1]}
+                  -
+                    if:
+                    - public_virtual_ip_unset
+                    - {}
+                    - ip_netmask:
+                        list_join:
+                        - /
+                        - - {get_param: [DeployedServerPortMap, 'public_virtual_ip', fixed_ips, 0, ip_address]}
+                          - {str_split: ['/', {get_param: [DeployedServerPortMap, 'public_virtual_ip', subnets, 0, cidr]}, 1]}
                   routes: {get_param: ControlPlaneStaticRoutes}
                   members:
                   - type: interface
