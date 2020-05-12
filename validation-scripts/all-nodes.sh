@@ -59,7 +59,7 @@ function ping_controller_ips() {
 # all of them should some manual network config have
 # multiple gateways.
 function ping_default_gateways() {
-  DEFAULT_GW=$(ip r | grep ^default | cut -d " " -f 3)
+  DEFAULT_GW=$(ip ro | awk '/^default/ {print $3}')
   set +e
   for GW in $DEFAULT_GW; do
     echo -n "Trying to ping default gateway ${GW}..."
