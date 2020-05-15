@@ -135,8 +135,11 @@ parameters:
       Whether to show multiple image locations e.g for copy-on-write support on
       RBD or Netapp backends. Potential security risk, see glance.conf for more information.
     type: boolean
+  # We default import plugins list to 'no_op' (instead of empty list) to discern from the scenario
+  # in which the user purposely disabled all plugins setting it to an empty list. This is useful
+  # to automatically enable image_conversion plugin only when value is left to the default.
   GlanceImageImportPlugins:
-    default: []
+    default: ['no_op']
     description: >
       List of enabled Image Import Plugins. Valid values in the list are
       'image_conversion', 'inject_metadata', 'no_op'.
@@ -301,9 +304,10 @@ conditions:
           expression: $.data.values().any($.get("GlanceBackend", "") = "rbd")
           data: {get_param: GlanceMultistoreConfig}
       - true
-  enable_image_conversion:
+  force_image_conversion_plugin:
     and:
       - rbd_backend_enabled
+      - equals: [{get_param: GlanceImageImportPlugins}, ['no_op']]
       - equals: [{get_param: NovaEnableRbdBackend}, true]
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   glance_workers_unset: {equals : [{get_param: GlanceWorkers}, '']}
@@ -409,7 +413,7 @@ outputs:
             glance::api::node_staging_uri: {get_param: GlanceNodeStagingUri}
             glance::api::image_import_plugins:
               if:
-              - enable_image_conversion
+              - force_image_conversion_plugin
               - list_concat_unique:
                 - {get_param: GlanceImageImportPlugins}
                 - ['image_conversion']
