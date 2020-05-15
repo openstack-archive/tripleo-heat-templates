@@ -1,0 +1,99 @@
+heat_template_version: rocky
+
+description: Enrolls the undercloud with the IPA server for TLS-e deployments
+
+parameters:
+  RoleNetIpMap:
+    default: {}
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+
+  UndercloudIpaOtp:
+    default: ''
+    description: The OTP to use to enroll to FreeIPA
+    type: string
+
+outputs:
+  role_data:
+    description: Role data for enrolling the undercloud into FreeIPA.
+    value:
+      service_name: tls-enroll
+      upgrade_tasks: []
+      deploy_steps_tasks:
+        # https://bugs.launchpad.net/tripleo/+bug/1821139
+        # This is here only for split stack environments to make sure
+        # openssl-perl is installed which provides /etc/pki/CA on RHEL8
+        - name: Ensure openssl-perl package is present on RHEL8
+          when:
+            - ansible_os_family == 'RedHat'
+            - ansible_distribution_major_version == '8'
+          package:
+            name: openssl-perl
+            state: present
+        - name: Ensure FreeIPA Client package is present
+          package:
+            name: ipa-client
+            state: present
+        - name: Create tripleo-admin user and group
+          include_role:
+            name: tripleo_create_admin
+            tasks_from: create_user
+        - name: Set FreeIPA OTP fact
+          set_fact:
+            ipa_otp: {get_param: UndercloudIpaOtp}
+          no_log: true
+        - name: Enroll to FreeIPA
+          include_role:
+            name: ipaclient
+          vars:
+            ipaclient_otp: "{{ ipa_otp }}"
+          when: ipa_otp != ''
+        - name: Set keytab permission facts
+          set_fact:
+            nova_service: "nova/{{ ansible_nodename }}"
+            nova_keytab: "/etc/novajoin/krb5.keytab"
+            nova_keytab_group: "tripleo-admin"
+        - name: Add directory for keytab
+          file:
+            path: "/etc/novajoin"
+            state: directory
+            mode: '0755'
+        - name: Request keytab for {{ nova_service }}
+          shell: |
+            /usr/bin/kinit -kt /etc/krb5.keytab && \
+            ipa-getkeytab \
+              -s $(awk '/server/ { print $3 }' /etc/ipa/default.conf) \
+              -p "{{ nova_service }}" \
+              -k "{{ nova_keytab }}"
+          args:
+            creates: /etc/novajoin/krb5.keytab
+        - name: Set permissions on keytab
+          file:
+            path: "{{ nova_keytab }}"
+            group: "{{ nova_keytab_group }}"
+            mode: "g+r"
