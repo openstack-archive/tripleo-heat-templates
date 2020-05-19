@@ -17,12 +17,10 @@ parameters:
     default: {'provider:physical_network': '{{network.name_lower}}', 'provider:network_type': 'flat'}
     description: Value specs for the {{network.name_lower}} network.
     type: json
-{%- if not ":" in network.ip_subnet and not network.ipv6 and not ipv6_override %}
   {{network.name}}NetEnableDHCP:
     default: false
-    description: Whether to enable DHCP on the associated subnet (IPv4 only).
+    description: Whether to enable DHCP on the associated subnet.
     type: boolean
-{%- endif %}
   {{network.name}}NetAdminStateUp:
     default: false
     description: The admin state of the network.
@@ -146,6 +144,10 @@ parameters:
 
 conditions:
   manage_networks: {get_param: ManageNetworks}
+  is_ipv6:
+    yaql:
+      expression: '":" in $.data'
+      data: {get_param: {{network.name}}NetCidr}
 
 resources:
   {{network.name}}Network:
@@ -176,13 +178,6 @@ resources:
     external_id: {{ network.external_resource_subnet_id }}
 {%- endif %}
     properties:
-{%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
-      ip_version: 6
-      ipv6_address_mode: {get_param: IPv6AddressMode}
-      ipv6_ra_mode: {get_param: IPv6RAMode}
-{%- else %}
-      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
-{%- endif %}
       cidr: {get_param: {{network.name}}NetCidr}
       name: {get_param: {{network.name}}SubnetName}
       network: {get_resource: {{network.name}}Network}
@@ -191,6 +186,14 @@ resources:
       host_routes: {get_param: {{network.name}}Routes}
       # All networks have an implicit network segment when created, map this subnet to that segment.
       segment: {get_attr: [{{network.name}}Network, segments, 0, id]}
+      ip_version: {if: [is_ipv6, 6, 4]}
+{%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
+      ipv6_address_mode: {get_param: IPv6AddressMode}
+      ipv6_ra_mode: {get_param: IPv6RAMode}
+{%- else %}
+      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
+{%- endif %}
+
 
 {% for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
   {{network.name}}Segment_{{subnet}}:
@@ -217,13 +220,6 @@ resources:
     external_id: {{ network.subnets[subnet].external_resource_subnet_id }}
 {%- endif %}
     properties:
-{%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
-      ip_version: 6
-      ipv6_address_mode: {get_param: IPv6AddressMode}
-      ipv6_ra_mode: {get_param: IPv6RAMode}
-{%- else %}
-      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
-{%- endif %}
       cidr: {get_param: {{network.name}}SubnetCidr_{{subnet}}}
       name: {{subnet}}
       network: {get_resource: {{network.name}}Network}
@@ -231,12 +227,23 @@ resources:
       gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute_{{subnet}}}
       host_routes: {get_param: {{network.name}}Routes_{{subnet}}}
       segment: {get_resource: {{network.name}}Segment_{{subnet}}}
+      ip_version: {if: [is_ipv6, 6, 4]}
+{%- if ":" in network.ip_subnet or network.ipv6 or ipv6_override %}
+      ipv6_address_mode: {get_param: IPv6AddressMode}
+      ipv6_ra_mode: {get_param: IPv6RAMode}
+{%- else %}
+      enable_dhcp: {get_param: {{network.name}}NetEnableDHCP}
+{%- endif %}
+
 {% endfor %}
 
 outputs:
   OS::stack_id:
     description: {{network.name_lower}} network
     value: {get_resource: {{network.name}}Network}
+  ip_version:
+    description: IP version of {{network.name}} network.
+    value: {if: [is_ipv6, 6, 4]}
   network_cidrs:
     description: List of {{network.name}} network's subnets in CIDR notation.
     value:
