@@ -100,7 +100,7 @@ parameters:
   UpgradeLeappEnabled:
     description: Use Leapp for operating system upgrade
     type: boolean
-    default: true
+    default: false
   ContainerCli:
     type: string
     default: 'podman'
@@ -197,18 +197,20 @@ outputs:
       upgrade_tasks:
         - name: upgrade step 0
           when: step|int == 0
-          vars:
-            upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
           block:
+            - name: Set fact upgrade_leapp_enabled
+              set_fact:
+                upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
             - name: Check pacemaker cluster running before upgrade
               tags: validation
               pacemaker_cluster: state=online check_and_fail=true
               async: 30
               poll: 4
               when: not upgrade_leapp_enabled|bool
-        - name: upgrade step 1
+        - name: Create hiera data to upgrade pacemaker in a stepwise manner.
           when:
             - step|int == 1
+            - upgrade_leapp_enabled|bool
           block:
             - name: set pacemaker upgrade node facts in a single-node environment
               set_fact:
@@ -275,16 +277,12 @@ outputs:
               when: pacemaker_short_node_names_upgraded | length == pacemaker_short_node_names | length
         - name: upgrade step 2
           when: step|int == 2
-          vars:
-            upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
           block:
             - name: Stop pacemaker cluster
               pacemaker_cluster: state=offline
               when: not upgrade_leapp_enabled
         - name: upgrade step 4
           when: step|int == 4
-          vars:
-            upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
           block:
             - name: Start pacemaker cluster
               pacemaker_cluster: state=online
