@@ -310,17 +310,25 @@ outputs:
             - { 'path': /var/lib/haproxy, 'setype': container_file_t }
             - { 'path': /var/log/haproxy, 'setype': container_file_t }
         - name: Run puppet on the host to apply IPtables rules
+          no_log: true
           shell: |
             puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
                 --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-          register: puppet_run
-          changed_when: puppet_run.rc == 2
-          failed_when: puppet_run.rc != 2 and puppet_run.rc != 0
+          register: puppet_host_outputs
+          changed_when: puppet_host_outputs.rc == 2
+          failed_when: false
           vars:
             puppet_execute: "if hiera('enable_load_balancer', true) { class {'::tripleo::haproxy': use_internal_certificates => false, manage_firewall => hiera('tripleo::firewall::manage_firewall', true), }}"
             puppet_tags: tripleo::firewall::rule
             puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
             puppet_debug: {get_param: ConfigDebug}
+        - name: "Debug output for task: Run puppet on the host to apply IPtables rules"
+          debug:
+            var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
+          when:
+            - not (ansible_check_mode | bool)
+            - puppet_host_outputs.rc is defined
+          failed_when: puppet_host_outputs.rc not in [0, 2]
       metadata_settings:
         {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
