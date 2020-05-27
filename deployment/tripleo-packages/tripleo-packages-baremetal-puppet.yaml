@@ -76,6 +76,14 @@ parameters:
     description: Timeout (seconds) for the OS upgrade phase via Leapp
     type: number
     default: 1800
+  UpgradeLeappToRemove:
+    default: []
+    description: List of packages to remove during Leapp upgrade.
+    type: comma_delimited_list
+  UpgradeLeappToInstall:
+    default: []
+    description: List of packages to install after Leapp upgrade.
+    type: comma_delimited_list
   UpgradeInitCommand:
     type: string
     description: |
@@ -139,7 +147,9 @@ outputs:
             - never
             - system_upgrade
             - system_upgrade_prepare
-          when: step|int == 3
+          when:
+            - step|int == 3
+            - upgrade_leapp_enabled
           block:
             - name: Hack around broken ceph-common rpm removing /etc/ceph /var/lib/ceph
               ignore_errors: true
@@ -179,12 +189,24 @@ outputs:
                 -python2-requests
                 -python2-six
                 -python2-urllib3
-              when: upgrade_leapp_enabled
             - name: install leapp
               package:
                 name: leapp
                 state: latest
-              when: upgrade_leapp_enabled
+            - name: "add packages into Leapp's to_remove file"
+              vars:
+                pkg_to_remove: { get_param: UpgradeLeappToRemove }
+              lineinfile:
+                path: "/etc/leapp/transaction/to_remove"
+                line: "{{ item }}"
+              loop: "{{ pkg_to_remove }}"
+            - name: "add packages into Leapp's to_install file"
+              vars:
+                pkg_to_install: { get_param: UpgradeLeappToInstall }
+              lineinfile:
+                path: "/etc/leapp/transaction/to_install"
+                line: "{{ item }}"
+              loop: "{{ pkg_to_install }}"
 
         - name: system_upgrade_prepare step 4
           tags:
