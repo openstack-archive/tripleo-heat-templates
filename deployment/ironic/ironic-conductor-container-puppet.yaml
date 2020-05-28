@@ -227,6 +227,8 @@ parameters:
     description: The name of an Ironic Conductor Group.
     default: ''
     type: string
+    tags:
+      - role_specific
     constraints:
       - allowed_pattern: '^[a-zA-Z0-9_\-\.]*$'
   MonitoringSubscriptionIronicConductor:
@@ -262,9 +264,26 @@ conditions:
       - equals: [{get_param: Debug}, true]
   enable_architecture_ppc64le: {contains: ['ppc64le', {get_param: AdditionalArchitectures}]}
   configure_swift_temp_url: {equals: [{get_param: IronicConfigureSwiftTempUrlKey}, true]}
-  ironic_conductor_group: {not: {equals: [{get_param: IronicConductorGroup}, '']}}
+  ironic_conductor_group:
+    or:
+      - not: {equals: [{get_param: IronicConductorGroup}, '']}
+      - not: {equals: [{get_param: [RoleParameters, IronicConductorGroup]}, '']}
 
 resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - if:
+                - ironic_conductor_group
+                - ironic::conductor::conductor_group: IronicConductorGroup
+                - {}
+            - values: {get_param: [RoleParameters]}
+          - values:
+              IronicConductorGroup: {get_param: IronicConductorGroup}
 
   ContainersCommon:
     type: ../containers-common.yaml
@@ -299,6 +318,7 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
+          - get_attr: [RoleParametersValue, value]
           -
             if:
             - default_deploy_interface_unset
@@ -455,11 +475,6 @@ outputs:
           - ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
           - ironic::pxe::http_root: /var/lib/ironic/httpboot
           - ironic::conductor::http_root: /var/lib/ironic/httpboot
-          -
-            if:
-            - ironic_conductor_group
-            - ironic::conductor::conductor_group: {get_param: IronicConductorGroup}
-            - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
