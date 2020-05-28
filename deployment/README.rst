@@ -67,16 +67,16 @@ are available for containerized services.
 
  * config_settings: This section contains service specific hiera data
    can be used to generate config files for each service. This data
-   is ultimately processed via the container-puppet.py tool (in new versions
-   it's handled by the container_puppet_config module in tripleo-ansible) which
-   generates config files for each service according to the settings here.
+   is ultimately processed via the container_puppet_config module in
+   tripleo-ansible which generates config files for each service according to
+   the settings here.
 
  * kolla_config: Contains YAML that represents how to map config files
    into the kolla container. This config file is typically mapped into
    the container itself at the /var/lib/kolla/config_files/config.json
    location and drives how kolla's external config mechanisms work.
 
- * docker_config: Data that is passed to paunch tool to configure
+ * docker_config: Data that is passed to tripleo_container_manage role to configure
    a container, or step of containers at each step. See the available steps
    documented below which are implemented by TripleO's cluster deployment
    architecture. If you want the tasks executed only once for the bootstrap

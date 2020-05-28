@@ -81,11 +81,11 @@ if [ -z "$NO_ARCHIVE" ]; then
     done
     # On stack update, if a password was changed in a config file,
     # some services (e.g. mysql) must change their internal state
-    # (e.g. password in mysql DB) when paunch restarts them; and
-    # they need the old password to achieve that.
+    # (e.g. password in mysql DB) when tripleo_container_manage restarts them;
+    # and they need the old password to achieve that.
     # For those services, we update the config hash to notify
-    # paunch that a restart is needed, but we do not update the
-    # password file in container-puppet if the file already existed
+    # tripleo_container_manage that a restart is needed, but we do not update
+    # the password file in container-puppet if the file already existed
     # before and let the service regenerate it instead.
     password_files="/root/.my.cnf"
 
