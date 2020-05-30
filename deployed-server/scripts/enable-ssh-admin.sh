@@ -54,6 +54,7 @@ function workflow_finished {
     done
     echo "Workflow $execution_id did not finish after $ENABLE_SSH_ADMIN_TIMEOUT seconds."
     return 1
+}
 
 function generate_short_term_keys {
     local tmpdir=$(mktemp -d)
