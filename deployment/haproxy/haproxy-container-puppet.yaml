@@ -110,7 +110,6 @@ parameters:
     description: The directory of the CRL PEM file to be mounted.
 
 conditions:
-  puppet_debug_enabled: {get_param: ConfigDebug}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   public_tls_enabled:
     and:
@@ -318,27 +317,27 @@ outputs:
                     state: restarted
                   when: logconfig is changed
         - name: Run puppet on the host to apply IPtables rules
+          no_log: true
           when: step|int == 1
+          register: puppet_host_outputs
           shell: |
-            set +e
-            puppet apply {{ puppet_debug }} --detailed-exitcodes --summarize --color=false \
+            puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
                 --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-            rc=$?
-            set -e
-            set +ux
-            if [ $rc -eq 2 -o $rc -eq 0 ]; then
-                exit 0
-            fi
-            exit $rc
+          register: puppet_host_outputs
+          changed_when: puppet_host_outputs.rc == 2
+          failed_when: false
           vars:
             puppet_execute: include tripleo::profile::base::haproxy
             puppet_tags: tripleo::firewall::rule
             puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-            puppet_debug:
-              if:
-                - puppet_debug_enabled
-                - '--debug --verbose'
-                - ''
+            puppet_debug: {get_param: ConfigDebug}
+        - name: "Debug output for task: Run puppet on the host to apply IPtables rules"
+          debug:
+            var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
+          when:
+            - not (ansible_check_mode | bool)
+            - puppet_host_outputs.rc is defined
+          failed_when: puppet_host_outputs.rc not in [0, 2]
       upgrade_tasks:
         - name: ensure we have haproxy log dir with the correct setype
           file:
