@@ -97,10 +97,6 @@ parameters:
       tag: system.pacemaker
       file: /var/log/host/pacemaker.log
       startmsg.regex: "^[a-zA-Z]{3} [0-9]{2} [:0-9]{8}"
-  UpgradeLeappEnabled:
-    description: Use Leapp for operating system upgrade
-    type: boolean
-    default: false
   ContainerCli:
     type: string
     default: 'podman'
@@ -198,19 +194,33 @@ outputs:
         - name: upgrade step 0
           when: step|int == 0
           block:
-            - name: Set fact upgrade_leapp_enabled
+            # If performing an upgrade which requires operating system upgrading
+            # a transfer data step needs to be run. During this step, the whole
+            # pacemaker cluster is stopped so we can't check the cluster status.
+            # Once the transfer_data step is executed, a flag file is stored.
+            # This code checks the existence of this file to know if we should
+            # avoid doing a normal pacemaker upgrade or not. As with the
+            # operating system upgrade a new cluster will be created in which
+            # the other nodes will be added.
+            - name: check flag file existence in destination host
+              stat:
+                path: "/var/lib/tripleo/transfer-flags/var-lib-mysql"
+              register: tripleo_transfer_flag_stat
+              become: true
+              delegate_to: "{{ mysql_short_bootstrap_node_name }}"
+            - name: Set fact cluster_recreate
               set_fact:
-                upgrade_leapp_enabled: {get_param: UpgradeLeappEnabled}
+                cluster_recreate: "{{ tripleo_transfer_flag_stat.stat.exists|bool }}"
             - name: Check pacemaker cluster running before upgrade
               tags: validation
               pacemaker_cluster: state=online check_and_fail=true
               async: 30
               poll: 4
-              when: not upgrade_leapp_enabled|bool
+              when: not cluster_recreate|bool
         - name: Create hiera data to upgrade pacemaker in a stepwise manner.
           when:
             - step|int == 1
-            - upgrade_leapp_enabled|bool
+            - cluster_recreate|bool
           block:
             - name: set pacemaker upgrade node facts in a single-node environment
               set_fact:
@@ -280,13 +290,13 @@ outputs:
           block:
             - name: Stop pacemaker cluster
               pacemaker_cluster: state=offline
-              when: not upgrade_leapp_enabled
+              when: not cluster_recreate|bool
         - name: upgrade step 4
           when: step|int == 4
           block:
             - name: Start pacemaker cluster
               pacemaker_cluster: state=online
-              when: not upgrade_leapp_enabled
+              when: not cluster_recreate|bool
       external_upgrade_tasks:
         - when:
             - step|int == 1
