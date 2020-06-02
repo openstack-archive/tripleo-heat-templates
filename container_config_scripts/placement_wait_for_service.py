@@ -17,8 +17,6 @@
 # shell script to check if placement API is up after X attempts.
 # Default max is 60 iterations with 10s (default) timeout in between.
 
-from __future__ import print_function
-
 import logging
 import os
 import re

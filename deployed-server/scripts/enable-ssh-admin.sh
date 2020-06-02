@@ -23,7 +23,6 @@ function get_python() {
 
 function overcloud_ssh_hosts_json {
     echo "$OVERCLOUD_HOSTS" | $(get_python) -c '
-from __future__ import print_function
 import json, re, sys
 print(json.dumps(re.split("\s+", sys.stdin.read().strip())))'
 }

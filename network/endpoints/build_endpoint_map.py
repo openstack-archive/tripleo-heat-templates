@@ -22,8 +22,6 @@ The --check option verifies that the current output file is up-to-date with the
 latest data in the input file. The script exits with status code 2 if a
 mismatch is detected.
 """
-
-from __future__ import print_function
 import collections
 import copy
 import itertools
