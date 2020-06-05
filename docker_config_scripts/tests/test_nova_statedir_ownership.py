@@ -15,14 +15,15 @@
 
 import contextlib
 import mock
+from os import stat as orig_stat
 import six
 import stat
 
 from oslotest import base
 
 from docker_config_scripts.nova_statedir_ownership import \
-    NovaStatedirOwnershipManager
-from docker_config_scripts.nova_statedir_ownership import PathManager
+    NovaStatedirOwnershipManager  # noqa: E402
+from docker_config_scripts.nova_statedir_ownership import PathManager  # noqa: E402
 
 # Real chown would require root, so in order to test this we need to fake
 # all of the methods that interact with the filesystem
@@ -43,71 +44,118 @@ class FakeStatInfo(object):
 
 def generate_testtree1(nova_uid, nova_gid):
     return {
-        '/var/lib/nova':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
+        '/var/lib/nova': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
                          st_uid=nova_uid,
                          st_gid=nova_gid),
-        '/var/lib/nova/instances':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
+        },
+        '/var/lib/nova/instances': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
                          st_uid=nova_uid,
                          st_gid=nova_gid),
-        '/var/lib/nova/instances/foo':
-            FakeStatInfo(st_mode=stat.S_IFDIR,
+        },
+        '/var/lib/nova/instances/foo': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
                          st_uid=nova_uid,
                          st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/bar':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=0,
-                         st_gid=0),
-        '/var/lib/nova/instances/foo/baz':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=nova_uid,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/abc':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=0,
-                         st_gid=nova_gid),
-        '/var/lib/nova/instances/foo/def':
-            FakeStatInfo(st_mode=stat.S_IFREG,
-                         st_uid=nova_uid,
-                         st_gid=0),
+        },
+        '/var/lib/nova/instances/removeddir': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'removed_when': 'listdir'
+        },
+        '/var/lib/nova/instances/removedfile3': {
+            'removed_when': 'stat'
+        },
+        '/var/lib/nova/instances/foo': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+        },
+        '/var/lib/nova/instances/foo/bar': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=0,
+                                 st_gid=0),
+        },
+        '/var/lib/nova/instances/foo/baz': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+        },
+        '/var/lib/nova/instances/foo/removeddir': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=nova_uid,
+                                 st_gid=nova_gid),
+            'removed_when': 'listdir'
+        },
+        '/var/lib/nova/instances/foo/removeddir2': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFDIR,
+                                 st_uid=0,
+                                 st_gid=nova_gid),
+            'removed_when': 'chown'
+        },
+        '/var/lib/nova/instances/foo/abc': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=0,
+                                 st_gid=nova_gid),
+        },
+        '/var/lib/nova/instances/foo/def': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
+                                 st_uid=nova_uid,
+                                 st_gid=0),
+        },
     }
 
 
 def generate_testtree2(marker_uid, marker_gid, *args, **kwargs):
     tree = generate_testtree1(*args, **kwargs)
     tree.update({
-        '/var/lib/nova/upgrade_marker':
-            FakeStatInfo(st_mode=stat.S_IFREG,
+        '/var/lib/nova/upgrade_marker': {
+            'stat': FakeStatInfo(st_mode=stat.S_IFREG,
                          st_uid=marker_uid,
-                         st_gid=marker_gid)
+                         st_gid=marker_gid),
+        }
     })
     return tree
 
 
+def check_removed(path, op, testtree):
+    if op == testtree.get(path, {}).get('removed_when', ''):
+        raise OSError(2, 'No such file or directory: ' + path)
+
+
 def generate_fake_stat(testtree):
     def fake_stat(path):
-        return testtree.get(path)
+        check_removed(path, 'stat', testtree)
+        if path.startswith('/var'):
+            return testtree.get(path, {}).get('stat')
+        else:
+            # Tracebacks need to use the real stat
+            return orig_stat(path)
     return fake_stat
 
 
 def generate_fake_chown(testtree):
     def fake_chown(path, uid, gid):
+        check_removed(path, 'chown', testtree)
         if uid != -1:
-            testtree[path].st_uid = uid
+            testtree[path]['stat'].st_uid = uid
         if gid != -1:
-            testtree[path].st_gid = gid
+            testtree[path]['stat'].st_gid = gid
     return fake_chown
 
 
 def generate_fake_exists(testtree):
     def fake_exists(path):
+        check_removed(path, 'exists', testtree)
         return path in testtree
     return fake_exists
 
 
 def generate_fake_listdir(testtree):
     def fake_listdir(path):
+        check_removed(path, 'listdir', testtree)
         path_parts = path.split('/')
         for entry in testtree:
             entry_parts = entry.split('/')
@@ -119,6 +167,7 @@ def generate_fake_listdir(testtree):
 
 def generate_fake_unlink(testtree):
     def fake_unlink(path):
+        check_removed(path, 'unlink', testtree)
         del testtree[path]
     return fake_unlink
 
@@ -152,9 +201,9 @@ def fake_testtree(testtree):
 
 
 def assert_ids(testtree, path, uid, gid):
-    statinfo = testtree[path]
+    statinfo = testtree[path]['stat']
     assert (uid, gid) == (statinfo.st_uid, statinfo.st_gid), \
-        "{}: expected {}:{} actual {}:{}".format(
+        "{}: expected ownership {}:{} actual {}:{}".format(
             path, uid, gid, statinfo.st_uid, statinfo.st_gid
         )
 
@@ -192,8 +241,8 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid+1, current_gid)
-            assert_ids(testtree, pathinfo.path, current_uid+1, current_gid)
+            pathinfo.chown(current_uid + 1, current_gid)
+            assert_ids(testtree, pathinfo.path, current_uid + 1, current_gid)
 
     def test_chgrp(self):
         testtree = generate_testtree1(current_uid, current_gid)
@@ -201,8 +250,8 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid, current_gid+1)
-            assert_ids(testtree, pathinfo.path, current_uid, current_gid+1)
+            pathinfo.chown(current_uid, current_gid + 1)
+            assert_ids(testtree, pathinfo.path, current_uid, current_gid + 1)
 
     def test_chown_chgrp(self):
         testtree = generate_testtree1(current_uid, current_gid)
@@ -210,8 +259,8 @@ class PathManagerCase(base.BaseTestCase):
         with fake_testtree(testtree):
             pathinfo = PathManager('/var/lib/nova/instances/foo/baz')
             self.assertTrue(pathinfo.has_owner(current_uid, current_gid))
-            pathinfo.chown(current_uid+1, current_gid+1)
-            assert_ids(testtree, pathinfo.path, current_uid+1, current_gid+1)
+            pathinfo.chown(current_uid + 1, current_gid + 1)
+            assert_ids(testtree, pathinfo.path, current_uid + 1, current_gid + 1)
 
 
 class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
@@ -220,7 +269,7 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
 
         with fake_testtree(testtree) as (fake_chown, _, _, _, _):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
-            fake_chown.assert_not_called()
+            fake_chown.assert_called_once_with('/var/lib/nova/instances/foo/removeddir2', 100, -1)
 
     def test_upgrade_marker_no_id_change(self):
         testtree = generate_testtree2(current_uid,
@@ -230,7 +279,7 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
 
         with fake_testtree(testtree) as (fake_chown, _, _, _, fake_unlink):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
-            fake_chown.assert_not_called()
+            fake_chown.assert_called_once_with('/var/lib/nova/instances/foo/removeddir2', 100, -1)
             fake_unlink.assert_called_with('/var/lib/nova/upgrade_marker')
 
     def test_upgrade_marker_id_change(self):
@@ -247,6 +296,10 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
             if k == '/var/lib/nova/upgrade_marker':
                 # Ignore the marker, it should be deleted
                 continue
+            if testtree[k].get('removed_when', False):
+                # Ignore, deleted
+                continue
+            v = v['stat']
             if v.st_uid == other_uid or v.st_gid == other_gid:
                 expected_changes[k] = (
                     current_uid if v.st_uid == other_uid else v.st_uid,

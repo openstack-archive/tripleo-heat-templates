@@ -54,7 +54,7 @@ if __name__ == '__main__':
         password=config.get('placement', 'password'),
         project_name=config.get('placement', 'project_name'),
         project_domain_name=config.get('placement', 'user_domain_name'),
-        auth_url=config.get('placement', 'auth_url')+'/v3')
+        auth_url=config.get('placement', 'auth_url') + '/v3')
     sess = session.Session(auth=auth, verify=False)
     keystone = client.Client(session=sess, interface='internal')
 
@@ -75,7 +75,7 @@ if __name__ == '__main__':
                 LOG.error('Failed to get placement service endpoint!')
             else:
                 break
-        except Exception as e:
+        except Exception:
             LOG.exception('Retry - Failed to get placement service endpoint:')
         time.sleep(timeout)
 
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     while iterations > 1:
         iterations -= 1
         try:
-            r = requests.get(placement_endpoint_url+'/', verify=False)
+            r = requests.get(placement_endpoint_url + '/', verify=False)
             if r.status_code == 200 and response_reg.match(r.text):
                 LOG.info('Placement service up! - %s', r.text)
                 sys.exit(0)
@@ -102,7 +102,7 @@ if __name__ == '__main__':
                 LOG.info('Placement service not up - %s, %s',
                          r.status_code,
                          r.text)
-        except Exception as e:
+        except Exception:
             LOG.exception('Error query the placement endpoint:')
         time.sleep(timeout)
 
