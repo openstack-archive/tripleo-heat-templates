@@ -171,8 +171,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'OctaviaWorkerLoggingSource': ['default'],
     'OvnMetadataAgentLoggingSource': ['default'],
     'PlacementLoggingSource': ['default'],
-    'SaharaApiLoggingSource': ['default'],
-    'SaharaEngineLoggingSource': ['default'],
     # There's one template that defines this
     # differently, and I'm not sure if we can
     # safely change it.
