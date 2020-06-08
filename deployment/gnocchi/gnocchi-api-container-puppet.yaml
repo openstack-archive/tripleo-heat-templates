@@ -82,6 +82,21 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['swift', 'file', 'rbd', 's3']
+  GnocchiNfsEnabled:
+    default: false
+    description: >
+      When using GnocchiBackend 'file', mount NFS share for data storage
+    type: boolean
+  GnocchiNfsShare:
+    default: ''
+    description: >
+      NFS share to mount for data storage (when GnocchiNfsEnabled is true)
+    type: string
+  GnocchiNfsOptions:
+    default: '_netdev,bg,intr,context=system_u:object_r:container_file_t:s0'
+    description: >
+      Nfs mount options for data storage (when GnocchiNfsEnabled is true)
+    type: string
   GnocchiIncomingStorageDriver:
     default: redis
     description: Storage driver to use for incoming metric data
@@ -111,6 +126,7 @@ parameters:
 conditions:
   cors_allowed_origin_unset: {equals : [{get_param: GnocchiCorsAllowedOrigin}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  nfs_backend_enabled: {equals: [{get_param: GnocchiNfsEnabled}, true]}
 
 resources:
 
@@ -297,13 +313,20 @@ outputs:
             volumes:
               - str_replace:
                   template: GNOCCHI_FILE_BASE_PATH:GNOCCHI_FILE_BASE_PATH:SE_FLAGS
-                  params: {GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}, SE_FLAGS: 'shared,z'}
+                  params:
+                    GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}
+                    SE_FLAGS:
+                      if:
+                        - nfs_backend_enabled
+                        - 'shared'
+                        - 'shared,z'
             command:
               - '/bin/bash'
               - '-c'
               - str_replace:
                   template: 'chown -R gnocchi:gnocchi GNOCCHI_FILE_BASE_PATH'
-                  params: {GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}}
+                  params:
+                    GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}
         step_5:
           gnocchi_db_sync:
             start_order: 0
@@ -320,7 +343,13 @@ outputs:
                   - /var/lib/config-data/puppet-generated/gnocchi:/var/lib/kolla/config_files/src:ro
                   - str_replace:
                       template: GNOCCHI_FILE_BASE_PATH:GNOCCHI_FILE_BASE_PATH:SE_FLAGS
-                      params: {GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}, SE_FLAGS: 'shared,z'}
+                      params:
+                        GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}
+                        SE_FLAGS:
+                          if:
+                            - nfs_backend_enabled
+                            - 'shared'
+                            - 'shared,z'
                   - /var/log/containers/gnocchi:/var/log/gnocchi:z
                   - /var/log/containers/httpd/gnocchi-api:/var/log/httpd:z
                   - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
@@ -341,7 +370,13 @@ outputs:
                 -
                   - str_replace:
                       template: GNOCCHI_FILE_BASE_PATH:GNOCCHI_FILE_BASE_PATH:SE_FLAGS
-                      params: {GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}, SE_FLAGS: 'shared,z'}
+                      params:
+                        GNOCCHI_FILE_BASE_PATH: {get_param: GnocchiFileBasePath}
+                        SE_FLAGS:
+                          if:
+                            - nfs_backend_enabled
+                            - 'shared'
+                            - 'shared,z'
                   - /var/lib/kolla/config_files/gnocchi_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/gnocchi:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/gnocchi:/var/log/gnocchi:z
@@ -358,7 +393,7 @@ outputs:
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
-        - name: create persistent data and logs directory
+        - name: create logs directory
           file:
             path: "{{ item.path }}"
             state: directory
@@ -367,7 +402,24 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/gnocchi, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/httpd/gnocchi-api, 'setype': container_file_t, 'mode': '0750' }
-            - { 'path': {get_param: GnocchiFileBasePath}, 'setype': container_file_t }
+        - name: Mount Gnocchi NFS on host
+          vars:
+            nfs_backend_enabled: {get_param: GnocchiNfsEnabled}
+            nfs_share: {get_param: GnocchiNfsShare}
+            nfs_options: {get_param: GnocchiNfsOptions}
+            file_base_path: {get_param: GnocchiFileBasePath}
+          mount:
+            name: "{{file_base_path}}"
+            state: mounted
+            src: "{{nfs_share}}"
+            fstype: nfs
+            opts: "{{nfs_options}}"
+          when: nfs_backend_enabled
+        - name: ensure GnocchiFileBasePath exists
+          file:
+            path: {get_param: GnocchiFileBasePath}
+            state: directory
+            setype: container_file_t
         - name: ensure ceph configurations exist
           file:
             path: /etc/ceph
