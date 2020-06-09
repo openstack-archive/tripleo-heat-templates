@@ -13,8 +13,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from unittest import mock
+
 import contextlib
-import mock
 import six
 import stat
 import sys
