@@ -10,6 +10,9 @@ parameters:
   ContainerOctaviaConfigImage:
     description: The container image to use for the octavia config_volume
     type: string
+  ContainerOctaviaRsyslogImage:
+    description: The container image to use for the rsyslog-sidecar
+    type: string
   OctaviaHealthManagerLoggingSource:
     type: json
     default:
@@ -54,6 +57,16 @@ parameters:
     description: Name of the octavia management network interface using
                  for communication between octavia worker/health-manager
                  with the amphora machine.
+  OctaviaLogOffload:
+    default: false
+    description: When true, log messages from the amphora will be forwarded
+                 to the administrative log endponts and will be stored with
+                 the controller logs.
+    type: boolean
+
+conditions:
+
+  log_offload_enabled: {equals: [{get_param: OctaviaLogOffload}, true]}
 
 resources:
 
@@ -82,6 +95,10 @@ outputs:
         '200 octavia health manager interface':
           proto: udp
           dport: 5555
+          iniface: {get_param: OctaviaMgmtPortDevName}
+        '210 octavia lb-mgmt-net offload rsyslog':
+          proto: udp
+          dport: 514
           iniface: {get_param: OctaviaMgmtPortDevName}
       monitoring_subscription: {get_param: MonitoringSubscriptionOctaviaHealthManager}
       config_settings:
@@ -114,6 +131,17 @@ outputs:
             - path: /var/log/octavia
               owner: octavia:octavia
               recurse: true
+        /var/lib/kolla/config_files/octavia_rsyslog.json:
+          command: /usr/sbin/rsyslogd -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/octavia
+              owner: octavia:octavia
+              recurse: true
       docker_config:
         step_2:
           octavia_health_manager_init_dirs:
@@ -130,24 +158,44 @@ outputs:
               - /var/lib/config-data/puppet-generated/octavia/etc/octavia:/etc/octavia/:z
             command: ['/bin/bash', '-c', 'mkdir -p /etc/octavia/conf.d/octavia-health-manager; chown -R octavia:octavia /etc/octavia/conf.d/octavia-health-manager']
         step_5:
-          octavia_health_manager:
-            start_order: 2
-            stop_grace_period: 300
-            image: *octavia_health_manager_image
-            net: host
-            privileged: false
-            restart: always
-            healthcheck:
-              test: /openstack/healthcheck
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/octavia_health_manager.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
-                  - /var/log/containers/octavia:/var/log/octavia:z
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          map_merge:
+            - octavia_health_manager:
+                start_order: 2
+                stop_grace_period: 300
+                image: *octavia_health_manager_image
+                net: host
+                privileged: false
+                restart: always
+                healthcheck:
+                  test: /openstack/healthcheck
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/octavia_health_manager.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
+                      - /var/log/containers/octavia:/var/log/octavia:z
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            - if:
+                - log_offload_enabled
+                - octavia_rsyslog:
+                    start_order: 2
+                    image: {get_param: ContainerOctaviaRsyslogImage}
+                    net: host
+                    privileged: false
+                    restart: always
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/octavia_rsyslog.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
+                          - /var/log/containers/octavia:/var/log/octavia:z
+                    environment:
+                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                - {}
+
       host_prep_tasks:
         - name: create persistent directories
           file:
