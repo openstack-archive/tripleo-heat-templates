@@ -14,8 +14,8 @@
 
 import io
 import tempfile
+from unittest import mock
 
-import mock
 from oslotest import base
 import six
 import testscenarios
