@@ -1,0 +1,445 @@
+heat_template_version: rocky
+
+description: Configure a test role to use ansible
+
+parameters:
+  ContainerCollectdImage:
+    description: image
+    type: string
+  ContainerCollectdConfigImage:
+    description: The container image to use for the collectd config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  MetricsQdrPort:
+    default: 5666
+    description: Service name or port number on which the qdrouterd will accept
+                 connections.
+    type: number
+  MetricsQdrUsername:
+    default: 'guest'
+    description: Username which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+  MetricsQdrPassword:
+    default: 'guest'
+    description: Password which should be used to authenticate to the deployed
+                 qdrouterd.
+    type: string
+    hidden: true
+  MonitoringSubscriptionCollectd:
+    default: 'overcloud-collectd'
+    type: string
+  CollectdConnectionType:
+    default: 'amqp1'
+    description: Define which write plugin should collectd use. Currently
+                 supported are 'amqp1', 'network' and 'gnocchi'.
+                 NOTE gnocchi is supported in puppet only.
+    type: string
+  CollectdDefaultPollingInterval:
+    default: 120
+    type: number
+    description: >
+      Controls how often registered read functions are called and with that
+      the resolution of the collected data. This value can be overridden per
+      plugin(per role) by setting "::collectd::plugin::<plugin_name>::interval"
+      key in ExtraConfig(<role_name>ExtraConfig) if using puppet, and by
+      setting "collectd_plugin_<plugin_name>_interval" in
+      <role_name>ExtraConfig/CollectdVars if using ansible.
+  CollectdDefaultPlugins:
+    default:
+      - cpu
+      - df
+      - disk
+      - hugepages
+      - interface
+      - load
+      - memory
+      - processes
+      - unixsock
+      - uptime
+    type: comma_delimited_list
+    description: >
+      List of collectd plugins to activate on all overcloud hosts.  See
+      the documentation for the puppet-collectd module for a list plugins
+      supported by the module (https://github.com/voxpupuli/puppet-collectd).
+      Set this key to override the default list of plugins.  Use
+      CollectdExtraPlugins if you want to load additional plugins without
+      overriding the defaults.
+  CollectdExtraPlugins:
+    default: []
+    type: comma_delimited_list
+    description: >
+      List of collectd plugins to activate on all overcloud hosts.  See
+      the documentation for the puppet-collectd module for a list plugins
+      supported by the module (https://github.com/voxpupuli/puppet-collectd).
+      Set this key to load plugins in addition to those in
+      CollectdDefaultPlugins.
+  CollectdServer:
+    type: string
+    description: >
+      Address of remote collectd server to which we will send
+      metrics.
+    default: ''
+  CollectdServerPort:
+    type: number
+    default: 25826
+    description: >
+      Port on remote collectd server to which we will send
+      metrics.
+  CollectdUsername:
+    type: string
+    description: >
+      Username for authenticating to the remote collectd server. The default
+      is to not configure any authentication.
+    default: ''
+  CollectdPassword:
+    type: string
+    hidden: true
+    description: >
+      Password for authenticating to the remote collectd server. The
+      default is to not configure any authentication.
+    default: ''
+  CollectdSecurityLevel:
+    type: string
+    description: >
+      Security level setting for remote collectd connection. If it is
+      set to Sign or Encrypt the CollectdPassword and CollectdUsername
+      parameters need to be set.
+    default: 'None'
+    constraints:
+      - allowed_values:
+          - None
+          - Sign
+          - Encrypt
+  EnableSQLAlchemyCollectd:
+    type: boolean
+    description: >
+        Set to true to enable the SQLAlchemy-collectd server plugin
+    default: false
+  CollectdSQLAlchemyLogMessages:
+    type: string
+    description: set to "debug" to enable message logging.
+    default: 'info'
+  CollectdSQLAlchemyBindHost:
+    type: string
+    description: >
+      hostname for SQLAlchemy-collectd plugin to bind on.  defaults
+      to localhost.
+    default: 'localhost'
+  CollectdAmqpHost:
+    type: string
+    description: Hostname or IP address of the AMQP 1.0 intermediary.
+    default: nil
+  CollectdAmqpPort:
+    type: number
+    description: >
+      Service name or port number on which the AMQP 1.0 intermediary accepts
+      connections. This argument must be a string, even if the numeric form
+      is used.
+    default: 5666
+  CollectdAmqpUser:
+    type: string
+    description: >
+      User part of credentials used to authenticate to the AMQP 1.0 intermediary.
+    default: guest
+  CollectdAmqpPassword:
+    type: string
+    description: >
+      Password part of credentials used to authenticate to the AMQP 1.0 intermediary.
+    default: guest
+    hidden: true
+  CollectdAmqpTransportName:
+    type: string
+    description: Name of the AMQP 1.0 transport.
+    default: metrics
+  CollectdAmqpAddress:
+    type: string
+    description: >
+      This option specifies the prefix for the send-to value in the message.
+    default: collectd
+  CollectdAmqpInstances:
+    type: json
+    description: >
+      Hash of hashes. Each inner hash represent Instance block in plugin
+      configuration file. Key of outter hash represents instance name.
+      The 'address' value concatenated with the 'name' given will be used
+      as the send-to address for communications over the messaging link.
+    default: {}
+  CollectdAmqpRetryDelay:
+    type: number
+    description: >
+      When the AMQP 1.0 connection is lost, defines the time in seconds to wait
+      before attempting to reconnect.
+    default: 1
+  CollectdAmqpInterval:
+    type: number
+    description: >
+      Interval on which metrics should be sent to AMQP intermediary. If not set
+      the default for all collectd plugins is used.
+    default: -666
+  CollectdAmqpSendQueueLimit:
+    type: number
+    description: >
+      Number of data sets to be kept in memory, older sets will be discarded,
+      if set to -1, this feature is disabled.
+    default: -1
+  CollectdEnableSensubility:
+    type: boolean
+    description: Set to true if sensubility should be executed by exec plugin.
+    default: false
+  CollectdSensubilityExecSudoRule:
+    type: string
+    description: >
+      Given rule will be created in /etc/sudoers.d for sensubility to enable it calling
+      restricted commands via sensubility executor.
+    default: ''
+  CollectdSensubilityLogLevel:
+    type: string
+    description: Use for override the default logging level (WARNING).
+    default: WARNING
+  CollectdSensubilityConnection:
+    type: string
+    description: URL to Sensu sever side
+    default: amqp://sensu:sensu@localhost:5672//sensu
+  CollectdSensubilityKeepaliveInterval:
+    type: number
+    description: Interval in seconds for sending keepalive messages to Sensu server side.
+    default: 20
+  CollectdSensubilityTmpDir:
+    type: string
+    description: Path to temporary directory which is used for creation of check scripts.
+    default: /var/tmp/collectd-sensubility-checks
+  CollectdSensubilityShellPath:
+    type: string
+    description: Path to shell used for executing check scripts.
+    default: /usr/bin/sh
+  CollectdSensubilityWorkerCount:
+    type: number
+    description: Number of goroutines spawned for executing check scripts.
+    default: 2
+  CollectdSensubilityChecks:
+    type: json
+    description: JSON formated definition of standalone checks to be scheduled on client side.
+    default: {}
+  CollectdEnableContainerHealthCheck:
+    type: boolean
+    description: >
+      Set to false if container health check should not be defined and attached
+      to CollectdEnableContainerHealthCheck.
+    default: true
+  CollectdContainerHealthCheckCommand:
+    type: string
+    default: /scripts/collectd_check_health.py
+  CollectdContainerHealthCheckInterval:
+    type: number
+    description: The frequency in seconds the docker health check is executed.
+    default: 10
+  CollectdContainerHealthCheckHandlers:
+    default: []
+    description: The Sensu event handler to use for events created by the docker health check.
+    type: comma_delimited_list
+  CollectdContainerHealthCheckOccurrences:
+    type: number
+    description: The number of event occurrences before sensu-plugin-aware handler should take action.
+    default: 3
+  CollectdContainerHealthCheckRefresh:
+    type: number
+    description: The number of seconds sensu-plugin-aware handlers should wait before taking second action.
+    default: 90
+  EnableSTF:
+    type: boolean
+    description: Set to true to enable configuration for STF client.
+    default: false
+  CollectdEnableMcelog:
+    type: boolean
+    description: Set to true to enable mcelog
+    default: false
+  CollectdEnableLibpodstats:
+    type: boolean
+    description: Set to true if collectd should run the libpodstats plugin
+    default: false
+
+  CollectdVars:
+    default: {}
+    description: Hash of collectd variables used to configure the collectd role.
+    tags:
+      - role_specific
+    type: json
+
+conditions:
+  role_specific_required: {not: {equals: [{get_param: [RoleParameters, CollectdVars]}, ""]}}
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  CollectdVarsParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+          - tripleo_role_name: {get_param: RoleName}
+            metrics_qdr_port: {get_param: MetricsQdrPort}
+            metrics_qdr_username: {get_param: MetricsQdrUsername}
+            metrics_qdr_password: {get_param: MetricsQdrPassword}
+            tripleo_collectd_connection_type: {get_param: CollectdConnectionType}
+            tripleo_collectd_default_polling_interval: {get_param: CollectdDefaultPollingInterval}
+            tripleo_collectd_default_plugins: {get_param: CollectdDefaultPlugins}
+            tripleo_collectd_extra_plugins: {get_param: CollectdExtraPlugins}
+            tripleo_collectd_server: {get_param: CollectdServer}
+            tripleo_collectd_server_port: {get_param: CollectdServerPort}
+            tripleo_collectd_username: {get_param: CollectdUsername}
+            tripleo_collectd_password: {get_param: CollectdPassword}
+            tripleo_collectd_security_level: {get_param: CollectdSecurityLevel}
+            tripleo_collectd_enable_sqlalchemy: {get_param: EnableSQLAlchemyCollectd}
+            tripleo_collectd_sqlalchemy_log_messages: {get_param: CollectdSQLAlchemyLogMessages}
+            tripleo_collectd_sqlalchemy_bind_host: {get_param: CollectdSQLAlchemyBindHost}
+            tripleo_collectd_amqp_host: {get_param: CollectdAmqpHost}
+            tripleo_collectd_plugin_amqp1_port: {get_param: CollectdAmqpPort}
+            tripleo_collectd_plugin_amqp1_user: {get_param: CollectdAmqpUser}
+            tripleo_collectd_plugin_amqp1_password: {get_param: CollectdAmqpPassword}
+            tripleo_collectd_amqp_transport_name: {get_param: CollectdAmqpTransportName}
+            tripleo_collectd_amqp_address: {get_param: CollectdAmqpAddress}
+            tripleo_collectd_amqp_instances: {get_param: CollectdAmqpInstances}
+            tripleo_collectd_amqp_retry_delay: {get_param: CollectdAmqpRetryDelay}
+            tripleo_collectd_amqp_interval: {get_param: CollectdAmqpInterval}
+            tripleo_collectd_amqp_send_queue_limit: {get_param: CollectdAmqpSendQueueLimit}
+            tripleo_collectd_enable_sensubility: {get_param: CollectdEnableSensubility}
+            tripleo_collectd_sensubility_exec_sudo_rule: {get_param: CollectdSensubilityExecSudoRule}
+            tripleo_collectd_sensubility_log_level: {get_param: CollectdSensubilityLogLevel}
+            tripleo_collectd_sensubility_connection: {get_param: CollectdSensubilityConnection}
+            tripleo_collectd_sensubility_keepalive_interval: {get_param: CollectdSensubilityKeepaliveInterval}
+            tripleo_collectd_sensubility_tmp_dir: {get_param: CollectdSensubilityTmpDir}
+            tripleo_collectd_sensubility_shell_path: {get_param: CollectdSensubilityShellPath}
+            tripleo_collectd_sensubility_worker_count: {get_param: CollectdSensubilityWorkerCount}
+            tripleo_collectd_sensubility_checks: {get_param: CollectdSensubilityChecks}
+            tripleo_collectd_enable_container_health_check: {get_param: CollectdEnableContainerHealthCheck}
+            tripleo_collectd_container_health_check_command: {get_param: CollectdContainerHealthCheckCommand}
+            tripleo_collectd_container_health_check_interval: {get_param: CollectdContainerHealthCheckInterval}
+            tripleo_collectd_container_health_check_handlers: {get_param: CollectdContainerHealthCheckHandlers}
+            tripleo_collectd_container_health_check_occurances: {get_param: CollectdContainerHealthCheckOccurrences}
+            tripleo_collectd_container_health_check_refresh: {get_param: CollectdContainerHealthCheckRefresh}
+            tripleo_collectd_enable_stf: {get_param: EnableSTF}
+            tripleo_collectd_enable_mcelog: {get_param: CollectdEnableMcelog}
+            tripleo_collectd_enable_libpodstats: {get_param: CollectdEnableLibpodstats }
+            # The last element should be the CollectdVars, which overides any previous deprecated metric.
+          - { get_param: CollectdVars }
+          - if:
+             - role_specific_required
+             - { get_param: [RoleParameters, CollectdVars]}
+             - {}
+
+outputs:
+  role_data:
+    description: Role data for the Collectd service
+    value:
+      service_name: collectd
+      monitoring_subscriptions: {get_param: MonitoringSubscriptionCollectd}
+      kolla_config:
+        /var/lib/kolla/config_files/collectd.json:
+          command: /usr/sbin/collectd -f
+          config_files:
+            # Where is this directory populated?
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/collectd.d"
+              dest: "/etc/"
+              merge: false
+              preserve_properties: true
+          permissions:
+            - path: /var/log/collectd
+              owner: collectd:collectd
+              recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - collectd_check_health.py:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/monitoring/collectd_check_health.py }
+
+      docker_config:
+        step_5:
+          collectd:
+            image: {get_param: ContainerCollectdImage}
+            net: host
+            pid: host
+            user: root
+            restart: always
+            cap_add:
+              - IPC_LOCK
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/collectd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/containers/storage/overlay-containers:/var/lib/containers/storage/overlay-containers:ro
+                  - /var/lib/config-data/ansible-generated/collectd:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/collectd:/var/log/collectd:rw,z
+                  - /var/run/:/var/run:rw
+                  - /sys/fs/cgroup:/sys/fs/cgroup:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+
+      deploy_steps_tasks:
+        - name: Configure container healthchecks
+          when:
+            - step|int == 1
+          include_role:
+            name: tripleo_collectd
+            tasks_from: configure_healthcheck
+          vars:
+            - {get_attr: [CollectdVarsParametersValue, value]}
+
+        - name: "Configure collectd"
+          when:
+            - step|int == 1
+          include_role:
+            name: tripleo_collectd
+            tasks_from: configure_collectd
+          vars:
+            - {get_attr: [CollectdVarsParametersValue, value]}
+
+      host_prep_tasks:
+        - name: "Create persistent directories"
+          import_role:
+            name: tripleo_collectd
+            tasks_from: create_persistent_directories
+          vars:
+            - {get_attr: [CollectdVarsParametersValue, value]}
+
+        - name: "Configure software on the host required for collectd"
+          import_role:
+            name: tripleo_collectd
+            tasks_from: configure_host_software
+          vars:
+            - {get_attr: [CollectdVarsParametersValue, value]}
