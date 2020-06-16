@@ -1034,7 +1034,7 @@ def validate_service_hiera_interpol(f, tpl):
             # name. The only exception is allow anything under
             # str_replace['params'] ('str_replace;params' in the str notation).
             # We need to escape because of '$' char may be in templated params.
-            query = re.compile(r'\\;str(\\)?_replace\\;params\\;\S*?net',
+            query = re.compile(r'(\\)?;str(\\)?_replace(\\)?;params(\\)?;\S*?net',
                                re.IGNORECASE)
             if not query.search(re.escape(path_str)):
                 # Keep parsing, if foo_vip_network, or anything
@@ -1046,7 +1046,7 @@ def validate_service_hiera_interpol(f, tpl):
 
             # Omit mappings in tht, like:
             # [NetXxxMap, <... ,> {get_param: [ServiceNetMap, ...
-            if re.search(r'Map.*get\\_param', re.escape(path_str)):
+            if re.search(r'Map.*get(\\)?_param', re.escape(path_str)):
                 continue
 
             # For the remaining cases, verify if there is a template
