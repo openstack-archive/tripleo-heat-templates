@@ -31,6 +31,11 @@ parameters:
     default: 'false'
     description: Set to true to enable package installation at deploy time
     type: boolean
+  GlanceNodeStagingUri:
+    default: 'file:///var/lib/glance/staging'
+    description: >
+      URI that specifies the staging location to use when importing images
+    type: string
   UpgradeLeappEnabled:
     description: Use Leapp for operating system upgrade
     type: boolean
@@ -76,6 +81,35 @@ parameters:
     default: []
     description: List of packages to install after Leapp upgrade.
     type: comma_delimited_list
+    tags:
+      - role_specific
+  LeappUnloadKernelDrivers:
+    type: comma_delimited_list
+    default: ['floppy', 'pata_acpi']
+    description: |
+      List of modules to unload from the system due to being incompatible
+      with the next RHEL version. If not being unloaded Leapp will
+      inhibit the upgrade.
+  LeappActorsToRemove:
+    type: comma_delimited_list
+    default: []
+    description: |
+      List of actors to remove from the leapp process to prevent them
+      from inhibiting the upgrade.
+  LeappRepoInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the Leapp process. E.g. a repository switch.
+    default: ''
+    tags:
+      - role_specific
+  LeappInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      apply any necessary workarounds to get Leapp working.
+    default: ''
     tags:
       - role_specific
   UpgradeInitCommand:
@@ -133,6 +167,10 @@ resources:
               upgrade_leapp_command_options: UpgradeLeappCommandOptions
               upgrade_leapp_to_remove: UpgradeLeappToRemove
               upgrade_leapp_to_install: UpgradeLeappToInstall
+              leapp_repo_init_command: LeappRepoInitCommand
+              leapp_init_command: LeappInitCommand
+              upgrade_leapp_modules_to_unload: LeappUnloadKernelDrivers
+              upgrade_leapp_actors_to_remove: LeappActorsToRemove
               upgrade_init_command: UpgradeInitCommand
               base_tripleo_packages: BaseTripleoPackages
             - values: {get_param: [RoleParameters]}
@@ -142,7 +180,11 @@ resources:
               UpgradeLeappCommandOptions: {get_param: UpgradeLeappCommandOptions}
               UpgradeLeappToRemove: {get_param: UpgradeLeappToRemove}
               UpgradeLeappToInstall: {get_param: UpgradeLeappToInstall}
+              LeappUnloadKernelDrivers: {get_param: LeappUnloadKernelDrivers}
+              LeappActorsToRemove: {get_param: LeappActorsToRemove}
               UpgradeInitCommand: {get_param: UpgradeInitCommand}
+              LeappRepoInitCommand: {get_param: LeappRepoInitCommand}
+              LeappInitCommand: {get_param: LeappInitCommand}
               BaseTripleoPackages: {get_param: BaseTripleoPackages}
 
 outputs:
@@ -153,7 +195,7 @@ outputs:
       config_settings:
         tripleo::packages::enable_install: {get_param: EnablePackageInstall}
       step_config: |
-        include tripleo::packages
+        include ::tripleo::packages
       upgrade_tasks:
         - name: Gather missing facts
           setup:
@@ -172,7 +214,7 @@ outputs:
             upgrade_leapp_enabled: >-
               {{ _upgradeLeappEnabled | bool and
                  ansible_facts['distribution'] == 'RedHat' and
-                 ansible_facts['distribution_major_version'] is version('7', '==') }}
+                 ansible_facts['distribution_major_version'] is version('8', '==') }}
             upgrade_leapp_debug: {get_param: UpgradeLeappDebug}
             upgrade_leapp_devel_skip: {get_attr: [RoleParametersValue, value, 'upgrade_leapp_devel_skip']}
             upgrade_leapp_command_options: {get_attr: [RoleParametersValue, value, 'upgrade_leapp_command_options']}
@@ -192,21 +234,22 @@ outputs:
             - step|int == 3
             - upgrade_leapp_enabled
           block:
-            - name: remove all OpenStack packages
-              shell: |
-                yum -y remove *el7ost* \
-                  mariadb-server* -- \
-                  -*openvswitch* \
-                  -python2-babel \
-                  -python2-dateutil \
-                  -python2-ipaddress \
-                  -python2-jinja2 \
-                  -python2-markupsafe \
-                  -python2-six
+            - name: Run LeappRepoInitCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - {get_attr: [RoleParametersValue, value, 'leapp_repo_init_command']}
             - name: install leapp
               package:
-                name: leapp
+                name: leapp-repository
                 state: latest
+            - name: Run LeappInitCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - {get_attr: [RoleParametersValue, value, 'leapp_init_command']}
             - name: "add packages into Leapp's to_remove file"
               vars:
                 pkg_to_remove: {get_attr: [RoleParametersValue, value, 'upgrade_leapp_to_remove']}
@@ -235,8 +278,44 @@ outputs:
             - never
             - system_upgrade
             - system_upgrade_prepare
-          when: step|int == 4
+          when:
+            - step|int == 4
+            - upgrade_leapp_enabled
           block:
+            - name: unmount and remove nfs glance entry
+              mount: path=/var/lib/glance/images state=absent
+              ignore_errors: true
+            - name: unmount and remove nfs glance staging entry
+              vars:
+                glance_node_staging_uri: {get_param: GlanceNodeStagingUri}
+              mount: path="{{glance_node_staging_uri[7:]}}" state=absent
+              ignore_errors: true
+            - name: unmount and remove nfs nova entry
+              mount: path=/var/lib/nova/instances state=absent
+              ignore_errors: true
+            - name: "Delete the kernel modules in Leapp database (device_driver_deprecation_data.json)"
+              vars:
+                modules_to_unload: { get_attr: [RoleParametersValue, value, 'upgrade_leapp_modules_to_unload']}
+              shell: >
+                set -o pipefail &&
+                jq '. | del(.data[] | select(.driver_name == "{{ item }}"))'
+                /etc/leapp/files/device_driver_deprecation_data.json >
+                /etc/leapp/files/device_driver_deprecation_data.json_modified &&
+                mv /etc/leapp/files/device_driver_deprecation_data.json_modified
+                /etc/leapp/files/device_driver_deprecation_data.json
+              loop: "{{ modules_to_unload }}"
+            - name: Remove leapp actors to prevent them inhibiting the upgrade
+              vars:
+                actors_to_remove: { get_attr: [RoleParametersValue, value, 'upgrade_leapp_actors_to_remove']}
+              command:
+                cmd: find /usr/share/leapp-repository/repositories/ -name {{ item }} -type d -print -exec rm -rf "{}" +
+              loop: "{{ actors_to_remove }}"
+            - name: set leapp required answers
+              shell: |
+                # PAM module pam_pkcs11 is no longer available in RHEL-8 since it was replaced by SSSD
+                leapp answer --section remove_pam_pkcs11_module_check.confirm=True --add
+                # Required for TLS-Everywhere, switch from authconfig to authselect
+                leapp answer --section authselect_check.confirm=True --add
             - name: run leapp upgrade (download packages)
               shell: >
                 {% if upgrade_leapp_devel_skip|default(false) %}{{ upgrade_leapp_devel_skip }}{% endif %}
@@ -257,6 +336,7 @@ outputs:
           when:
             - step|int == 4
             - upgrade_leapp_enabled
+            - "'Undercloud' not in group_names"
           block:
             - name: reboot to perform the upgrade
               reboot:
