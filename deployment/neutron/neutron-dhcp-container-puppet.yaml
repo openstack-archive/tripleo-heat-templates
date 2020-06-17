@@ -311,35 +311,6 @@ outputs:
             - path: /etc/pki/tls/private/neutron.key
               owner: neutron:neutron
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
-      deploy_steps_tasks:
-        - when: step|int == 1
-          block:
-            - name: set conditions
-              set_fact:
-                dnsmasq_wrapper_enabled: {get_param: NeutronEnableDnsmasqDockerWrapper}
-                haproxy_wrapper_enabled: {get_param: NeutronEnableHaproxyDockerWrapper}
-                debug_enabled:
-                  if:
-                    - service_debug_unset
-                    - {get_param: Debug }
-                    - {get_param: NeutronWrapperDebug}
-                docker_additional_sockets: {get_param: DockerAdditionalSockets}
-            - name: create kill_scripts directory within /var/lib/neutron
-              file:
-                state: directory
-                path: /var/lib/neutron/kill_scripts
-            - name: create dnsmasq dhcp kill script
-              when: dnsmasq_wrapper_enabled|bool
-              copy:
-                dest: /var/lib/neutron/kill_scripts/dnsmasq-kill
-                mode: 0755
-                content: {get_file: ./kill-script}
-            - name: create haproxy kill script
-              when: haproxy_wrapper_enabled|bool
-              copy:
-                dest: /var/lib/neutron/kill_scripts/haproxy-kill
-                mode: 0755
-                content: {get_file: ./kill-script}
       docker_config:
         step_2:
           create_dnsmasq_wrapper:
@@ -425,22 +396,48 @@ outputs:
               command: ip netns add ns_temp
               register: ipnetns_add_result
               failed_when: false
-          - - name: remove temp namespace
+            - name: remove temp namespace
               command: ip netns delete ns_temp
               failed_when: false
               when:
                 - ipnetns_add_result.rc is defined
                 - ipnetns_add_result.rc == 0
-          - - name: create /var/lib/neutron
+            - name: create /var/lib/neutron
               file:
                 path: /var/lib/neutron
                 state: directory
                 setype: container_file_t
-          - - name: enable virt_sandbox_use_netlink for healtcheck
+            - name: enable virt_sandbox_use_netlink for healtcheck
               seboolean:
                 name: virt_sandbox_use_netlink
                 persistent: yes
                 state: yes
+            - name: set conditions
+              set_fact:
+                dnsmasq_wrapper_enabled: {get_param: NeutronEnableDnsmasqDockerWrapper}
+                haproxy_wrapper_enabled: {get_param: NeutronEnableHaproxyDockerWrapper}
+                debug_enabled:
+                  if:
+                    - service_debug_unset
+                    - {get_param: Debug }
+                    - {get_param: NeutronWrapperDebug}
+                docker_additional_sockets: {get_param: DockerAdditionalSockets}
+            - name: create kill_scripts directory within /var/lib/neutron
+              file:
+                state: directory
+                path: /var/lib/neutron/kill_scripts
+            - name: create dnsmasq dhcp kill script
+              when: dnsmasq_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/dnsmasq-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
+            - name: create haproxy kill script
+              when: haproxy_wrapper_enabled|bool
+              copy:
+                dest: /var/lib/neutron/kill_scripts/haproxy-kill
+                mode: 0755
+                content: {get_file: ./kill-script}
       upgrade_tasks: []
       fast_forward_upgrade_tasks:
         - when:
