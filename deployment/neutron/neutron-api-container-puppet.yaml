@@ -450,6 +450,12 @@ outputs:
               dest: "/etc/httpd/conf.d"
               merge: false
               preserve_properties: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - neutron_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/neutron_ffu_db_sync.sh }
       docker_config:
         step_2:
           get_attr: [NeutronLogging, docker_config, step_2]
@@ -484,17 +490,15 @@ outputs:
                     privileged: false
                     detach: false
                     user: root
-                    volumes: *neutron_api_volumes
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
-                    # Here we sadly just expect that if we can't run neutron-db-manage curent
-                    # it means we already updated. If there is any issue with the service the
-                    # upgrade will continue regardless...
+                    volumes:
+                      list_concat:
+                        - *neutron_api_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml neutron_api_short_bootstrap_node_name | grep `/bin/hostname -s` && neutron-db-manage --subproject neutron current && neutron-db-manage upgrade heads ; exit 0 "
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'neutron_api'
+                      - '/container-config-scripts/neutron_ffu_db_sync.sh'
                     environment:
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                 - {}

@@ -623,6 +623,12 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - keystone_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/keystone_ffu_db_sync.sh }
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
@@ -695,20 +701,21 @@ outputs:
                     user: root
                     privileged: false
                     detach: false
-                    volumes: *keystone_volumes
+                    volumes:
+                      list_concat:
+                        - *keystone_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     environment:
                       map_merge:
                         - {get_attr: [KeystoneLogging, environment]}
                         - KOLLA_BOOTSTRAP: true
                           KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                           TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml keystone_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( /usr/local/bin/kolla_set_configs && /usr/bin/keystone-manage --config-file /etc/keystone/keystone.conf db_version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/keystone/common/sql/migrate_repo/versions |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION > $DB_VERSION )); then /usr/local/bin/kolla_start ; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'keystone'
+                      - '/container-config-scripts/keystone_ffu_db_sync.sh'
                 - {}
         step_4:
           # There are cases where we need to refresh keystone after the resource provisioning,

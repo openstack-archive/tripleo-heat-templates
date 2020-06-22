@@ -587,6 +587,12 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - glance_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/glance_ffu_db_sync.sh }
       docker_config:
         step_2:
           get_attr: [GlanceLogging, docker_config, step_2]
@@ -636,18 +642,19 @@ outputs:
                     privileged: false
                     detach: false
                     user: root
-                    volumes: *glance_volumes
+                    volumes:
+                      list_concat:
+                        - *glance_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     environment:
                       KOLLA_BOOTSTRAP: true
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml glance_api_short_bootstrap_node_name | grep `/bin/hostname -s` && OUT=$( sudo -u glance -E /usr/local/bin/kolla_start 2>&1 ) || if [[ $OUT =~ train ]]; then echo 'DB is already up to date' ; else echo $OUT; exit 1; fi"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'glance_api'
+                      - '/container-config-scripts/glance_ffu_db_sync.sh'
                 - {}
         step_4:
           map_merge:

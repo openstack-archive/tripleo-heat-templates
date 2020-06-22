@@ -282,6 +282,12 @@ outputs:
             - path: /var/log/cinder
               owner: cinder:cinder
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - cinder_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/cinder_ffu_db_sync.sh }
       docker_config:
         step_2:
           cinder_api_init_logs:
@@ -325,14 +331,16 @@ outputs:
                     privileged: false
                     detach: false
                     user: root
-                    volumes: *cinder_volumes
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
+                    volumes:
+                      list_concat:
+                        - *cinder_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml cinder_api_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u cinder cinder-manage db version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/cinder/db/sqlalchemy/migrate_repo/versions/ |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u cinder cinder-manage service list | grep -v Binary| tr '@' ' ' | awk '{print $1 \" \" $2}' | while read i ; do sudo -u cinder cinder-manage service remove $i ; done ; sudo -u cinder cinder-manage db online_data_migrations; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'cinder_api'
+                      - '/container-config-scripts/cinder_ffu_db_sync.sh'
+                      - 'online'
                     environment:
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                   cinder_api_db_sync_stein:
@@ -342,11 +350,16 @@ outputs:
                     privileged: false
                     detach: false
                     user: root
-                    volumes: *cinder_volumes
+                    volumes:
+                      list_concat:
+                        - *cinder_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml cinder_api_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u cinder cinder-manage db version )  _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/cinder/db/sqlalchemy/migrate_repo/versions/ |grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1) RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u cinder cinder-manage db sync --bump-versions; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'cinder_api'
+                      - '/container-config-scripts/cinder_ffu_db_sync.sh'
+                      - 'sync'
                     environment:
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                 - {}

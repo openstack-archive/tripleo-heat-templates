@@ -165,6 +165,12 @@ outputs:
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - nova_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/nova_ffu_db_sync.sh }
       docker_config:
         step_2:
           get_attr: [NovaLogging, docker_config, step_2]
@@ -193,15 +199,17 @@ outputs:
                     start_order: 1 # Runs after nova-api db sync Stein
                     net: host
                     detach: false
-                    volumes: *nova_conductor_bootstrap_volumes
+                    volumes:
+                      list_concat:
+                        - *nova_conductor_bootstrap_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     user: root
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml nova_conductor_short_bootstrap_node_name | grep `/bin/hostname -s` && DB_VERSION=$( sudo -u nova /usr/bin/nova-manage db version ) _RPM_VERSION=$(ls /usr/lib/python3.6/site-packages/nova/db/sqlalchemy/migrate_repo/versions | grep -e '[0-9]_.*.py' | cut -d '_' -f1 | sort | tail -n1)  RPM_VERSION=$(expr $_RPM_VERSION + 0) && if (( $RPM_VERSION >= $DB_VERSION )); then sudo -u nova /usr/bin/nova-manage db sync; else echo DB_VERSION: $DB_VERSION RPM_VERSION: $RPM_VERSION; fi"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'nova_conductor'
+                      - '/container-config-scripts/nova_ffu_db_sync.sh'
+                      - 'db'
                     environment:
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                 - {}

@@ -184,6 +184,12 @@ outputs:
             - path: /var/log/mistral
               owner: mistral:mistral
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - mistral_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/mistral_ffu_db_sync.sh }
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
@@ -222,17 +228,15 @@ outputs:
                     privileged: false
                     detach: false
                     user: root
-                    volumes: *mistral_api_volumes
-                    # TODO FIXME: we need LP/BZ for this. Each service should provide db
-                    # version and version provided by package so we can check if we need
-                    # update or not.
-                    # Here we sadly just expect that if we can't run mistral-db-manage curent
-                    # it means we already updated. If there is any issue with the service the
-                    # upgrade will continue regardless...
+                    volumes:
+                      list_concat:
+                        - *mistral_api_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
                     command:
-                      - '/bin/bash'
-                      - '-c'
-                      - "/bin/hiera -c /etc/puppet/hiera.yaml mistral_api_short_bootstrap_node_name | grep `/bin/hostname -s` && sudo -u mistral mistral-db-manage --config-file /etc/mistral/mistral.conf current && sudo -u mistral mistral-db-manage --config-file /etc/mistral/mistral.conf upgrade head ; exit 0"
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'mistral_api'
+                      - '/container-config-scripts/mistral_ffu_db_sync.sh'
                     environment:
                       TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                 - {}
