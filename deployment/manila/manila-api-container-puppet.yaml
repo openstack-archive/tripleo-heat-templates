@@ -4,6 +4,10 @@ description: >
   OpenStack containerized Manila API service
 
 parameters:
+  ContainerManilaApiImageStein:
+    description: image
+    type: string
+    default: ''
   ContainerManilaApiImage:
     description: image
     type: string
@@ -36,6 +40,12 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
   EnableInternalTLS:
     type: boolean
     default: false
@@ -57,6 +67,7 @@ parameters:
 
 conditions:
 
+  fast_forward_upgrade: {not: {equals: [{get_param: ContainerManilaApiImageStein},'']}}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   manila_workers_zero: {equals : [{get_param: ManilaWorkers}, 0]}
 
@@ -197,6 +208,12 @@ outputs:
             - path: /var/log/manila
               owner: manila:manila
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - manila_ffu_db_sync.sh:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/manila_ffu_db_sync.sh }
       docker_config:
         step_2:
           manila_init_logs:
@@ -208,20 +225,45 @@ outputs:
               - /var/log/containers/httpd/manila-api:/var/log/httpd:z
             command: ['/bin/bash', '-c', 'chown -R manila:manila /var/log/manila']
         step_3:
-          manila_api_db_sync:
-            user: root
-            image: *manila_api_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/manila/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/manila/etc/manila/:/etc/manila/:ro
-                  - /var/log/containers/manila:/var/log/manila:z
-                  - /var/log/containers/httpd/manila-api:/var/log/httpd:z
-            command: "/usr/bin/bootstrap_host_exec manila_api su manila -s /bin/bash -c '/usr/bin/manila-manage db sync'"
+          map_merge:
+            - manila_api_db_sync:
+                start_order: 1
+                user: root
+                image: *manila_api_image
+                net: host
+                detach: false
+                volumes: &manila_volumes
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/config-data/manila/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
+                      - /var/lib/config-data/manila/etc/manila/:/etc/manila/:ro
+                      - /var/log/containers/manila:/var/log/manila:z
+                      - /var/log/containers/httpd/manila-api:/var/log/httpd:z
+                command: "/usr/bin/bootstrap_host_exec manila_api su manila -s /bin/bash -c '/usr/bin/manila-manage db sync'"
+                environment:
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            - if:
+                - fast_forward_upgrade
+                - manila_api_db_sync_stein:
+                    start_order: 0
+                    image: &manila_api_image_stein {get_param: ContainerManilaApiImageStein}
+                    net: host
+                    privileged: false
+                    detach: false
+                    user: root
+                    volumes:
+                      list_concat:
+                        - *manila_volumes
+                        -
+                          - /var/lib/container-config-scripts/:/container-config-scripts/:ro
+                    command:
+                      - '/usr/bin/bootstrap_host_exec'
+                      - 'manila_api'
+                      - '/container-config-scripts/manila_ffu_db_sync.sh'
+                    environment:
+                      TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+                - {}
         step_4:
           manila_api:
             image: *manila_api_image
