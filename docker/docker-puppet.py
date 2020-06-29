@@ -269,7 +269,7 @@ with open(sh_script, 'w') as script_file:
         ro_files="/etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
         ro_files+="/etc/pki/ca-trust/source/anchors /etc/pki/tls/certs/ca-bundle.crt "
         ro_files+="/etc/pki/tls/certs/ca-bundle.trust.crt /etc/pki/tls/cert.pem "
-        ro_files+="/etc/hosts /etc/localtime"
+        ro_files+="/etc/hosts /etc/localtime /etc/hostname"
         for ro in $ro_files; do
             if [ -e "$ro" ]; then
                 exclude_files+=" --exclude=$ro"
@@ -282,10 +282,21 @@ with open(sh_script, 'w') as script_file:
         # Also make a copy of files modified during puppet run
         # This is useful for debugging
         echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
-        mkdir -p /var/lib/config-data/puppet-generated/${NAME}
+        puppet_generated_path=/var/lib/config-data/puppet-generated/${NAME}
+        mkdir -p ${puppet_generated_path}
         rsync -a -R -0 --delay-updates --delete-after $exclude_files \
                       --files-from=<(find $rsync_srcs -newer $origin_of_time -not -path '/etc/puppet*' -print0) \
-                      / /var/lib/config-data/puppet-generated/${NAME}
+                      / ${puppet_generated_path}
+
+        # Cleanup any special files that might have been copied into place
+        # previously because fixes for LP#1860607 did not cleanup and required
+        # manual intervention if a container hit this. We can safely remove these
+        # files because they should be bind mounted into containers
+        for ro in $ro_files; do
+            if [ -e "${puppet_generated_path}/${ro}" ]; then
+                rm -rf "${puppet_generated_path}/${ro}"
+            fi
+        done
 
         # Write a checksum of the config-data dir, this is used as a
         # salt to trigger container restart when the config changes
@@ -308,8 +319,8 @@ with open(sh_script, 'w') as script_file:
         # parsedfile resources, hence triggering a change at every redeploy
         tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/${NAME} $additional_checksum_files | tar xO | \
                 sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/${NAME}.md5sum
-        tar -c --mtime='1970-01-01' $EXCLUDE -f - /var/lib/config-data/puppet-generated/${NAME} $additional_checksum_files --mtime='1970-01-01' | tar xO \
-                | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > /var/lib/config-data/puppet-generated/${NAME}.md5sum
+        tar -c --mtime='1970-01-01' $EXCLUDE -f - ${puppet_generated_path} $additional_checksum_files --mtime='1970-01-01' | tar xO \
+                | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > ${puppet_generated_path}.md5sum
     fi
     """)
 
