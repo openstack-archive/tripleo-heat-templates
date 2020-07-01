@@ -40,7 +40,7 @@ function workflow_finished {
 
     while [ $counter -gt 0 ]
     do
-        RESULT=$(openstack workflow execution show -f value -c state $execution_id)
+        RESULT=$(openstack workflow execution show -f value -c State $execution_id)
         if [ "$RESULT" == "ERROR" ]; then
             echo "Workflow $execution_id finished with error. Check mistral logs."
             return 1
