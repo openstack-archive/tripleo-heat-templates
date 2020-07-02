@@ -101,7 +101,7 @@ if [ -z "$NO_ARCHIVE" ]; then
     ro_files="/etc/puppet/ /etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
     ro_files+="/etc/pki/ca-trust/source/anchors /etc/pki/tls/certs/ca-bundle.crt "
     ro_files+="/etc/pki/tls/certs/ca-bundle.trust.crt /etc/pki/tls/cert.pem "
-    ro_files+="/etc/hosts /etc/localtime"
+    ro_files+="/etc/hosts /etc/localtime /etc/hostname"
     for ro in $ro_files; do
         if [ -e "$ro" ]; then
             exclude_files+=" --exclude=$ro"
@@ -117,7 +117,6 @@ if [ -z "$NO_ARCHIVE" ]; then
 
     echo "Rsyncing config files from ${rsync_srcs} into ${conf_data_path}"
     rsync -a $verbosity -R --delay-updates --delete-after $exclude_files $rsync_srcs ${conf_data_path}
-
 
     # Also make a copy of files modified during puppet run
     echo "Gathering files modified after $(stat -c '%y' $origin_of_time)"
@@ -138,6 +137,16 @@ if [ -z "$NO_ARCHIVE" ]; then
     echo "Rsyncing the modified files into ${puppet_generated_path}"
     rsync -a $verbosity -R -0 --delay-updates --delete-after $exclude_files \
         --files-from=$TMPFILE2 / ${puppet_generated_path}
+
+    # Cleanup any special files that might have been copied into place
+    # previously because fixes for LP#1860607 did not cleanup and required
+    # manual intervention if a container hit this. We can safely remove these
+    # files because they should be bind mounted into containers
+    for ro in $ro_files; do
+        if [ -e "${puppet_generated_path}/${ro}" ]; then
+            rm -rf "${puppet_generated_path}/${ro}"
+        fi
+    done
 
     # Write a checksum of the config-data dir, this is used as a
     # salt to trigger container restart when the config changes
