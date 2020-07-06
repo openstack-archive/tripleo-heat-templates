@@ -21,8 +21,6 @@
 {% set upgrade_steps_max = 6 -%}
 {% set external_upgrade_steps_max = 3 -%}
 {% set post_upgrade_steps_max = 4 -%}
-{% set fast_forward_upgrade_steps_max = 9 -%}
-{% set fast_forward_upgrade_prep_steps_max = 3 -%}
 {% set post_update_steps_max = 4 -%}
 {% set scale_steps_max = 1 -%}
 
@@ -96,10 +94,6 @@ parameters:
     type: boolean
     default: true
     description: Whether containerized puppet executions use modules from the baremetal host. Defaults to true. Can be set to false to consume puppet modules from containers directly.
-  FastForwardUpgradeReleases:
-    type: comma_delimited_list
-    default: ['rocky', 'stein', 'train']
-    description: List of releases to fast forward through during upgrade. Last release in list is used for post steps.
   ContainerLogStdoutPath:
     type: string
     description: Absolute path for container stdout output (Podman only)
@@ -165,7 +159,7 @@ parameters:
       Type of update, to differentiate between UPGRADE and UPDATE cases
       when StackAction is UPDATE (both are the same stack action).
     constraints:
-    - allowed_values: ['', 'UPGRADE', 'FASTFORWARDUPGRADE']
+    - allowed_values: ['', 'UPGRADE']
     default: ''
   ContainerCli:
     type: string
@@ -1192,93 +1186,6 @@ outputs:
                   when: ansible_hostname is not defined
               tags:
                 - scale
-      fast_forward_upgrade_playbook:
-{{ self.deploy_steps_str_replace_params() }}
-          template: |
-            - hosts: DEPLOY_TARGET_HOST
-              any_errors_fatal: yes
-              tasks:
-                - set_fact:
-                    releases: {get_param: [FastForwardUpgradeReleases]}
-{% raw %}
-                - set_fact:
-                    ffu_releases: "{{ releases | difference( releases | last )}}"
-                - include_tasks: fast_forward_upgrade_release_tasks.yaml
-                  loop_control:
-                    loop_var: release
-                  with_items: '{{ ffu_releases }}'
-                - set_fact:
-                    release: "{{ releases | last }}"
-                    ffu_packages_apply: True
-{% endraw %}
-                - include_tasks: fast_forward_upgrade_post_role_tasks.yaml
-      fast_forward_upgrade_release_tasks: |
-                - include_tasks: fast_forward_upgrade_prep_tasks.yaml
-                - include_tasks: fast_forward_upgrade_bootstrap_tasks.yaml
-      fast_forward_upgrade_prep_tasks: |
-{%- for role in roles %}
-                - shell: |
-                    #!/bin/bash
-                    if [ ! -f /root/.ffu_workaround ]; then
-                      touch /root/.ffu_workaround
-                      os-apply-config -m /var/lib/os-collect-config/{{role.deprecated_server_resource_name|default(role.name)}}Deployment.json
-                      systemctl stop os-collect-config
-                      rm -r /var/lib/os-collect-config/*
-                      rm -f /usr/libexec/os-refresh-config/configure.d/40-hiera-datafiles
-                      rm -f /usr/libexec/os-apply-config/templates/etc/puppet/hiera.yaml
-                      rm -f /usr/libexec/os-refresh-config/configure.d/10-hiera-disable
-                    fi
-                  when: tripleo_role_name == '{{role.name}}'
-                  name: Run Fast Forward Upgrade Prep Workarounds for {{role.name}}
-{%- endfor %}
-                - name: Create /var/lib/container-puppet
-                  file: path=/var/lib/container-puppet state=directory setype=container_file_t selevel=s0 recurse=true
-                - name: Write container-puppet.py if Paunch is enabled
-                  no_log: True
-                  copy: src=docker_puppet_script.yaml dest=/var/lib/container-puppet/container-puppet.py force=yes mode=0600
-                  when:
-                    - enable_paunch|default(false)
-                - name: Write container-puppet.sh
-                  no_log: True
-                  copy: src=container_puppet_script.yaml dest=/var/lib/container-puppet/container-puppet.sh force=yes mode=0755 setype=container_file_t
-                - include_tasks: fast_forward_upgrade_prep_role_tasks.yaml
-                  with_sequence: start=0 end={{fast_forward_upgrade_prep_steps_max}}
-                  loop_control:
-                    loop_var: step
-      fast_forward_upgrade_post_role_tasks: |
-{%- for role in roles %}
-                - include_tasks: {{role.name}}/fast_forward_post_upgrade_tasks.yaml
-                  when: tripleo_role_name == '{{role.name}}'
-                  tags:
-                    - always
-{%- endfor %}
-                - name: Openstack Heat Agents package update
-                  package: name=openstack-heat-agents state=latest
-                - name: Update os-collect-config
-                  package: name=os-collect-config state=latest
-                - name: Start os-collect-config back up
-                  service: name=os-collect-config state=started enabled=yes
-      fast_forward_upgrade_prep_role_tasks: |
-{%- for role in roles %}
-                - include_tasks: {{role.name}}/fast_forward_upgrade_tasks.yaml
-                  when: tripleo_role_name == '{{role.name}}'
-                  tags:
-                    - always
-{%- endfor %}
-      fast_forward_upgrade_bootstrap_tasks: |
-                - include_tasks: fast_forward_upgrade_bootstrap_role_tasks.yaml
-                  with_sequence: start={{fast_forward_upgrade_prep_steps_max+1}} end={{fast_forward_upgrade_steps_max}}
-                  loop_control:
-                    loop_var: step
-      fast_forward_upgrade_bootstrap_role_tasks: |
-{%- for role in roles %}
-                - include_tasks: {{role.name}}/fast_forward_upgrade_tasks.yaml
-                  when:
-                    - tripleo_role_name == '{{role.name}}'
-                    - is_bootstrap_node|bool
-                  tags:
-                    - always
-{%- endfor %}
       post_update_steps_tasks: |
 {%- for role in roles %}
             - include_tasks: {{role.name}}/post_update_tasks.yaml
