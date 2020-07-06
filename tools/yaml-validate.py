@@ -57,8 +57,6 @@ REQUIRED_DOCKER_SECTIONS = ['service_name', 'docker_config', 'puppet_config',
 OPTIONAL_DOCKER_SECTIONS = ['container_puppet_tasks', 'upgrade_tasks',
                             'deploy_steps_tasks',
                             'pre_upgrade_rolling_tasks',
-                            'fast_forward_upgrade_tasks',
-                            'fast_forward_post_upgrade_tasks',
                             'post_upgrade_tasks', 'update_tasks',
                             'post_update_tasks', 'service_config_settings',
                             'host_prep_tasks', 'metadata_settings',
@@ -102,8 +100,6 @@ REQUIRED_DOCKER_SECTIONS_OVERRIDES = {
 }
 # ansible tasks cannot be an empty dict or ansible is unhappy
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',
-                          'fast_forward_upgrade_tasks',
-                          'fast_forward_post_upgrade_tasks',
                           'post_upgrade_tasks', 'update_tasks',
                           'post_update_tasks', 'host_prep_tasks',
                           'external_deploy_tasks',
@@ -803,16 +799,6 @@ def validate_docker_service(filename, tpl):
                 print('ERROR: upgrade_tasks validation failed')
                 return 1
 
-        if 'fast_forward_upgrade_tasks' in role_data and role_data['fast_forward_upgrade_tasks']:
-            if validate_upgrade_tasks(role_data['fast_forward_upgrade_tasks']):
-                print('ERROR: fast_forward_upgrade_tasks validation failed')
-                return 1
-
-        if 'fast_forward_post_upgrade_tasks' in role_data and role_data['fast_forward_post_upgrade_tasks']:
-            if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
-                print('ERROR: fast_forward_post_upgrade_tasks validation failed')
-                return 1
-
     if 'parameters' in tpl:
         for param in required_params:
             if param not in tpl['parameters']:
@@ -868,16 +854,6 @@ def validate_service(filename, tpl):
             if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
                 validate_upgrade_tasks_duplicate_whens(filename)):
                 print('ERROR: upgrade_tasks validation failed')
-                return 1
-
-        if 'fast_forward_upgrade_tasks' in role_data and role_data['fast_forward_upgrade_tasks']:
-            if validate_upgrade_tasks(role_data['fast_forward_upgrade_tasks']):
-                print('ERROR: fast_forward_upgrade_tasks validation failed')
-                return 1
-
-        if 'fast_forward_post_upgrade_tasks' in role_data and role_data['fast_forward_post_upgrade_tasks']:
-            if validate_upgrade_tasks(role_data['fast_forward_post_upgrade_tasks']):
-                print('ERROR: fast_forward_post_upgrade_tasks validation failed')
                 return 1
 
     if 'parameters' in tpl:
