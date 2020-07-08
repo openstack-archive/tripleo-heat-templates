@@ -411,21 +411,27 @@ outputs:
                 name: octavia_api_tls_proxy
                 state: absent
               when: container_cli == 'docker'
-            - name: stop and disable octavia_api_tls_proxy container if podman
-              systemd:
-                name: tripleo_octavia_api_tls_proxy
-                state: stopped
-                enabled: no
-              when: container_cli == 'podman'
-            - name: clean up tripleo service file for octavia_api_tls_proxy
-              file:
-                state: absent
-                path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy"
-              when: container_cli == 'podman'
-            - name: reload systemd
-              systemd:
-                daemon-reload: yes
-              when: container_cli == 'podman'
+            - name: "check if tripleo_octavia_api_tls_proxy service exists in systemd"
+              stat:
+                path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy.service"
+              register: systemd_exists
+            - name: Remove tripleo_octavia_api_tls_proxy service
+              when:
+                - container_cli == 'podman'
+                - systemd_exists.stat.exists
+              block:
+                - name: stop and disable octavia_api_tls_proxy container
+                  systemd:
+                    name: tripleo_octavia_api_tls_proxy
+                    state: stopped
+                    enabled: no
+                - name: clean up tripleo service file for octavia_api_tls_proxy
+                  file:
+                    state: absent
+                    path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy.service"
+                - name: reload systemd
+                  systemd:
+                    daemon-reload: yes
       upgrade_tasks:
         - name: Set internal tls variable
           set_fact:
