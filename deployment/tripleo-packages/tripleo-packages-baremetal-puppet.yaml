@@ -84,6 +84,18 @@ parameters:
     default: []
     description: List of packages to install after Leapp upgrade.
     type: comma_delimited_list
+  LeappRepoInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      initialize the Leapp process. E.g. a repository switch.
+    default: ''
+  LeappInitCommand:
+    type: string
+    description: |
+      Command or script snippet to run on all overcloud nodes to
+      apply any necessary workarounds to get Leapp working.
+    default: ''
   UpgradeInitCommand:
     type: string
     description: |
@@ -191,10 +203,53 @@ outputs:
                 -python2-requests
                 -python2-six
                 -python2-urllib3
+            - name: Run LeappRepoInitCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - {get_param: LeappRepoInitCommand}
             - name: install leapp
               package:
                 name: leapp
                 state: latest
+            - name: Check that the /etc/leapp/files/pes-events.json exists on UC
+              delegate_to: undercloud
+              stat:
+                path: '/etc/leapp/files/pes-events.json'
+              register: pes_present
+            - name: Check that the /etc/leapp/files/repomap.csv exists on UC
+              delegate_to: undercloud
+              stat:
+                path: '/etc/leapp/files/repomap.csv'
+              register: repomap_present
+            - name: Fetch the Leapp data from undercloud
+              fetch:
+                dest: '{{ playbook_dir }}'
+                src: '{{ item }}'
+              delegate_to: undercloud
+              with_items:
+              - /etc/leapp/files/pes-events.json
+              - /etc/leapp/files/repomap.csv
+              when:
+                - repomap_present.stat.exists
+                - pes_present.stat.exists
+            - name: Copy the Leapp data from undercloud
+              copy:
+                dest: '{{ item }}'
+                src: '{{ playbook_dir }}/{{ inventory_hostname }}/{{ item }}'
+              with_items:
+              - /etc/leapp/files/pes-events.json
+              - /etc/leapp/files/repomap.csv
+              when:
+                - repomap_present.stat.exists
+                - pes_present.stat.exists
+            - name: Run LeappInitCommand
+              shell:
+                list_join:
+                  - ''
+                  - - "#!/bin/bash\n\n"
+                    - {get_param: LeappInitCommand}
             - name: "add packages into Leapp's to_remove file"
               vars:
                 pkg_to_remove: { get_param: UpgradeLeappToRemove }
@@ -260,7 +315,6 @@ outputs:
                 list_join:
                   - ''
                   - - "#!/bin/bash\n\n"
-                    - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
                     - {get_param: UpgradeInitCommand}
             - name: Run UpgradeInitCommonCommand
               shell:
