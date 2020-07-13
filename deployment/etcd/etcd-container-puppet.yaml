@@ -131,6 +131,7 @@ outputs:
                       "%{hiera('NETWORK')}"
                     params:
                       NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+              postsave_cmd: '/usr/bin/certmonger-etcd-refresh.sh'
             etcd::trusted_ca_file: {get_param: InternalTLSCAFile}
             etcd::peer_trusted_ca_file: {get_param: InternalTLSCAFile}
           -
@@ -154,10 +155,19 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
           permissions:
             - path: /var/lib/etcd
               owner: etcd:etcd
               recurse: true
+            - path: /etc/pki/tls/certs/etcd.crt
+              owner: etcd:etcd
+            - path: /etc/pki/tls/private/etcd.key
+              owner: etcd:etcd
       docker_config:
         step_2:
           etcd:
@@ -178,8 +188,8 @@ outputs:
                   if:
                     - internal_tls_enabled
                     -
-                      - /etc/pki/tls/certs/etcd.crt:/etc/pki/tls/certs/etcd.crt:ro
-                      - /etc/pki/tls/private/etcd.key:/etc/pki/tls/private/etcd.key:ro
+                      - /etc/pki/tls/certs/etcd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/etcd.crt:ro
+                      - /etc/pki/tls/private/etcd.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/etcd.key:ro
                     - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
@@ -200,23 +210,6 @@ outputs:
             path: /var/lib/etcd
             state: directory
             setype: container_file_t
-      deploy_steps_tasks:
-        - name: ensure etcd can access its tls cert and key
-          become: true
-          acl:
-            path: "{{ item }}"
-            entity: "{{ 42413 | string }}"
-            etype: user
-            permissions: r
-            state: present
-          with_items:
-            - /etc/pki/tls/certs/etcd.crt
-            - /etc/pki/tls/private/etcd.key
-          vars:
-            internal_tls_enabled: {if: [internal_tls_enabled, true, false]}
-          when:
-            - internal_tls_enabled|bool
-            - step|int == 2
       upgrade_tasks: []
       metadata_settings:
         if:
