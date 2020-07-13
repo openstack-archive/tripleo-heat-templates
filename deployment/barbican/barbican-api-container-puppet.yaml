@@ -114,6 +114,12 @@ parameters:
     description: Hash of lunasa-hsm role variables used to
                  install Lunasa client software.
     type: json
+  LunasaClientIPNetwork:
+    description: >
+      (Optional) When set Barbican nodes will be registered with
+      the HSMs using the IP from this network instead of the FQDN.
+    type: string
+    default: ''
   BarbicanPassword:
     description: The password for the barbican service account.
     type: string
@@ -170,6 +176,9 @@ conditions:
   pkcs11_plugin_enabled: {equals: [{get_param: BarbicanPkcs11CryptoEnabled}, true]}
   pkcs11_rewrap_pkeks: {equals: [{get_param: BarbicanPkcs11CryptoRewrapKeys}, true]}
   enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
+  # Luna Clients use FQDN by default.  When LunasaClientIPNetwork is set we
+  # will use the Controller's IP address from that network instead.
+  lunasa_hsm_use_fqdn: {equals: [{get_param: LunasaClientIPNetwork}, '']}
 
 resources:
 
@@ -477,7 +486,21 @@ outputs:
                     include_role:
                       name: lunasa_hsm
                     vars:
-                      {get_param: LunasaVars}
+                      if:
+                        - lunasa_hsm_use_fqdn
+                        - map_merge:
+                          - {get_param: LunasaVars}
+                          - lunasa_client_pin: {get_param: BarbicanPkcs11CryptoLogin}
+                        - map_merge:
+                          - {get_param: LunasaVars}
+                          - lunasa_client_pin: {get_param: BarbicanPkcs11CryptoLogin}
+                          - lunasa_client_ip:
+                              str_replace:
+                                template:
+                                  "{{$NETWORK_ip}}"
+                                params:
+                                  $NETWORK: {get_param: LunasaClientIPNetwork}
+
                   - name: set the slot id in hieradata
                     include_role:
                       name: tripleo_hieradata
@@ -485,7 +508,7 @@ outputs:
                     vars:
                       hieradata_ansible_data:
                         barbican::plugins::p11_crypto::p11_crypto_plugin_slot_id: "{{ lunasa_ha_slot }}"
-                    when: lunasa_ha_slot
+                    when: lunasa_ha_slot is defined
               - null
         - null
       docker_config:
