@@ -345,18 +345,7 @@ parameters:
     default: true
   CollectdContainerHealthCheckCommand:
     type: string
-    default: |
-      output=""
-      while read line ; do
-        i=$(echo $line | awk '//{gsub(/:/, "", $0); print $5}')
-        log=$(echo $line | awk '{split($0,a,/:\s+Error:\s+/); print a[2]}')
-        log=${log:0:-1}
-        output+=" ; ${i}: ${log}"
-      done < <(egrep "^[a-zA-Z]{3}\s+[0-9]{2}\s+[0-9\:]{8}\s+.*\s+.*:\s+[Ee]rror\:" /var/log/collectd/healthchecks.log)
-      truncate -s0 /var/log/collectd/healthchecks.log
-      if [ ! -z "${output}" ]; then
-        echo ${output:3} && exit 2;
-      fi
+    default: "/scripts/collectd_check_health.py"
   CollectdContainerHealthCheckInterval:
     type: number
     description: The frequency in seconds the docker health check is executed.
@@ -662,6 +651,12 @@ outputs:
             - path: /var/log/collectd
               owner: collectd:collectd
               recurse: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - collectd_check_health.py:
+              mode: "0755"
+              content: { get_file: ../../container_config_scripts/monitoring/collectd_check_health.py }
       docker_config:
         step_5:
           collectd:
@@ -682,6 +677,7 @@ outputs:
                   - /var/lib/config-data/puppet-generated/collectd:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/collectd:/var/log/collectd:rw,z
                   - /var/run/:/var/run:rw
+                  - /var/lib/container-config-scripts:/scripts:ro
                   - /sys/fs/cgroup:/sys/fs/cgroup:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
@@ -709,7 +705,7 @@ outputs:
                   copy:
                     dest: /etc/rsyslog.d/openstack-healthcheck.conf
                     content: |
-                      if $programname startswith 'healthcheck_' then -/var/log/containers/collectd/healthchecks.log
+                      if ($programname startswith 'podman' and ($msg contains 'container exec' or $msg contains 'healthy')) or ($programname startswith 'systemd' and $msg contains 'podman healthcheck run') then -/var/log/containers/collectd/healthchecks.stdout
                       & stop
                 - name: Remove healthcheck log
                   when:
