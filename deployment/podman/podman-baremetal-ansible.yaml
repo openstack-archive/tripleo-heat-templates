@@ -162,6 +162,22 @@ outputs:
           when:
             - step|int == 1
           block:
+            # This is needed when moving from Docker to Podman. The SELinux context
+            # is wrong for podman, especially if the directory was created by
+            # docker itself.
+            - name: Ensure /var/lib/config-data context
+              shell: |-
+                set -o pipefail
+                if [[ -e /var/lib/config-data ]]; then
+                  chcon -R -t container_file_t /var/lib/config-data
+                  exit 2
+                fi
+              args:
+                executable: /bin/bash
+                warn: no
+              register: _selinux_config_data
+              changed_when: _selinux_config_data.rc == 2
+              failed_when: _selinux_config_data.rc not in [0,2]
             - name: Make sure the Undercloud hostname is included in /etc/hosts
               when:
                 - undercloud_hosts_entries is defined
