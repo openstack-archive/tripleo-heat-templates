@@ -402,42 +402,41 @@ resources:
   VipHosts:
     type: OS::Heat::Value
     properties:
-      type: json
+      type: comma_delimited_list
       value:
-        entries:
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
-                HOST: {get_param: CloudNameCtlplane}
+        - str_replace:
+            template: IP  HOST
+            params:
+              IP: {get_attr: [VipMap, net_ip_map, ctlplane]}
+              HOST: {get_param: CloudNameCtlplane}
 {%- for network in networks if network.vip|default(false) and network.enabled|default(true) %}
   {%- if network.name == 'External' %}
   # Special case the External hostname param, which is CloudName
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
-                HOST: {get_param: CloudName}
+        - str_replace:
+            template: IP  HOST
+            params:
+              IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+              HOST: {get_param: CloudName}
   {%- elif network.name == 'InternalApi' %}
   # Special case the Internal API hostname param, which is CloudNameInternal
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
-                HOST: {get_param: CloudNameInternal}
+        - str_replace:
+            template: IP  HOST
+            params:
+              IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+              HOST: {get_param: CloudNameInternal}
   {%- elif network.name == 'StorageMgmt' %}
   # Special case StorageMgmt hostname param, which is CloudNameStorageManagement
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
-                HOST: {get_param: CloudNameStorageManagement}
+        - str_replace:
+            template: IP  HOST
+            params:
+              IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+              HOST: {get_param: CloudNameStorageManagement}
   {%- else %}
-          - str_replace:
-              template: IP  HOST
-              params:
-                IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
-                HOST: {get_param: CloudName{{network.name}}}
+        - str_replace:
+            template: IP  HOST
+            params:
+              IP: {get_attr: [VipMap, net_ip_map, {{network.name_lower}}]}
+              HOST: {get_param: CloudName{{network.name}}}
   {%- endif %}
 {%- endfor %}
 
@@ -807,31 +806,22 @@ resources:
             for_each:
               hostname: {get_param: DeploymentServerBlacklist}
 
-  # Single value comma delimited lists may be stored in strings
-  # that fails lists concat. Make them always lists (nested are OK)
-  HostsValue:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        entries:
-            - - {get_param: UndercloudHostsEntries}
-            - - if:
-                - add_vips_to_etc_hosts
-                - {get_attr: [VipHosts, value, entries]}
-                - []
-{%- for role in roles %}
-            - {get_attr: [{{role.name}}, hosts_entry, entries]}
-{%- endfor %}
-            - - {get_param: ExtraHostFileEntries}
-
   HostsEntryValue:
     type: OS::Heat::Value
     properties:
+      type: comma_delimited_list
       value:
-        yaql:
-          expression: coalesce($.data, []).where($ != null).where($ != []).flatten().distinct()
-          data: {get_attr: [HostsValue, value, entries]}
+        list_concat_unique:
+          list_concat:
+            - - {get_param: UndercloudHostsEntries}
+            - - if:
+                - add_vips_to_etc_hosts
+                - {get_attr: [VipHosts, value]}
+                - []
+{%- for role in roles %}
+            - {get_attr: [{{role.name}}, hosts_entry]}
+{%- endfor %}
+            - - {get_param: ExtraHostFileEntries}
 
   CloudNames:
     type: OS::Heat::Value
@@ -1147,7 +1137,7 @@ resources:
       VipHostsEntries:
         if:
           - add_vips_to_etc_hosts
-          - {get_attr: [VipHosts, value, entries]}
+          - {get_attr: [VipHosts, value]}
           - []
       KeystoneResourcesConfigs:
         map_merge:
@@ -1184,7 +1174,7 @@ outputs:
     value:
       list_concat_unique:
         - {get_attr: [HostsEntryValue, value]}
-        - {get_attr: [VipHosts, value, entries]}
+        - {get_attr: [VipHosts, value]}
   EnabledServices:
     description: The services enabled on each role
     value:
