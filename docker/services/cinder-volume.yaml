@@ -175,6 +175,17 @@ outputs:
             - name: Stop and disable cinder_volume service
               when: cinder_volume_enabled|bool
               service: name=openstack-cinder-volume state=stopped enabled=no
+            - name: Unmount cinder NFS shares mounted on the host
+              mount:
+                path: "{{ item.mount }}"
+                state: unmounted
+              loop: "{{ ansible_mounts }}"
+              loop_control:
+                label: "{{ item.mount }}"
+                index_var: cinder_mount_index
+              when:
+                - "'/var/lib/cinder/' in item.mount"
+                - "'nfs' in item.fstype"
         - when: step|int == 3
           block:
             - name: Set fact for removal of openstack-cinder package
@@ -198,9 +209,24 @@ outputs:
           when:
             - step|int == 0
             - release == 'ocata'
-        - name: Stop openstack-cinder-volume
-          service: name=openstack-cinder-volume state=stopped enabled=no
-          when:
+        - when:
             - step|int == 1
             - release == 'ocata'
             - cinder_volume_enabled|bool
+          block:
+            - name: Stop openstack-cinder-volume
+              service:
+                name: openstack-cinder-volume
+                state: stopped
+                enabled: no
+            - name: Unmount cinder NFS shares mounted on the host
+              mount:
+                path: "{{ item.mount }}"
+                state: unmounted
+              loop: "{{ ansible_mounts }}"
+              loop_control:
+                label: "{{ item.mount }}"
+                index_var: cinder_mount_index
+              when:
+                - "'/var/lib/cinder/' in item.mount"
+                - "'nfs' in item.fstype"
