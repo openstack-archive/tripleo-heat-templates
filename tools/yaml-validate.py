@@ -1029,6 +1029,10 @@ def validate_service_hiera_interpol(f, tpl):
             if enter_lists and path[-1] != 0 and path[-2] != 'get_param':
                 continue
 
+            # Omit if it is not a hiera config setting
+            if path[1] in ['kolla_config']:
+                continue
+
             path_str = ';'.join(str(x) for x in path)
             # NOTE(bogdando): Omit foo_network keys looking like a network
             # name. The only exception is allow anything under
