@@ -35,14 +35,22 @@ class PathManager(object):
     """Helper class to manipulate ownership of a given path"""
     def __init__(self, path):
         self.path = path
+        self.uid = None
+        self.gid = None
+        self.is_dir = None
+        self.secontext = None
         self._update()
 
     def _update(self):
-        statinfo = os.stat(self.path)
-        self.is_dir = stat.S_ISDIR(statinfo.st_mode)
-        self.uid = statinfo.st_uid
-        self.gid = statinfo.st_gid
-        self.secontext = selinux.lgetfilecon(self.path)[1]
+        try:
+            statinfo = os.stat(self.path)
+            self.is_dir = stat.S_ISDIR(statinfo.st_mode)
+            self.uid = statinfo.st_uid
+            self.gid = statinfo.st_gid
+            self.secontext = selinux.lgetfilecon(self.path)[1]
+        except Exception:
+            LOG.exception('Could not update metadata for %s', self.path)
+            raise
 
     def __str__(self):
         return "uid: {} gid: {} path: {}{}".format(
@@ -78,6 +86,7 @@ class PathManager(object):
             except Exception:
                 LOG.exception('Could not change ownership of %s: ',
                               self.path)
+                raise
         else:
             LOG.info('Ownership of %s already %d:%d',
                      self.path,
@@ -101,7 +110,7 @@ class PathManager(object):
                 else:
                     raise
         except Exception:
-            LOG.error('Could not set selinux context of %s to %s:',
+            LOG.exception('Could not set selinux context of %s to %s:',
                           self.path, context)
             raise
 
@@ -166,26 +175,33 @@ class NovaStatedirOwnershipManager(object):
             if pathname == self.upgrade_marker_path:
                 continue
 
-            pathinfo = PathManager(pathname)
-            LOG.info("Checking %s", pathinfo)
-            if pathinfo.is_dir:
-                # Always chown the directories
-                pathinfo.chown(self.target_uid, self.target_gid)
-                chcon_r = chcon
-                if chcon:
-                    chcon_r = pathinfo.chcon(self.target_secontext)
-                self._walk(pathname, chcon_r)
-            elif self.id_change:
-                # Only chown files if it's an upgrade and the file is owned by
-                # the host nova uid/gid
-                pathinfo.chown(
-                    self.target_uid if pathinfo.uid == self.previous_uid
-                    else pathinfo.uid,
-                    self.target_gid if pathinfo.gid == self.previous_gid
-                    else pathinfo.gid
-                )
-                if chcon:
-                    pathinfo.chcon(self.target_secontext)
+            try:
+                pathinfo = PathManager(pathname)
+                LOG.info("Checking %s", pathinfo)
+                if pathinfo.is_dir:
+                    # Always chown the directories
+                    pathinfo.chown(self.target_uid, self.target_gid)
+                    chcon_r = chcon
+                    if chcon:
+                        chcon_r = pathinfo.chcon(self.target_secontext)
+                    self._walk(pathname, chcon_r)
+                elif self.id_change:
+                    # Only chown files if it's an upgrade and the file is owned by
+                    # the host nova uid/gid
+                    pathinfo.chown(
+                        self.target_uid if pathinfo.uid == self.previous_uid
+                        else pathinfo.uid,
+                        self.target_gid if pathinfo.gid == self.previous_gid
+                        else pathinfo.gid
+                    )
+                    if chcon:
+                        pathinfo.chcon(self.target_secontext)
+            except Exception:
+                # Likely to have been caused by external systems
+                # interacting with this directory tree,
+                # especially on NFS e.g snapshot dirs.
+                # Just ignore it and continue on to the next entry
+                continue
 
     def run(self):
         LOG.info('Applying nova statedir ownership')
