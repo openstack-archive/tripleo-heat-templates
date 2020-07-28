@@ -122,7 +122,7 @@ def get_pci_passthrough_whitelist(user_config, pf, pci_addresses,
     pci_passthrough_list = []
 
     for pci in pci_addresses:
-        pci_passthrough = {}
+        pci_passthrough = dict(user_config)
         address = {}
         pci_params = re.split('[:.]+', pci)
         address['domain'] = '.*'
@@ -130,10 +130,11 @@ def get_pci_passthrough_whitelist(user_config, pf, pci_addresses,
         address['slot'] = pci_params[2]
         address['function'] = pci_params[3]
         pci_passthrough['address'] = address
-        pci_passthrough['vendor_id'] = device_info[pf][0]
-        pci_passthrough['product_id'] = device_info[pf][1]
-        if 'trusted' in user_config:
-            pci_passthrough['trusted'] = user_config['trusted']
+
+        # devname and address fields can't co exist
+        if 'devname' in pci_passthrough:
+            del pci_passthrough['devname']
+
         pci_passthrough_list.append(pci_passthrough)
     return pci_passthrough_list
 
