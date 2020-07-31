@@ -521,17 +521,6 @@ outputs:
                     force: false
                   with_items: "{{ hostvars[inventory_hostname]['pre_deployments_' ~ tripleo_role_name]|default([]) }}"
 
-                - name: Check for previous run of NetworkConfig
-                  stat:
-                    path: /var/lib/tripleo-config/os-net-config.returncode
-                  register: os_net_config_returncode_stat
-
-                - name: Check result of previous run of NetworkConfig
-                  slurp:
-                    path: /var/lib/tripleo-config/os-net-config.returncode
-                  when: os_net_config_returncode_stat.stat.exists
-                  register: os_net_config_returncode_slurp
-
                 - name: Check NetworkConfig script existence
                   local_action:
                     module: stat
@@ -543,74 +532,19 @@ outputs:
                         - "{{ tripleo_role_name ~ '/' ~ inventory_hostname ~ '/NetworkConfig' }}"
                         - "{{ tripleo_role_name ~ '/NetworkConfig' }}"
 
-                - name: NetworkConfig
-                  become: true
-                  block:
-                    - name: Create /var/lib/tripleo-config/scripts directory
-                      file:
-                        path: /var/lib/tripleo-config/scripts
-                        state: directory
-                        setype: svirt_sandbox_file_t
-                        selevel: s0
-                        recurse: true
-
-                    - name: Render NetworkConfig script
-                      template:
-                        dest: /var/lib/tripleo-config/scripts/run_os_net_config.sh
-                        src: "{{ NetworkConfig_stat.stat.path }}"
-                        mode: 0755
-
-                    - name: Run NetworkConfig script
-                      command: /var/lib/tripleo-config/scripts/run_os_net_config.sh
-                      async: "{{ async_timeout | default(300) }}"
-                      poll: "{{ async_poll | default(3) }}"
-                      environment:
-                        bridge_name: "{{ neutron_physical_bridge_name }}"
-                        interface_name: "{{ neutron_public_interface_name }}"
-                      register: NetworkConfig_result
-                      when:
-                        - not ansible_check_mode
-                      failed_when: NetworkConfig_result.rc is not defined
-
-                    - name: Write rc of NetworkConfig script
-                      copy:
-                        content: "{{ NetworkConfig_result.rc }}"
-                        dest: /var/lib/tripleo-config/os-net-config.returncode
-                      when:
-                        - NetworkConfig_result.rc is defined
-
-                    - name: NetworkConfig stdout
-                      debug:
-                        var: NetworkConfig_result.stderr_lines
-                      failed_when: NetworkConfig_result.rc != 0
-                      when:
-                        - NetworkConfig_result.rc is defined
-
-                    # os-net-config currently relies on the legacy network
-                    # so we need to ensure it's enabled on boot. This should
-                    # be removed when we switch to NetworkManager or replaced
-                    # with something that ensures NetworkManager is enabled.
-                    - name: Ensure network service is enabled
-                      systemd:
-                        name: network
-                        enabled: yes
-                        state: started
-
-                  # The conditions here are when we want to apply the
-                  # NetworkConfig. They are:
-                  # - If the stack_action is CREATE
-                  # - Or UPDATE is in the network_deployment_actions
-                  # - Or the previous run of NetworkConfig failed.
-                  # - Or it has never run
-                  # This will match the prior behavior of when a Heat
-                  # SoftwareDeployment was used.
-                  # It also ensures the script does exist as a sine qua non
-                  # condition
-                  when: NetworkConfig_stat.stat.exists and
-                        ((stack_action == "CREATE") or ("UPDATE" in network_deployment_actions) or
-                        (os_net_config_returncode_stat.stat.exists and
-                        ((os_net_config_returncode_slurp.content | b64decode) != 0)) or
-                        (not os_net_config_returncode_stat.stat.exists))
+                - name: Run Network Config
+                  import_role:
+                    name: tripleo-network-config
+                  vars:
+                    tripleo_network_config_script_path: "{{ NetworkConfig_stat.stat.path }}"
+                    tripleo_network_config_bridge_name: "{{ neutron_physical_bridge_name }}"
+                    tripleo_network_config_interface_name: "{{ neutron_public_interface_name }}"
+                    tripleo_network_config_action: "{{ stack_action }}"
+                    tripleo_network_config_network_deployment_actions: "{{ network_deployment_actions }}"
+                    tripleo_network_config_async_timeout: "{{ async_timeout | default(300) }}"
+                    tripleo_network_config_async_poll: "{{ async_poll | default(3) }}"
+                  when:
+                    - NetworkConfig_stat.stat.exists
 
                 - name: AllNodesValidationConfig
                   script: all_nodes_validation_script.sh
