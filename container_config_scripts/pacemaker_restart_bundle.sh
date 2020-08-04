@@ -39,8 +39,15 @@ if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
             HOSTNAME=$(/bin/hostname -s)
             SERVICE_NODEID=$(/bin/hiera -c /etc/puppet/hiera.yaml "${TRIPLEO_SERVICE}_short_bootstrap_node_name")
             if [[ "${HOSTNAME,,}" == "${SERVICE_NODEID,,}" ]]; then
-                echo "$(date -u): Restarting ${BUNDLE_NAME} globally"
-                /sbin/pcs resource restart --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
+                replicas_running=$(crm_resource -Q -r $BUNDLE_NAME --locate 2>&1 | wc -l)
+                if [ "$replicas_running" != "0" ]; then
+                    echo "$(date -u): Restarting ${BUNDLE_NAME} globally"
+                    /sbin/pcs resource restart --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
+                else
+                    echo "$(date -u): ${BUNDLE_NAME} is not running anywhere," \
+                         "cleaning up to restart it globally if necessary"
+                    /sbin/pcs resource cleanup $BUNDLE_NAME
+                fi
             else
                 echo "$(date -u): Skipping global restart of ${BUNDLE_NAME} on ${HOSTNAME} it will be restarted by node ${SERVICE_NODEID}"
             fi
