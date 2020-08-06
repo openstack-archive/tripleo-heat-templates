@@ -247,9 +247,9 @@ VALIDATE_PUPPET_OVERRIDE = {
   './deployment/rabbitmq/rabbitmq-messaging-notify-pacemaker-puppet.yaml': False,
   './deployment/rabbitmq/rabbitmq-messaging-rpc-pacemaker-puppet.yaml': False,
   # qdr aliases rabbitmq service to provide alternative messaging backend
-  './puppet/services/qdr.yaml': False,
+  './deployment/qdr/qdroutered-container-puppet.yaml': False,
   # puppet/services/messaging/*.yaml provide oslo_messaging services
-  './puppet/services/messaging/rpc-qdrouterd.yaml': False,
+  './deployment/messaging/rpc-qdrouterd-container-puppet.yaml': False,
 
 }
 VALIDATE_DOCKER_OVERRIDE = {
