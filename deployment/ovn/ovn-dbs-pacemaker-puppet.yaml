@@ -296,12 +296,6 @@ outputs:
           shell: "pcs resource ban ovn-dbs-bundle $(hostname | cut -d. -f1)"
           when:
             - step|int == 1
-        - name: Get docker ovn-dbs image
-          set_fact:
-            ovn_dbs_image: {get_param: ContainerOvnDbsImage}
-            ovn_dbs_image_latest: *ovn_dbs_image_pcmklatest
-        - name: set is_ovn_dbs_bootstrap_node fact
-          set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower}}
         - name: ovn-dbs fetch and retag container image for pacemaker
           when:
             - step|int == 3
@@ -323,6 +317,9 @@ outputs:
                 container_image_latest: "{{ovn_dbs_image_latest}}"
               when:
                 - old_ovn_dbs_image_id.stdout != new_ovn_dbs_image_id.stdout
+          vars:
+            ovn_dbs_image: {get_param: ContainerOvnDbsImage}
+            ovn_dbs_image_latest: *ovn_dbs_image_pcmklatest
         # We remove any leftover error and remove the ban.
         - name: Ensure the cluster converge back even in case of schema change
           shell: "pcs resource cleanup ovn-dbs-bundle"
@@ -340,7 +337,7 @@ outputs:
         - name: Update ovn-dbs-bundle resource to use pcmklatest tag image if not used
           when:
             - step|int == 5
-            - is_ovn_dbs_bootstrap_node
+            - ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower
           block:
             - name: Get the present image used by ovn-dbs-bundle
               shell: "pcs resource config ovn-dbs-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
@@ -388,13 +385,10 @@ outputs:
             - name: Set fact ovn_dbs_pcs_res
               set_fact:
                 ovn_dbs_pcs_res: "{{ ovn_dbs_pcs_result.rc == 0 }}"
-            - name: set is_ovn_dbs_bootstrap_node fact
-              tags: common
-              set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower}}
         - name: Update ovn_dbs pcs resource bundle for new container image
           when:
             - step|int == 1
-            - is_ovn_dbs_bootstrap_node
+            - ovn_dbs_short_bootstrap_node_name|lower == ansible_hostname|lower
             - ovn_dbs_pcs_res|bool
             - ovn_dbs_image_current != ovn_dbs_image_latest
           block:
