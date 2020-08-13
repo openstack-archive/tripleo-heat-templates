@@ -120,3 +120,63 @@ outputs:
             - {get_param: PacemakerRemoteLoggingSource}
       step_config: |
         include tripleo::profile::base::pacemaker_remote
+      upgrade_tasks:
+        - name: Create hiera data to upgrade pacemaker remote in a stepwise manner.
+          when:
+            - step|int == 1
+          block:
+            - name: set pacemaker upgrade remote node facts in a single-node environment
+              set_fact:
+                pacemaker_remote_short_node_names_upgraded: "{{ pacemaker_remote_short_node_names }}"
+                cacheable: no
+              when: groups['pacemaker_remote'] | length <= 1
+            - name: set pacemaker remote upgrade node facts from the limit option
+              set_fact:
+                pacemaker_remote_short_node_names_upgraded: "{{ pacemaker_remote_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                cacheable: no
+              when:
+                - groups['pacemaker_remote'] | length > 1
+                - item.split('.')[0] in ansible_limit.split(':')
+              loop: "{{ pacemaker_remote_short_node_names | default([]) }}"
+            - debug:
+                msg: "Prepare pacemaker remote upgrade for {{ pacemaker_remote_short_node_names_upgraded }}"
+            - name: set pacemaker remote node ips fact from the names fact
+              set_fact:
+                # Generate matching IPs for the names, e.g. for these varaible values:
+                #     pacemaker_node_ips: [ "1", "2", "3" ]
+                #     pacemaker_short_node_names: [ "a", "b", "c" ]
+                #     pacemaker_short_node_names_override: [ "b" ]
+                # it will set:
+                #     pacemaker_node_ips_override: [ "2" ]
+                pacemaker_remote_node_ips_upgraded: "{{
+                  dict(pacemaker_remote_short_node_names|zip(pacemaker_remote_node_ips))
+                  | dict2items
+                  | selectattr('key', 'in', pacemaker_remote_short_node_names_upgraded)
+                  | map(attribute='value')
+                  | list }}"
+                cacheable: no
+            - name: add the pacemaker remote short name to hiera data for the upgrade.
+              include_role:
+                name: tripleo_upgrade_hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: pacemaker_remote_short_node_names_override
+                tripleo_upgrade_value: "{{pacemaker_remote_short_node_names_upgraded}}"
+            - name: add the pacemaker remote ips to hiera data for the upgrade.
+              include_role:
+                name: tripleo_upgrade_hiera
+                tasks_from: set.yml
+              vars:
+                tripleo_upgrade_key: pacemaker_remote_node_ips_override
+                tripleo_upgrade_value: "{{pacemaker_remote_node_ips_upgraded}}"
+      post_upgrade_tasks:
+        - name: remove the extra hiera data needed for the upgrade.
+          when: step|int == 1
+          include_role:
+            name: tripleo_upgrade_hiera
+            tasks_from: remove.yml
+          vars:
+            tripleo_upgrade_key: "{{item}}"
+          loop:
+            - pacemaker_remote_short_node_names_override
+            - pacemaker_remote_node_ips_override
