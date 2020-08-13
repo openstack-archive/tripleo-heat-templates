@@ -34,23 +34,6 @@ parameters:
     default: 'false'
     description: Set to true to enable package installation at deploy time
     type: boolean
-  FastForwardRepoType:
-    default: 'tripleo-repos'
-    type: string
-    constraints:
-      - allowed_values: ['tripleo-repos', 'custom-script']
-  FastForwardRepoArgs:
-    default: {'tripleo_repos': {'rocky': '-b rocky current', 'stein': '-b stein current', 'train': '-b train current'}}
-    type: json
-  FastForwardCustomRepoScriptContent:
-    default: |
-      #!/bin/bash
-      set -e
-      echo "If you use FastForwardRepoType 'custom-script' you have to provide the upgrade repo script content."
-      echo "It will be installed as /root/ffu_upgrade_repo.sh on the node"
-      echo "and passed the upstream name (rocky, stein, train) of the release as first argument"
-      exit 1
-    type: string
   GlanceNodeStagingUri:
     default: 'file:///var/lib/glance/staging'
     description: >
@@ -475,79 +458,3 @@ outputs:
             enabled: yes
             state: started
           ignore_errors: true
-      fast_forward_upgrade_tasks:
-        - block:
-            - name: set is_bootstrap_node fact
-              set_fact: is_bootstrap_node={{tripleo_packages_short_bootstrap_node_name|lower == ansible_hostname|lower}}
-            - name: Register repo type and args
-              set_fact:
-                fast_forward_repo_type: {get_param: FastForwardRepoType}
-                fast_forward_repo_args: {get_param: FastForwardRepoArgs}
-            - debug:
-                msg: "fast_forward_repo_type: {{ fast_forward_repo_type }} fast_forward_repo_args: {{ fast_forward_repo_args }}"
-          when:
-            - step|int == 3
-        - block:
-            - name: clone tripleo-repos
-              git:
-                repo: https://github.com/openstack/tripleo-repos.git
-                dest: /home/stack/tripleo-repos/
-            - name: install tripleo-repos
-              command: python setup.py install
-              args:
-                chdir: /home/stack/tripleo-repos/
-            - name: Enable tripleo-repos
-              command: "tripleo-repos {{ fast_forward_repo_args.tripleo_repos[release] }}"
-          when:
-            - step|int == 3
-            - is_bootstrap_node|bool
-            - fast_forward_repo_type == 'tripleo-repos'
-        - block:
-            - name: Create custom Script for upgrading repo.
-              copy:
-                dest: /root/ffu_update_repo.sh
-                content: {get_param: FastForwardCustomRepoScriptContent}
-                mode: 0700
-            - name: Execute custom script for upgrading repo.
-              shell: "/root/ffu_update_repo.sh {{release}}"
-          when:
-            - step|int == 3
-            - is_bootstrap_node|bool
-            - fast_forward_repo_type == 'custom-script'
-      fast_forward_post_upgrade_tasks:
-        - block:
-            - name: Register repo type and args
-              set_fact:
-                fast_forward_repo_type: {get_param: FastForwardRepoType}
-                fast_forward_repo_args: {get_param: FastForwardRepoArgs}
-            - debug:
-                msg: "fast_forward_repo_type: {{ fast_forward_repo_type }} fast_forward_repo_args: {{ fast_forward_repo_args }}"
-          when:
-            - step|int == 3
-        - block:
-            - name: clone tripleo-repos
-              git:
-                repo: https://github.com/openstack/tripleo-repos.git
-                dest: /home/stack/tripleo-repos/
-            - name: install tripleo-repos
-              command: python setup.py install
-              args:
-                chdir: /home/stack/tripleo-repos/
-            - name: Enable tripleo-repos
-              command: "tripleo-repos {{ fast_forward_repo_args.tripleo_repos[release] }}"
-          when:
-            - step|int == 3
-            - is_bootstrap_node|bool
-            - fast_forward_repo_type == 'tripleo-repos'
-        - block:
-            - name: Create custom Script for upgrading repo.
-              copy:
-                dest: /root/ffu_update_repo.sh
-                content: {get_param: FastForwardCustomRepoScriptContent}
-                mode: 0700
-            - name: Execute custom script for upgrading repo.
-              shell: "/root/ffu_update_repo.sh {{release}}"
-          when:
-            - step|int == 3
-            - is_bootstrap_node|bool
-            - fast_forward_repo_type == 'custom-script'

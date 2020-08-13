@@ -176,36 +176,6 @@ all containerized services and the updated configuration if any.
 Note: as pacemaker is not containerized, the points 1 and 4 happen in
 deployment/pacemaker/pacemaker-baremetal-puppet.yaml.
 
-Fast-forward Upgrade Steps
---------------------------
-
-Each service template may optionally define a `fast_forward_upgrade_tasks` key,
-which is a list of Ansible tasks to be performed during the fast-forward
-upgrade process. As with Upgrade steps each task is associated to a particular
-step provided as a variable and used along with a release variable by a basic
-conditional that determines when the task should run.
-
-Steps are broken down into two categories, prep tasks executed across all hosts
-and bootstrap tasks executed on a single host for a given role.
-
-The individual steps then correspond to the following tasks during the upgrade:
-
-Prep steps:
-
-- Step=0: Check running services
-- Step=1: Stop the service
-- Step=2: Stop the cluster
-- Step=3: Update repos
-
-Bootstrap steps:
-
-- Step=4: DB backups
-- Step=5: Pre package update commands
-- Step=6: Package updates
-- Step=7: Post package update commands
-- Step=8: DB syncs
-- Step=9: Verification
-
 Input Parameters
 ----------------
 
