@@ -239,4 +239,33 @@ outputs:
                 - []
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]
-      upgrade_tasks: []
+      upgrade_tasks:
+        - name: upgrade prepare for leapp to remove extra sriov vfs
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_prepare
+          when:
+            - step|int == 3
+            - upgrade_leapp_enabled
+          block:
+            - name: reset all vfs as leapp will look for all interfaces on reboot
+              shell: |
+                for item in $(find /sys/class/net/ -type l); do
+                    DEVPATH="$item/device/sriov_numvfs"
+                    if [ -f $DEVPATH ]; then
+                      NUM_VFS=$(cat $DEVPATH)
+                      if [[ $NUM_VFS != 0 ]]; then
+                        echo 0 >$DEVPATH
+                      fi
+                    fi
+                done
+            - name: remove sriov_config service for leapp upgrade
+              file:
+                path: "/etc/systemd/system/sriov_config.service"
+                state: absent
+              register: sriov_config_remove_result
+            - name: reload systemd daemon after removing sriov_config service
+              systemd:
+                daemon-reload: yes
+              when: sriov_config_remove_result['changed']
