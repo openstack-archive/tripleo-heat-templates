@@ -66,6 +66,44 @@ parameters:
     description: The password for the aodh services.
     type: string
     hidden: true
+  AodhAlarmHistoryTTL:
+    description: Number of seconds that alarm histories are kept in the database
+    default: '86400'
+    type: string
+  EnableAodhExpirer:
+     type: boolean
+     default: true
+     description: Enable aodh expirer to periodically delete alarms from db
+  AodhExpirerMinute:
+    type: string
+    description: >
+        Cron to delete alarms data from db - Minute
+    default: '1'
+  AodhExpirerHour:
+    type: string
+    description: >
+        Cron to delete alarms data from db - Hour
+    default: '0'
+  AodhExpirerMonthday:
+    type: string
+    description: >
+        Cron to delete alarms data from db - Month Day
+    default: '*'
+  AodhExpirerMonth:
+    type: string
+    description: >
+        Cron to delete alarms data from db - Month
+    default: '*'
+  AodhExpirerWeekday:
+    type: string
+    description: >
+        Cron to delete alarms from db - Week Day
+    default: '*'
+  AodhExpirerMaxDelay:
+    type: string
+    description: >
+        Cron to delete alarms from db - Max Delay
+    default: '3600'
 
 conditions:
 
@@ -157,6 +195,14 @@ outputs:
                    "%{hiera('$NETWORK')}"
                  params:
                    $NETWORK: {get_param: [ServiceNetMap, AodhApiNetwork]}
+            aodh::alarm_hostory_time_to_live: {get_param: AodhAlarmHistoryTTL}
+            enable_aodh_expirer: {get_param: EnableAodhExpirer}
+            aodh::expirer::minute: {get_param: AodhExpirerMinute}
+            aodh::expirer::hour: {get_param: AodhExpirerHour}
+            aodh::expirer::monthday: {get_param: AodhExpirerMonthday}
+            aodh::expirer::month: {get_param: AodhExpirerMonth}
+            aodh::expirer::weekday: {get_param: AodhExpirerWeekday}
+            aodh::expirer::maxdelay: {get_param: AodhExpirerMaxDelay}
       service_config_settings: {get_attr: [AodhBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -183,6 +229,17 @@ outputs:
               optional: true
               merge: false
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/aodh
+              owner: aodh:aodh
+              recurse: true
+        /var/lib/kolla/config_files/aodh_api_cron.json:
+          command: /usr/sbin/crond -n
+          config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
@@ -246,6 +303,22 @@ outputs:
                     - []
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          aodh_api_cron:
+            image: *aodh_api_image
+            net: host
+            user: root
+            privileged: false
+            restart: always
+            healthcheck:
+              test: '/usr/share/openstack-tripleo-common/healthcheck/cron aodh'
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/aodh_api_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/aodh:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/aodh:/var/log/aodh
+                  - /var/log/containers/httpd/aodh-api:/var/log/httpd
       host_prep_tasks:
       - name: create persistent logs directory
         file:
@@ -272,4 +345,5 @@ outputs:
               vars:
                 tripleo_containers_to_stop:
                   - aodh_api
+                  - aodh_api_cron
                 tripleo_delegate_to: "{{ groups['aodh_api'] | default([]) }}"
