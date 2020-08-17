@@ -57,6 +57,51 @@ parameters:
                  When not set, the list is inferred via the storage back end/s
                  enabled.
     type: comma_delimited_list
+  ManilaCronDbPurgeMinute:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Minute
+    default: '1'
+  ManilaCronDbPurgeHour:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Hour
+    default: '0'
+  ManilaCronDbPurgeMonthday:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Month Day
+    default: '*'
+  ManilaCronDbPurgeMonth:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Month
+    default: '*'
+  ManilaCronDbPurgeWeekday:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Week Day
+    default: '*'
+  ManilaCronDbPurgeUser:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - User
+    default: 'manila'
+  ManilaCronDbPurgeAge:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Age
+    default: '30'
+  ManilaCronDbPurgeDestination:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Log destination
+    default: '/var/log/manila/manila-rowsflush.log'
+  ManilaCronDbPurgeMaxDelay:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Max Delay
+    default: '3600'
 
 conditions:
 
@@ -157,6 +202,15 @@ outputs:
             manila::api::enable_proxy_headers_parsing: true
             manila::api::default_share_type: 'default'
             manila_enabled_share_protocols: {get_param: ManilaEnabledShareProtocols}
+            manila::cron::db_purge::minute: {get_param: ManilaCronDbPurgeMinute}
+            manila::cron::db_purge::hour: {get_param: ManilaCronDbPurgeHour}
+            manila::cron::db_purge::monthday: {get_param: ManilaCronDbPurgeMonthday}
+            manila::cron::db_purge::month: {get_param: ManilaCronDbPurgeMonth}
+            manila::cron::db_purge::weekday: {get_param: ManilaCronDbPurgeWeekday}
+            manila::cron::db_purge::user: {get_param: ManilaCronDbPurgeUser}
+            manila::cron::db_purge::age: {get_param: ManilaCronDbPurgeAge}
+            manila::cron::db_purge::destination: {get_param: ManilaCronDbPurgeDestination}
+            manila::cron::db_purge::maxdelay: {get_param: ManilaCronDbPurgeMaxDelay}
           - manila::wsgi::apache::servername:
               str_replace:
                 template:
@@ -193,6 +247,17 @@ outputs:
               optional: true
               merge: false
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/manila
+              owner: manila:manila
+              recurse: true
+        /var/lib/kolla/config_files/manila_api_cron.json:
+          command: /usr/sbin/crond -n
+          config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
@@ -250,6 +315,24 @@ outputs:
                     - internal_tls_enabled
                     - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                     - []
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          manila_api_cron:
+            image: *manila_api_image
+            net: host
+            user: root
+            privileged: false
+            restart: always
+            healthcheck:
+              test: '/usr/share/openstack-tripleo-common/healthcheck/cron manila'
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/manila_api_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/manila:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/manila:/var/log/manila:z
+                  - /var/log/containers/httpd/manila-api:/var/log/httpd:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       metadata_settings:
