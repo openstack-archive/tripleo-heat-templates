@@ -846,13 +846,6 @@ outputs:
 
       external_deploy_steps_tasks: {get_attr: [ExternalDeployTasks, value]}
       external_post_deploy_steps_tasks: {get_attr: [ExternalPostDeployTasks, value]}
-      update_steps_tasks: |
-{%- for role in roles %}
-            - include_tasks: {{role.name}}/update_tasks.yaml
-              when: tripleo_role_name == '{{role.name}}'
-              tags:
-                - always
-{%- endfor %}
       update_steps_playbook:
 {{ self.deploy_steps_str_replace_params() }}
           template: |
@@ -880,33 +873,28 @@ outputs:
                 tripleo_minor_update: true
               tasks:
                 - import_tasks: hiera_steps_tasks.yaml
-                - include_tasks: update_steps_tasks.yaml
-                  with_sequence: start=0 end={{update_steps_max-1}}
-                  loop_control:
-                    loop_var: step
-                  tags:
-                    - always
-                - include_tasks: {{role.name}}/host_prep_tasks.yaml
+{%- for step in range(0,update_steps_max) %}
+                - import_tasks: "{{ role.name }}/update_tasks_step{{ step }}.yaml"
+                  vars:
+                    step: "{{ step }}"
+{%- endfor %}
+                - import_tasks: "{{role.name}}/host_prep_tasks.yaml"
                   when: tripleo_role_name == '{{role.name}}'
-                  tags:
-                    - always
                 - import_tasks: deploy_steps_tasks_step_0.yaml
                   vars:
                     step: 0
                 - name: Write config data at the start of step 1
                   import_tasks: common_deploy_steps_tasks_step_1.yaml
-                - include_tasks: common_deploy_steps_tasks.yaml
-                  with_sequence: start=1 end={{deploy_steps_max-1}}
-                  loop_control:
-                    loop_var: step
-                  tags:
-                    - always
-                - include_tasks: post_update_steps_tasks.yaml
-                  with_sequence: start=0 end={{post_update_steps_max-1}}
-                  loop_control:
-                    loop_var: step
-                  tags:
-                    - always
+{%- for step in range(1,deploy_steps_max) %}
+                - import_tasks: common_deploy_steps_tasks.yaml
+                  vars:
+                    step: "{{ step }}"
+{%- endfor %}
+{%- for step in range(0,post_update_steps_max) %}
+                - import_tasks: "{{ role.name }}/post_update_tasks_step{{ step }}.yaml"
+                  vars:
+                    step: "{{ step }}"
+{%- endfor %}
 {%- endfor %}
       external_update_steps_tasks: {get_attr: [ExternalUpdateTasks, value]}
       external_update_steps_playbook:
