@@ -78,16 +78,58 @@ outputs:
                 - dashboard_enabled
                 - - '9100'
                 - []
-      upgrade_tasks:
-        - name: Check legacy Ceph hieradata
-          tags: validation
-          when: step|int == 0
-          shell: test "nil" == "$(hiera -c /etc/puppet/hiera.yaml ceph::profile::params::osds)"
       service_config_settings:
         collectd:
           tripleo.collectd.plugins.ceph_osd:
             - ceph
           collectd::plugin::ceph::daemons: []
+      upgrade_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, upgrade_tasks]}
+        - - block:
+              - name: Check for docker cli
+                stat:
+                  path: "/var/run/docker.sock"
+                register: check_docker_cli
+                check_mode: false
+              - name: Set noout flag
+                shell: "{{ container_client }} exec -u root ceph-mon-${HOSTNAME} ceph osd set {{ item }}"
+                become: true
+                with_items:
+                  - noout
+                  - norecover
+                  - nobackfill
+                  - norebalance
+                  - nodeep-scrub
+                vars:
+                  container_client: |-
+                    {% set container_client = 'podman' %}
+                    {%   if check_docker_cli.stat.exists|bool %}
+                    {%     set container_client = 'docker' %}
+                    {%   endif %}
+                    {{ container_client }}
+            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+            tags:
+              - never
+              - system_upgrade
+              - system_upgrade_prepare
+            when:
+              - step|int == 1
+              - upgrade_leapp_enabled
+      post_upgrade_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, post_upgrade_tasks]}
+        - - name: Unset noout flag
+            shell: "{{ container_cli }} exec -u root ceph-mon-${HOSTNAME} ceph osd unset {{ item }}"
+            with_items:
+              - noout
+              - norecover
+              - nobackfill
+              - norebalance
+              - nodeep-scrub
+            when: step|int == 2
+            become: true
+            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
       puppet_config:
         config_image: ''
         config_volume: ''
