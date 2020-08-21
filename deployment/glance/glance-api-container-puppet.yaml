@@ -309,6 +309,56 @@ parameters:
   ContainerGlanceApiConfigImage:
     description: The container image to use for the glance_api config_volume
     type: string
+  GlanceCronDbPurgeMinute:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Minute
+    default: '1'
+  GlanceCronDbPurgeHour:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Hour
+    default: '0'
+  GlanceCronDbPurgeMonthday:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Month Day
+    default: '*'
+  GlanceCronDbPurgeMonth:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Month
+    default: '*'
+  GlanceCronDbPurgeWeekday:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Week Day
+    default: '*'
+  GlanceCronDbPurgeUser:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - User
+    default: 'glance'
+  GlanceCronDbPurgeAge:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Age
+    default: '30'
+  GlanceCronDbPurgeMaxRows:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Max Rows
+    default: '100'
+  GlanceCronDbPurgeDestination:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Log destination
+    default: '/var/log/glance/glance-rowsflush.log'
+  GlanceCronDbPurgeMaxDelay:
+    type: string
+    description: >
+        Cron to purge db entries marked as deleted and older than $age - Max Delay
+    default: '3600'
 
 conditions:
   cinder_backend_enabled:
@@ -505,6 +555,16 @@ outputs:
             tripleo::profile::base::glance::api::multistore_config: {get_param: GlanceMultistoreConfig}
             tripleo::profile::base::glance::backend::rbd::glance_rbd_ceph_conf_path: {get_param: CephConfigPath}
             glance::notify::rabbitmq::notification_driver: {get_param: NotificationDriver}
+            glance::cron::db_purge::minute: {get_param: GlanceCronDbPurgeMinute}
+            glance::cron::db_purge::hour: {get_param: GlanceCronDbPurgeHour}
+            glance::cron::db_purge::monthday: {get_param: GlanceCronDbPurgeMonthday}
+            glance::cron::db_purge::month: {get_param: GlanceCronDbPurgeMonth}
+            glance::cron::db_purge::weekday: {get_param: GlanceCronDbPurgeWeekday}
+            glance::cron::db_purge::user: {get_param: GlanceCronDbPurgeUser}
+            glance::cron::db_purge::age: {get_param: GlanceCronDbPurgeAge}
+            glance::cron::db_purge::max_rows: {get_param: GlanceCronDbPurgeMaxRows}
+            glance::cron::db_purge::destination: {get_param: GlanceCronDbPurgeDestination}
+            glance::cron::db_purge::maxdelay: {get_param: GlanceCronDbPurgeMaxDelay}
           - if:
             - glance_workers_set
             - glance::api::workers: {get_param: GlanceWorkers}
@@ -615,6 +675,17 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/glance_api_cron.json:
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/glance
+              owner: glance:glance
+              recurse: true
       docker_config:
         step_2:
           get_attr: [GlanceLogging, docker_config, step_2]
@@ -683,6 +754,24 @@ outputs:
                       - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          glance_api_cron:
+            start_order: 2
+            image: *glance_api_image
+            net: host
+            user: root
+            privileged: false
+            restart: always
+            healthcheck:
+              test: '/usr/share/openstack-tripleo-common/healthcheck/cron glance'
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [GlanceLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/glance_api_cron.json:/var/lib/kolla/config_files/config.json
+                  - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         list_concat:
         - {get_attr: [GlanceLogging, host_prep_tasks]}
@@ -739,4 +828,5 @@ outputs:
               vars:
                 tripleo_containers_to_stop:
                   - glance_api
+                  - glance_api_cron
                 tripleo_delegate_to: "{{ groups['glance_api'] | default([]) }}"
