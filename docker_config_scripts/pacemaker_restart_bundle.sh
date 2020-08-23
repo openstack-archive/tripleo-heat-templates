@@ -14,8 +14,14 @@ if /usr/sbin/pcs resource show $RESOURCE; then
         # every node the resource runs on, after the service's configs
         # have been updated on all nodes. So we need to run pcs only
         # once (e.g. on the service's boostrap node).
-        echo "$(date -u): Restarting ${RESOURCE} globally"
-        /usr/bin/bootstrap_host_exec $TRIPLEO_SERVICE /sbin/pcs resource restart --wait=__PCMKTIMEOUT__ $RESOURCE
+        HOSTNAME=$(/bin/hostname -s)
+        SERVICE_NODEID=$(/bin/hiera -c /etc/puppet/hiera.yaml "${TRIPLEO_SERVICE}_short_bootstrap_node_name")
+        if [[ "${HOSTNAME,,}" == "${SERVICE_NODEID,,}" ]]; then
+            echo "$(date -u): Restarting ${RESOURCE} globally. Stopping:"
+            /sbin/pcs resource disable --wait=__PCMKTIMEOUT__ $RESOURCE
+            echo "$(date -u): Restarting ${RESOURCE} globally. Starting:"
+            /sbin/pcs resource enable --wait=__PCMKTIMEOUT__ $RESOURCE
+        fi
     else
         # During a minor update workflow however, a host gets fully
         # updated before updating the next one. So unlike stack
