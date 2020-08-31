@@ -242,9 +242,6 @@ WORKFLOW_TASKS_EXCLUSIONS = [
     './deployment/ceph-ansible/ceph-base.yaml',
     './deployment/ceph-ansible/ceph-mon.yaml',
     './deployment/ceph-ansible/ceph-mgr.yaml',
-    './docker/services/skydive/skydive-base.yaml',
-    './docker/services/skydive/skydive-agent.yaml',
-    './docker/services/skydive/skydive-analyzer.yaml',
 ]
 
 
