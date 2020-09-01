@@ -97,6 +97,12 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  CephMsgrSecureMode:
+    type: boolean
+    default: false
+    description: >
+      Enable Ceph msgr2 secure mode to enable on-wire encryption between Ceph
+      daemons and also between Ceph clients and daemons.
   CephPoolDefaultPgNum:
     description: default pg_num to use for the RBD pools
     type: number
@@ -344,6 +350,7 @@ conditions:
   deprecated_data_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSDataPoolPGNum}, 128]}}
   deprecated_metadata_pool_pgnum: {not: {equals: [{get_param: ManilaCephFSMetadataPoolPGNum}, 128]}}
   dashboard_is_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
+  msgr_secure_mode: {equals: [{get_param: CephMsgrSecureMode}, true]}
   custom_registry_host:
     yaql:
       data: {get_param: ContainerCephDaemonImage}
@@ -406,6 +413,17 @@ resources:
           yaql:
             expression: $.data.rightSplit(':', 1)[1]
             data: {get_param: ContainerCephDaemonImage}
+
+  MsgrSecureModeOverrides:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          global:
+            ms_cluster_mode: secure
+            ms_service_mode: secure
+            ms_client_mode: secure
 
   DefaultCephConfigOverrides:
     type: OS::Heat::Value
@@ -601,7 +619,15 @@ outputs:
                 ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
                 manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
                 ceph_keys: {get_attr: [CephKeyVars, value, vars]}
-                ceph_default_overrides: {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                ceph_default_overrides:
+                  if:
+                  - msgr_secure_mode
+                  - yaql:
+                      expression: ($.data.default).mergeWith($.data.secure)
+                      data:
+                        default: {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                        secure: {get_attr: [MsgrSecureModeOverrides, value, vars]}
+                  - {get_attr: [DefaultCephConfigOverrides, value, vars]}
                 ceph_config_overrides: {get_param: CephConfigOverrides}
             - name: set ceph-ansible facts
               set_fact:
