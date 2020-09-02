@@ -248,55 +248,6 @@ outputs:
               perm: '0600'
               optional: true
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
-      docker_config:
-        step_2:
-          haproxy_init_bundle:
-            start_order: 2
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            privileged: true
-            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-              list_concat:
-                - - '/container_puppet_apply.sh'
-                  - '2'
-                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
-                  - 'include tripleo::profile::base::pacemaker; include tripleo::profile::pacemaker::haproxy_bundle'
-                - if:
-                  - puppet_debug_enabled
-                  - - '--debug'
-                  - - ''
-            image: {get_param: ContainerHAProxyImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                - yaql:
-                    expression: $.data.select($+":"+$+":ro")
-                    data: *tls_mapping_init_bundle
-                - if:
-                  - docker_enabled
-                  - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - null
-            environment:
-              # NOTE: this should force this container to re-run on each
-              # update (scale-out, etc.)
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          haproxy_restart_bundle:
-            start_order: 3
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            config_volume: haproxy
-            environment:
-              TRIPLEO_MINOR_UPDATE: ''
-            command: /var/lib/container-config-scripts/pacemaker_restart_bundle.sh haproxy haproxy-bundle haproxy-bundle Started
-            image: {get_param: ContainerHAProxyImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
-                - - /var/lib/config-data/puppet-generated/haproxy:/var/lib/kolla/config_files/src:ro
       host_prep_tasks:
         - {get_attr: [HAProxyBase, role_data, host_prep_tasks]}
         - name: create persistent directories
@@ -364,6 +315,21 @@ outputs:
           vars:
             container_image: {get_param: ContainerHAProxyImage}
             container_image_latest: *haproxy_image_pcmklatest
+        - name: HAproxy HA Wrappers Step
+          when: step|int == 2
+          block: &haproxy_puppet_bundle
+            - name: HAproxy puppet bundle
+              import_role:
+                name: tripleo_ha_wrapper
+              vars:
+                tripleo_ha_wrapper_service_name: haproxy
+                tripleo_ha_wrapper_resource_name: haproxy-bundle
+                tripleo_ha_wrapper_bundle_name: haproxy-bundle
+                tripleo_ha_wrapper_resource_state: Started
+                tripleo_ha_wrapper_puppet_config_volume: haproxy
+                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::haproxy_bundle'
+                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
       update_tasks:
         - name: Tear-down non-HA haproxy container
           when:
@@ -443,6 +409,13 @@ outputs:
                 container_image_latest: "{{haproxy_image_latest}}"
               when:
                 - old_haproxy_image_id.stdout != new_haproxy_image_id.stdout
+
+      post_update_tasks:
+        - name: HAProxy bundle post update
+          when: step|int == 1
+          block: *haproxy_puppet_bundle
+          vars:
+            tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
         - name: Tear-down non-HA haproxy container
