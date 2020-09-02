@@ -264,7 +264,7 @@ outputs:
                       - {get_param: MysqlRootPassword}
                       - {get_param: [DefaultPasswords, mysql_root_password]}
         step_2:
-          mysql_init_bundle:
+          mysql_wait_bundle:
             start_order: 0
             detach: false
             net: host
@@ -274,8 +274,8 @@ outputs:
               list_concat:
                 - - '/container_puppet_apply.sh'
                   - '2'
-                  - 'file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation,galera_ready,mysql_database,mysql_grant,mysql_user'
-                  - 'include tripleo::profile::base::pacemaker;include tripleo::profile::pacemaker::database::mysql_bundle'
+                  - 'file,file_line,concat,augeas,galera_ready,mysql_database,mysql_grant,mysql_user'
+                  - 'include tripleo::profile::pacemaker::database::mysql_bundle'
                 - if:
                   - puppet_debug_enabled
                   - - '--debug'
@@ -294,21 +294,6 @@ outputs:
               # NOTE: this should force this container to re-run on each
               # update (scale-out, etc.)
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          mysql_restart_bundle:
-            start_order: 1
-            config_volume: mysql
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            environment:
-              TRIPLEO_MINOR_UPDATE: ''
-            command: /var/lib/container-config-scripts/pacemaker_restart_bundle.sh mysql galera galera-bundle Master
-            image: {get_param: ContainerMysqlImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
-                - - /var/lib/config-data/puppet-generated/mysql:/var/lib/kolla/config_files/src:ro
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -330,6 +315,21 @@ outputs:
           vars:
             container_image: {get_param: ContainerMysqlImage}
             container_image_latest: *mysql_image_pcmklatest
+        - name: MySQL HA Wrappers Step
+          when: step|int == 2
+          block: &mysql_puppet_bundle
+            - name: Mysql puppet bundle
+              import_role:
+                name: tripleo_ha_wrapper
+              vars:
+                tripleo_ha_wrapper_service_name: mysql
+                tripleo_ha_wrapper_resource_name: galera
+                tripleo_ha_wrapper_bundle_name: galera-bundle
+                tripleo_ha_wrapper_resource_state: Master
+                tripleo_ha_wrapper_puppet_config_volume: mysql
+                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::database::mysql_bundle'
+                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
 
       update_tasks:
         - name: Tear-down non-HA mysql container
@@ -387,6 +387,13 @@ outputs:
                 container_image_latest: "{{galera_image_latest}}"
               when:
                 - old_galera_image_id.stdout != new_galera_image_id.stdout
+
+      post_update_tasks:
+        - name: Mysql bundle post update
+          when: step|int == 1
+          block: *mysql_puppet_bundle
+          vars:
+            tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
         - name: Tear-down non-HA mysql container
@@ -539,7 +546,7 @@ outputs:
                 name: tripleo_container_rm
               vars:
                 tripleo_containers_to_rm:
-                  - mysql_init_bundle
+                  - mysql_wait_bundle
               when:
                 - mysql_short_node_names_upgraded | length > 1
             - name: add the mysql short name to hiera data for the upgrade.
