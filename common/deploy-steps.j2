@@ -532,6 +532,49 @@ outputs:
 
             - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
               strategy: tripleo_free
+              name: Server network deployments
+              gather_facts: "{% raw %}{{ gather_facts | default(false) }}{% endraw %}"
+              any_errors_fatal: yes
+              tasks:
+{% raw %}
+                - name: Check NetworkConfig script existence
+                  local_action:
+                    module: stat
+                    path: "{{ lookup('first_found', NetworkConfig_paths, errors='ignore') }}"
+                  register: NetworkConfig_stat
+                  vars:
+                      NetworkConfig_paths:
+                        - "{{ tripleo_role_name ~ '/' ~ inventory_hostname ~ '/NetworkConfig' }}"
+                        - "{{ tripleo_role_name ~ '/NetworkConfig' }}"
+                - name: Run Network Config
+                  import_role:
+                    name: tripleo_network_config
+                  vars:
+                    tripleo_network_config_script_path: "{{ NetworkConfig_stat.stat.path }}"
+                    tripleo_network_config_bridge_name: "{{ neutron_physical_bridge_name }}"
+                    tripleo_network_config_interface_name: "{{ neutron_public_interface_name }}"
+                    tripleo_network_config_action: "{{ stack_action }}"
+                    tripleo_network_config_network_deployment_actions: "{{ network_deployment_actions }}"
+                    tripleo_network_config_async_timeout: "{{ async_timeout | default(300) }}"
+                    tripleo_network_config_async_poll: "{{ async_poll | default(3) }}"
+                  when:
+                    - NetworkConfig_stat.stat.exists
+                - name: AllNodesValidationConfig
+                  script: all_nodes_validation_script.sh
+                  environment:
+                    validate_controllers_icmp: "{{ validate_controllers_icmp }}"
+                    validate_gateways_icmp: "{{ validate_gateways_icmp }}"
+                    validate_fqdn: "{{ validate_fqdn }}"
+                    ping_test_ips: "{{ ping_test_ips | to_json }}"
+                    tripleo_role_name: "{{ tripleo_role_name }}"
+              tags:
+                - overcloud
+                - pre_deploy_steps
+                - network_deploy_steps
+{% endraw %}
+
+            - hosts: {{primary_role_name}}:DEPLOY_TARGET_HOST
+              strategy: tripleo_free
               name: Server deployments
               gather_facts: "{% raw %}{{ gather_facts | default(false) }}{% endraw %}"
               any_errors_fatal: yes
@@ -546,46 +589,10 @@ outputs:
                   vars:
                     force: false
                   with_items: "{{ hostvars[inventory_hostname]['pre_deployments_' ~ tripleo_role_name]|default([]) }}"
-
-                - name: Check NetworkConfig script existence
-                  local_action:
-                    module: stat
-                    path: "{{ lookup('first_found', NetworkConfig_paths, errors='ignore') }}"
-                  become: no
-                  register: NetworkConfig_stat
-                  vars:
-                      NetworkConfig_paths:
-                        - "{{ tripleo_role_name ~ '/' ~ inventory_hostname ~ '/NetworkConfig' }}"
-                        - "{{ tripleo_role_name ~ '/NetworkConfig' }}"
-
-                - name: Run Network Config
-                  import_role:
-                    name: tripleo_network_config
-                  vars:
-                    tripleo_network_config_script_path: "{{ NetworkConfig_stat.stat.path }}"
-                    tripleo_network_config_bridge_name: "{{ neutron_physical_bridge_name }}"
-                    tripleo_network_config_interface_name: "{{ neutron_public_interface_name }}"
-                    tripleo_network_config_action: "{{ stack_action }}"
-                    tripleo_network_config_network_deployment_actions: "{{ network_deployment_actions }}"
-                    tripleo_network_config_async_timeout: "{{ async_timeout | default(300) }}"
-                    tripleo_network_config_async_poll: "{{ async_poll | default(3) }}"
-                  when:
-                    - NetworkConfig_stat.stat.exists
-
-                - name: AllNodesValidationConfig
-                  script: all_nodes_validation_script.sh
-                  environment:
-                    validate_controllers_icmp: "{{ validate_controllers_icmp }}"
-                    validate_gateways_icmp: "{{ validate_gateways_icmp }}"
-                    validate_fqdn: "{{ validate_fqdn }}"
-                    ping_test_ips: "{{ ping_test_ips | to_json }}"
-                    tripleo_role_name: "{{ tripleo_role_name }}"
-
                 - name: ArtifactsConfig
                   script: deploy-artifacts.sh
                   environment:
                     artifact_urls: "{{ deploy_artifact_urls }}"
-
               tags:
                 - overcloud
                 - pre_deploy_steps
