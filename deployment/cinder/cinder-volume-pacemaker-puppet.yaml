@@ -18,6 +18,12 @@ parameters:
                  set to true, the service uses a floating prefix as
                  well, e.g. 'cluster.common.tag/IMAGENAME:pcmklatest'.
     type: boolean
+  ClusterFullTag:
+    default: false
+    description: When set to true, the pacemaker service uses a fully
+                 constant tag for its container image name, e.g.
+                 'cluster.common.tag/SERVICENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -69,6 +75,7 @@ parameters:
 conditions:
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
+  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
 
 resources:
 
@@ -103,15 +110,18 @@ outputs:
           - get_attr: [CinderBase, role_data, config_settings]
           - tripleo::profile::base::lvm::enable_udev: false
             tripleo::profile::pacemaker::cinder::volume_bundle::cinder_volume_docker_image: &cinder_volume_image_pcmklatest
-              yaql:
-                data:
-                  if:
-                    - common_tag_enabled
-                    - yaql:
-                        data: {get_param: ContainerCinderVolumeImage}
-                        expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                    - {get_param: ContainerCinderVolumeImage}
-                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
+              if:
+                - common_tag_full
+                - "cluster.common.tag/cinder-volume:pcmklatest"
+                - yaql:
+                    data:
+                      if:
+                        - common_tag_enabled
+                        - yaql:
+                            data: {get_param: ContainerCinderVolumeImage}
+                            expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                        - {get_param: ContainerCinderVolumeImage}
+                    expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::cinder::volume_bundle::docker_volumes: {get_attr: [CinderCommon, cinder_volume_volumes]}
             tripleo::profile::pacemaker::cinder::volume_bundle::docker_environment: {get_attr: [CinderCommon, cinder_volume_environment]}
             tripleo::profile::pacemaker::cinder::volume_bundle::container_backend: {get_param: ContainerCli}

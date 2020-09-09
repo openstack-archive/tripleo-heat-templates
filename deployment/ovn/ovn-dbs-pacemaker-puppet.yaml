@@ -18,6 +18,12 @@ parameters:
                  set to true, the service uses a floating prefix as
                  well, e.g. 'cluster.common.tag/IMAGENAME:pcmklatest'.
     type: boolean
+  ClusterFullTag:
+    default: false
+    description: When set to true, the pacemaker service uses a fully
+                 constant tag for its container image name, e.g.
+                 'cluster.common.tag/SERVICENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -96,6 +102,7 @@ conditions:
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
+  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
   use_external_load_balancer: {equals: [{get_param: EnableLoadBalancer}, false]}
 
 resources:
@@ -132,15 +139,18 @@ outputs:
         map_merge:
           - get_attr: [OVNDbsBase, role_data, config_settings]
           - tripleo::profile::pacemaker::ovn_dbs_bundle::ovn_dbs_docker_image: &ovn_dbs_image_pcmklatest
-              yaql:
-                data:
-                  if:
-                    - common_tag_enabled
-                    - yaql:
-                        data: {get_param: ContainerOvnDbsImage}
-                        expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                    - {get_param: ContainerOvnDbsImage}
-                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
+              if:
+                - common_tag_full
+                - "cluster.common.tag/ovn-northd:pcmklatest"
+                - yaql:
+                    data:
+                      if:
+                        - common_tag_enabled
+                        - yaql:
+                            data: {get_param: ContainerOvnDbsImage}
+                            expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                        - {get_param: ContainerOvnDbsImage}
+                    expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
           - tripleo::profile::pacemaker::ovn_dbs_bundle::nb_db_port: {get_param: OVNNorthboundServerPort}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
           - tripleo::profile::pacemaker::ovn_dbs_bundle::container_backend: {get_param: ContainerCli}
