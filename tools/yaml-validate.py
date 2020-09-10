@@ -25,6 +25,7 @@ from copy import copy
 def is_string(value):
     return isinstance(value, six.string_types)
 
+
 # Only permit the template alias versions.
 # The current template version should be the last element.
 # As tripleo-heat-templates is a branched repository, this
@@ -539,7 +540,7 @@ def validate_with_compute_role_services(role_filename, role_tpl, exclude_service
     if 'OS::TripleO::Services::CephOSD' in role_services:
         if tpl_us not in (None, 1):
             print('ERROR: update_serial in {0} ({1}) '
-                  'is should be 1 as it includes CephOSD'.format(
+                  'is should be 1 as it includes CephOSD {2}'.format(
                       role_filename,
                       tpl_us,
                       cmpt_us))

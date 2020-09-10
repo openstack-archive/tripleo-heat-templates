@@ -32,6 +32,8 @@ class FakeSelinux(object):
     @staticmethod
     def lsetfilecon(path, context):
         pass
+
+
 sys.modules["selinux"] = FakeSelinux
 
 from container_config_scripts.nova_statedir_ownership import \

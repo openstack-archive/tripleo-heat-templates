@@ -110,7 +110,7 @@ def main():
                             ansible_tasks = expression.evaluate(data=data_source)
                             print(ansible_tasks)
                             role_ansible_tasks = role_ansible_tasks + ansible_tasks
-                        except Exception as e:
+                        except Exception:
                             print("There are no tasks in the configuration file")
             if (role_ansible_tasks != []):
                 tasks_output_file = os.path.join(output, role + "_" + section_task + ".yml")
@@ -122,6 +122,7 @@ def main():
                             raise
                 save = open(tasks_output_file, 'w+')
                 yaml.dump(yaml.load(json.dumps(role_ansible_tasks)), save, default_flow_style=False)
+
 
 if __name__ == '__main__':
     main()
