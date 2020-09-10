@@ -402,59 +402,64 @@ outputs:
             content: |
               d /run/octavia 0755 root root - -
       update_tasks:
-        - name: octavia_api_tmpfile_cleanup
-          when: step|int == 1
-          block: &octavia_api_tmpfile_cleanup
-            - name: octavia_api_tmpfile_cleanup
-              file:
-                path: /etc/tmpfiles.d/var-run-octavia.conf
-                state: absent
-        - name: Set internal tls variable
-          set_fact:
-            internal_tls_enabled: {get_param: EnableInternalTLS}
-        - name: remove TLS proxy if configured and running
-          when:
-            - step|int == 2
-            - internal_tls_enabled|bool
-          block: &remove_octavia_tls_proxy_tasks
-            - name: stop and remove octavia_api_tls_proxy container if docker
-              docker:
-                name: octavia_api_tls_proxy
-                state: absent
-              when: container_cli == 'docker'
-            - name: "check if tripleo_octavia_api_tls_proxy service exists in systemd"
-              stat:
-                path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy.service"
-              register: systemd_exists
-            - name: Remove tripleo_octavia_api_tls_proxy service
-              when:
-                - container_cli == 'podman'
-                - systemd_exists.stat.exists
-              block:
-                - name: stop and disable octavia_api_tls_proxy container
-                  systemd:
-                    name: tripleo_octavia_api_tls_proxy
-                    state: stopped
-                    enabled: no
-                - name: clean up tripleo service file for octavia_api_tls_proxy
+        list_concat:
+          - {get_attr: [OctaviaBase, role_data, update_tasks]}
+          - - name: octavia_api_tmpfile_cleanup
+              when: step|int == 1
+              block: &octavia_api_tmpfile_cleanup
+                - name: octavia_api_tmpfile_cleanup
                   file:
+                    path: /etc/tmpfiles.d/var-run-octavia.conf
                     state: absent
+            - name: Set internal tls variable
+              set_fact:
+                internal_tls_enabled: {get_param: EnableInternalTLS}
+            - name: remove TLS proxy if configured and running
+              when:
+                - step|int == 2
+                - internal_tls_enabled|bool
+              block: &remove_octavia_tls_proxy_tasks
+                - name: stop and remove octavia_api_tls_proxy container if docker
+                  docker:
+                    name: octavia_api_tls_proxy
+                    state: absent
+                  when: container_cli == 'docker'
+                - name: "check if tripleo_octavia_api_tls_proxy service exists in systemd"
+                  stat:
                     path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy.service"
-                - name: reload systemd
-                  systemd:
-                    daemon-reload: yes
+                  register: systemd_exists
+                - name: Remove tripleo_octavia_api_tls_proxy service
+                  when:
+                    - container_cli == 'podman'
+                    - systemd_exists.stat.exists
+                  block:
+                    - name: stop and disable octavia_api_tls_proxy container
+                      systemd:
+                        name: tripleo_octavia_api_tls_proxy
+                        state: stopped
+                        enabled: no
+                    - name: clean up tripleo service file for octavia_api_tls_proxy
+                      file:
+                        state: absent
+                        path: "/etc/systemd/system/tripleo_octavia_api_tls_proxy.service"
+                    - name: reload systemd
+                      systemd:
+                        daemon-reload: yes
+
       upgrade_tasks:
-        - name: octavia_api_tmpfile_cleanup
-          when: step|int == 1
-          block: *octavia_api_tmpfile_cleanup
-        - name: Set internal tls variable
-          set_fact:
-            internal_tls_enabled: {get_param: EnableInternalTLS}
-        - name: remove TLS proxy if configured and running
-          when:
-            - step|int == 2
-            - internal_tls_enabled|bool
-          block: *remove_octavia_tls_proxy_tasks
+        list_concat:
+          - {get_attr: [OctaviaBase, role_data, upgrade_tasks]}
+          - - name: octavia_api_tmpfile_cleanup
+              when: step|int == 1
+              block: *octavia_api_tmpfile_cleanup
+            - name: Set internal tls variable
+              set_fact:
+                internal_tls_enabled: {get_param: EnableInternalTLS}
+            - name: remove TLS proxy if configured and running
+              when:
+                - step|int == 2
+                - internal_tls_enabled|bool
+              block: *remove_octavia_tls_proxy_tasks
       external_upgrade_tasks:
         - when:
             - step|int == 1
