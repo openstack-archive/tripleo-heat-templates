@@ -137,157 +137,151 @@ resources:
 {%- endfor %}
 
   OsNetConfigImpl:
-    type: OS::Heat::SoftwareConfig
+    type: OS::Heat::Value
     properties:
-      group: script
-      config:
-        str_replace:
-          template:
-            get_file: ../../scripts/run-os-net-config.sh
-          params:
-            $network_config:
-              network_config:
-              - type: interface
-                name: nic1
-                mtu:
-                  get_param: ControlPlaneMtu
-                use_dhcp: false
-                addresses:
-                - ip_netmask:
-                    list_join:
-                    - /
-                    - - get_param: ControlPlaneIp
-                      - get_param: ControlPlaneSubnetCidr
-                routes:
-                  list_concat_unique:
-                    - get_param: ControlPlaneStaticRoutes
+      value:
+        network_config:
+        - type: interface
+          name: nic1
+          mtu:
+            get_param: ControlPlaneMtu
+          use_dhcp: false
+          addresses:
+          - ip_netmask:
+              list_join:
+              - /
+              - - get_param: ControlPlaneIp
+                - get_param: ControlPlaneSubnetCidr
+          routes:
+            list_concat_unique:
+              - get_param: ControlPlaneStaticRoutes
 {%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: ControlPlaneDefaultRoute
+              - - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
 {%- endif %}
-              - type: linux_bond
-                name: bond_api
-                mtu:
-                  get_attr: [MinViableMtuBondApi, value]
-                use_dhcp: false
-                bonding_options:
-                  get_param: BondInterfaceOvsOptions
-                dns_servers:
-                  get_param: DnsServers
-                domain:
-                  get_param: DnsSearchDomains
-                members:
-                  - type: interface
-                    name: nic2
-                    mtu:
-                      get_attr: [MinViableMtuBondApi, value]
-                    primary: true
-                  - type: interface
-                    name: nic3
-                    mtu:
-                      get_attr: [MinViableMtuBondApi, value]
+        - type: linux_bond
+          name: bond_api
+          mtu:
+            get_attr: [MinViableMtuBondApi, value]
+          use_dhcp: false
+          bonding_options:
+            get_param: BondInterfaceOvsOptions
+          dns_servers:
+            get_param: DnsServers
+          domain:
+            get_param: DnsSearchDomains
+          members:
+            - type: interface
+              name: nic2
+              mtu:
+                get_attr: [MinViableMtuBondApi, value]
+              primary: true
+            - type: interface
+              name: nic3
+              mtu:
+                get_attr: [MinViableMtuBondApi, value]
 {%- for network in networks if network.enabled|default(true) and network.name in _role_networks and not network.name.startswith('Tenant') %}
-              - type: vlan
-                device: bond_api
-                mtu:
-                  get_param: {{network.name}}Mtu
-                vlan_id:
-                  get_param: {{network.name}}NetworkVlanID
-                addresses:
-                - ip_netmask:
-                    get_param: {{network.name}}IpSubnet
-                routes:
-                  list_concat_unique:
-                    - get_param: {{network.name}}InterfaceRoutes
-  {%- if network.name in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: {{network.name}}InterfaceDefaultRoute
-  {%- endif %}
+        - type: vlan
+          device: bond_api
+          mtu:
+            get_param: {{network.name}}Mtu
+          vlan_id:
+            get_param: {{network.name}}NetworkVlanID
+          addresses:
+          - ip_netmask:
+              get_param: {{network.name}}IpSubnet
+          routes:
+            list_concat_unique:
+              - get_param: {{network.name}}InterfaceRoutes
+{%- if network.name in role.default_route_networks %}
+              - - default: true
+                  next_hop:
+                    get_param: {{network.name}}InterfaceDefaultRoute
+{%- endif %}
 {%- endfor %}
 {%- if not role.name.startswith('ComputeOvsDpdk') %}
-              - type: ovs_bridge
-                name: bridge_name
-                dns_servers:
-                  get_param: DnsServers
-                members:
-                - type: linux_bond
-                  name: bond-data
-                  mtu:
-                    get_attr: [MinViableMtuBondData, value]
-                  bonding_options:
-                    get_param: BondInterfaceOvsOptions
-                  members:
-                  - type: interface
-                    name: nic4
-                    mtu:
-                      get_attr: [MinViableMtuBondData, value]
-                    primary: true
-                  - type: interface
-                    name: nic5
-                    mtu:
-                      get_attr: [MinViableMtuBondData, value]
-  {%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
-              - type: vlan
-                device: bond-data
-                mtu:
-                  get_param: {{network.name}}Mtu
-                vlan_id:
-                  get_param: {{network.name}}NetworkVlanID
-                addresses:
-                - ip_netmask:
-                    get_param: {{network.name}}IpSubnet
-                routes:
-                  list_concat_unique:
-                    - get_param: {{network.name}}InterfaceRoutes
-  {%- if network.name in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: {{network.name}}InterfaceDefaultRoute
-  {%- endif %}
-  {%- endfor %}
+        - type: ovs_bridge
+          name: bridge_name
+          dns_servers:
+            get_param: DnsServers
+          members:
+          - type: linux_bond
+            name: bond-data
+            mtu:
+              get_attr: [MinViableMtuBondData, value]
+            bonding_options:
+              get_param: BondInterfaceOvsOptions
+            members:
+            - type: interface
+              name: nic4
+              mtu:
+                get_attr: [MinViableMtuBondData, value]
+              primary: true
+            - type: interface
+              name: nic5
+              mtu:
+                get_attr: [MinViableMtuBondData, value]
+{%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
+        - type: vlan
+          device: bond-data
+          mtu:
+            get_param: {{network.name}}Mtu
+          vlan_id:
+            get_param: {{network.name}}NetworkVlanID
+          addresses:
+          - ip_netmask:
+              get_param: {{network.name}}IpSubnet
+          routes:
+            list_concat_unique:
+              - get_param: {{network.name}}InterfaceRoutes
+{%- if network.name in role.default_route_networks %}
+              - - default: true
+                  next_hop:
+                    get_param: {{network.name}}InterfaceDefaultRoute
+{%- endif %}
+{%- endfor %}
 {%- else %}
-              - type: ovs_user_bridge
-                name: br-dpdk0
-                use_dhcp: false
-  {%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
-                ovs_extra:
-                  - str_replace:
-                      template: set port br-dpdk0 tag=_VLAN_TAG_
-                      params:
-                        _VLAN_TAG_: {get_param: {{network.name}}NetworkVlanID}
-                addresses:
-                  - ip_netmask: {get_param: {{network.name}}IpSubnet}
-                routes:
-                  list_concat_unique:
-                    - get_param: {{network.name}}InterfaceRoutes
-                  {%- if network.name in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: {{network.name}}InterfaceDefaultRoute
-                  {%- endif %}
-  {%- endfor %}
-                members:
-                - type: ovs_dpdk_bond
-                  name: dpdkbond0
-                  rx_queue:
-                    get_param: NumDpdkInterfaceRxQueues
-                  members:
-                  - type: ovs_dpdk_port
-                    name: dpdk0
-                    members:
-                    - type: interface
-                      name: nic4
-                  - type: ovs_dpdk_port
-                    name: dpdk1
-                    members:
-                    - type: interface
-                      name: nic5
+        - type: ovs_user_bridge
+          name: br-dpdk0
+          use_dhcp: false
+{%- for network in networks if network.name.startswith('Tenant') and network.name in _role_networks and network.enabled|default(true) %}
+          ovs_extra:
+            - str_replace:
+                template: set port br-dpdk0 tag=_VLAN_TAG_
+                params:
+                  _VLAN_TAG_: {get_param: {{network.name}}NetworkVlanID}
+          addresses:
+            - ip_netmask: {get_param: {{network.name}}IpSubnet}
+          routes:
+            list_concat_unique:
+              - get_param: {{network.name}}InterfaceRoutes
+            {%- if network.name in role.default_route_networks %}
+              - - default: true
+                  next_hop:
+                    get_param: {{network.name}}InterfaceDefaultRoute
+            {%- endif %}
+{%- endfor %}
+          members:
+          - type: ovs_dpdk_bond
+            name: dpdkbond0
+            rx_queue:
+              get_param: NumDpdkInterfaceRxQueues
+            members:
+            - type: ovs_dpdk_port
+              name: dpdk0
+              members:
+              - type: interface
+                name: nic4
+            - type: ovs_dpdk_port
+              name: dpdk1
+              members:
+              - type: interface
+                name: nic5
 {%- endif %}
 outputs:
-  OS::stack_id:
+  config:
     description: The OsNetConfigImpl resource.
     value:
-      get_resource: OsNetConfigImpl
+      get_attr: [OsNetConfigImpl, value]
 
