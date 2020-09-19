@@ -62,7 +62,6 @@ parameters:
       perform configuration on a Heat stack-update.
 
 conditions:
-  puppet_debug_enabled: {get_param: ConfigDebug}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
 
@@ -150,50 +149,6 @@ outputs:
             volumes:
               - /var/log/containers/manila:/var/log/manila:z
             command: ['/bin/bash', '-c', 'chown -R manila:manila /var/log/manila']
-        step_5:
-          manila_share_init_bundle:
-            start_order: 0
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-              list_concat:
-                - - '/container_puppet_apply.sh'
-                  - '5'
-                  - 'pacemaker_constraint,file,file_line,concat,augeas,pacemaker::resource::bundle,pacemaker::property,pacemaker::constraint::location'
-                  - 'include tripleo::profile::base::pacemaker;include tripleo::profile::pacemaker::manila::share_bundle'
-                - if:
-                  - puppet_debug_enabled
-                  - - '--debug'
-                  - - ''
-            image: {get_param: ContainerManilaShareImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                - if:
-                  - docker_enabled
-                  - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - null
-            environment:
-              # NOTE: this should force this container to re-run on each
-              # update (scale-out, etc.)
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          manila_share_restart_bundle:
-            start_order: 3
-            config_volume: manila
-            detach: false
-            net: host
-            ipc: host
-            user: root
-            environment:
-              TRIPLEO_MINOR_UPDATE: ''
-            command: /var/lib/container-config-scripts/pacemaker_restart_bundle.sh manila_share openstack-manila-share openstack-manila-share _ Started
-            image: {get_param: ContainerManilaShareImage}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, pacemaker_restart_volumes]}
-                - - /var/lib/config-data/puppet-generated/manila:/var/lib/kolla/config_files/src:ro
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -216,6 +171,22 @@ outputs:
           vars:
             container_image: {get_param: ContainerManilaShareImage}
             container_image_latest: *manila_share_image_pcmklatest
+        - name: Manila-Share HA Wrappers Step
+          when: step|int == 5
+          block: &manila_share_puppet_bundle
+            - name: Manila-Share puppet bundle
+              import_role:
+                name: tripleo_ha_wrapper
+              vars:
+                tripleo_ha_wrapper_service_name: manila_share
+                tripleo_ha_wrapper_resource_name: openstack-manila-share
+                tripleo_ha_wrapper_bundle_name: openstack-manila-share
+                tripleo_ha_wrapper_resource_state: _ Started
+                tripleo_ha_wrapper_puppet_config_volume: manila
+                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::manila::share_bundle'
+                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
+
       update_tasks:
         - name: manila_share fetch and retag container image for pacemaker
           when: step|int == 2
@@ -241,6 +212,13 @@ outputs:
                 container_image_latest: "{{manila_share_image_latest}}"
               when:
                 - old_manila_share_image_id.stdout != new_manila_share_image_id.stdout
+
+      post_update_tasks:
+        - name: Manila-share bundle post update
+          when: step|int == 1
+          block: *manila_share_puppet_bundle
+          vars:
+            tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
         - name: Prepare switch of manila_share image name
