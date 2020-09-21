@@ -117,6 +117,9 @@ parameters:
   ServiceMetadataSettings:
     type: json
     default: {}
+  OVNBridgeMappings:
+    type: comma_delimited_list
+    default: []
   ConfigCommand:
     type: string
     description: Command which will be run whenever configuration data changes
@@ -582,6 +585,37 @@ resources:
         fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
         fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
         hostname_resolve_network: {get_param: [ServiceNetMap, {{role.name}}HostnameResolveNetwork]}
+        ovn_chassis_mac_map: {get_attr: [{{server_resource_name}}OVNChassisMacMap, value]}
+
+  {{server_resource_name}}OVNChassisMacPorts:
+    type: OS::Heat::ResourceGroup
+    properties:
+      count:
+        yaql:
+          expression: $.data.len()
+          data: {get_param: OVNBridgeMappings}
+      resource_def:
+        type: OS::TripleO::OVNMacAddressPort
+        properties:
+          PortName: {{server_resource_name}}-ovn-mac-%index%
+
+  {{server_resource_name}}OVNChassisMacMap:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        yaql:
+          expression: let(physnets => switch(isList($.data.physnets) => $.data.physnets, true => [])) ->
+                      $physnets.zip($.data.macs).toDict($.first(), $.last())
+          data:
+            physnets:
+              yaql:
+                expression: $.data.select($.split(':').first())
+                data: {get_param: OVNBridgeMappings}
+            macs:
+              yaql:
+                expression: switch(isDict($.data) => $.data.values(), true => [])
+                data: {get_attr: [{{server_resource_name}}OVNChassisMacPorts, attributes, mac_address]}
 
 outputs:
   ansible_host_vars_map:
