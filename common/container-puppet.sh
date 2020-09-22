@@ -52,14 +52,14 @@ export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lowe
 echo 'Running puppet'
 # FIXME(bogdando): stdout may be falling behind of the logged syslog messages
 set -x
-/usr/bin/puppet apply --summarize \
-                      --detailed-exitcodes \
-                      --color=false \
-                      --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
-                      $TAGS \
-                      $CHECK_MODE \
-                      /etc/config.pp \
-                      2>&1 | logger -s -t puppet-user
+env "LANG=${LANG:-en_US.UTF-8}" /usr/bin/puppet apply --summarize \
+    --detailed-exitcodes \
+    --color=false \
+    --modulepath=/etc/puppet/modules:/usr/share/openstack-puppet/modules \
+    $TAGS \
+    $CHECK_MODE \
+    /etc/config.pp \
+    2>&1 | logger -s -t puppet-user
 rc=${PIPESTATUS[0]}
 [ "$DEBUG" = "false" ] && set +x
 set -e

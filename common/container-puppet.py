@@ -206,6 +206,8 @@ def mp_puppet_config(*args):
             'NET_HOST=%s' % os.environ.get('NET_HOST', 'false'),
             '--env',
             'DEBUG=%s' % os.environ.get('DEBUG', 'false'),
+            '--env',
+            'LANG=%s' % os.environ.get('LANG', 'en_US.UTF-8'),
             '--volume',
             '/etc/localtime:/etc/localtime:ro',
             '--volume',
