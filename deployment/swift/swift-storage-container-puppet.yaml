@@ -637,12 +637,15 @@ outputs:
           when: swift_raw_disks
       deploy_steps_tasks:
         - name: Configure rsyslog for swift-storage
-          when: step|int == 1
+          when:
+            - step|int == 1
+            - swift_logconfig is not defined
+            - swift_rsyslog_config is not defined
           block:
             - name: Check if rsyslog exists
-              shell: systemctl list-unit-files --type=service | grep -q rsyslog
-              register: rsyslog_config
-              failed_when: rsyslog_config.rc == 2
+              systemd:
+                name: rsyslog
+              register: swift_rsyslog_config
             - block:
                 - name: Forward logging to swift.log file
                   copy:
@@ -651,14 +654,17 @@ outputs:
                       local2.*                 /var/log/containers/swift/swift.log
                       &                        stop
                     dest: /etc/rsyslog.d/openstack-swift.conf
-                  register: logconfig
+                  register: swift_logconfig
                 - name: Restart rsyslogd service after logging conf change
-                  service: name=rsyslog state=restarted
+                  service:
+                    name: rsyslog
+                    state: restarted
                   when:
-                    - logconfig is changed
+                    - swift_logconfig is changed
               when:
-                - rsyslog_config is changed
-                - rsyslog_config.rc == 0
+                - swift_rsyslog_config is defined
+                - swift_rsyslog_config.status is defined
+                - swift_rsyslog_config.status.ActiveState == 'active'
       update_tasks:
         - name: Ensure rsyncd pid file is absent
           file:
