@@ -195,14 +195,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'BondInterfaceOvsOptions': ['description',
                                 'default',
                                 'constraints'],
-    # NOTE(anil): This is a temporary change and
-    # will be removed once bug #1767070 properly
-    # fixed. OVN supports only VLAN, geneve
-    # and flat for NeutronNetworkType. But VLAN
-    # tenant networks have a limited support
-    # in OVN. Till that is fixed, we restrict
-    # NeutronNetworkType to 'geneve'.
-    'NeutronNetworkType': ['description', 'default', 'constraints'],
     'KeyName': ['constraints'],
     'OVNSouthboundServerPort': ['description'],
     'ExternalInterfaceDefaultRoute': ['description', 'default'],
