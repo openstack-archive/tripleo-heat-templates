@@ -60,8 +60,6 @@ def parse_opts(argv):
     return opts
 
 
-# FIXME: This duplicates code from tools/yaml-nic-config-2-script.py, we should
-# refactor to share the common code
 def to_commented_yaml(filename):
     """Convert comments into 'comments<num>: ...' YAML"""
 
@@ -106,8 +104,6 @@ def to_commented_yaml(filename):
     return out_str
 
 
-# FIXME: This duplicates code from tools/yaml-nic-config-2-script.py, we should
-# refactor to share the common code
 def to_normal_yaml(filename):
     """Convert back to normal #commented YAML"""
 

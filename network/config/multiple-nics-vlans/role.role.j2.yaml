@@ -101,102 +101,96 @@ parameters:
 {%- endif %}
 resources:
   OsNetConfigImpl:
-    type: OS::Heat::SoftwareConfig
+    type: OS::Heat::Value
     properties:
-      group: script
-      config:
-        str_replace:
-          template:
-            get_file: ../../scripts/run-os-net-config.sh
-          params:
-            $network_config:
-              network_config:
-              - type: interface
-                name: nic1
-                mtu:
-                  get_param: ControlPlaneMtu
-                use_dhcp: false
-                dns_servers:
-                  get_param: DnsServers
-                domain:
-                  get_param: DnsSearchDomains
-                addresses:
-                - ip_netmask:
-                    list_join:
-                    - /
-                    - - get_param: ControlPlaneIp
-                      - get_param: ControlPlaneSubnetCidr
-                routes:
-                  list_concat_unique:
-                    - get_param: ControlPlaneStaticRoutes
+      value:
+        network_config:
+        - type: interface
+          name: nic1
+          mtu:
+            get_param: ControlPlaneMtu
+          use_dhcp: false
+          dns_servers:
+            get_param: DnsServers
+          domain:
+            get_param: DnsSearchDomains
+          addresses:
+          - ip_netmask:
+              list_join:
+              - /
+              - - get_param: ControlPlaneIp
+                - get_param: ControlPlaneSubnetCidr
+          routes:
+            list_concat_unique:
+              - get_param: ControlPlaneStaticRoutes
 {%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: ControlPlaneDefaultRoute
+              - - default: true
+                  next_hop:
+                    get_param: ControlPlaneDefaultRoute
 {%- endif %}
 {%- set nics_used = [1] %}
 {%- for network in networks if network.enabled|default(true) and network.name not in role.networks_skip_config|default([]) %}
 {%-     if network.name not in ["External", "Tenant"] %}
 {%-         if network.name in _role_networks %}
-              - type: interface
-                name: nic{{loop.index + 1}}
-                mtu:
-                  get_param: {{network.name}}Mtu
-                use_dhcp: false
-              - type: vlan
-                device: nic{{loop.index + 1}}
-                mtu:
-                  get_param: {{network.name}}Mtu
-                vlan_id:
-                  get_param: {{network.name}}NetworkVlanID
-                addresses:
-                - ip_netmask:
-                    get_param: {{network.name}}IpSubnet
-                routes:
-                  list_concat_unique:
-                    - get_param: {{network.name}}InterfaceRoutes
+        - type: interface
+          name: nic{{loop.index + 1}}
+          mtu:
+            get_param: {{network.name}}Mtu
+          use_dhcp: false
+        - type: vlan
+          device: nic{{loop.index + 1}}
+          mtu:
+            get_param: {{network.name}}Mtu
+          vlan_id:
+            get_param: {{network.name}}NetworkVlanID
+          addresses:
+          - ip_netmask:
+              get_param: {{network.name}}IpSubnet
+          routes:
+            list_concat_unique:
+              - get_param: {{network.name}}InterfaceRoutes
 {%-             if network.name in role.default_route_networks %}
-                    - - default: true
-                        next_hop:
-                          get_param: {{network.name}}InterfaceDefaultRoute
+              - - default: true
+                  next_hop:
+                    get_param: {{network.name}}InterfaceDefaultRoute
 {%-             endif %}
 {%-         endif %}
 {#- We need bridge also for ComputeDVR and Computes with OVN #}
 {%-     elif network.name in role.networks or 'external_bridge' in role.tags %}
-              - type: ovs_bridge
+        - type: ovs_bridge
 {%-         if network.name == "External" %}
-                name: bridge_name
+          name: bridge_name
 {%-         else %}
-                name: br-{{network.name_lower}}
+          name: br-{{network.name_lower}}
 {%-         endif %}
-                mtu:
-                  get_param: {{network.name}}Mtu
-                dns_servers:
-                  get_param: DnsServers
-                use_dhcp: false
-                members:
-                - type: interface
-                  name: nic{{loop.index + 1}}
-                  mtu:
-                    get_param: {{network.name}}Mtu
-                  use_dhcp: false
-                  primary: true
+          mtu:
+            get_param: {{network.name}}Mtu
+          dns_servers:
+            get_param: DnsServers
+          use_dhcp: false
+          members:
+          - type: interface
+            name: nic{{loop.index + 1}}
+            mtu:
+              get_param: {{network.name}}Mtu
+            use_dhcp: false
+            primary: true
 {%-         if network.name in _role_networks %}
-                - type: vlan
-                  mtu:
-                    get_param: {{network.name}}Mtu
-                  vlan_id:
-                    get_param: {{network.name}}NetworkVlanID
-                  addresses:
-                  - ip_netmask:
-                      get_param: {{network.name}}IpSubnet
-                  routes:
-                    list_concat_unique:
-                      - get_param: {{network.name}}InterfaceRoutes
+          - type: vlan
+            mtu:
+              get_param: {{network.name}}Mtu
+            vlan_id:
+              get_param: {{network.name}}NetworkVlanID
+            addresses:
+            - ip_netmask:
+                get_param: {{network.name}}IpSubnet
+            routes:
+              list_concat_unique:
+                - get_param: {{network.name}}InterfaceRoutes
 {%-               if network.name in role.default_route_networks %}
-                      - - default: true
-                          next_hop:
-                            get_param: {{network.name}}InterfaceDefaultRoute
+                - - default: true
+                    next_hop:
+                      get_param: {{network.name}}InterfaceDefaultRoute
 {%-             endif %}
 {%-         endif %}
 {%-     endif %}
@@ -204,28 +198,28 @@ resources:
 {%- set _ = nics_used.append(loop.index) %}
 {%- endfor %}
 {%- if role.name == 'ComputeOvsDpdk' %}
-              # Used as a provider network with external DHCP
-              - type: ovs_user_bridge
-                name: br-dpdk0
-                members:
-                - type: ovs_dpdk_bond
-                  name: dpdkbond0
-                  rx_queue:
-                    get_param: NumDpdkInterfaceRxQueues
-                  members:
-                  - type: ovs_dpdk_port
-                    name: dpdk0
-                    members:
-                    - type: interface
-                      name: nic{{nics_used[-1] + 1}}
-                  - type: ovs_dpdk_port
-                    name: dpdk1
-                    members:
-                    - type: interface
-                      name: nic{{nics_used[-1] + 2}}
+        # Used as a provider network with external DHCP
+        - type: ovs_user_bridge
+          name: br-dpdk0
+          members:
+          - type: ovs_dpdk_bond
+            name: dpdkbond0
+            rx_queue:
+              get_param: NumDpdkInterfaceRxQueues
+            members:
+            - type: ovs_dpdk_port
+              name: dpdk0
+              members:
+              - type: interface
+                name: nic{{nics_used[-1] + 1}}
+            - type: ovs_dpdk_port
+              name: dpdk1
+              members:
+              - type: interface
+                name: nic{{nics_used[-1] + 2}}
 {%- endif %}
 outputs:
-  OS::stack_id:
+  config:
     description: The OsNetConfigImpl resource.
     value:
-      get_resource: OsNetConfigImpl
+      get_attr: [OsNetConfigImpl, value]
