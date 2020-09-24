@@ -372,6 +372,14 @@ parameters:
       local device or a DMI String matches the specified id being written as a
       mapping file for os-net-config. (/etc/os-net-config/mapping.yaml)
 
+  DnsServers: # Override this via parameter_defaults
+    default: []
+    description: >
+      DNS servers to use for the Overcloud (2 max for some implementations).
+      If not set the nameservers configured in the ctlplane subnet's
+      dns_nameservers attribute will be used.
+    type: comma_delimited_list
+
 {% for role in roles %}
 {%- if role.deprecated_param_scheduler_hints is defined or role.deprecated_param_extraconfig is defined %}
 {%- if not parameter_groups_defined|default(false) %}
@@ -461,6 +469,9 @@ conditions:
         - equals:
           - get_param: [EndpointMapOverride, NovaMetadataCellInternal]
           - ''
+  dnsservers_set:
+    not:
+      equals: [{get_param: DnsServers}, []]
 
 resources:
 
@@ -952,42 +963,39 @@ resources:
       value:
         ctlplane_mtu: {get_attr: [Networks, net_attributes_map, ctlplane, network, mtu]}
         ctlplane_gateway_ip: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, gateway_ip]}
-        ctlplane_dns_nameservers: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, dns_nameservers]}
+        ctlplane_dns_nameservers:
+          if:
+            - dnsservers_set
+            - {get_param: DnsServers}
+            - {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, dns_nameservers]}
         ctlplane_subnet_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, cidr]}, 1]}
         ctlplane_host_routes: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
     {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
-        {{network.name_lower}}_mtu: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, network, mtu]}
       {%- if role.networks is mapping %}
-        {{network.name_lower}}_gateway_ip: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{role.networks[network.name]['subnet']}}, gateway_ip]}
-        {{network.name_lower}}_host_routes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{role.networks[network.name]['subnet']}}, host_routes]}
-        {{network.name_lower}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{role.networks[network.name]['subnet']}}, cidr]}, 1]}
-        {{network.name_lower}}_vlan_id:
-          yaql:
-            expression: >
-              switch(not isList($.data) => 1,
-                     not $.data.where($.startsWith('tripleo_vlan_id')).len() => 1,
-                     true => int($.data.where($.startsWith('tripleo_vlan_id')).first().split('=').last()))
-            data: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{role.networks[network.name]['subnet']}}, tags]}
+        {%- set _role_net_subnet = role.networks[network.name]['subnet'] %}
       {%- else %}
-        {{network.name_lower}}_gateway_ip: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, gateway_ip]}
-        {{network.name_lower}}_host_routes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, host_routes]}
-        {{network.name_lower}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, cidr]}, 1]}
+        {%- set _role_net_subnet = network.name_lower + '_subnet' %}
+      {%- endif %}
+        {{network.name_lower}}_mtu: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, network, mtu]}
+        {{network.name_lower}}_gateway_ip: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, gateway_ip]}
+        {{network.name_lower}}_host_routes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+        {{network.name_lower}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, cidr]}, 1]}
         {{network.name_lower}}_vlan_id:
           yaql:
             expression: >
               switch(not isList($.data) => 1,
                      not $.data.where($.startsWith('tripleo_vlan_id')).len() => 1,
                      true => int($.data.where($.startsWith('tripleo_vlan_id')).first().split('=').last()))
-            data: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, tags]}
-      {%- endif %}
+            data: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, tags]}
     {%- endfor %}
         network_cidrs:
       {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
-        {%- if role.networks is mapping %}
-          {{network.name}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{role.networks[network.name]['subnet']}}, cidr]}, 1]}
-        {%- else %}
-          {{network.name}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, cidr]}, 1]}
-        {%- endif %}
+      {%- if role.networks is mapping %}
+        {%- set _role_net_subnet = role.networks[network.name]['subnet'] %}
+      {%- else %}
+        {%- set _role_net_subnet = network.name_lower + '_subnet' %}
+      {%- endif %}
+          {{network.name}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, cidr]}, 1]}
       {%- endfor %}
         dns_search_domains: {get_param: DnsSearchDomains}
         local_mtu: {get_param: {{role.name}}LocalMtu}
@@ -1005,6 +1013,40 @@ resources:
         default_route_networks: {{role.default_route_networks}}
         networks_skip_config: {{role.networks_skip_config }}
         role_tags: {{role.tags}}
+
+  {{role.name}}NetworkConfig:
+    type: OS::TripleO::{{role.name}}::Net::SoftwareConfig
+    properties:
+      ControlPlaneIp: "{{ '{{' }} ctlplane_ip {{ '}}' }}"
+      ControlPlaneSubnetCidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, cidr]}, 1]}
+      ControlPlaneDefaultRoute: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, gateway_ip]}
+      ControlPlaneStaticRoutes: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
+      ControlPlaneMtu: {get_attr: [Networks, net_attributes_map, ctlplane, network, mtu]}
+      DnsServers:
+        if:
+          - dnsservers_set
+          - {get_param: DnsServers}
+          - {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, dns_nameservers]}
+  {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
+      {%- if role.networks is mapping %}
+        {%- set _role_net_subnet = role.networks[network.name]['subnet'] %}
+      {%- else %}
+        {%- set _role_net_subnet = network.name_lower + '_subnet' %}
+      {%- endif %}
+      {{network.name}}IpSubnet: "{{ '{{' }} {{network.name_lower}}_ip ~ '/' ~ {{network.name_lower}}_cidr {{ '}}' }}"
+      {{network.name}}InterfaceRoutes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+      {{network.name}}Mtu: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, network, mtu]}
+      {{network.name}}NetworkVlanID:
+        yaql:
+          expression: >
+            switch(not isList($.data) => 1,
+                   not $.data.where($.startsWith('tripleo_vlan_id')).len() => 1,
+                   true => int($.data.where($.startsWith('tripleo_vlan_id')).first().split('=').last()))
+          data: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, tags]}
+    {%- if network.name in role.default_route_networks %}
+      {{network.name}}InterfaceDefaultRoute: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, gateway_ip]}
+    {%- endif %}
+  {%- endfor %}
 {%- endfor %}
 
   ControlVirtualIP:
@@ -1329,13 +1371,11 @@ outputs:
   GlobalConfig:
     description: The global_config (hieradata).
     value: {get_attr: [GlobalConfig, value]}
-  HostnameNetworkConfigMap:
-    description: Mapping of hostname to NetworkConfig resource
+  RoleNetworkConfigMap:
+    description: Mapping of roles to network config
     value:
-      map_merge:
-        list_concat:
 {%- for role in roles %}
-          - {get_attr: [{{role.name}}, hostname_network_config_map]}
+      {{role.name}}: {get_attr: [{{role.name}}NetworkConfig, config]}
 {%- endfor %}
   AnsibleHostVarsMap:
     description: Map of Ansible Host variables per role
