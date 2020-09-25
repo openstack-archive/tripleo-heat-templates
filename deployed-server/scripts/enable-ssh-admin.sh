@@ -3,6 +3,7 @@
 set -eu
 
 # whitespace (space or newline) separated list
+OVERCLOUD_PLAN=${OVERCLOUD_PLAN:-"overcloud"}
 OVERCLOUD_HOSTS=${OVERCLOUD_HOSTS:-""}
 OVERCLOUD_SSH_USER=${OVERCLOUD_SSH_USER:-"$USER"}
 # this is just for compatibility with CI
@@ -85,7 +86,7 @@ for HOST in $OVERCLOUD_HOSTS; do
 done
 
 echo "Starting ssh admin enablement workflow"
-EXECUTION_PARAMS="{\"ssh_user\": \"$OVERCLOUD_SSH_USER\", \"ssh_servers\": $(overcloud_ssh_hosts_json), \"ssh_private_key\": $(overcloud_ssh_key_json "$SHORT_TERM_KEY_PRIVATE")}"
+EXECUTION_PARAMS="{\"plan_name\": \"$OVERCLOUD_PLAN\", \"ssh_user\": \"$OVERCLOUD_SSH_USER\", \"ssh_servers\": $(overcloud_ssh_hosts_json), \"ssh_private_key\": $(overcloud_ssh_key_json "$SHORT_TERM_KEY_PRIVATE")}"
 EXECUTION_CREATE_OUTPUT=$(openstack workflow execution create -f shell -d 'deployed server ssh admin creation' tripleo.access.v1.enable_ssh_admin "$EXECUTION_PARAMS")
 echo "$EXECUTION_CREATE_OUTPUT"
 EXECUTION_ID=$(echo "$EXECUTION_CREATE_OUTPUT" | grep '^id=' | awk '-F"' '{ print $2 }')
