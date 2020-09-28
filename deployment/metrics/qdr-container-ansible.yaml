@@ -1,0 +1,377 @@
+---
+heat_template_version: rocky
+
+description: >
+  Qpid dispatch router service for metrics and monitoring purposes
+
+parameters:
+  ContainerMetricsQdrImage:
+    description: image
+    type: string
+  DefaultPasswords:
+    default: {}
+    type: json
+  EnableInternalTLS:
+    default: false
+    type: boolean
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set via parameter_defaults
+      in the resource registry.
+    type: json
+  InternalTLSCAFile:
+    default: /etc/ipa/ca.crt
+    description: Specifies the default CA cert to use if TLS is used for services in
+      the internal network.
+    type: string
+  MetricsQdrAddresses:
+    default:
+    - distribution: multicast
+      prefix: collectd
+    - distribution: multicast
+      prefix: ceilometer/metering.sample
+    - distribution: multicast
+      prefix: ceilometer/event.sample
+    description: Addresses configuration (array of hashes).
+    type: json
+  MetricsQdrAuthenticateClient:
+    default: false
+    description: Authenticate the client using SSL/TLS
+    type: boolean
+  MetricsQdrAutoLinks:
+    default: []
+    description: AutoLinks for the Configured Addresses
+    type: json
+  MetricsQdrConnectors:
+    default: []
+    description: Connectors configuration (array of hashes).
+    type: json
+  MetricsQdrExternalEndpoint:
+    default: false
+    description: Whether QDR should listen on external network interface. To enable
+      listening on external network one must deploy QDRs in mesh mode.
+    type: boolean
+  MetricsQdrLoggingSource:
+    default:
+      file: /var/log/containers/qdrouterd/metrics_qdr.log
+      startmsg.regex: '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(.[0-9]+
+        \+[0-9]+)? [A-Z]+ \([a-z]+\) '
+      tag: openstack.nova.consoleauth
+    type: json
+  MetricsQdrPassword:
+    default: guest
+    description: Password which should be used to authenticate to the deployed qdrouterd.
+    hidden: true
+    type: string
+  MetricsQdrPort:
+    default: 5666
+    description: Service name or port number on which the qdrouterd will accept connections.
+    type: number
+  MetricsQdrSSLProfiles:
+    default:
+      - name: sslProfile
+    description: SSL Profiles for the connectors (array of hashes).
+    type: json
+  MetricsQdrSaslMechanisms:
+    default: ANONYMOUS
+    description: List of accepted SASL auth mechanisms for listener in format of comma
+      separated list.
+    type: string
+  MetricsQdrSslCertDb:
+    default: '/etc/ipa/ca.crt'
+    description: Path to SSL certificate db for listener.
+    type: string
+  MetricsQdrSslCertFile:
+    default: '/etc/pki/tls/certs/metrics_qdr.crt'
+    description: Path to SSL certificate file for listener.
+    type: string
+  MetricsQdrSslKeyFile:
+    default: '/etc/pki/tls/private/metrics_qdr.key'
+    description: Path to SSL private key file for listener.
+    type: string
+  MetricsQdrSslPassword:
+    default: ''
+    description: SSL password to be supplied for listener.
+    type: string
+  MetricsQdrSslPwFile:
+    default: ''
+    description: Path to SSL password file for certificate key for listener.
+    type: string
+  MetricsQdrTrustedCerts:
+    default: ''
+    description: Path to file containing trusted certificates for listener.
+    type: string
+  MetricsQdrUseEncryption:
+    default: false
+    description: Set to true if it is required to encrypt connection to the peer for
+      listener. Not currently implemented, use EnableInternalTLS instead. This option can be ignored.
+    type: boolean
+  MetricsQdrUseSSL:
+    default: false
+    description: Set to true if it is required to use SSL or TLS on the connection for
+      the local listener. !WARNING! Currently breaks connections from collectd and ceilometer.
+    type: boolean
+  MetricsQdrUsername:
+    default: guest
+    description: Username which should be used to authenticate to the deployed qdrouterd.
+    type: string
+  MonitoringSubscriptionQdr:
+    default: overcloud-qdr
+    type: string
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set via parameter_defaults
+      in the resource registry.  This mapping overrides those in ServiceNetMapDefaults.
+    type: json
+
+  ##############################################################################
+  # The existing MetricsQdr parameters will be combined with
+  # MetricsQdrVars in the MetricsQdrParametersValue below. Eventually,
+  # these legacy parameters will be deprecated in favour of passing the
+  # parameters into the MetricsQdrVars param below.
+  # For backwards compatibility these legacy params will be accepted, but will
+  # be overwritten by any element passed to MetricsQdrVars.
+  # New configs should add the vars directly into the
+  # MetricsQdrVars parameter, which will not require anymore
+  # changes in THT to add new params.
+  ##############################################################################
+  MetricsQdrVars:
+    default: {}
+    description: Hash of qdr variables used to configure the qdr role.
+    tags:
+    - role_specific
+    type: json
+
+
+conditions:
+  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  role_specific_required: {not: {equals: [{ get_param: [RoleParameters, MetricsQdrVars] }, ""]}}
+
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  MetricsQdrParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_merge:
+        - tripleo_metrics_qdr_connectors: { get_param: MetricsQdrConnectors }
+          tripleo_metrics_qdr_autolink_addresses: { get_param: MetricsQdrAutoLinks }
+          tripleo_metrics_qdr_addresses: { get_param: MetricsQdrAddresses }
+          tripleo_metrics_qdr_listener_port: { get_param: MetricsQdrPort }
+          tripleo_metrics_qdr_ssl_profiles: { get_param: MetricsQdrSSLProfiles }
+          tripleo_metrics_qdr_listener_auth_peer: { get_param: MetricsQdrAuthenticateClient }
+          tripleo_metrics_qdr_listener_require_ssl: { get_param: MetricsQdrUseSSL }
+          tripleo_metrics_qdr_listener_sasl_mech: { get_param: MetricsQdrSaslMechanisms }
+          tripleo_metrics_qdr_listener_ssl_cert_db: { get_param: MetricsQdrSslCertDb }
+          tripleo_metrics_qdr_listener_ssl_cert_file: { get_param: MetricsQdrSslCertFile }
+          tripleo_metrics_qdr_listener_ssl_key_file: { get_param: MetricsQdrSslKeyFile }
+          tripleo_metrics_qdr_listener_use_encryption: { get_param: MetricsQdrUseEncryption }
+          tripleo_enable_internal_tls: { get_param: EnableInternalTLS }
+          ###### *CS These vars might need more work, still need to double-check
+          # TODO: May need to re-implement logic for this one (currently a hardcoded path in the ansible I think?)
+          tripleo_internal_tlscafile: { get_param: InternalTLSCAFile }
+
+          # TODO: In puppet these two are used to create a sasldb user[1][2]. The qdr-config-ansible-role needs to be updated to handle this.
+          # [1] https://review.opendev.org/plugins/gitiles/openstack/puppet-tripleo/+/refs/heads/master/manifests/profile/base/metrics/qdr.pp#224
+          # [2] https://review.opendev.org/plugins/gitiles/openstack/puppet-qdr/+/refs/heads/master/lib/puppet/provider/qdr_user/sasl.rb
+          tripleo_metrics_qdr_username: { get_param: MetricsQdrUsername }
+          tripleo_metrics_qdr_password: { get_param: MetricsQdrPassword }
+
+          # RFE to add support for these SSL related options? Each of them exists in puppet-qdr[1s] but are unused[2s]
+          # [1] https://review.opendev.org/plugins/gitiles/openstack/puppet-qdr/+/refs/heads/master/manifests/init.pp#170
+          # [2] https://github.com/openstack/puppet-qdr/search?q=listener_ssl_pw_file
+          tripleo_metrics_qdr_listener_ssl_pw_file: { get_param: MetricsQdrSslPwFile }
+
+          # [1] https://review.opendev.org/plugins/gitiles/openstack/puppet-qdr/+/refs/heads/master/manifests/init.pp#171
+          # [2] https://github.com/openstack/puppet-qdr/search?q=listener_ssl_password
+          tripleo_metrics_qdr_listener_ssl_password: { get_param: MetricsQdrSslPassword }
+
+          # [1] https://review.opendev.org/plugins/gitiles/openstack/puppet-qdr/+/refs/heads/master/manifests/init.pp#172
+          # [2] https://github.com/openstack/puppet-qdr/search?q=listener_trusted_certs
+          tripleo_metrics_qdr_listener_trusted_certs: { get_param: MetricsQdrTrustedCerts }
+          ######
+        - { get_param: MetricsQdrVars }
+        - if:
+          - role_specific_required
+          - { get_param: [RoleParameters, MetricsQdrVars] }
+          - {}
+
+outputs:
+  role_data:
+    description: Role data for the metrics Qdr role.
+    value:
+      service_name: qdr
+      firewall_rules:
+        map_merge:
+          - '109 metrics qdr':
+              dport:
+                - {get_param: MetricsQdrPort}
+          - map_merge:
+              repeat:
+                for_each:
+                  <%net_cidr%>: {get_param: [ServiceData, net_cidr_map, ctlplane]}
+                template:
+                  '109 accept internal metrics qdr ctlplane subnet <%net_cidr%>':
+                    dport:
+                      - 5667
+                      - 5668
+
+      # For sensu
+      monitoring_subscription: {get_param: MonitoringSubscriptionQdr}
+
+      # See https://docs.openstack.org/tripleo-docs/latest/developer/tht_walkthrough/tls_for_services.html
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: metrics_qdr
+              network:
+                get_param:
+                  - ServiceNetMap
+                  - str_replace:
+                      template: "ROLENAMEMetricsQdrNetwork"
+                      params:
+                        ROLENAME: {get_param: RoleName}
+              type: node
+          - null
+
+      kolla_config:
+        /var/lib/kolla/config_files/metrics_qdr.json:
+          command: /usr/sbin/qdrouterd -c /etc/qpid-dispatch/qdrouterd.conf
+          config_files:
+          - dest: /etc/qpid-dispatch/
+            merge: true
+            preserve_properties: true
+            source: /var/lib/kolla/config_files/src/*
+          - dest: /
+            merge: true
+            optional: true
+            preserve_properties: true
+            source: /var/lib/kolla/config_files/src-tls/*
+          permissions:
+          - owner: qdrouterd:qdrouterd
+            path: /var/lib/qdrouterd
+            recurse: true
+          - owner: qdrouterd:qdrouterd
+            path: /var/log/qdrouterd
+            recurse: true
+          - optional: true
+            owner: qdrouterd:qdrouterd
+            path: /etc/pki/tls/certs/metrics_qdr.crt
+          - optional: true
+            owner: qdrouterd:qdrouterd
+            path: /etc/pki/tls/private/metrics_qdr.key
+
+      service_config_settings:
+        rsyslog:
+          tripleo_logging_sources_metrics_qdr:
+            - {get_param: MetricsQdrLoggingSource}
+
+      config_settings:
+        map_merge:
+          - tripleo::haproxy::metrics_qdr: {get_param: MetricsQdrExternalEndpoint}
+          - if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              # These two are used here: https://review.opendev.org/plugins/gitiles/openstack/puppet-tripleo/+/refs/heads/master/files/certmonger-metrics-qdr-refresh.sh#8
+              tripleo::metrics::qdr::service_certificate: { get_param: MetricsQdrSslCertFile }
+              tripleo::metrics::qdr::service_key: { get_param: MetricsQdrSslKeyFile }
+              # This one is used here: https://review.opendev.org/plugins/gitiles/openstack/puppet-tripleo/+/refs/heads/master/manifests/profile/base/certmonger_user.pp#193
+              tripleo::profile::base::metrics::qdr::certificate_specs:
+                service_certificate: { get_param: MetricsQdrSslCertFile }
+                service_key: { get_param: MetricsQdrSslKeyFile }
+                postsave_cmd: "/usr/bin/certmonger-metrics-qdr-refresh.sh"
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK:
+                        get_param:
+                          - ServiceNetMap
+                          - str_replace:
+                              template: "ROLENAMEMetricsQdrNetwork"
+                              params:
+                                ROLENAME: {get_param: RoleName}
+                principal:
+                  str_replace:
+                    template: "metrics_qdr/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK:
+                        get_param:
+                          - ServiceNetMap
+                          - str_replace:
+                              template: "ROLENAMEMetricsQdrNetwork"
+                              params:
+                                ROLENAME: {get_param: RoleName}
+            - # Empty then
+      docker_config:
+        step_1:
+          metrics_qdr:
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            healthcheck:
+              test: /openstack/healthcheck
+            image:
+              get_param: ContainerMetricsQdrImage
+            net: host
+            privileged: false
+            restart: always
+            start_order: 1
+            user: qdrouterd
+            volumes:
+              list_concat:
+              - get_attr:
+                - ContainersCommon
+                - volumes
+              - - /var/lib/kolla/config_files/metrics_qdr.json:/var/lib/kolla/config_files/config.json:ro
+                - /var/lib/config-data/ansible-generated/metrics_qdr:/var/lib/kolla/config_files/src:ro
+                - /var/lib/metrics_qdr:/var/lib/qdrouterd:z
+                - /var/log/containers/metrics_qdr:/var/log/qdrouterd:z
+              - if:
+                - internal_tls_enabled
+                - - /etc/pki/tls/certs/metrics_qdr.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/metrics_qdr.crt:ro
+                  - /etc/pki/tls/private/metrics_qdr.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/metrics_qdr.key:ro
+                - null
+
+      host_prep_tasks:
+      - name: Create required host directories for QDR
+        file:
+          mode: '{{ item.mode|default(omit) }}'
+          path: '{{ item.path }}'
+          setype: '{{ item.setype }}'
+          state: directory
+        with_items:
+        - path: /var/log/containers/metrics_qdr
+          setype: container_file_t
+          mode: '0750'
+        - path: /var/lib/metrics_qdr
+          setype: container_file_t
+          mode: '0750'
+        - path: /var/lib/config-data/ansible-generated/metrics_qdr
+          setype: container_file_t
+          mode: '0750'
+
+      deploy_steps_tasks:
+      - name: QDR Config on step 1
+        when: step == '1'
+        include_role:
+          name: tripleo_metrics_qdr
+          tasks_from: create_config
+        vars:
+          - {get_attr: [MetricsQdrParametersValue, value]}
