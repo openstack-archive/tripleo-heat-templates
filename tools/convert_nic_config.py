@@ -18,37 +18,17 @@ import os
 import re
 import shutil
 import six
-import subprocess
 import sys
 import yaml
-
-from tempfile import mkdtemp
-
-DEFAULT_THT_DIR = '/usr/share/openstack-tripleo-heat-templates'
-NIC_CONFIG_REFERENCE = 'single-nic-vlans'
 
 
 def parse_opts(argv):
     parser = argparse.ArgumentParser(
-            description='Merge new NIC config template parameters into '
-                        'existing NIC config template.')
-    parser.add_argument('-r', '--roles-data', metavar='ROLES_DATA',
-                        help="Relative path to the roles_data.yaml file.",
-                        default=('%s/roles_data.yaml') % DEFAULT_THT_DIR)
-    parser.add_argument('-n', '--network-data', metavar='NETWORK_DATA',
-                        help="Relative path to the network_data.yaml file.",
-                        default=('%s/network_data.yaml') % DEFAULT_THT_DIR)
-    parser.add_argument('--role-name', metavar='ROLE-NAME',
-                        help="Name of the role the NIC config is used for.",
-                        required=True)
+            description='Convert to new NIC config templates with '
+                        'OS::Heat::Value resources.')
     parser.add_argument('-t', '--template', metavar='TEMPLATE_FILE',
-                        help=("Existing NIC config template to merge "
-                              "parameter too."),
+                        help=("Existing NIC config template to conver."),
                         required=True)
-    parser.add_argument('--tht-dir', metavar='THT_DIR',
-                        help=("Path to tripleo-heat-templates (THT) "
-                              "directory"),
-                        default=DEFAULT_THT_DIR)
     parser.add_argument('--discard-comments', metavar='DISCARD_COMMENTS',
                         help="Discard comments from the template. (The "
                              "scripts functions to keep YAML file comments in "
@@ -60,8 +40,6 @@ def parse_opts(argv):
     return opts
 
 
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
 def to_commented_yaml(filename):
     """Convert comments into 'comments<num>: ...' YAML"""
 
@@ -106,8 +84,6 @@ def to_commented_yaml(filename):
     return out_str
 
 
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
 def to_normal_yaml(filename):
     """Convert back to normal #commented YAML"""
 
@@ -148,8 +124,6 @@ def to_normal_yaml(filename):
     return out_str
 
 
-# FIXME: Some of this duplicates code from build_endpoint_map.py, we should
-# refactor to share the common code
 class TemplateDumper(yaml.SafeDumper):
     def represent_ordered_dict(self, data):
         return self.represent_dict(data.items())
@@ -160,9 +134,6 @@ class TemplateDumper(yaml.SafeDumper):
         return self.represent_scalar('tag:yaml.org,2002:str', data, style='>')
 
 
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
-# We load mappings into OrderedDict to preserve their order
 class TemplateLoader(yaml.SafeLoader):
     def construct_mapping(self, node):
         self.flatten_mapping(node)
@@ -180,97 +151,70 @@ TemplateLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
                                TemplateLoader.construct_mapping)
 
 
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
 def write_template(template, filename=None):
     with open(filename, 'w') as f:
         yaml.dump(template, f, TemplateDumper, width=120,
                   default_flow_style=False)
 
 
-def process_templates_and_get_reference_parameters():
-    temp_dir = mkdtemp(dir='/tmp')
-    executable = OPTS.tht_dir + '/tools/process-templates.py'
-    cmd = [executable,
-           '--roles-data ' + OPTS.roles_data,
-           '--base_path ' + OPTS.tht_dir,
-           '--network-data ' + OPTS.network_data,
-           '--output-dir ' + temp_dir]
-    child = subprocess.Popen(' '.join(cmd), shell=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, universal_newlines=True)
-    out, err = child.communicate()
-    if not child.returncode == 0:
-        raise RuntimeError('Error processing templates: %s' % err)
-
-    # If deprecated_nic_config_names is set for role the deprecated name must
-    # be used when loading the reference file.
-    with open(OPTS.roles_data) as roles_data_file:
-        roles_data = yaml.safe_load(roles_data_file)
-    try:
-        nic_config_name = next((x.get('deprecated_nic_config_name',
-                                      OPTS.role_name.lower() + '.yaml')
-                                for x in roles_data
-                                if x['name'] == OPTS.role_name))
-    except StopIteration:
-        raise RuntimeError(
-            'The role: {role_name} is not defined in roles '
-            'data file: {roles_data_file}'.format(
-                role_name=OPTS.role_name, roles_data_file=OPTS.roles_data))
-
-    refernce_file = '/'.join([temp_dir, 'network/config', NIC_CONFIG_REFERENCE,
-                              nic_config_name])
-    with open(refernce_file) as reference:
-        reference_template = yaml.safe_load(reference)
-    reference_params = reference_template['parameters']
-    shutil.rmtree(temp_dir)
-
-    return reference_params
-
-
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
-def validate_template():
-    if not os.path.exists(OPTS.template):
+def validate_template(template):
+    if not os.path.exists(template):
         raise RuntimeError('Template not provided.')
-    if not os.path.isfile(OPTS.template):
+    if not os.path.isfile(template):
         raise RuntimeError('Template %s is not a file.')
     pass
 
 
-# FIXME: This duplicates code from tools/convert_nic_config.py, we should
-# refactor to share the common code
-def backup_template():
+def backup_template(template):
     extension = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-    backup_filename = os.path.realpath(OPTS.template) + '.' + extension
+    backup_filename = os.path.realpath(template) + '.' + extension
     if os.path.exists(backup_filename):
         raise RuntimeError('Backupe file: %s already exists. Aborting!'
                            % backup_filename)
-    shutil.copyfile(OPTS.template, backup_filename)
+    shutil.copyfile(template, backup_filename)
     print('The original template was saved as: %s' % backup_filename)
 
 
-def merge_from_processed(reference_params):
+def needs_conversion():
     with open(OPTS.template, 'r') as f:
         template = yaml.load(f.read(), Loader=TemplateLoader)
+    net_config_res = template['resources'].get('OsNetConfigImpl')
+    if (net_config_res and net_config_res[
+            'type'] == 'OS::Heat::SoftwareConfig'):
+        backup_template(OPTS.template)
+        if not OPTS.discard_comments:
+            # Convert comments '# ...' into 'comments<num>: ...'
+            # is not lost when loading the data.
+            to_commented_yaml(OPTS.template)
+        return True
+    return False
 
-    for param in reference_params:
-        if param not in template['parameters']:
-            template['parameters'][param] = reference_params[param]
 
-    write_template(template, filename=OPTS.template)
-    print('The update template was saved as: %s' % OPTS.template)
+def convert_to_heat_value_resource():
+    if needs_conversion():
+        with open(OPTS.template, 'r') as f:
+            template = yaml.load(f.read(), Loader=TemplateLoader)
+        net_config_res = template['resources']['OsNetConfigImpl']
+        net_config_res_props = net_config_res['properties']
+        # set the type to OS::Heat::Value
+        net_config_res['type'] = 'OS::Heat::Value'
+        del net_config_res_props['group']
+        old_config = net_config_res_props['config']
+        new_config = old_config['str_replace']['params']['$network_config']
+        net_config_res_props['config'] = new_config
+        outputs = template['outputs']
+        del outputs['OS::stack_id']
+        outputs['config'] = {}
+        outputs['config']['value'] = 'get_attr[OsNetConfigImpl, value]'
+        write_template(template, filename=OPTS.template)
+        if not OPTS.discard_comments:
+            # Convert previously converted comments, 'comments<num>: ...'
+            # YAML back to normal #commented YAML
+            to_normal_yaml(OPTS.template)
+        print('The update template was saved as: %s' % OPTS.template)
+    else:
+        print('Template does not need conversion: %s' % OPTS.template)
 
 
 OPTS = parse_opts(sys.argv)
-validate_template()
-backup_template()
-if not OPTS.discard_comments:
-    # Convert comments '# ...' into 'comments<num>: ...' YAML so that the info
-    # is not lost when loading the data.
-    to_commented_yaml(OPTS.template)
-reference_params = process_templates_and_get_reference_parameters()
-merge_from_processed(reference_params)
-if not OPTS.discard_comments:
-    # Convert previously converted comments, 'comments<num>: ...' YAML back to
-    # normal #commented YAML
-    to_normal_yaml(OPTS.template)
+convert_to_heat_value_resource()
