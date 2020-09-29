@@ -96,6 +96,12 @@ parameters:
     default: ""
     tags:
      - role_specific
+  DockerInsecureRegistryAddress:
+    description: Optional. The IP Address and Port of an insecure docker
+                 namespace that will be configured in /etc/sysconfig/docker.
+                 The value can be multiple addresses separated by commas.
+    type: comma_delimited_list
+    default: []
 
 conditions:
 
@@ -105,6 +111,7 @@ conditions:
         - equals: [{get_param: DerivePciWhitelistEnabled}, true]
         - equals: [{get_param: [RoleParameters, DerivePciWhitelistEnabled]}, '']
       - equals: [{get_param: [RoleParameters, DerivePciWhitelistEnabled]}, true]
+  insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
 
 parameter_groups:
 - label: deprecated
@@ -240,6 +247,53 @@ outputs:
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]
       upgrade_tasks:
+        - name: Switch sriov-agent to hybrid state
+          vars:
+            neutron_sriov_image: {get_param: ContainerNeutronSriovImage}
+          tags:
+            - never
+            - nova_hybrid_state
+          when: step|int == 0
+          block:
+            - name: Check if we need to update the neutron_sriov_agent paunch config
+              shell: |
+                set -o pipefail
+                jq ."neutron_sriov_agent"."image" /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+              register: neutron_sriov_agent_paunch_image
+            - name: Implement the neutron hybrid state (only if the compute is still Queens)
+              when: neutron_sriov_agent_paunch_image.stdout != neutron_sriov_image
+              block:
+                - name: Update the neutron_sriov paunch image in config
+                  shell: |
+                    set -o pipefail
+                    cat <<< $(jq '.neutron_sriov_agent.image = "{{ neutron_sriov_image }}"' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json) >\
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+                - name: Make sure the Undercloud hostname is included in /etc/hosts
+                  when:
+                    - undercloud_hosts_entries is defined
+                  lineinfile:
+                    dest: /etc/hosts
+                    line: "{{ undercloud_hosts_entries | join('') }}"
+                    state: present
+                - name: Set container_registry_insecure_registries fact.
+                  set_fact:
+                    container_registry_insecure_registries:
+                      if:
+                        - insecure_registry_is_empty
+                        - []
+                        - {get_param: DockerInsecureRegistryAddress}
+                - name: Set container_registry_insecure registries
+                  when: container_registry_insecure_registries != []
+                  shell: crudini --set /etc/containers/registries.conf registries.insecure registries "[{{ container_registry_insecure_registries | map('regex_replace', '(.*)', "'\1'") | join(',') }}]"
+                - name: Restart docker
+                  service:
+                    name: docker
+                    state: restarted
+                # Finally apply the paunch config to start the new nova_compute
+                - name: Apply paunch config
+                  shell: paunch apply --file /var/lib/tripleo-config/docker-container-startup-config-step_4.json --config-id tripleo_step4
+
         - name: upgrade prepare for leapp to remove extra sriov vfs
           tags:
             - never
