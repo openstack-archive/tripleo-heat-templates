@@ -92,6 +92,9 @@ parameters:
     description: |
       Additional hiera configuration to inject into the cluster.
     type: json
+  DeployedServerPortMap:
+    default: {}
+    type: json
   NeutronControlPlaneID:
     default: 'ctlplane'
     type: string
@@ -113,6 +116,14 @@ parameters:
     description: >
       The subnet CIDR of the control plane network. (The parameter is
       automatically resolved from the ctlplane subnet's cidr attribute.)
+    type: string
+  DnsSearchDomains: # Override this via parameter_defaults
+    default: []
+    description: A list of DNS search domains to be added (in order) to resolv.conf.
+    type: comma_delimited_list
+  NeutronPublicInterface:
+    default: nic1
+    description: Which interface to add to the NeutronPhysicalBridge.
     type: string
   ControlFixedIPs:
     default: []
@@ -193,6 +204,20 @@ parameters:
 
   # Jinja loop for Role in role_data.yaml
 {% for role in roles %}
+  {{role.name}}LocalMtu: # Override this via parameter_defaults
+    default: 1500
+    description: MTU to use for the Undercloud local_interface.
+    type: number
+    constraints:
+      - range: { min: 1000, max: 65536 }
+  {{role.name}}NetworkConfigTemplate:
+    description: {{role.name}} NetworkConfig Template
+    type: string
+    default: ''
+  {{role.name}}NetworkConfigWithAnsible:
+    description: {{role.name}} NetworkConfig with ansible flag
+    type: boolean
+    default: False
   {{role.name}}ExtraConfig:
     default: {}
     description: |
@@ -950,11 +975,15 @@ resources:
           {{network.name}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{network.name_lower}}_subnet, cidr]}, 1]}
         {%- endif %}
       {%- endfor %}
+        dns_search_domains: {get_param: DnsSearchDomains}
+        local_mtu: {get_param: {{role.name}}LocalMtu}
         role_networks:
         {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
           - {{network.name}}
         {%- endfor %}
         service_metadata_settings: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_metadata_settings]}
+        tripleo_network_config_template: {get_param: {{role.name}}NetworkConfigTemplate}
+        tripleo_network_config_with_ansible: {get_param: {{role.name}}NetworkConfigWithAnsible}
 
 
 {% endfor %}
@@ -1247,6 +1276,7 @@ outputs:
           neutron_public_interface_name: {get_param: NeutronPublicInterface}
           network_deployment_actions: {get_attr: [{{role.name}}NetworkDeploymentActionsValue, value]}
           tripleo_network_config_os_net_config_mappings: {get_param: NetConfigDataLookup}
+          deployed_server_port_map: {get_param: DeployedServerPortMap}
         - {get_param: {{role.name}}ExtraGroupVars}
 {%- endfor %}
   RoleNetHostnameMap:
