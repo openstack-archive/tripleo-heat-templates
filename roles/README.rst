@@ -111,6 +111,7 @@ Example
   ControllerOpenstack
   Database
   Messaging
+  Minimal
   Networker
   ObjectStorage
   Telemetry
