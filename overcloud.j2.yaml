@@ -202,8 +202,27 @@ parameters:
       service.
     type: boolean
 
+  BondInterfaceOvsOptions:
+    default: ''
+    description: The ovs_options or bonding_options string for the bond
+      interface. Set things like lacp=active and/or bond_mode=balance-slb
+      for OVS bonds or like mode=4 for Linux bonds using this option.
+    type: string
+    constraints:
+    - allowed_pattern: ^((?!balance.tcp).)*$
+      description: The balance-tcp bond mode is known to cause packet loss and
+        should not be used in BondInterfaceOvsOptions.
+
   # Jinja loop for Role in role_data.yaml
 {% for role in roles %}
+
+{%- if role.name == 'ComputeOvsDpdk' %}
+  NumDpdkInterfaceRxQueues:
+    description: Number of Rx Queues required for DPDK bond or DPDK ports
+    default: 1
+    type: number
+{%- endif %}
+
   {{role.name}}LocalMtu: # Override this via parameter_defaults
     default: 1500
     description: MTU to use for the Undercloud local_interface.
@@ -998,6 +1017,7 @@ resources:
           {{network.name}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, cidr]}, 1]}
       {%- endfor %}
         dns_search_domains: {get_param: DnsSearchDomains}
+        bound_interface_ovs_options: {get_param: BondInterfaceOvsOptions}
         local_mtu: {get_param: {{role.name}}LocalMtu}
         role_networks:
         {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
@@ -1338,6 +1358,9 @@ outputs:
           network_deployment_actions: {get_attr: [{{role.name}}NetworkDeploymentActionsValue, value]}
           tripleo_network_config_os_net_config_mappings: {get_param: NetConfigDataLookup}
           deployed_server_port_map: {get_param: DeployedServerPortMap}
+{%- if role.name == 'ComputeOvsDpdk' %}
+          num_dpdk_interface_rx_queues: {get_param: NumDpdkInterfaceRxQueues}
+{%- endif %}
         - {get_param: {{role.name}}ExtraGroupVars}
 {%- endfor %}
   RoleNetHostnameMap:
