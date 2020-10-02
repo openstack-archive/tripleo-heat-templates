@@ -969,7 +969,13 @@ resources:
             - {get_param: DnsServers}
             - {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, dns_nameservers]}
         ctlplane_subnet_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, cidr]}, 1]}
-        ctlplane_host_routes: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
+        ctlplane_host_routes:
+          list_concat_unique:
+            - {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
+          {%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
+            - - default: true
+                next_hop: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, gateway_ip]}
+          {%- endif %}
     {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
       {%- if role.networks is mapping %}
         {%- set _role_net_subnet = role.networks[network.name]['subnet'] %}
@@ -978,7 +984,13 @@ resources:
       {%- endif %}
         {{network.name_lower}}_mtu: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, network, mtu]}
         {{network.name_lower}}_gateway_ip: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, gateway_ip]}
-        {{network.name_lower}}_host_routes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+        {{network.name_lower}}_host_routes:
+          list_concat_unique:
+            - {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+          {%- if network.name in role.default_route_networks %}
+            - - default: true
+                next_hop: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, gateway_ip]}
+          {%- endif %}
         {{network.name_lower}}_cidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, cidr]}, 1]}
         {{network.name_lower}}_vlan_id:
           yaql:
@@ -1020,7 +1032,13 @@ resources:
       ControlPlaneIp: "{{ '{{' }} ctlplane_ip {{ '}}' }}"
       ControlPlaneSubnetCidr: {str_split: ['/', {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, cidr]}, 1]}
       ControlPlaneDefaultRoute: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, gateway_ip]}
-      ControlPlaneStaticRoutes: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
+      ControlPlaneStaticRoutes:
+        list_concat_unique:
+          - {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, host_routes]}
+        {%- if role.default_route_networks is not defined or 'ControlPlane' in role.default_route_networks %}
+          - - default: true
+              next_hop: {get_attr: [Networks, net_attributes_map, ctlplane, subnets, {get_param: {{role.name}}ControlPlaneSubnet}, gateway_ip]}
+        {%- endif %}
       ControlPlaneMtu: {get_attr: [Networks, net_attributes_map, ctlplane, network, mtu]}
       DnsServers:
         if:
@@ -1034,7 +1052,13 @@ resources:
         {%- set _role_net_subnet = network.name_lower + '_subnet' %}
       {%- endif %}
       {{network.name}}IpSubnet: "{{ '{{' }} {{network.name_lower}}_ip ~ '/' ~ {{network.name_lower}}_cidr {{ '}}' }}"
-      {{network.name}}InterfaceRoutes: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+      {{network.name}}InterfaceRoutes:
+        list_concat_unique:
+          - {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, host_routes]}
+        {%- if network.name in role.default_route_networks %}
+          - - default: true
+              next_hop: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, subnets, {{_role_net_subnet}}, gateway_ip]}
+        {%- endif %}
       {{network.name}}Mtu: {get_attr: [Networks, net_attributes_map, {{network.name_lower}}, network, mtu]}
       {{network.name}}NetworkVlanID:
         yaql:
