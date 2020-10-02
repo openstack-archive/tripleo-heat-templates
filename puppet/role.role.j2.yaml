@@ -169,59 +169,6 @@ parameters:
       The subnet CIDR of the control plane network. (The parameter is
       automatically resolved from the ctlplane subnet's cidr attribute.)
     type: string
-  ControlPlaneDefaultRoute:
-    default: ''
-    description: The default route of the control plane network. (The parameter
-      is automatically resolved from the ctlplane subnet's gateway_ip attribute.)
-    type: string
-  ControlPlaneStaticRoutes:
-    default: []
-    description: >
-      Routes for the ctlplane network traffic.
-      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
-      Unless the default is changed, the parameter is automatically resolved
-      from the subnet host_routes attribute.
-    type: json
-  DnsServers: # Override this via parameter_defaults
-    default: []
-    description: >
-      DNS servers to use for the Overcloud (2 max for some implementations).
-      If not set the nameservers configured in the ctlplane subnet's
-      dns_nameservers attribute will be used.
-    type: comma_delimited_list
-{%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
-  {{network.name}}InterfaceRoutes:
-    default: []
-    description: >
-      Routes for the {{network.name_lower}} network traffic.
-      JSON route e.g. [{'destination':'10.0.0.0/16', 'nexthop':'10.0.0.1'}]
-      Unless the default is changed, the parameter is automatically resolved
-      from the subnet host_routes attribute.
-    type: json
-  {%- if role.networks is mapping %}
-  {%-   set _subnets = network.get('subnets') %}
-  {%-   set _role_net_subnet = role.networks[network.name].get('subnet') %}
-  {%-   if _subnets and _role_net_subnet and _role_net_subnet in _subnets %}
-  {{network.name}}NetworkVlanID_{{_role_net_subnet}}:
-    default: {{network.subnets[_role_net_subnet].vlan|default(1)}}
-    description: >
-      Vlan ID for the {{network.name_lower}} network traffic for subnet
-      {{_role_net_subnet}}.
-    type: number
-  {%-   elif network.vlan|default(false) %}
-  {{network.name}}NetworkVlanID:
-    default: {{network.vlan|default(1)}}
-    description: Vlan ID for the {{network.name_lower}} network traffic.
-    type: number
-  {%-   endif %}
-  {%- elif network.vlan|default(false) %}
-  {{network.name}}NetworkVlanID:
-    default: {{network.vlan|default(1)}}
-    description: Vlan ID for the {{network.name_lower}} network traffic.
-    type: number
-  {%- endif %}
-{%- endfor %}
-
   ServerDeletionPolicy:
     description: Whether to retain or delete servers on deletion of the stack
     type: string
@@ -281,32 +228,13 @@ conditions:
             - ""
 {%- endif %}
       - false  # NOTE(hjensas): Make sure 'or' get's 2 conditions or more
-{%- for network in networks %}
-{%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
+{%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
   {{role.name}}_{{network.name}}_fixed_ip_set:
     not:
       equals:
         - {get_param: [{{role.name}}IPs, '{{network.name_lower}}', {get_param: NodeIndex}]}
         - ''
-  {{network.name_lower}}_interface_routes_set:
-    not:
-      equals:
-        - {get_param: {{network.name}}InterfaceRoutes}
-        - []
-{%- endif %}
 {%- endfor %}
-  ctlplane_subnet_cidr_set:
-    not:
-      equals: [{get_param: ControlPlaneSubnetCidr}, '']
-  ctlplane_default_route_set:
-    not:
-      equals: [{get_param: ControlPlaneDefaultRoute}, '']
-  ctlplane_static_routes_set:
-    not:
-        equals: [{get_param: ControlPlaneStaticRoutes}, []]
-  dnsservers_set:
-    not:
-      equals: [{get_param: DnsServers}, []]
 
 resources:
   {{server_resource_name}}:
@@ -378,6 +306,8 @@ resources:
           - - {get_attr: [{{server_resource_name}}, name]}
             - {{network.name}}
       DnsName: {get_attr: [{{server_resource_name}}, name]}
+      # TODO(hjensas): Make network isolation the default, so that we can drop
+      # using network/ports/noop.yaml as the default and remove this.
       ControlPlaneIP: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
       FixedIPs:
         if:
@@ -393,15 +323,14 @@ resources:
 {%-     else %}
           - [{subnet: {{network.name_lower}}_subnet}]
 {%-     endif %}
+      # TODO(hjensas): Make network isolation the default, so that we can drop
+      # using network/ports/noop.yaml as the default and remove this.
       ControlPlaneSubnetCidr:
-        if:
-          - ctlplane_subnet_cidr_set
-          - {get_param: ControlPlaneSubnetCidr}
-          # DeployedServer docs specify 'cidr: 24' in DeployedServerPortMap.
-          # Support both that, and 'cidr: 192.168.24.0/24'.
-          - yaql:
-              expression: str("{0}".format($.data).split("/")[-1])
-              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
+        # DeployedServer docs specify 'cidr: 24' in DeployedServerPortMap.
+        # Support both that, and 'cidr: 192.168.24.0/24'.
+        yaql:
+          expression: str("{0}".format($.data).split("/")[-1])
+          data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
       IPPool:
         map_merge:
 {%- if role.deprecated_param_ips is defined %}
@@ -412,77 +341,14 @@ resources:
   {%- endif %}
   {%- endfor %}
 
-  NetworkConfig:
-    type: OS::TripleO::{{role.name}}::Net::SoftwareConfig
-    properties:
-      ControlPlaneIp: "{{ '{{' }} ctlplane_ip {{ '}}' }}"
-      ControlPlaneSubnetCidr:
-        if:
-          - ctlplane_subnet_cidr_set
-          - {get_param: ControlPlaneSubnetCidr}
-          - yaql:
-              expression: str("{0}".format($.data).split("/")[-1])
-              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
-
-      ControlPlaneDefaultRoute:
-        if:
-          - ctlplane_default_route_set
-          - {get_param: ControlPlaneDefaultRoute}
-          - {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, gateway_ip]}
-      ControlPlaneStaticRoutes:
-        if:
-          - ctlplane_static_routes_set
-          - {get_param: ControlPlaneStaticRoutes}
-          - yaql:
-              expression: switch(isList($.data) => $.data, true => [])
-              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, host_routes]}
-      ControlPlaneMtu:
-        yaql:
-          expression: switch(isInteger($.data) => $.data, true => 1500)
-          data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, network, mtu]}
-      DnsServers:
-        if:
-          - dnsservers_set
-          - {get_param: DnsServers}
-          - {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, dns_nameservers]}
-
-  {%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-      {{network.name}}IpSubnet: "{{ '{{' }} {{network.name_lower}}_ip ~ '/' ~ {{network.name_lower}}_cidr {{ '}}' }}"
-      {{network.name}}InterfaceRoutes:
-        if:
-          - {{network.name_lower}}_interface_routes_set
-          - {get_param: {{network.name}}InterfaceRoutes}
-          - {get_attr: [{{network.name}}Port, host_routes]}
-      {{network.name}}Mtu: {get_attr: [{{network.name}}Port, mtu]}
-    {%- if network.name in role.default_route_networks %}
-      {{network.name}}InterfaceDefaultRoute: {get_attr: [{{network.name}}Port, gateway_ip]}
-    {%- endif %}
-    {%- if role.networks is mapping %}
-      {%- set _subnets = network.get('subnets') %}
-      {%- set _role_net_subnet = role.networks[network.name].get('subnet') %}
-      {%- if _subnets and _role_net_subnet and _role_net_subnet in _subnets %}
-      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID_{{_role_net_subnet}}}
-      {%- elif network.vlan|default(false) %}
-      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID}
-      {%- endif %}
-    {%- elif network.vlan|default(false) %}
-      {{network.name}}NetworkVlanID: {get_param: {{network.name}}NetworkVlanID}
-    {%- endif %}
-  {%- endif %}
-  {%- endfor %}
-
   NetIpMap:
     type: OS::TripleO::Network::Ports::NetIpMap
     properties:
       ControlPlaneIp: {get_attr: [{{server_resource_name}}, networks, ctlplane, 0]}
       ControlPlaneSubnetCidr:
-        if:
-          - ctlplane_subnet_cidr_set
-          - {get_param: ControlPlaneSubnetCidr}
-          - yaql:
-              expression: str("{0}".format($.data).split("/")[-1])
-              data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
+        yaql:
+          expression: str("{0}".format($.data).split("/")[-1])
+          data: {get_attr: [{{server_resource_name}}, addresses, ctlplane, 0, subnets, 0, cidr]}
 
 
   {%- for network in networks %}
@@ -577,17 +443,8 @@ resources:
     properties:
       type: json
       value:
-  {%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-        {{network.name_lower}}_cidr: {get_attr: [{{network.name}}Port, cidr]}
+  {%- for network in networks if network.enabled|default(true) and network.name in role.networks|default([]) %}
         fqdn_{{network.name_lower}}: {get_attr: [NetHostMap, value, {{network.name_lower}}, fqdn]}
-  {%- endif %}
-  {%- endfor %}
-        network_cidrs:
-  {%- for network in networks %}
-  {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}
-          {{network.name}}_cidr: {get_attr: [{{network.name}}Port, cidr]}
-  {%- endif %}
   {%- endfor %}
         fqdn_ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
         fqdn_canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
@@ -665,13 +522,6 @@ outputs:
   {%- endfor %}
       ctlplane: {get_attr: [NetHostMap, value, ctlplane, fqdn]}
       canonical: {get_attr: [NetHostMap, value, canonical, fqdn]}
-  hostname_network_config_map:
-    description: Mapping of hostname to NetworkConfig resource
-    value:
-      map_replace:
-        - HOSTNAME: {get_attr: [NetworkConfig, config]}
-        - keys:
-            HOSTNAME: {get_attr:[{{server_resource_name}}, name]}
   hosts_entry:
     value:
       - str_replace:
