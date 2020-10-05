@@ -193,6 +193,11 @@ parameters:
     description: >
       NFS mount options for NFS image import staging
     type: string
+  GlanceSparseUploadEnabled:
+    default: false
+    description: >
+      When using GlanceBackend 'file' and 'rbd' to enable or not sparse upload.
+    type: boolean
   KeystoneRegion:
     type: string
     default: 'regionOne'
@@ -289,6 +294,7 @@ parameters:
 conditions:
 
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  glance_sparse_upload_enabled: {equals : [{get_param: GlanceSparseUploadEnabled}, true]}
   cinder_backend_enabled:
     or:
     - equals:
@@ -316,10 +322,13 @@ conditions:
           data: {get_param: GlanceMultistoreConfig}
       - true
   force_image_conversion_plugin:
-    and:
-      - rbd_backend_enabled
-      - equals: [{get_param: GlanceImageImportPlugins}, ['no_op']]
-      - equals: [{get_param: NovaEnableRbdBackend}, true]
+    or:
+      - and:
+        - rbd_backend_enabled
+        - equals: [{get_param: GlanceImageImportPlugins}, ['no_op']]
+        - equals: [{get_param: NovaEnableRbdBackend}, true]
+      - glance_sparse_upload_enabled
+
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   glance_workers_unset: {equals : [{get_param: GlanceWorkers}, '']}
   service_debug_unset: {equals : [{get_param: GlanceDebug}, '']}
@@ -476,6 +485,8 @@ outputs:
                     $NETWORK: {get_param: [ServiceNetMap, GlanceApiNetwork]}
             glance_notifier_strategy: {get_param: GlanceNotifierStrategy}
             glance_log_file: {get_param: GlanceLogFile}
+            glance::backend::rbd::rbd_thin_provisioning: {get_param: GlanceSparseUploadEnabled}
+            glance::backend::file::filesystem_thin_provisioning: {get_param: GlanceSparseUploadEnabled}
             glance::backend::swift::swift_store_auth_address: {get_param: [EndpointMap, KeystoneV3Internal, uri] }
             glance::backend::swift::swift_store_user: service:glance
             glance::backend::swift::swift_store_key: {get_param: GlancePassword}
