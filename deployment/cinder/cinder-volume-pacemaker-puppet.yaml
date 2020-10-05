@@ -336,18 +336,16 @@ outputs:
             - name: set cinder_volume upgrade node facts in a single-node environment
               set_fact:
                 cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names }}"
-                cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names }}"
                 cacheable: no
               when: groups['cinder_volume'] | length <= 1
             - name: set cinder_volume upgrade node facts from the limit option
               set_fact:
                 cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
-                cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names_upgraded|default([]) + [item] }}"
                 cacheable: no
               when:
                 - groups['cinder_volume'] | length > 1
                 - item.split('.')[0] in ansible_limit.split(',')
-              loop: "{{ cinder_volume_node_names }}"
+              loop: "{{ cinder_volume_short_node_names }}"
             - fail:
                 msg: >
                   You can't upgrade cinder_volume without
@@ -355,15 +353,13 @@ outputs:
                   to do so.
               when: >-
                 cinder_volume_short_node_names_upgraded is not defined or
-                cinder_volume_short_node_names_upgraded | length == 0 or
-                cinder_volume_node_names_upgraded is not defined or
-                cinder_volume_node_names_upgraded | length == 0
+                cinder_volume_short_node_names_upgraded | length == 0
             - debug:
                 msg: "Prepare cinder_volume upgrade for {{ cinder_volume_short_node_names_upgraded }}"
             - name: remove cinder_volume init container on upgrade-scaleup to force re-init
               shell: |
-                if podman inspect cinder_volume_init_bundle &> /dev/null; then
-                    podman rm cinder_volume_init_bundle
+                if {{ container_cli }} inspect cinder_volume_init_bundle &> /dev/null; then
+                    {{ container_cli }} rm cinder_volume_init_bundle
                 fi
               when: cinder_volume_short_node_names_upgraded | length > 1
             - name: add the cinder_volume short name to hiera data for the upgrade.
@@ -373,23 +369,6 @@ outputs:
               vars:
                 tripleo_upgrade_key: cinder_volume_short_node_names_override
                 tripleo_upgrade_value: "{{ cinder_volume_short_node_names_upgraded }}"
-            - name: add the cinder_volume long name to hiera data for the upgrade
-              include_role:
-                name: tripleo-upgrade-hiera
-                tasks_from: set.yml
-              vars:
-                tripleo_upgrade_key: cinder_volume_node_names_override
-                tripleo_upgrade_value: "{{ cinder_volume_node_names_upgraded }}"
-            - name: remove the extra hiera data needed for the upgrade.
-              include_role:
-                name: tripleo-upgrade-hiera
-                tasks_from: remove.yml
-              vars:
-                tripleo_upgrade_key: "{{ item }}"
-              loop:
-                - cinder_volume_short_node_names_override
-                - cinder_volume_node_names_override
-              when: cinder_volume_short_node_names_upgraded | length == cinder_volume_node_names | length
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
