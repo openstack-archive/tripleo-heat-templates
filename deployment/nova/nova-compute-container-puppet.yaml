@@ -431,6 +431,13 @@ parameters:
     default: 86400
     tags:
       - role_specific
+  NovaComputeDisableIrqBalance:
+    default: false
+    description: Whether to disable irqbalance on compute nodes or not. Especially
+                 in Realtime Compute role one wants to keep it disabled.
+    type: boolean
+    tags:
+      - role_specific
 
   # DEPRECATED: the following options are deprecated and are currently maintained
   # for backwards compatibility. They will be removed in future release.
@@ -531,6 +538,7 @@ resources:
               nova::compute::libvirt::pmem_namespaces: NovaPMEMMappings
               nova_pmem_namespaces: NovaPMEMNamespaces
               nova::compute::libvirt::remove_unused_original_minimum_age_seconds: NovaImageCacheTTL
+              compute_disable_irqbalance: NovaComputeDisableIrqBalance
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -606,6 +614,7 @@ resources:
               NovaPMEMMappings: {get_param: NovaPMEMMappings}
               NovaPMEMNamespaces: {get_param: NovaPMEMNamespaces}
               NovaImageCacheTTL: {get_param: NovaImageCacheTTL}
+              NovaComputeDisableIrqBalance: {get_param: NovaComputeDisableIrqBalance}
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
@@ -1087,6 +1096,15 @@ outputs:
               with_items:
                 - ksm.service
                 - ksmtuned.service
+          - name: Is irqbalance enabled
+            set_fact:
+              compute_irqbalance_disabled: {get_attr: [RoleParametersValue, value, compute_disable_irqbalance]}
+          - name: disable irqbalance service on compute
+            when: compute_irqbalance_disabled|bool
+            service:
+              name: irqbalance.service
+              state: stopped
+              enabled: no
       deploy_steps_tasks:
         - name: validate nova-compute container state
           podman_container_info:
