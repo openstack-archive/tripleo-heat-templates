@@ -15,12 +15,14 @@
 
 import contextlib
 import mock
+import os
 from os import stat as orig_stat
 import six
 import stat
 
 from oslotest import base
 
+from docker_config_scripts.nova_statedir_ownership import get_exclude_paths  # noqa: E402
 from docker_config_scripts.nova_statedir_ownership import \
     NovaStatedirOwnershipManager  # noqa: E402
 from docker_config_scripts.nova_statedir_ownership import PathManager  # noqa: E402
@@ -311,3 +313,31 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
             for fn, expected in six.iteritems(expected_changes):
                 assert_ids(testtree, fn, expected[0], expected[1])
             fake_unlink.assert_called_with('/var/lib/nova/upgrade_marker')
+
+    def test_exclude_path(self):
+        testtree = generate_testtree1(current_uid, current_gid)
+
+        with fake_testtree(testtree) as (
+                fake_chown, _, fake_listdir, fake_stat, _):
+            manager = NovaStatedirOwnershipManager(
+                '/var/lib/nova',
+                exclude_paths=['instances/foo/bar', '/var/lib/nova/instances/foo/removeddir']
+            )
+            manager.run()
+            self.assertIn('/var/lib/nova/instances/foo/bar', manager.exclude_paths)
+            self.assertIn('/var/lib/nova/instances/foo/removeddir', manager.exclude_paths)
+            self.assertNotIn(mock.call('/var/lib/nova/instances/foo/bar'), fake_stat.call_args_list)
+            self.assertNotIn(mock.call('/var/lib/nova/instances/foo/bar'), fake_chown.call_args_list)
+            self.assertNotIn(mock.call('/var/lib/nova/instances/foo/removeddir'), fake_stat.call_args_list)
+            self.assertNotIn(mock.call('/var/lib/nova/instances/foo/removeddir'), fake_chown.call_args_list)
+            self.assertNotIn(mock.call('/var/lib/nova/instances/foo/removeddir'), fake_listdir.call_args_list)
+
+    @mock.patch.dict(os.environ, {'NOVA_STATEDIR_OWNERSHIP_SKIP': 'foo:bar:foo/bar/baz'})
+    def test_get_exclude_paths(self):
+        expected = [
+            'foo',
+            'bar',
+            'foo/bar/baz'
+        ]
+        exclude_paths = get_exclude_paths()
+        self.assertEqual(exclude_paths, expected)

@@ -107,12 +107,19 @@ class NovaStatedirOwnershipManager(object):
        docker nova uid/gid is not known in this context).
     """
     def __init__(self, statedir, upgrade_marker='upgrade_marker',
-                 nova_user='nova'):
+                 nova_user='nova', exclude_paths=None):
         self.statedir = statedir
         self.nova_user = nova_user
 
         self.upgrade_marker_path = os.path.join(statedir, upgrade_marker)
         self.upgrade = os.path.exists(self.upgrade_marker_path)
+
+        self.exclude_paths = [self.upgrade_marker_path]
+        if exclude_paths is not None:
+            for p in exclude_paths:
+                if not p.startswith(os.path.sep):
+                    p = os.path.join(self.statedir, p)
+                self.exclude_paths.append(p)
 
         self.target_uid, self.target_gid = self._get_nova_ids()
         self.previous_uid, self.previous_gid = self._get_previous_nova_ids()
@@ -134,7 +141,7 @@ class NovaStatedirOwnershipManager(object):
         for f in os.listdir(top):
             pathname = os.path.join(top, f)
 
-            if pathname == self.upgrade_marker_path:
+            if pathname in self.exclude_paths:
                 continue
 
             try:
@@ -181,5 +188,12 @@ class NovaStatedirOwnershipManager(object):
         LOG.info('Nova statedir ownership complete')
 
 
+def get_exclude_paths():
+    exclude_paths = os.environ.get('NOVA_STATEDIR_OWNERSHIP_SKIP')
+    if exclude_paths is not None:
+        exclude_paths = exclude_paths.split(os.pathsep)
+    return exclude_paths
+
+
 if __name__ == '__main__':
-    NovaStatedirOwnershipManager('/var/lib/nova').run()
+    NovaStatedirOwnershipManager('/var/lib/nova', exclude_paths=get_exclude_paths())
