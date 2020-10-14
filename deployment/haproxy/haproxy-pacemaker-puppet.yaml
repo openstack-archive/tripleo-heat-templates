@@ -18,6 +18,12 @@ parameters:
                  set to true, the service uses a floating prefix as
                  well, e.g. 'cluster.common.tag/IMAGENAME:pcmklatest'.
     type: boolean
+  ClusterFullTag:
+    default: false
+    description: When set to true, the pacemaker service uses a fully
+                 constant tag for its container image name, e.g.
+                 'cluster.common.tag/SERVICENAME:pcmklatest'.
+    type: boolean
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -119,6 +125,7 @@ conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
+  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
 
 resources:
 
@@ -185,15 +192,18 @@ outputs:
             # disable the use CRL file until we can restart the container when the file expires
             tripleo::haproxy::crl_file: null
             tripleo::profile::pacemaker::haproxy_bundle::haproxy_docker_image: &haproxy_image_pcmklatest
-              yaql:
-                data:
-                  if:
-                    - common_tag_enabled
-                    - yaql:
-                        data: {get_param: ContainerHAProxyImage}
-                        expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                    - {get_param: ContainerHAProxyImage}
-                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
+              if:
+                - common_tag_full
+                - "cluster.common.tag/haproxy:pcmklatest"
+                - yaql:
+                    data:
+                      if:
+                        - common_tag_enabled
+                        - yaql:
+                            data: {get_param: ContainerHAProxyImage}
+                            expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                        - {get_param: ContainerHAProxyImage}
+                    expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: haproxy

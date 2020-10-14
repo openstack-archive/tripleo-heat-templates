@@ -18,6 +18,12 @@ parameters:
                  set to true, the service uses a floating prefix as
                  well, e.g. 'cluster.common.tag/IMAGENAME:pcmklatest'.
     type: boolean
+  ClusterFullTag:
+    default: false
+    description: When set to true, the pacemaker service uses a fully
+                 constant tag for its container image name, e.g.
+                 'cluster.common.tag/SERVICENAME:pcmklatest'.
+    type: boolean
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -82,6 +88,7 @@ conditions:
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
   common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
+  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
   is_ipv6:
     equals:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
@@ -120,15 +127,18 @@ outputs:
             redis::notify_service: false
             redis::managed_by_cluster_manager: true
             tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image_pcmklatest
-              yaql:
-                data:
-                  if:
-                    - common_tag_enabled
-                    - yaql:
-                        data: {get_param: ContainerRedisImage}
-                        expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                    - {get_param: ContainerRedisImage}
-                expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
+              if:
+                - common_tag_full
+                - "cluster.common.tag/redis:pcmklatest"
+                - yaql:
+                    data:
+                      if:
+                        - common_tag_enabled
+                        - yaql:
+                            data: {get_param: ContainerRedisImage}
+                            expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
+                        - {get_param: ContainerRedisImage}
+                    expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::database::redis_bundle::control_port: 3124
             tripleo::profile::pacemaker::database::redis_bundle::container_backend: {get_param: ContainerCli}
             tripleo::stunnel::manage_service: false
