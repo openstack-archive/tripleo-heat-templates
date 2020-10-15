@@ -50,8 +50,6 @@ controllers, and the net_config_static.j2 template could be used for computes
 by specifying:
 
 parameter_defaults:
-  ControllerNetworkConfigWithAnsible: true
-  ComputeNetworkConfigWithAnsible: true
   ControlleNetworkConfigTemplate: 'templates/net_config_static_bridge.j2'
   ComputeNetworkConfigTemplate: 'templates/net_config_static.j2'
 
