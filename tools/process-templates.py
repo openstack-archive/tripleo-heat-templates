@@ -106,6 +106,47 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
             out_f.write(r_template)
 
 
+def _set_tags_based_on_role_name(role_data):
+    for role in role_data:
+        role['tags'] = role.get('tags', [])
+        role_name = role.get('name', str())
+
+        if ((role_name.startswith('Compute') or role_name.startswith('HciCeph')
+             or role_name.startswith('DistributedCompute'))
+                and 'compute' not in role['tags']):
+            role['tags'].append('compute')
+            print("DEPRECATED: Role '%s' without the 'compute' tag "
+                  "detected, the tag was added automatically. Please "
+                  "add the 'compute' tag in roles data. The function to "
+                  "automatically add tags based on role name will be "
+                  "removed in the next release." % role_name)
+        if role_name.startswith('Ceph') and 'ceph' not in role['tags']:
+            role['tags'].append('ceph')
+            print("DEPRECATED: Role '%s' without the 'ceph' tag "
+                  "detected, the tag was added automatically. Please "
+                  "add the 'ceph' tag in roles data. The function to "
+                  "automatically add tags based on role name will be "
+                  "removed in the next release." % role_name)
+        if (role_name.startswith('ComputeOvsDpdk')
+                and 'ovsdpdk' not in role['tags']):
+            role['tags'].append('ovsdpdk')
+            print("DEPRECATED: Role '%s' without the 'ovsdpdk' tag "
+                  "detected, the tag was added automatically. Please "
+                  "add the 'ovsdpdk' tag in roles data. The function to "
+                  "automatically add tags based on role name will be "
+                  "removed in the next release." % role_name)
+        if ((role_name.startswith('ObjectStorage')
+             or role_name.startswith('BlockStorage')
+             or role_name.startswith('Ceph'))
+                and 'storage' not in role['tags']):
+            role['tags'].append('storage')
+            print("DEPRECATED: Role '%s' without the 'storage' tag "
+                  "detected, the tag was added automatically. Please "
+                  "add the 'storage' tag in roles data. The function to "
+                  "automatically add tags based on role name will be "
+                  "removed in the next release." % role_name)
+
+
 def process_templates(template_path, role_data_path, output_dir,
                       network_data_path, overwrite, dry_run):
 
@@ -127,6 +168,10 @@ def process_templates(template_path, role_data_path, output_dir,
         if os.path.exists(output_dir):
             raise RuntimeError('Output dir %s is not a directory' % output_dir)
         os.mkdir(output_dir)
+
+    # TODO(hjensas): In next release remove the function to automatically add
+    # tags based on role name.
+    _set_tags_based_on_role_name(role_data)
 
     role_names = [r.get('name') for r in role_data]
     r_map = {}
@@ -204,7 +249,8 @@ def process_templates(template_path, role_data_path, output_dir,
                                                              '.yaml')])
                             out_f_path = os.path.join(out_dir, out_f)
                             if ('network/config' in file_path and
-                                r_map[role].get('deprecated_nic_config_name')):
+                                    r_map[role].get(
+                                        'deprecated_nic_config_name')):
                                 d_name = r_map[role].get(
                                     'deprecated_nic_config_name')
                                 out_f_path = os.path.join(out_dir, d_name)
