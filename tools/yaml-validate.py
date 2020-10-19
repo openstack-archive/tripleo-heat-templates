@@ -1318,6 +1318,10 @@ def parse_args():
                    action='count',
                    default=0,
                    help='output warnings and errors (-q) or only errors (-qq)')
+    p.add_argument('--skip-dir',
+                   action='append',
+                   dest='skip_dirs',
+                   help='The directories to be skipped during file search')
     p.add_argument('path_args',
                    nargs='*',
                    default=['.'])
@@ -1326,6 +1330,7 @@ def parse_args():
 
 
 args = parse_args()
+skip_dirs = args.skip_dirs
 path_args = args.path_args
 quiet = args.quiet
 exit_val = 0
@@ -1337,8 +1342,16 @@ param_map = {}
 for base_path in path_args:
     if os.path.isdir(base_path):
         for subdir, dirs, files in os.walk(base_path):
-            if '.tox' in dirs:
-                dirs.remove('.tox')
+            for skip_dir in skip_dirs:
+                if subdir.startswith(os.path.join('.', skip_dir, '')):
+                    skip = True
+                    break
+            else:
+                skip = False
+
+            if skip:
+                continue
+
             for f in files:
                 file_path = os.path.join(subdir, f)
                 if 'tools/tests/nic_config_convert_samples' in file_path:
