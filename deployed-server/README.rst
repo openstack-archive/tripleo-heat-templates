@@ -45,13 +45,15 @@ that all connectivity is not lost in case of a configuration error. Be sure to
 use correct nic config templates as needed, since the nodes will not receive
 dhcp from the undercloud neutron-dhcp-agent service.
 
-For example, the net-config-static-bridge.yaml template could be used for
-controllers, and the net-config-static.yaml template could be used for computes
+For example, the net_config_static_bridge.j2 template could be used for
+controllers, and the net_config_static.j2 template could be used for computes
 by specifying:
 
-resource_registry:
-  OS::TripleO::Controller::Net::SoftwareConfig: /home/stack/deployed-server/tripleo-heat-templates/net-config-static-bridge.yaml
-  OS::TripleO::Compute::Net::SoftwareConfig: /home/stack/deployed-server/tripleo-heat-templates/net-config-static.yaml
+parameter_defaults:
+  ControllerNetworkConfigWithAnsible: true
+  ComputeNetworkConfigWithAnsible: true
+  ControlleNetworkConfigTemplate: 'templates/net_config_static_bridge.j2'
+  ComputeNetworkConfigTemplate: 'templates/net_config_static.j2'
 
 In a setup where the first nic on the servers is used for external management,
 set the nic's to be used for OpenStack to nic2:
