@@ -14,9 +14,10 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import datetime
+import json
 import re
 import sys
+
 
 HCLOG = '/var/log/collectd/healthchecks.stdout'
 START_RE = re.compile(
@@ -55,38 +56,28 @@ def process_healthcheck_output(path_to_log):
                     continue
                 item = data[pid_map[match.group('pid')]]
                 item['result'] = match.group('result')
-                if 'timestamp_start' not in item:
-                    continue
-                try:
-                    start = datetime.datetime.strptime(item['timestamp_start'],
-                                                       '%b %d %H:%M:%S')
-                    end = datetime.datetime.strptime(match.group('timestamp'),
-                                                     '%b %d %H:%M:%S')
-                    item['duration'] = (end - start).seconds
-                except Exception as ex:
-                    err = "[WARN] Failure during calculating duration: {}"
-                    print(err.format(ex))
-                    continue
-        logfile.truncate()
+                item['timestamp_end'] = match.group('timestamp')
 
     # truncate the file
     with open(HCLOG, "w") as logfile:
         pass
 
-    unhealthy = []
-    for container in data.values():
-        if 'result' not in container:
+    rc, output = 0, []
+    for cid, item in data.items():
+        if 'result' not in item:
             continue
-        if container['result'] == 'healthy':
-            continue
-        log = ('{container_name}: Container health check on host {host} '
-               'results as {result} after {duration}s.')
-        unhealthy.append(log.format(**container))
-    return unhealthy
+        if item['result'] != 'healthy' and rc != 2:
+            rc = 2 if item['result'] == 'unhealthy' else 1
+        output.append({
+            'container': cid,
+            'service': item['container_name'],
+            'status': item['result'],
+            'healthy': int(item['result'] == 'healthy'),
+        })
+    return rc, output
 
 
 if __name__ == "__main__":
-    unhealthy = process_healthcheck_output(HCLOG)
-    if unhealthy:
-        print(' ; '.join(unhealthy))
-        sys.exit(2)
+    rc, status = process_healthcheck_output(HCLOG)
+    print(json.dumps(status))
+    sys.exit(rc)
