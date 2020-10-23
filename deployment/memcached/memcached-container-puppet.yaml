@@ -62,8 +62,13 @@ parameters:
                  of the internal network. Use this parameter with caution and be aware of
                  opening memcached to external network can be dangerous.
     type: string
+  MemcachedTLS:
+    default: false
+    description: Set to True to enable TLS on Memcached service.
+    type: boolean
 
 conditions:
+  internal_tls_enabled: {equals: [{get_param: MemcachedTLS}, true]}
   memcached_network_unset: {equals : [{get_param: MemcachedIpSubnet}, '']}
   service_debug:
     or:
@@ -108,37 +113,60 @@ outputs:
               source: {get_param: MemcachedIpSubnet}
       monitoring_subscription: {get_param: MonitoringSubscriptionMemcached}
       config_settings:
-        # NOTE: bind IP is found in hiera replacing the network name with the local node IP
-        # for the given network; replacement examples (eg. for internal_api):
-        # internal_api -> IP
-        # internal_api_uri -> [IP]
-        # internal_api_subnet - > IP/CIDR
-        memcached::listen_ip:
-          str_replace:
-            template:
-              "%{hiera('$NETWORK')}"
-            params:
-              $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
-        memcached::listen_ip_uri:
-          str_replace:
-            template:
-              "%{hiera('$NETWORK_uri')}"
-            params:
-              $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
-        memcached::max_memory: {get_param: MemcachedMaxMemory}
-        # https://access.redhat.com/security/cve/cve-2018-1000115
-        # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
-        memcached::udp_port: 0
-        memcached::verbosity:
-          list_join:
-            - ''
-            - - 'v'
-              - if:
-                - service_debug
-                - 'v'
+        map_merge:
+          -
+            # NOTE: bind IP is found in hiera replacing the network name with the local node IP
+            # for the given network; replacement examples (eg. for internal_api):
+            # internal_api -> IP
+            # internal_api_uri -> [IP]
+            # internal_api_subnet - > IP/CIDR
+            memcached::listen_ip:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+            memcached::listen_ip_uri:
+              str_replace:
+                template:
+                  "%{hiera('$NETWORK_uri')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+            memcached::max_memory: {get_param: MemcachedMaxMemory}
+            # https://access.redhat.com/security/cve/cve-2018-1000115
+            # Only accept TCP to avoid spoofed traffic amplification DoS on UDP.
+            memcached::udp_port: 0
+            memcached::verbosity:
+              list_join:
                 - ''
-        memcached::disable_cachedump: true
-        memcached::logfile: '/var/log/memcached/memcached.log'
+                - - 'v'
+                  - if:
+                    - service_debug
+                    - 'v'
+                    - ''
+            memcached::disable_cachedump: true
+            memcached::logfile: '/var/log/memcached/memcached.log'
+            tripleo::profile::base::memcached::enable_internal_memcached_tls: {get_param: MemcachedTLS}
+          -
+            if:
+            - internal_tls_enabled
+            - generate_service_certificates: true
+              tripleo::memcached::service_certificate: '/etc/pki/tls/certs/memcached.crt'
+              tripleo::profile::base::memcached::certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/memcached.crt'
+                service_key: '/etc/pki/tls/private/memcached.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                principal:
+                  str_replace:
+                    template: "memcached/%{hiera('fqdn_$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-memcached-refresh.sh"
+            - {}
       service_config_settings:
         collectd:
             tripleo.collectd.plugins.memcached:
@@ -162,10 +190,21 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
           permissions:
             - path: /var/log/memcached
               owner: memcached:memcached
               recurse: true
+            - path: /etc/pki/tls/certs/memcached.crt
+              owner: memcached:memcached
+              optional: true
+            - path: /etc/pki/tls/private/memcached.key
+              owner: memcached:memcached
+              optional: true
       docker_config:
         step_1:
           memcached:
@@ -183,8 +222,22 @@ outputs:
                   - /var/lib/kolla/config_files/memcached.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/memcached:/var/lib/kolla/config_files/src:rw,z
                   - /var/log/containers/memcached:/var/log/memcached:rw
+                - if:
+                  - internal_tls_enabled
+                  -
+                    - /etc/pki/tls/certs/memcached.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/memcached.crt:ro
+                    - /etc/pki/tls/private/memcached.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/memcached.key:ro
+                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          -
+            - service: memcached
+              network: {get_param: [ServiceNetMap, MemcachedNetwork]}
+              type: node
+          - null
       host_prep_tasks:
         - name: create persistent directories
           file:
