@@ -36,11 +36,55 @@ parameters:
   DefaultPasswords:
     default: {}
     type: json
+  LVMFilterEnabled:
+    default: false
+    description: Enables configuration of LVM2 with a filter so that devices not
+                 in use on the host or explicitly allowed are ignored by
+                 LVM2. Can be configured per-role.
+                 When disabled, the proposed lvm.conf file will be created
+                 regardless and left in /tmp/tripleo_lvmfilter.conf for
+                 debugging purposes.
+    type: boolean
+    tags:
+      - role_specific
+  LVMFilterAllowlist:
+    default: []
+    description: A list of block devices which should be allowed in the LVM2
+                 `global_filter`. Supports regular expressions, like `/dev/sd.*`
+                 and can be configured per-role. Any block device in use at boot
+                 time will be automatically allowed.
+    type: comma_delimited_list
+    tags:
+      - role_specific
+  LVMFilterDenylist:
+    default: ['.*']
+    description: A list of block devices which should be disallowed in the LVM2
+                 `global_filter`. Supports regular expressions, like `/dev/sd.*`
+                 and can be configured per-role.
+    type: comma_delimited_list
+    tags:
+      - role_specific
 
 resources:
 
   ContainersCommon:
     type: ../containers-common.yaml
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - tripleo_tripleo_lvmfilter_enabled: LVMFilterEnabled
+              tripleo_tripleo_lvmfilter_devices_allowlist: LVMFilterAllowlist
+              tripleo_tripleo_lvmfilter_devices_denylist: LVMFilterDenylist
+            - values: {get_param: [RoleParameters]}
+          - values:
+              LVMFilterEnabled: {get_param: LVMFilterEnabled}
+              LVMFilterAllowlist: {get_param: LVMFilterAllowlist}
+              LVMFilterDenylist: {get_param: LVMFilterDenylist}
 
 outputs:
   role_data:
@@ -49,6 +93,13 @@ outputs:
       service_name: iscsid
       config_settings: {}
       service_config_settings: {}
+      deploy_steps_tasks:
+      - name: Run lvmfilter role
+        include_role:
+          name: tripleo_lvmfilter
+        when:
+        - step|int == 1
+      ansible_group_vars: {get_attr: [RoleParametersValue, value]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: iscsid
