@@ -59,7 +59,7 @@ def process_healthcheck_output(logfile):
 
     ret_code, output = 0, []
     for _, opt in data.items():
-        if opt['healthy'] > 0 and ret_code != 2:
+        if opt['healthy'] < 1 and ret_code != 2:
             ret_code = 2
         output.append(opt)
     return ret_code, output
