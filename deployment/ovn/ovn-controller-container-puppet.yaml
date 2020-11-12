@@ -98,10 +98,17 @@ parameters:
       OpenvSwitch integration bridge, in seconds.
     type: number
     default: 60
+  DockerInsecureRegistryAddress:
+    description: Optional. The IP Address and Port of an insecure docker
+                 namespace that will be configured in /etc/sysconfig/docker.
+                 The value can be multiple addresses separated by commas.
+    type: comma_delimited_list
+    default: []
 
 conditions:
   force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
 
 resources:
 
@@ -295,12 +302,82 @@ outputs:
             persistent: yes
             state: yes
       upgrade_tasks:
-        - name: Switch ovn remote setting
+        - name: Gather missing facts
+          setup:
+            gather_subset: "distribution"
+          when: >-
+            ansible_facts['distribution'] is not defined or
+            ansible_facts['distribution_major_version'] is not defined
           tags:
             - never
             - nova_hybrid_state
-          when: step|int == 0
+        - name: Switch ovn-controller to hybrid state
+          vars:
+            ovn_controller_image: {get_param: ContainerOvnControllerImage}
+            ovn_interaction_bridge: {get_param: OVNIntegrationBridge}
+          tags:
+            - never
+            - nova_hybrid_state
+          when:
+            - step|int == 0
+            - ansible_facts['distribution'] == 'RedHat'
+            - ansible_facts['distribution_major_version'] is version('7', '==')
           block:
+            - name: Check if we need to update the ovn_controller paunch config
+              shell: |
+                set -o pipefail
+                jq ."ovn_controller"."image" /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+              register: ovn_controller_paunch_image
+            - name: Implement the ovn_controller hybrid state (only if the controller is still Queens)
+              when: ovn_controller_paunch_image.stdout != ovn_controller_image
+              block:
+                - name: Update the ovn_controller paunch image in config
+                  shell: |
+                    set -o pipefail
+                    cat <<< $(jq '.ovn_controller.image = "{{ ovn_controller_image }}"' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json) >\
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+                - name: Add new volumes to ovn_controller config
+                  shell: |
+                    set -o pipefail
+                    cat <<< $(jq '.ovn_controller.volumes += ["/var/lib/openvswitch/ovn:/run/ovn:shared", "/var/log/containers/openvswitch:/var/log/ovn"]' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json) >\
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+                - name: Make sure the Undercloud hostname is included in /etc/hosts
+                  when:
+                    - undercloud_hosts_entries is defined
+                  lineinfile:
+                    dest: /etc/hosts
+                    line: "{{ undercloud_hosts_entries | join('') }}"
+                    state: present
+                - name: Set container_registry_insecure_registries fact.
+                  set_fact:
+                    container_registry_insecure_registries:
+                      if:
+                        - insecure_registry_is_empty
+                        - []
+                        - {get_param: DockerInsecureRegistryAddress}
+                - name: Set container_registry_insecure registries
+                  when: container_registry_insecure_registries != []
+                  shell: crudini --set /etc/containers/registries.conf registries.insecure registries "[{{ container_registry_insecure_registries | map('regex_replace', '(.*)', "'\1'") | join(',') }}]"
+                - name: Restart docker and apply the paunch config
+                  when: container_registry_insecure_registries != []
+                  shell: |
+                    set -o pipefail
+                    # Get list of running containers
+                    RUNNING="$( docker ps --format '{{ '{{' }}.Names{{ '}}' }}' )"
+                    # Restart docker
+                    systemctl restart docker
+                    # Apply the paunch so if we start even more stuff we start it before shutting down
+                    paunch apply --file /var/lib/tripleo-config/docker-container-startup-config-step_4.json --config-id tripleo_step4
+                    # Compare running containers now vs before
+                    TO_STOP="$(grep -v -f <(echo "${RUNNING}")  <(docker ps --format '{{ '{{' }}.Names{{ '}}' }}'))"
+                    # Check if we need to stop anything and stop it
+                    if [ -n "${TO_STOP}" ]; then
+                      echo "${TO_STOP}" | xargs -r docker stop
+                    fi
+                  args:
+                    executable: /usr/bin/bash
             - name: Get ovn remote setting
               shell: |
                 ovs-vsctl get open . external_ids:ovn-remote
@@ -312,3 +389,6 @@ outputs:
               shell: |
                 ovs-vsctl set open . external_ids:ovn-remote="{{ ovn_sb_conn_str }}"
               when: ovn_sb_conn_str not in ovn_remote.stdout
+            - name: Update OVNIntegrationBridge protocols to OpenFlow13,OpenFlow15
+              shell: |
+                ovs-vsctl set bridge {{ ovn_interaction_bridge }} protocols="OpenFlow13,OpenFlow15"
