@@ -259,6 +259,10 @@ VALIDATE_DOCKER_OVERRIDE = {
   # Does not follow the filename pattern
   './deployment/multipathd/multipathd-container.yaml': True
 }
+VALIDATE_DOCKER_PUPPET_CONFIG_OVERRIDE = {
+    # inherits from nova-conductor
+  './deployment/nova/nova-manager-container-puppet.yaml': False,
+}
 DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::SoftwareDeploymentGroup',
     'OS::Heat::StructuredDeploymentGroup',
@@ -739,7 +743,8 @@ def validate_docker_service(filename, tpl):
                           % (section_name, filename))
                     return 1
 
-        if 'puppet_config' in role_data:
+        if 'puppet_config' in role_data and \
+                VALIDATE_DOCKER_PUPPET_CONFIG_OVERRIDE.get(filename, True):
             if validate_docker_service_mysql_usage(filename, tpl):
                 print('ERROR: could not validate use of mysql service for %s.'
                       % filename)
