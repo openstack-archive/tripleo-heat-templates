@@ -255,20 +255,19 @@ outputs:
             - nova_hybrid_state
           when: step|int == 0
           block:
-            - name: Check if we need to update the neutron_sriov_agent paunch config
-              shell: |
-                set -o pipefail
-                jq ."neutron_sriov_agent"."image" /var/lib/tripleo-config/docker-container-startup-config-step_4.json
-              register: neutron_sriov_agent_paunch_image
-            - name: Implement the neutron hybrid state (only if the compute is still Queens)
-              when: neutron_sriov_agent_paunch_image.stdout != neutron_sriov_image
+            - name: Check if we need to create neutron_sriov paunch config
+              stat:
+                path: /var/lib/tripleo-config/docker-container-hybrid_neutron_sriov.json
+              register: hybrid_neutron_sriov
+            - name: Implement the hybrid state for neutron_sriov_agent
+              when: not hybrid_neutron_sriov.stat.exists
               block:
-                - name: Update the neutron_sriov paunch image in config
+                - name: Update the neutron_sriov_agent paunch image in config
                   shell: |
                     set -o pipefail
-                    cat <<< $(jq '.neutron_sriov_agent.image = "{{ neutron_sriov_image }}"' \
-                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json) >\
-                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+                    jq '.neutron_sriov_agent.image = "{{ neutron_sriov_image }}" | {"neutron_sriov_agent": .neutron_sriov_agent }' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
+                    /var/lib/tripleo-config/docker-container-hybrid_neutron_sriov.json
                 - name: Make sure the Undercloud hostname is included in /etc/hosts
                   when:
                     - undercloud_hosts_entries is defined
@@ -287,12 +286,13 @@ outputs:
                   when: container_registry_insecure_registries != []
                   shell: crudini --set /etc/containers/registries.conf registries.insecure registries "[{{ container_registry_insecure_registries | map('regex_replace', '(.*)', "'\1'") | join(',') }}]"
                 - name: Restart docker
+                  when: container_registry_insecure_registries != []
                   service:
                     name: docker
                     state: restarted
                 # Finally apply the paunch config to start the new nova_compute
                 - name: Apply paunch config
-                  shell: paunch apply --file /var/lib/tripleo-config/docker-container-startup-config-step_4.json --config-id tripleo_step4
+                  shell: paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_neutron_sriov.json --config-id tripleo_step4
 
         - name: upgrade prepare for leapp to remove extra sriov vfs
           tags:

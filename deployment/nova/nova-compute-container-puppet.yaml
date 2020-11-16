@@ -1155,20 +1155,19 @@ outputs:
             - nova_hybrid_state
           when: step|int == 0
           block:
-            - name: Check if we need to update the paunch config
-              shell: |
-                set -o pipefail
-                jq ."nova_compute"."image" /var/lib/tripleo-config/docker-container-startup-config-step_4.json
-              register: nova_compute_paunch_image
+            - name: Check if we need to create nova_compute paunch config
+              stat:
+                path: /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
+              register: hybrid_nova_compute
             - name: Implement the hybrid state (only if the compute is still Queens)
-              when: nova_compute_paunch_image.stdout != nova_compute_image
+              when: not hybrid_nova_compute.stat.exists
               block:
                 - name: Update the nova_compute paunch image in config
                   shell: |
                     set -o pipefail
-                    cat <<< $(jq '.nova_compute.image = "{{ nova_compute_image }}"' \
-                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json) >\
-                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json
+                    jq '.nova_compute.image = "{{ nova_compute_image }}" | {"nova_compute": .nova_compute }' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
+                    /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
                 # Nova compute will not work unless we ensure it will not connect against db and use messaging
                 - name: Remove database section from nova_compute config
                   shell: crudini --del database /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf
@@ -1193,12 +1192,13 @@ outputs:
                   when: container_registry_insecure_registries != []
                   shell: crudini --set /etc/containers/registries.conf registries.insecure registries "[{{ container_registry_insecure_registries | map('regex_replace', '(.*)', "'\1'") | join(',') }}]"
                 - name: Restart docker
+                  when: container_registry_insecure_registries != []
                   service:
                     name: docker
                     state: restarted
                 # Finally apply the paunch config to start the new nova_compute
                 - name: Apply paunch config
-                  shell: paunch apply --file /var/lib/tripleo-config/docker-container-startup-config-step_4.json --config-id tripleo_step4
+                  shell: paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json --config-id tripleo_step4
         - name: Remove openstack-nova-compute and python-nova package during upgrade
           package:
             name:
