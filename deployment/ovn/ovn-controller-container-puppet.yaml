@@ -333,8 +333,8 @@ outputs:
                 - name: Update the ovn_controller paunch image in config
                   shell: |
                     set -o pipefail
-                    jq '.ovn_controller.image = "{{ ovn_controller_image }}" |\
-                        .ovn_controller.volumes += ["/var/lib/openvswitch/ovn:/run/ovn:shared", "/var/log/containers/openvswitch:/var/log/ovn"] |\
+                    jq '.ovn_controller.image = "{{ ovn_controller_image }}" |
+                        .ovn_controller.volumes += ["/var/lib/openvswitch/ovn:/run/ovn:shared", "/var/log/containers/openvswitch:/var/log/ovn"] |
                         {"ovn_controller": .ovn_controller }' \
                     /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
                     /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json
@@ -363,8 +363,6 @@ outputs:
                     RUNNING="$( docker ps --format '{{ '{{' }}.Names{{ '}}' }}' )"
                     # Restart docker
                     systemctl restart docker
-                    # Apply the paunch so if we start even more stuff we start it before shutting down
-                    paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json --config-id tripleo_step4
                     # Compare running containers now vs before
                     TO_STOP="$(grep -v -f <(echo "${RUNNING}")  <(docker ps --format '{{ '{{' }}.Names{{ '}}' }}'))"
                     # Check if we need to stop anything and stop it
@@ -373,6 +371,13 @@ outputs:
                     fi
                   args:
                     executable: /usr/bin/bash
+                - name: Remove ovn_controller container before applying new paunch config
+                  docker_container:
+                    name: ovn_controller
+                    state: absent
+                - name: Apply paunch config if insecure registries are empty
+                  shell: |
+                    paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json --config-id hybrid_ovn_controller
             - name: Get ovn remote setting
               shell: |
                 ovs-vsctl get open . external_ids:ovn-remote
