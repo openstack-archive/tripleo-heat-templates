@@ -201,7 +201,8 @@ def convert_to_heat_value_resource():
         del net_config_res_props['group']
         old_config = net_config_res_props['config']
         new_config = old_config['str_replace']['params']['$network_config']
-        net_config_res_props['config'] = new_config
+        del net_config_res_props['config']
+        net_config_res_props['value'] = new_config
         outputs = template['outputs']
         del outputs['OS::stack_id']
         outputs['config'] = {}
