@@ -116,6 +116,31 @@ parameters:
     default: '/etc/pki/CA/certs/qemu.pem'
     type: string
     description: Specifies the CA cert to use for qemu.
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  LibvirtCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+  LibvirtVNCServerCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+  QemuServerCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+  QemuClientCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
   LibvirtCACert:
     type: string
     default: ''
@@ -319,6 +344,11 @@ conditions:
         - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
       - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
 
+  key_size_libvirt_override_unset: {equals: [{get_param: LibvirtCertificateKeySize}, '']}
+  key_size_libvirtvnc_override_unset: {equals: [{get_param: LibvirtVNCServerCertificateKeySize}, '']}
+  key_size_qemu_client_override_unset: {equals: [{get_param: QemuClientCertificateKeySize}, '']}
+  key_size_qemu_server_override_unset: {equals: [{get_param: QemuServerCertificateKeySize}, '']}
+
 resources:
   RoleParametersValue:
     type: OS::Heat::Value
@@ -464,6 +494,11 @@ outputs:
                         template: "libvirt/%{hiera('fqdn_NETWORK')}"
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    key_size:
+                      if:
+                        - key_size_libvirtvnc_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: LibvirtCertificateKeySize}
                 # create the qemu and qemu_ndb dirs and certs also when when tls for nbd
                 # is not enabled this allows us to enable it even at a later time without
                 # restart of instances
@@ -493,6 +528,11 @@ outputs:
                         template: "qemu/%{hiera('fqdn_NETWORK')}"
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    key_size:
+                      if:
+                        - key_size_qemu_server_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: QemuServerCertificateKeySize}
                   qemu-nbd-client-cert:
                     service_certificate: '/etc/pki/libvirt-nbd/client-cert.pem'
                     service_key: '/etc/pki/libvirt-nbd/client-key.pem'
@@ -506,6 +546,11 @@ outputs:
                         template: "qemu/%{hiera('fqdn_NETWORK')}"
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    key_size:
+                      if:
+                        - key_size_qemu_client_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: QemuClientCertificateKeySize}
               -
                 nova::migration::libvirt::live_migration_inbound_addr:
                   str_replace:
@@ -545,6 +590,11 @@ outputs:
                         template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                    key_size:
+                      if:
+                        - key_size_libvirtvnc_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: LibvirtVNCServerCertificateKeySize}
               - {}
           -
             if:

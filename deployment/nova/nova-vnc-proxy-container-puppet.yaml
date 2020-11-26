@@ -54,6 +54,21 @@ parameters:
     default: '/etc/pki/CA/certs/vnc.crt'
     type: string
     description: Specifies the CA cert to use for VNC TLS.
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  NovaVNCCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+  LibvirtVNCClientCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
   LibvirtVncCACert:
     type: string
     default: ''
@@ -113,6 +128,9 @@ conditions:
   allow_noauth:
     # Allow noauth VNC connections during P->Q upgrade. Remove in Rocky.
     equals: [{get_param: StackUpdateType}, 'UPGRADE']
+
+  key_size_novavnc_override_unset: {equals: [{get_param: NovaVNCCertificateKeySize}, '']}
+  key_size_libvirtvnc_override_unset: {equals: [{get_param: LibvirtVNCClientCertificateKeySize}, '']}
 
 resources:
 
@@ -224,6 +242,11 @@ outputs:
                         template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
                         params:
                           NETWORK: {get_param: [ServiceNetMap, NovaVncProxyNetwork]}
+                    key_size:
+                      if:
+                        - key_size_libvirtvnc_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: LibvirtVNCClientCertificateKeySize}
                 novnc_proxy_certificates_specs:
                   service_certificate: '/etc/pki/tls/certs/novnc_proxy.crt'
                   service_key: '/etc/pki/tls/private/novnc_proxy.key'
@@ -237,6 +260,11 @@ outputs:
                       template: "novnc-proxy/%{hiera('fqdn_NETWORK')}"
                       params:
                         NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+                  key_size:
+                    if:
+                      - key_size_novavnc_override_unset
+                      - {get_param: CertificateKeySize}
+                      - {get_param: NovaVNCCertificateKeySize}
               - {}
       service_config_settings:
         rabbitmq: {get_attr: [NovaBase, role_data, service_config_settings], rabbitmq}
