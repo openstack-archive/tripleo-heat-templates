@@ -45,11 +45,11 @@ parameters:
     default: []
     description: List of scheduler available filters
     type: comma_delimited_list
-  NovaSchedulerDefaultFilters:
+  NovaSchedulerEnabledFilters:
     type: comma_delimited_list
     default: []
     description: >
-      An array of filters used by Nova to filter a node.These filters will be
+      An array of filters used by Nova to filter a node. These filters will be
       applied in the order they are listed, so place your most restrictive
       filters first to make the filtering process more efficient.
   NovaSchedulerMaxAttempts:
@@ -113,10 +113,33 @@ parameters:
       key of availability zone set to the value provided by incoming request, and
       request result from placement be limited to that aggregate.
     type: boolean
+  # DEPRECATED: the following options are deprecated and are currently maintained
+  # for backwards compatibility. They will be removed in future release.
+  NovaSchedulerDefaultFilters:
+    type: comma_delimited_list
+    default: []
+    description: >
+      (DEPRECATED) An array of filters used by Nova to filter a node. These
+      filters will be applied in the order they are listed, so place your most
+      restrictive filters first to make the filtering process more efficient.
+
 
 
 conditions:
   nova_scheduler_workers_zero: {equals : [{get_param: NovaSchedulerWorkers}, 0]}
+  scheduler_default_filters: {not: {equals: [{get_param: NovaSchedulerDefaultFilters}, []]}}
+  disabled_scheduler_enabled_filters: {equals: [{get_param: NovaSchedulerEnabledFilters}, []]}
+
+
+parameter_groups:
+- label: deprecated
+  description: |
+    The following parameters are deprecated and will be removed. They should not
+    be relied on for new deployments. If you have concerns regarding deprecated
+    parameters, please contact the TripleO development team on IRC or the
+    Openstack mailing list.
+  parameters:
+  - NovaSchedulerDefaultFilters
 
 resources:
 
@@ -176,7 +199,11 @@ outputs:
           - get_attr: [NovaDBClient, role_data, config_settings]
           - get_attr: [NovaLogging, config_settings]
           - nova::scheduler::filter::scheduler_available_filters: {get_param: NovaSchedulerAvailableFilters}
-            nova::scheduler::filter::scheduler_default_filters: {get_param: NovaSchedulerDefaultFilters}
+            nova::scheduler::filter::scheduler_enabled_filters:
+              if:
+              - and: [scheduler_default_filters, disabled_scheduler_enabled_filters]
+              - {get_param: NovaSchedulerDefaultFilters}
+              - {get_param: NovaSchedulerEnabledFilters}
             nova::scheduler::filter::scheduler_max_attempts: {get_param: NovaSchedulerMaxAttempts}
             nova::scheduler::discover_hosts_in_cells_interval: {get_param: NovaSchedulerDiscoverHostsInCellsInterval}
             nova::scheduler::query_placement_for_image_type_support: {get_param: NovaSchedulerQueryImageType}
