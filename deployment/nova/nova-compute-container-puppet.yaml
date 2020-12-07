@@ -1042,6 +1042,51 @@ outputs:
             - name: If instance HA is enabled on the node activate the evacuation completed check
               file: path=/var/lib/nova/instanceha/enabled state=touch
               when: iha_nodes.stdout|lower is search('"'+ansible_hostname|lower+'"')
+          - name: Is irqbalance enabled
+            set_fact:
+              compute_irqbalance_disabled: {get_attr: [RoleParametersValue, value, compute_disable_irqbalance]}
+          - name: disable irqbalance service on compute
+            when: compute_irqbalance_disabled|bool
+            service:
+              name: irqbalance.service
+              state: stopped
+              enabled: no
+      deploy_steps_tasks:
+        - name: validate nova compute container state
+          when:
+            - not (ansible_check_mode | bool)
+            - container_cli == 'podman'
+            - not container_healthcheck_disabled
+            - step|int == 6 #FIXME: there is no step6
+          tags:
+            - opendev-validation
+            - opendev-validation-nova
+          block:
+            - name: Get nova-compute healthcheck status
+              register: nova_compute_healthcheck_state
+              systemd:
+                name: tripleo_nova_compute_healthcheck
+              retries: 10
+              delay: 30
+              until: nova_compute_healthcheck_state.status.ExecMainPID != '0' and
+                nova_compute_healthcheck_state.status.ActiveState in ['inactive', 'failed']
+              failed_when: false
+            - name: Fail if nova-compute healthcheck report failed status
+              fail:
+                msg: nova-compute isn't working (healthcheck failed)
+              when: nova_compute_healthcheck_state.status.ExecMainStatus != '0'
+        - name: manage PMEM namespaces for vPMEM
+          include_role:
+            name: tripleo_nvdimm
+          vars:
+            tripleo_nvdimm_pmem_namespaces: {get_attr: [RoleParametersValue, value, nova_pmem_namespaces]}
+          when:
+            - step|int == 1
+            - tripleo_nvdimm_pmem_namespaces != ''
+        - name: enable/disable ksm
+          when:
+            - step|int == 1
+          block:
           - name: is KSM enabled
             set_fact:
               compute_ksm_enabled: {get_attr: [RoleParametersValue, value, compute_enable_ksm]}
@@ -1104,47 +1149,6 @@ outputs:
               with_items:
                 - ksm.service
                 - ksmtuned.service
-          - name: Is irqbalance enabled
-            set_fact:
-              compute_irqbalance_disabled: {get_attr: [RoleParametersValue, value, compute_disable_irqbalance]}
-          - name: disable irqbalance service on compute
-            when: compute_irqbalance_disabled|bool
-            service:
-              name: irqbalance.service
-              state: stopped
-              enabled: no
-      deploy_steps_tasks:
-        - name: validate nova compute container state
-          when:
-            - not (ansible_check_mode | bool)
-            - container_cli == 'podman'
-            - not container_healthcheck_disabled
-            - step|int == 6 #FIXME: there is no step6
-          tags:
-            - opendev-validation
-            - opendev-validation-nova
-          block:
-            - name: Get nova-compute healthcheck status
-              register: nova_compute_healthcheck_state
-              systemd:
-                name: tripleo_nova_compute_healthcheck
-              retries: 10
-              delay: 30
-              until: nova_compute_healthcheck_state.status.ExecMainPID != '0' and
-                nova_compute_healthcheck_state.status.ActiveState in ['inactive', 'failed']
-              failed_when: false
-            - name: Fail if nova-compute healthcheck report failed status
-              fail:
-                msg: nova-compute isn't working (healthcheck failed)
-              when: nova_compute_healthcheck_state.status.ExecMainStatus != '0'
-        - name: manage PMEM namespaces for vPMEM
-          include_role:
-            name: tripleo_nvdimm
-          vars:
-            tripleo_nvdimm_pmem_namespaces: {get_attr: [RoleParametersValue, value, nova_pmem_namespaces]}
-          when:
-            - step|int == 1
-            - tripleo_nvdimm_pmem_namespaces != ''
       external_post_deploy_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       upgrade_tasks:
         - name: Switch compute to hybrid state
