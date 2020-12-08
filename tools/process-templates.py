@@ -389,16 +389,6 @@ def clean_templates(base_path, role_data_path, network_data_path):
         delete(krb_service_principals_path)
         delete(common_services_path)
 
-        nic_config_dir = os.path.join(base_path, 'network', 'config')
-        for sample_nic_config_dir in os.listdir(nic_config_dir):
-            delete(os.path.join(
-                    nic_config_dir, sample_nic_config_dir,
-                    '%s.yaml' % role['name'].lower()))
-            if 'deprecated_nic_config_name' in role:
-                delete(os.path.join(
-                        nic_config_dir, sample_nic_config_dir,
-                        role['deprecated_nic_config_name']))
-
 
 opts = parse_opts(sys.argv)
 
