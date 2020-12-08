@@ -1,0 +1,45 @@
+#!/usr/libexec/platform-python
+"""
+This wrapper was created to add an optional delay to the startup of nova-compute.
+We know that instances will fail to boot, after a compute reboot, if ceph is not
+healthy.
+
+Ideally, we would poll ceph to get its health, but it's not guaranteed that the
+compute node will have access to the keys.
+"""
+
+import os
+import sys
+import time
+import logging
+import argparse
+
+parser = argparse.ArgumentParser(description='Process some integers.')
+parser.add_argument('--config-file', dest='nova_config', action='store',
+                    default="/etc/nova/nova.conf",
+                    help='path to nova configuration (default: /etc/nova/nova.conf)')
+parser.add_argument('--nova-binary', dest='nova_binary', action='store',
+                    default="/usr/bin/nova-compute",
+                    help='path to nova compute binary (default: /usr/bin/nova-compute)')
+parser.add_argument('--delay', dest='delay', action='store',
+                    default=120, type=int,
+                    help='Number of seconds to wait until nova-compute is started')
+parser.add_argument('--state-file', dest='state_file', action='store',
+                    default="/run/nova-compute-delayed",
+                    help='file exists if we already delayed nova-compute startup'\
+                    '(default: /run/nova-compute-delayed)')
+
+
+sections = {}
+(args, remaining) = parser.parse_known_args(sys.argv)
+
+real_args = [args.nova_binary, '--config-file', args.nova_config]
+real_args.extend(remaining[1:])
+
+if not os.path.isfile(args.state_file):
+    logging.info("Delaying nova-compute startup by %s seconds" % args.delay)
+    time.sleep(args.delay)
+    open(args.state_file, 'a').close()
+
+logging.info("Executing %s" % real_args)
+os.execv(args.nova_binary, real_args)
