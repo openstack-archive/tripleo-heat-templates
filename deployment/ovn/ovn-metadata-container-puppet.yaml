@@ -373,17 +373,16 @@ outputs:
             - nova_hybrid_state
           when: step|int == 0
           block:
-            - name: Get ovn remote setting in networking-ovn-metadata-agent.ini
-              shell: |
-                crudini --get /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini ovn ovn_sb_connection
-              register: ovn_remote
             - name: Set fact - OVN SB connection string
               set_fact:
                 ovn_sb_conn_str: "{{ [enable_internal_tls | bool | ternary('ssl','tcp'), ovn_dbs_vip | ipwrap, service_configs['ovn::southbound::port']] | join(':') }}"
             - name: Set new ovn remote setting in networking-ovn-metadata-agent.ini
-              shell: |
-                crudini --set /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini ovn ovn_sb_connection "{{ ovn_sb_conn_str }}"
-              when: ovn_sb_conn_str not in ovn_remote.stdout
+              ini_file:
+                path: /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini
+                section: ovn
+                option: ovn_sb_connection
+                value: "{{ ovn_sb_conn_str }}"
+              register: ini_read_result
             - name: Restart ovn_metadata_agent container to apply change in networking-ovn-metadata-agent.ini
               docker_container:
                 name: ovn_metadata_agent
@@ -391,4 +390,4 @@ outputs:
                 restart: True
                 comparisons:
                   '*': ignore
-              when: ovn_sb_conn_str not in ovn_remote.stdout
+              when: ini_read_result is changed
