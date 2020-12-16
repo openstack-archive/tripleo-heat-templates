@@ -14,14 +14,9 @@ parameters:
                  via parameter_defaults in the resource registry.  This
                  mapping overrides those in ServiceNetMapDefaults.
     type: json
-  CephDashboardAdminPassword:
-    description: Admin password for the dashboard component
-    type: string
-    hidden: true
-  CephGrafanaAdminPassword:
-    description: Admin password for grafana component
-    type: string
-    hidden: true
+  DefaultPasswords:
+    default: {}
+    type: json
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -62,26 +57,6 @@ parameters:
     type: boolean
     default: false
     description: Parameter used to trigger the dashboard deployment.
-  NodeExporterContainerImage:
-    description: Ceph NodeExporter container image
-    default: ''
-    type: string
-  CephAnsiblePlaybook:
-    type: comma_delimited_list
-    description: >
-      List of paths to the ceph-ansible playbooks to execute. If not
-      specified, the playbook will be determined automatically
-      depending on type of operation being performed
-      (deploy/update/upgrade).
-    default: ['default']
-  CephAnsibleExtraConfig:
-    type: json
-    description: Extra vars for the ceph-ansible playbook
-    default: {}
-  CephAnsibleSkipTags:
-    type: string
-    description: List of ceph-ansible tags to skip
-    default: 'package-install,with_pkg'
   CephConfigOverrides:
     type: json
     description: Extra config settings to dump into ceph.conf
@@ -201,6 +176,7 @@ parameters:
   ContainerCephDaemonImage:
     description: image
     type: string
+  # start DEPRECATED options for compatibility with older versions
   CephAnsiblePlaybookVerbosity:
     default: 1
     description: The number of '-v', '-vv', etc. passed to ansible-playbook command
@@ -211,7 +187,6 @@ parameters:
     default: {}
     description: Mapping of Ansible environment variables to override defaults.
     type: json
-  # start DEPRECATED options for compatibility with older versions
   SwiftFetchDirGetTempurl:
     default: ''
     description: A temporary Swift URL to download the fetch_directory from.
@@ -239,6 +214,36 @@ parameters:
                  brings up OSDs out of band and deployment does not block while
                  waiting for them to come up, thus we cannot do this anymore.
     type: number
+  CephAnsiblePlaybook:
+    type: comma_delimited_list
+    description: >
+      List of paths to the ceph-ansible playbooks to execute. If not
+      specified, the playbook will be determined automatically
+      depending on type of operation being performed
+      (deploy/update/upgrade).
+    default: ['default']
+  CephAnsibleExtraConfig:
+    type: json
+    description: Extra vars for the ceph-ansible playbook
+    default: {}
+  CephAnsibleSkipTags:
+    type: string
+    description: List of ceph-ansible tags to skip
+    default: 'package-install,with_pkg'
+  CephAnsibleRepo:
+    type: string
+    description: |
+      The repository that should be used to install the right ceph-ansible
+      package. This value can be used by tripleo-validations to double check
+      the right ceph-ansible version is installed.
+    default: 'centos-ceph-nautilus'
+  CephAnsibleWarning:
+    type: boolean
+    description: |
+      In particular scenarios we want this validation to show the warning but
+      don't fail because the package is installed on the system but repos are
+      disabled.
+    default: true
   # end DEPRECATED options for compatibility with older versions
   ContainerImageRegistryCredentials:
     type: json
@@ -266,48 +271,6 @@ parameters:
           key: "AQBRgQ9eAAAAABAAv84zEilJYZPNuJ0Iwn9Ndg=="
           mode: "0600"
     default: []
-  CephAnsibleRepo:
-    type: string
-    description: |
-      The repository that should be used to install the right ceph-ansible
-      package. This value can be used by tripleo-validations to double check
-      the right ceph-ansible version is installed.
-    default: 'centos-ceph-nautilus'
-  CephAnsibleWarning:
-    type: boolean
-    description: |
-      In particular scenarios we want this validation to show the warning but
-      don't fail because the package is installed on the system but repos are
-      disabled.
-    default: true
-  CephExternalMultiConfig:
-    type: json
-    hidden: true
-    description: |
-      List of maps describing extra overrides which will be applied when configuring
-      extra external Ceph clusters. If this list is non-empty, ceph-ansible will run
-      an extra count(list) times using the same parameters as the first run except
-      each parameter within each map will override the defaults. If the following
-      were used, the second run would configure the overcloud to also use the ceph2
-      cluster with all the previous parameters except /etc/ceph/ceph2.conf would have
-      a mon_host entry containing the value of external_cluster_mon_ips below, and
-      not the default CephExternalMonHost. Subsequent ceph-ansible runs are restricted
-      to just ceph clients. CephExternalMultiConfig may not be used to deploy additional
-      internal Ceph clusters within one Heat stack. The map for each list should contain
-      not tripleo-heat-template parameters but ceph-ansible parameters.
-        - cluster: 'ceph2'
-          fsid: 'e2cba068-5f14-4b0f-b047-acf375c0004a'
-          external_cluster_mon_ips: '172.18.0.5,172.18.0.6,172.18.0.7'
-          keys:
-            - name: "client.openstack"
-              caps:
-                mgr: "allow *"
-                mon: "profile rbd"
-                osd: "osd: profile rbd pool=volumes, profile rbd pool=backups, profile rbd pool=vms, profile rbd pool=images"
-              key: "AQCwmeRcAAAAABAA6SQU/bGqFjlfLro5KxrB1Q=="
-              mode: "0600"
-          dashboard_enabled: false
-    default: []
   CinderEnableRbdBackend:
     default: false
     description: Whether to enable or not the Rbd backend for Cinder
@@ -334,11 +297,25 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
-  CephConfigPath:
+  CephClientConfigVars:
+    default: "/home/stack/ceph_client.yml"
     type: string
-    default: "/var/lib/tripleo-config/ceph"
+    description: The undercloud path where cephadm exports the Ceph Client configuration.
+  CephSpecPath:
+    default: "/home/stack/ceph_spec.yml"
+    type: string
     description: |
-      The path where the Ceph Cluster config files are stored on the host.
+      The undercloud path of a valid Ceph orchestrator-cli-service-spec file. If this
+      file does not exist, then no ceph service spec is not applied by tripleo_cephadm
+      role.
+  CephDynamicSpec:
+    type: boolean
+    default: false
+    description: |
+      If true tripleo_cephadm role will build a orchestrator-cli-service-spec file
+      based on the data found in the inventory (which is based on composable roles).
+      If a valid CephSpecPath exists then the dynamic spec is created and applied
+      first and then the CephSpecPath is applied.
   CephAnsibleSkipClient:
     description: |
       This boolean (when true) prevents the ceph-ansible client role execution
@@ -354,10 +331,17 @@ parameter_groups:
   - SwiftFetchDirGetTempurl
   - SwiftFetchDirPutTempurl
   - CephIPv6
+  - CephAnsibleEnvironmentVariables
+  - CephAnsibleExtraConfig
+  - CephAnsiblePlaybook
+  - CephAnsiblePlaybookVerbosity
+  - CephAnsibleRepo
+  - CephAnsibleSkipTags
+  - CephAnsibleSkipClient
+  - CephAnsibleWarning
   - CephOsdPercentageMin
 
 conditions:
-  dashboard_is_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
   msgr_secure_mode: {equals: [{get_param: CephMsgrSecureMode}, true]}
   custom_registry_host:
     yaql:
@@ -395,7 +379,6 @@ conditions:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
       - 6
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  ceph_ansible_client_disabled: {equals: [{get_param: CephAnsibleSkipClient}, true]}
 
 resources:
   ContainerImageUrlParts:
@@ -517,38 +500,35 @@ resources:
             key: {get_param: CephRgwKey}
           extra_keys: {get_param: CephExtraKeys}
 
-  CephBaseAnsibleVars:
+  CephAdmVars:
     type: OS::Heat::Value
     properties:
       type: json
       value:
         vars:
-          containerized_deployment: true
-          user_config: true
-          ceph_stable: true
-          ceph_origin: distro
-          openstack_config: true
-          pools: []
-          ntp_service_enabled: true
-          generate_fsid: false
-          fsid: { get_param: CephClusterFSID }
-          cluster: { get_param: CephClusterName }
-          configure_firewall: false
-          ceph_docker_registry: {get_attr: [ContainerImageUrlParts, value, host]}
-          ceph_docker_image: {get_attr: [ContainerImageUrlParts, value, image]}
-          ceph_docker_image_tag: {get_attr: [ContainerImageUrlParts, value, image_tag]}
-          ceph_docker_registry_auth:
+          tripleo_cephadm_fsid: {get_param: CephClusterFSID}
+          tripleo_cephadm_cluster: {get_param: CephClusterName}
+          tripleo_cephadm_container_cli: {get_param: ContainerCli}
+          tripleo_ceph_client_vars: {get_param: CephClientConfigVars}
+          tripleo_cephadm_dashboard_enabled: {get_param: CephEnableDashboard}
+          cephfs: {get_param: ManilaCephFSShareBackendName}
+          tripleo_cephadm_spec_ansible_host: {get_param: CephSpecPath}
+          tripleo_cephadm_dynamic_spec: {get_param: CephDynamicSpec}
+          tripleo_cephadm_container_ns: {get_attr: [ContainerImageUrlParts, value, host]}
+          tripleo_cephadm_container_image: {get_attr: [ContainerImageUrlParts, value, image]}
+          tripleo_cephadm_container_tag: {get_attr: [ContainerImageUrlParts, value, image_tag]}
+          ceph_container_registry_auth:
             if:
               - ceph_authenticated_registry
               - true
               - false
-          ceph_docker_registry_username:
+          ceph_container_registry_username:
             yaql:
               data:
                 cred: {get_param: ContainerImageRegistryCredentials}
                 ns: {get_attr: [ContainerImageUrlParts, value, host]}
               expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).keys().last(default => "")
-          ceph_docker_registry_password:
+          ceph_container_registry_password:
             yaql:
               data:
                 cred: {get_param: ContainerImageRegistryCredentials}
@@ -558,22 +538,10 @@ resources:
             list_join:
               - ','
               - get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephMonNetwork]}]
-          monitor_address_block:
-            list_join:
-              - ','
-              - get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephMonNetwork]}]
           cluster_network:
             list_join:
               - ','
               - get_param: [ServiceData, net_cidr_map, {get_param: [ServiceNetMap, CephClusterNetwork]}]
-          ip_version:
-            if:
-            - is_ipv6
-            - ipv6
-            - ipv4
-          dashboard_enabled: {get_param: CephEnableDashboard}
-          cephfs: {get_param: ManilaCephFSShareBackendName}
-          node_exporter_container_image: {get_param: NodeExporterContainerImage}
 
 outputs:
   role_data:
@@ -588,208 +556,55 @@ outputs:
       docker_config: {}
       config_settings: {}
       external_deploy_tasks:
-        - name: ceph_base_external_deploy_init
-          when: step|int == 1
-          tags:
-            - ceph
-            - ceph_systemd
-            - ceph_fstobs
-          block:
-            - name: ensure ceph-ansible is installed
-              include_role:
-                name: ceph
-                tasks_from: ceph-ansible-installed
-              vars:
-                fail_without_ceph_ansible: {get_param: CephAnsibleWarning}
-                ceph_ansible_repo: {get_param: CephAnsibleRepo}
-              tags:
-                - opendev-validation
-                - opendev-validation-ceph
-            - name: Check if Ceph dependencies are installed
-              import_role:
-                role: ceph
-                tasks_from: ceph-dependencies-installed
-              tags:
-              - opendev-validation
-              - opendev-validation-ceph
-              vars:
-                fail_without_deps: true
-                packages: lvm2
-                tripleo_delegate_to: "{{ groups['overcloud'] | default([]) }}"
-            - name: set tripleo-ceph-prepare facts
-              set_fact:
-                ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
-                manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
-                ceph_keys: {get_attr: [CephKeyVars, value, vars]}
-                ceph_default_overrides:
-                  if:
-                  - msgr_secure_mode
-                  - yaql:
-                      expression: ($.data.default).mergeWith($.data.secure)
-                      data:
-                        default: {get_attr: [DefaultCephConfigOverrides, value, vars]}
-                        secure: {get_attr: [MsgrSecureModeOverrides, value, vars]}
-                  - {get_attr: [DefaultCephConfigOverrides, value, vars]}
-                ceph_config_overrides: {get_param: CephConfigOverrides}
-            - name: set ceph-ansible facts
-              set_fact:
-                blacklisted_hostnames: {get_param: DeploymentServerBlacklist}
-                ceph_ansible_group_vars_all:
-                  if:
-                  - dashboard_is_enabled
-                  - map_merge:
-                    - if:
-                      - internal_tls_enabled
-                      -
-                        dashboard_tls_external: true
-                        dashboard_grafana_api_no_ssl_verify: true
-                      - {}
-                    - {get_attr: [CephBaseAnsibleVars, value, vars]}
-                    - dashboard_admin_password: {get_param: CephDashboardAdminPassword}
-                    - grafana_admin_password: {get_param: CephGrafanaAdminPassword}
-                  - {get_attr: [CephBaseAnsibleVars, value, vars]}
-                ceph_ansible_extra_vars:
-                  map_merge:
-                  - {get_param: CephAnsibleExtraConfig}
-                  - ireallymeanit: "yes"
-                    fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
-                    container_binary: {get_param: ContainerCli}
-                uuid_content:
-                  yaql:
-                    expression: dict($.data.keys().select($.toLower()).zip($.data.values()))
-                    data: {get_param: NodeDataLookup}
-                ceph_external_multi_config: {get_param: CephExternalMultiConfig}
-            - name: include common ceph defaults
-              include_role:
-                name: tripleo_ceph_common
-            - name: create ceph-ansible working directory
-              include_role:
-                name: tripleo_ceph_work_dir
-                tasks_from: prepare
-            - name: prepare for ceph-ansible uuid gathering
-              include_role:
-                name: tripleo_ceph_uuid
-                tasks_from: prepare
         - name: ceph_base_external_deploy_task
           when: step|int == 2
           tags:
             - ceph
-            - ceph_systemd
-            - ceph_fstobs
           block:
-            - name: set ceph-ansible facts
-              set_fact:
-                map_merge:
-                  - if:
-                    - ceph_ansible_client_disabled
-                    -
-                      ceph_ansible_skip_tags:
-                        list_join:
-                          - ','
-                          - - get_param: CephAnsibleSkipTags
-                          - - 'ceph_client'
-                    - ceph_ansible_skip_tags: {get_param: CephAnsibleSkipTags}
-                  - ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
-                  - ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
-                  - ceph_ansible_environment_variables:
-                      yaql:
-                        data: {get_param: CephAnsibleEnvironmentVariables}
-                        expression: $.data.items().select($.join('='))
-            - name: Refresh ceph-ansible group_vars variables
+            - name: create cephadm working directory and related files
               include_role:
-                name: tripleo_ceph_work_dir
-                tasks_from: prepare
-            - name: get ssh private key
-              include_role:
-                name: tripleo_ceph_work_dir
-                tasks_from: get_ssh_private_key
-            - name: run nodes-uuid
-              include_role:
-                name: tripleo_ceph_uuid
-                tasks_from: gather
-            - name: run ceph-ansible
-              include_role:
-                name: tripleo_ceph_run_ansible
-            - name: configure ceph clients
-              include_role:
-                name: tripleo_ceph_client
+                name: tripleo_run_cephadm
+                tasks_from: prepare.yml
               vars:
-                tripleo_ceph_client_config_home: {get_param: CephConfigPath}
-              when: {get_param: CephAnsibleSkipClient}
-            - include_role:
-                name: tripleo_ceph_client
-              name: tripleo client role
-              vars:
-                tripleo_ceph_client_config_home: {get_param: CephConfigPath}
-                dcn: "{{ item }}"
-              loop: "{{ ceph_external_multi_config }}"
-              when:
-                - ceph_external_multi_config is defined
-                - {get_param: CephAnsibleSkipClient}
-            - name: ensure ceph health is OK before proceeding
-              import_role:
-                role: ceph
-                tasks_from: ceph-health
-              vars:
-                fail_on_ceph_health_err: true
-                osd_percentage_min: {get_param: CephOsdPercentageMin}
-                tripleo_delegate_to: "{{ groups['ceph_mon'] | default([]) }}"
-              tags:
-                - opendev-validation
-                - opendev-validation-ceph
-      external_update_tasks:
-        - when: step|int == 0
-          tags: ceph
-          block:
-            - name: set ceph_ansible_playbooks_default
-              set_fact:
-                ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml"]
-      external_upgrade_tasks:
-        - when: step|int == 0
-          tags:
-            - never
-            - ceph_systemd
-          block:
-            - name: stop if _limit is unset
-              fail:
-                msg: The ceph-ansible systemd units migration playbook limit is not set; please use -e ceph_ansible_limit=##nodename##
-              when: (ceph_ansible_limit is not defined) or (ceph_ansible_limit|length == 0)
-            - name: set ceph_ansible_playbooks_default
-              set_fact:
-                ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/docker-to-podman.yml"]
-        - when: step|int == 0
-          tags:
-            - never
-            - ceph_fstobs
-          block:
-            - name: stop if _limit is unset
-              fail:
-                msg: The ceph-ansible filestore to bluestore playbook limit is not set; please use -e ceph_ansible_limit=##nodename##
-              when: (ceph_ansible_limit is not defined) or (ceph_ansible_limit|length == 0)
-            - name: ensure ceph health is OK before proceeding
-              import_role:
-                role: ceph
-                tasks_from: ceph-health
-              vars:
-                fail_on_ceph_health_err: true
-                fail_on_ceph_health_warn: true
-                osd_percentage_min: 0
-                tripleo_delegate_to: "{{ groups['ceph_mon'] | default([]) }}"
-              tags:
-                - ceph_health
-            - name: set ceph_ansible_playbooks_default
-              set_fact:
-                ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/filestore-to-bluestore.yml"]
-        - when: step|int == 0
-          tags: ceph
-          block:
-            - name: set ceph_ansible_playbooks_default
-              set_fact:
-                ceph_ansible_playbooks_default: ["/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml"]
-      post_upgrade_tasks:
-        - name: Clean puppet-ceph package
-          when:
-            - (step | int) == 3
-          package:
-            name: puppet-ceph
-            state: absent
+                ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
+                manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
+                ceph_keys: {get_attr: [CephKeyVars, value, vars]}
+                ceph_config_overrides: {get_param: CephConfigOverrides}
+                ceph_default_overrides:
+                  if:
+                    - msgr_secure_mode
+                    - yaql:
+                        expression: ($.data.default).mergeWith($.data.secure)
+                        data:
+                          default: {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                          secure: {get_attr: [MsgrSecureModeOverrides, value, vars]}
+                    - {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                cephadm_extra_vars:  # cephadm execution
+                  map_merge:
+                    - {get_attr: [CephAdmVars, value, vars]}
+                ceph_admin_extra_vars:  # user creation
+                  tripleo_admin_generate_key: false
+                  distribute_private_key: true
+                  tripleo_admin_user: ceph-admin
+                  ssh_servers: "{{ groups['ceph_mon'] |
+                                   union(groups['ceph_osd']|default([])) |
+                                   union(groups['ceph_mgr']|default([])) |
+                                   union(groups['ceph_rgw']|default([])) |
+                                   union(groups['ceph_mds']|default([])) |
+                                   union(groups['ceph_nfs']|default([])) |
+                                   union(groups['ceph_rbdmirror']|default([])) |
+                                   unique }}"
+            - name: Prepare cephadm user and keys
+              include_role:
+                name: tripleo_run_cephadm
+                tasks_from: enable_ceph_admin_user.yml
+            # This is supposed to run a playbook which is responsible to
+            # deploy Ceph using cephadm.
+            # The storage network is supposed to be available since we are
+            # at step 2
+            # TODO: (fpantano) Remove this section when --network-ports is
+            #       available and Ceph deployment can be moved **before**
+            #       the overcloud.
+            - name: Deploy the ceph cluster using cephadm
+              include_role:
+                name: tripleo_run_cephadm

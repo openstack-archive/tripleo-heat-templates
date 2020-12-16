@@ -1,0 +1,180 @@
+heat_template_version: rocky
+
+description: >
+  Ceph Manager service.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  CephDashboardAdminUser:
+    default: 'admin'
+    description: Admin user for the dashboard component
+    type: string
+  CephDashboardAdminPassword:
+    description: Admin password for the dashboard component
+    type: string
+    hidden: true
+  CephEnableDashboard:
+    type: boolean
+    default: false
+    description: Parameter used to trigger the dashboard deployment.
+  CephDashboardPort:
+    type: number
+    default: 8444
+    description: Parameter that defines the ceph dashboard port.
+  CephDashboardAdminRO:
+    type: boolean
+    default: true
+    description: Parameter used to set a read-only admin user.
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  CephCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+
+conditions:
+  dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
+  internal_tls_enabled:
+    and:
+      - dashboard_enabled
+      - equals:
+          - get_param: EnableInternalTLS
+          - true
+
+resources:
+  CephBase:
+    type: ./ceph-base.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      DefaultPasswords: {get_param: DefaultPasswords}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  CephMgrAnsibleVars:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        vars:
+          tripleo_cephadm_dashboard_admin_user: {get_param: CephDashboardAdminUser}
+          tripleo_cephadm_dashboard_admin_password: {get_param: CephDashboardAdminPassword}
+          tripleo_cephadm_dashboard_port: {get_param: CephDashboardPort}
+          tripleo_cephadm_dashboard_admin_user_ro: {get_param: CephDashboardAdminRO}
+          tripleo_cephadm_dashboard_protocol:
+            if:
+              - internal_tls_enabled
+              - 'https'
+              - 'http'
+
+outputs:
+  role_data:
+    description: Role data for the Ceph Manager service.
+    value:
+      service_name: ceph_mgr
+      firewall_rules:
+        '113 ceph_mgr':
+          dport:
+            list_concat:
+              - - '6800-7300'
+              - if:
+                - dashboard_enabled
+                - - {get_param: CephDashboardPort}
+                - []
+      upgrade_tasks: []
+      puppet_config:
+        config_image: ''
+        config_volume: ''
+        step_config: ''
+      docker_config: {}
+      external_deploy_tasks:
+        list_concat:
+        - {get_attr: [CephBase, role_data, external_deploy_tasks]}
+        - - name: ceph_mgr_external_deploy_init
+            when: step|int == 1
+            tags:
+              - ceph
+            block:
+              - name: set tripleo-ansible ceph dashboard vars
+                set_fact:
+                  ceph_dashboard_vars:
+                    if:
+                    - dashboard_enabled
+                    - map_merge:
+                      - if:
+                        - internal_tls_enabled
+                        -
+                          map_merge:
+                          - {get_attr: [CephMgrAnsibleVars, value, vars]}
+                          - tripleo_cephadm_dashboard_crt: /etc/pki/tls/certs/ceph_dashboard.crt
+                          - tripleo_cephadm_dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
+                          - tripleo_cephadm_dashboard_grafana_api_no_ssl_verify: true
+                        - {get_attr: [CephMgrAnsibleVars, value, vars]}
+                    - {}
+      config_settings:
+        map_merge:
+          - if:
+            - internal_tls_enabled
+            -
+              generate_service_certificates: true
+              ceph_dashboard_certificate_specs:
+                service_certificate: '/etc/pki/tls/certs/ceph_dashboard.crt'
+                service_key: '/etc/pki/tls/private/ceph_dashboard.key'
+                hostname:
+                  str_replace:
+                    template: "%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+                principal:
+                  str_replace:
+                    template: "ceph_dashboard/%{hiera('fqdn_NETWORK')}"
+                    params:
+                      NETWORK: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+                postsave_cmd: "/usr/bin/certmonger-dashboard-refresh.sh"
+                key_size:
+                  if:
+                    - key_size_override_unset
+                    - {get_param: CertificateKeySize}
+                    - {get_param: CephCertificateKeySize}
+            - {}
+      metadata_settings:
+        if:
+        - internal_tls_enabled
+        -
+          - service: ceph_dashboard
+            network: {get_param: [ServiceNetMap, CephDashboardNetwork]}
+            type: node
+        - null

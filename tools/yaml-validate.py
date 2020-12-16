@@ -12,6 +12,7 @@
 # under the License.
 
 import argparse
+import glob
 import os
 import re
 import six
@@ -325,6 +326,32 @@ def get_endpoint_map_from_env(filename):
     except Exception:
         print(traceback.format_exc())
     return None
+
+
+def compare_parameters(old_impl_path, new_impl_path):
+    old_impl_params = []
+    new_impl_params = []
+    for filename in glob.glob(old_impl_path + "/*.yaml"):
+        with open(filename, 'r') as f:
+            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            old_impl_params.extend(tpl["parameters"].keys())
+    for filename in glob.glob(new_impl_path + "/*.yaml"):
+        with open(filename, 'r') as f:
+            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            new_impl_params.extend(tpl["parameters"].keys())
+    return set(old_impl_params).difference(set(new_impl_params))
+
+
+def compare_ceph_parameters(path):
+    old_path = base_path + "/deployment/ceph-ansible/"
+    new_path = base_path + "/deployment/cephadm/"
+    missing = compare_parameters(old_path, new_path)
+    if missing:
+        print("ERROR: Some parameters are missing in Ceph implementation at"
+              "'%s' compared to that in '%s' and they are: %s" %
+              (new_path, old_path, missing))
+        return 1
+    return 0
 
 
 def validate_endpoint_map(base_map, env_map):
@@ -1367,6 +1394,7 @@ param_map = {}
 
 for base_path in path_args:
     if os.path.isdir(base_path):
+        exit_val |= compare_ceph_parameters(base_path)
         for subdir, dirs, files in os.walk(base_path):
             if '.tox' in dirs:
                 dirs.remove('.tox')
