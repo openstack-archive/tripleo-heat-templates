@@ -243,10 +243,10 @@ outputs:
                     - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "GRANT PROCESS ON *.* TO ''clustercheck''@''localhost'' WITH GRANT OPTION;"'
                     - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "DELETE FROM mysql.user WHERE user = ''root'' AND host NOT IN (''%'',''localhost'');"'
                     - 'timeout ${DB_MAX_TIMEOUT} mysqladmin -uroot -p"${DB_ROOT_PASSWORD}" shutdown'
-            volumes: &mysql_volumes
+            volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
+                - &mysql_volumes
                   - /var/lib/kolla/config_files/mysql.json:/var/lib/kolla/config_files/config.json:rw,z
                   - /var/lib/config-data/puppet-generated/mysql:/var/lib/kolla/config_files/src:ro,z
                   - /var/lib/mysql:/var/lib/mysql:rw,z
@@ -564,35 +564,34 @@ outputs:
             - name: Mysql upgrade script
               set_fact:
                 mysql_upgrade_script:
-                  # idempotency: mysql_upgrade leaves a marker file
-                  # in datadir, it does nothing if it has already been
-                  # executed for the current version of MariaDB.
                   list_join:
-                    - ' '
-                    - - 'kolla_set_configs;'
-                      - 'if mysqladmin ping --silent; then exit 0; fi;'
-                      - 'chown -R mysql:mysql /var/lib/mysql;'
-                      - 'chown -R mysql:mysql /var/log/mariadb;'
-                      - 'mysqld_safe --user=mysql --wsrep-provider=none --skip-networking --wsrep-on=off &'
-                      - 'timeout 60 sh -c ''while ! mysqladmin ping --silent; do sleep 1; done'';'
-                      - 'mysql_upgrade;'
-                      - 'mysqladmin shutdown'
+                    - "\n"
+                    - # start a temporary mariadb server for running the upgrade
+                      - |
+                        kolla_set_configs
+                        if mysqladmin ping --silent; then exit 0; fi
+                        chown -R mysql:mysql /var/lib/mysql
+                        chown -R mysql:mysql /var/log/mysql
+                        mysqld_safe --user=mysql --wsrep-provider=none --skip-networking --wsrep-on=off --log-error=/var/log/mysql/mysqld-upgrade.log &
+                      # an idempotent script takes care of all upgrade steps
+                      # we inline the content here because at the time this is executed,
+                      # the script is not yet copied in /var/lib/container-config-scripts
+                      - { get_file: ../../container_config_scripts/mysql_upgrade_db.sh }
+                      # stop the temporary server
+                      - mysqladmin shutdown
             - name: Bind mounts for temporary container
               set_fact:
-                mysql_upgrade_db_bind_mounts: *mysql_volumes
-            - name: Make sure Mysql upgrade temporary directory exists
-              file:
-                path: /tmp/mariadb-upgrade
-                state: directory
-                owner: root
-                group: root
-                mode: 0700
+                mysql_upgrade_db_bind_mounts:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - *mysql_volumes
+                    - - /var/log/containers/mysql:/var/log/mysql:rw,z
             - name: Upgrade Mysql database from a temporary container
               shell:
                 str_replace:
                   template:
                     'CONTAINER_CLI run --rm CONTAINER_CLI_EXTRA_ARGS \
-                    -u root --net=host UPGRADE_ENV UPGRADE_VOLUMES "UPGRADE_IMAGE" /bin/bash -ecx "UPGRADE_SCRIPT"'
+                    -u root --net=host UPGRADE_ENV UPGRADE_VOLUMES "UPGRADE_IMAGE" /bin/bash -ecx "$UPGRADE_SCRIPT"'
                   params:
                     CONTAINER_CLI_EXTRA_ARGS:
                       if:
@@ -601,9 +600,10 @@ outputs:
                       - '--log-driver=k8s-file --log-opt path=/var/log/containers/mysql/db-upgrade.log'
                     UPGRADE_ENV: '-e "KOLLA_CONFIG_STRATEGY=COPY_ALWAYS"'
                     UPGRADE_IMAGE: *mysql_image_pcmklatest
-                    UPGRADE_VOLUMES: "-v {{ mysql_upgrade_db_bind_mounts | union(['/tmp/mariadb-upgrade:/var/log/mariadb:rw,z']) | join(' -v ')}}"
-                    UPGRADE_SCRIPT: "{{mysql_upgrade_script}}"
+                    UPGRADE_VOLUMES: "-v {{ mysql_upgrade_db_bind_mounts | join(' -v ')}}"
                     CONTAINER_CLI: "{{ container_cli }}"
+              environment:
+                    UPGRADE_SCRIPT: "{{ mysql_upgrade_script }}"
 
       external_upgrade_tasks:
         # https://bugs.launchpad.net/tripleo/+bug/1753247
