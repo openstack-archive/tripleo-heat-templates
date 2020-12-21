@@ -333,6 +333,17 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  CephConfigPath:
+    type: string
+    default: "/etc/ceph"
+    description: |
+      The path where the Ceph Cluster config files are stored on the host.
+  CephAnsibleSkipClient:
+    description: |
+      This boolean (when true) prevents the ceph-ansible client role execution
+      by adding the ceph-ansible tag 'ceph_client' to the --skip-tags list.
+    type: boolean
+    default: false
 
 parameter_groups:
 - label: deprecated
@@ -382,6 +393,7 @@ conditions:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
       - 6
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  ceph_ansible_client_disabled: {equals: [{get_param: CephAnsibleSkipClient}, true]}
 
 resources:
   ContainerImageUrlParts:
@@ -665,13 +677,22 @@ outputs:
           block:
             - name: set ceph-ansible facts
               set_fact:
-                ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
-                ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
-                ceph_ansible_environment_variables:
-                  yaql:
-                    data: {get_param: CephAnsibleEnvironmentVariables}
-                    expression: $.data.items().select($.join('='))
-                ceph_ansible_skip_tags: {get_param:  CephAnsibleSkipTags}
+                map_merge:
+                  - if:
+                    - ceph_ansible_client_disabled
+                    -
+                      ceph_ansible_skip_tags:
+                        list_join:
+                          - ','
+                          - - get_param: CephAnsibleSkipTags
+                          - - 'ceph_client'
+                    - ceph_ansible_skip_tags: {get_param: CephAnsibleSkipTags}
+                  - ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
+                  - ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
+                  - ceph_ansible_environment_variables:
+                      yaql:
+                        data: {get_param: CephAnsibleEnvironmentVariables}
+                        expression: $.data.items().select($.join('='))
             - name: Refresh ceph-ansible group_vars variables
               include_role:
                 name: tripleo_ceph_work_dir
@@ -687,6 +708,12 @@ outputs:
             - name: run ceph-ansible
               include_role:
                 name: tripleo_ceph_run_ansible
+            - name: configure ceph clients
+              include_role:
+                name: tripleo_ceph_client
+              vars:
+                tripleo_ceph_client_config_home: {get_param: CephConfigPath}
+              when: {get_param: CephAnsibleSkipClient}
             - name: ensure ceph health is OK before proceeding
               import_role:
                 role: ceph
