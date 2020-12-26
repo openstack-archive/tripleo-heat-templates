@@ -155,6 +155,28 @@ outputs:
         - get_attr: [NeutronOvsAgent, role_data, deploy_steps_tasks]
         - get_attr: [OpenvswitchDpdk, role_data, deploy_steps_tasks]
       upgrade_tasks:
-        get_attr: [NeutronOvsAgent, role_data, upgrade_tasks]
+        list_concat:
+        - get_attr: [NeutronOvsAgent, role_data, upgrade_tasks]
+        -
+          - name: upgrade prepare for leapp to vfio-pci.conf
+            tags:
+              - never
+              - system_upgrade
+              - system_upgrade_prepare
+            when:
+              - step|int == 3
+              - upgrade_leapp_enabled
+            block:
+              # With an existing BZ #1898664 on dracut does not create ramfs with vfio_iommu_type1
+              # module, because which loading vfio-pci during the initramfs fails to load this
+              # module. Because of this dpdk ports are added in ERROR state. It requires a
+              # restart ovs to bring to normal state after ffu is complete. As a workaround,
+              # the module-load file vfio-pci.conf can be removed before upgrade, which will
+              # ensure that vfio-pci is not loaded during initramfs and it will be loaded
+              # when driverctl configures the vfio-pci driver to the interface.
+              - name: delete the vfio-pci.conf file before upgrade
+                file:
+                  state: absent
+                  path: /etc/modules-load.d/vfio-pci.conf
       update_tasks:
         get_attr: [NeutronOvsAgent, role_data, update_tasks]
