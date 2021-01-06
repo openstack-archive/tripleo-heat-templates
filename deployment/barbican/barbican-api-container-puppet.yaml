@@ -67,7 +67,7 @@ parameters:
     type: string
     default: ''
   BarbicanPkcs11CryptoLogin:
-    description: Password to login to PKCS11 session
+    description: Password (PIN) to login to PKCS#11 session
     type: string
     hidden: true
     default: ''
@@ -80,9 +80,17 @@ parameters:
     type: string
     default: ''
   BarbicanPkcs11CryptoSlotId:
-    description: Slot Id for the HSM
+    description: Slot Id for the PKCS#11 token to be used
     type: string
     default: '0'
+  BarbicanPkcs11CryptoTokenSerialNumber:
+    description: Serial number for PKCS#11 token to be used
+    type: string
+    default: ''
+  BarbicanPkcs11CryptoTokenLabel:
+    description: Label for PKCS#11 token to be used
+    type: string
+    default: ''
   BarbicanPkcs11CryptoHMACKeyType:
     description: Cryptoki Key Type for Master HMAC key
     type: string
@@ -168,7 +176,7 @@ conditions:
   thales_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoThalesEnabled}, true]}
   atos_hsm_enabled:     {equals: [{get_param: BarbicanPkcs11CryptoATOSEnabled}, true]}
   lunasa_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoLunasaEnabled}, true]}
-  thales_or_atos_or_lunasa_hsm_enabled:
+  hsm_enabled:
     or:
     - thales_hsm_enabled
     - atos_hsm_enabled
@@ -440,7 +448,7 @@ outputs:
         - null
       deploy_steps_tasks:
         if:
-        - thales_or_atos_or_lunasa_hsm_enabled
+        - hsm_enabled
         - list_concat:
           -
             if:
@@ -491,24 +499,17 @@ outputs:
                         - map_merge:
                           - {get_param: LunasaVars}
                           - lunasa_client_pin: {get_param: BarbicanPkcs11CryptoLogin}
+                          - lunasa_ha_label: {get_param: BarbicanPkcs11CryptoTokenLabel}
                         - map_merge:
                           - {get_param: LunasaVars}
                           - lunasa_client_pin: {get_param: BarbicanPkcs11CryptoLogin}
+                          - lunasa_ha_label: {get_param: BarbicanPkcs11CryptoTokenLabel}
                           - lunasa_client_ip:
                               str_replace:
                                 template:
                                   "{{$NETWORK_ip}}"
                                 params:
                                   $NETWORK: {get_param: LunasaClientIPNetwork}
-
-                  - name: set the slot id in hieradata
-                    include_role:
-                      name: tripleo_hieradata
-                      tasks_from: ansible_hieradata.yml
-                    vars:
-                      hieradata_ansible_data:
-                        barbican::plugins::p11_crypto::p11_crypto_plugin_slot_id: "{{ lunasa_ha_slot }}"
-                    when: lunasa_ha_slot is defined
               - null
         - null
       docker_config:
@@ -575,23 +576,11 @@ outputs:
                       - ' '
                       - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
                         - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm check_mkek --library-path"
-                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
-                        - "--slot-id"
-                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
-                        - "--passphrase"
-                        - {get_param: [BarbicanPkcs11CryptoLogin]}
-                        - "--label"
+                        - "hsm check_mkek --label"
                         - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
                         - "|| /usr/bin/barbican-manage"
                         - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm gen_mkek --library-path"
-                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
-                        - "--slot-id"
-                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
-                        - "--passphrase"
-                        - {get_param: [BarbicanPkcs11CryptoLogin]}
-                        - "--label"
+                        - "hsm gen_mkek --label"
                         - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
                         - "'"
               - {}
@@ -613,28 +602,10 @@ outputs:
                       - ' '
                       - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
                         - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm check_hmac --library-path"
-                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
-                        - "--slot-id"
-                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
-                        - "--passphrase"
-                        - {get_param: [BarbicanPkcs11CryptoLogin]}
-                        - "--label"
+                        - "hsm check_hmac --label"
                         - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
-                        - "--key-type"
-                        - {get_param: [BarbicanPkcs11CryptoHMACKeyType]}
-                        - "|| /usr/bin/barbican-manage hsm gen_hmac --library-path"
-                        - {get_param: [BarbicanPkcs11CryptoLibraryPath]}
-                        - "--slot-id"
-                        - {get_param: [BarbicanPkcs11CryptoSlotId]}
-                        - "--passphrase"
-                        - {get_param: [BarbicanPkcs11CryptoLogin]}
-                        - "--label"
+                        - "|| /usr/bin/barbican-manage hsm gen_hmac --label"
                         - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
-                        - "--key-type"
-                        - {get_param: [BarbicanPkcs11CryptoHMACKeyType]}
-                        - "--mechanism"
-                        - {get_param: [BarbicanPkcs11CryptoHMACKeygenMechanism]}
                         - "'"
               - {}
             - if:
