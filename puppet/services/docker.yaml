@@ -140,7 +140,8 @@ outputs:
           when: step|int == 3
           yum: name=docker state=latest
       update_tasks:
-        block:
+        - when: step|int == 0
+          block:
           - name: Detect if puppet on the docker profile would restart the service
             # Note that due to https://tickets.puppetlabs.com/browse/PUP-686 --noop
             # always exits 0, so we cannot rely on that to detect if puppet is going to change stuff
@@ -162,6 +163,8 @@ outputs:
             set_fact: docker_rpm_needs_update={{ docker_check_update.rc == 100 }}
           - name: Set puppet_docker_is_outofsync fact
             set_fact: puppet_docker_is_outofsync={{ puppet_docker_noop_output.stdout|trim|int >= 1 }}
+        - when: step|int == 2
+          block:
           - name: Stop all containers except ceph or neutron side containers
             # xargs is preferable to docker stop $(docker ps -q) as that might generate a
             # a too long command line
@@ -193,4 +196,10 @@ outputs:
             register: puppet_docker_apply
             failed_when: puppet_docker_apply.rc not in [0, 2]
             changed_when: puppet_docker_apply.rc == 2
-        when: step|int == 2
+          - name: Ensure all ceph services are started
+            shell: |
+              systemctl --plain list-dependencies docker.service --reverse | \
+                egrep 'ceph|rbd' | xargs systemctl start
+            ignore_errors: true
+            when: docker_rpm_needs_update
+
