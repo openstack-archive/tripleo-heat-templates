@@ -20,6 +20,10 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  AdminPassword:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    type: string
+    hidden: true
   ServiceData:
     default: {}
     description: Dictionary packing service data
@@ -350,6 +354,35 @@ outputs:
                 state: present
                 shell: /sbin/nologin
                 comment: qemu user
+      post_upgrade_tasks:
+        - when:
+            - step|int == 5
+          tags:
+            - never
+            - system_upgrade_stop_services
+          environment:
+            OS_USERNAME: admin
+            OS_USER_DOMAIN_NAME: "Default"
+            OS_PROJECT_DOMAIN_NAME: "Default"
+            OS_PROJECT_NAME: admin
+            OS_PASSWORD: { get_param: AdminPassword }
+            OS_AUTH_URL: { get_param: [EndpointMap, KeystoneV3Public, uri] }
+            OS_IDENTITY_API_VERSION: 3
+            OS_AUTH_TYPE: password
+          block:
+            - name: Get nova-consoleauth service ID
+              command: openstack compute service list --service nova-consoleauth --column ID  --column Host --format yaml
+              register: nova_compute_service_result
+              delegate_to: localhost
+              check_mode: no
+              run_once: yes
+              changed_when: false
+            - name: Deleting nova-consoleauth
+              command: "openstack compute service delete {{ item.ID }}"
+              loop: "{{ nova_compute_service_result.stdout | from_yaml }}"
+              run_once: yes
+              delegate_to: localhost
+              ignore_errors: yes
       external_upgrade_tasks:
         - when:
             - step|int == 1
@@ -365,3 +398,4 @@ outputs:
                 tripleo_containers_to_stop:
                   - nova_vnc_proxy
                 tripleo_delegate_to: "{{ groups['nova_vnc_proxy'] | default([]) }}"
+
