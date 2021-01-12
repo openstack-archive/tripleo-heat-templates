@@ -142,7 +142,7 @@ def get_pci_passthrough_whitelist(user_config, pf, pci_addresses,
 def user_passthrough_config():
     try:
         out, err = processutils.execute(
-            'hiera', '-c', '/etc/puppet/hiera.yaml',
+            'hiera', '-f', 'json', '-c', '/etc/puppet/hiera.yaml',
             _PASSTHROUGH_WHITELIST_KEY
             )
         if not err:
