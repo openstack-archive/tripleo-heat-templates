@@ -74,6 +74,14 @@ parameters:
     type: json
     tags:
       - role_specific
+  NovaComputeStartupDelay:
+    default: 0
+    description: Delays the startup of nova-compute service after compute node is
+                 booted. This is to give a chance to ceph to get back healthy
+                 before booting instances after and overcloud reboot.
+    type: number
+    constraints:
+    - range: { min: 0, max: 600 }
   EnableInstanceHA:
     default: false
     description: Whether to enable an Instance Ha configurarion or not.
@@ -706,6 +714,11 @@ resources:
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
+  compute_startup_delay:
+    and:
+      - not: {equals: [{get_param: NovaComputeStartupDelay}, 0]}
+      - not: enable_instance_ha
+
 
   enable_live_migration_tunnelled:
     or:
@@ -865,6 +878,12 @@ outputs:
             list_join:
             - ' '
             - - if:
+                - compute_startup_delay
+                - str_replace:
+                    template: '/var/lib/nova/delay-nova-compute --delay DELAY --nova-binary'
+                    params: { DELAY: {get_param: NovaComputeStartupDelay} }
+                - ''
+              - if:
                 - enable_instance_ha
                 - /var/lib/nova/instanceha/check-run-nova-compute
                 - /usr/bin/nova-compute
@@ -1131,6 +1150,15 @@ outputs:
             - name: If instance HA is enabled on the node activate the evacuation completed check
               file: path=/var/lib/nova/instanceha/enabled state=touch
               when: iha_nodes.stdout|lower is search('"'+ansible_hostname|lower+'"')
+          - name: Do we prepend nova startup with a delay
+            set_fact:
+              nova_compute_delay: {get_param: NovaComputeStartupDelay}
+          - name: install nova-compute delay wrapper script
+            copy:
+              content: {get_file: ../../scripts/delay-nova-compute}
+              dest: /var/lib/nova/delay-nova-compute
+              mode: 0755
+            when: nova_compute_delay|int > 0
           - name: Is irqbalance enabled
             set_fact:
               compute_irqbalance_disabled: {get_attr: [RoleParametersValue, value, compute_disable_irqbalance]}
