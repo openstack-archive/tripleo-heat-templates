@@ -1196,9 +1196,15 @@ outputs:
                     /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
                 # Nova compute will not work unless we ensure it will not connect against db and use messaging
                 - name: Remove database section from nova_compute config
-                  shell: crudini --del database /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf
+                  ini_file:
+                    path: /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf
+                    section: database
+                    state: absent
                 - name: Remove api_database section from nova_compute config
-                  shell: crudini --del api_database /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf
+                  ini_file:
+                    path: /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf
+                    section: api_database
+                    state: absent
                 # We have to update check-run-nova-compute as it's distributed via THT and not rpm or image so at this
                 # moment we have Queens code instead of Train which will not work due to switch from python2 to python3
                 - name: is Instance HA enabled
@@ -1233,9 +1239,16 @@ outputs:
                         - {get_param: DockerInsecureRegistryAddress}
                 - name: Set container_registry_insecure registries
                   when: container_registry_insecure_registries != []
-                  shell: crudini --set /etc/containers/registries.conf registries.insecure registries "[{{ container_registry_insecure_registries | map('regex_replace', '(.*)', "'\1'") | join(',') }}]"
+                  ini_file:
+                    path: /etc/containers/registries.conf
+                    section: registries.insecure
+                    option: registries
+                    value: "{{ container_registry_insecure_registries }}"
+                  register: ini_read_result
                 - name: Restart docker
-                  when: container_registry_insecure_registries != []
+                  when:
+                    - container_registry_insecure_registries != []
+                    - ini_read_result is changed
                   service:
                     name: docker
                     state: restarted
