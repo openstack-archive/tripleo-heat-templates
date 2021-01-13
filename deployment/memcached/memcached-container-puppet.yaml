@@ -66,9 +66,19 @@ parameters:
                  of the internal network. Use this parameter with caution and be aware of
                  opening memcached to external network can be dangerous.
     type: string
+  MemcachedPort:
+    default: 11211
+    description: Port to have Memcached listening at.
+                 When using MemcachedTLS, this has to be set to a different
+                 port then the default - see below.
+    type: number
   MemcachedTLS:
     default: false
     description: Set to True to enable TLS on Memcached service.
+                 Because not all services support Memcached TLS, during the
+                 migration period, Memcached will listen on 2 ports - on the
+                 port set with MemcachedPort parameter (above) and on 11211,
+                 without TLS.
     type: boolean
   CertificateKeySize:
     type: string
@@ -83,6 +93,13 @@ parameters:
 
 conditions:
   internal_tls_enabled: {equals: [{get_param: MemcachedTLS}, true]}
+  # NOTE: A non-tls port is necessary while there are still services
+  # consuming Memcached that do not support TLS. Once all services
+  # do support TLS, this config should be dropped.
+  enable_non_tls_port:
+    and:
+      - internal_tls_enabled
+      - not: {equals: [{get_param: MemcachedPort}, 11211]}
   memcached_network_unset: {equals : [{get_param: MemcachedIpSubnet}, '']}
   service_debug:
     or:
@@ -123,13 +140,36 @@ outputs:
                       - {get_param: [ServiceNetMap, MemcachedNetwork]}
                 template:
                   '121 memcached <%net_cidr%>':
+                    dport: {get_param: MemcachedPort}
+                    proto: 'tcp'
+                    source: <%net_cidr%>
+          - '121 memcached':
+              dport: {get_param: MemcachedPort}
+              proto: 'tcp'
+              source: {get_param: MemcachedIpSubnet}
+        if:
+          - and: [memcached_network_unset, enable_non_tls_port]
+          - map_merge:
+              repeat:
+                for_each:
+                  <%net_cidr%>:
+                    get_param:
+                      - ServiceData
+                      - net_cidr_map
+                      - {get_param: [ServiceNetMap, MemcachedNetwork]}
+                template:
+                  '121 memcached <%net_cidr%>':
                     dport: 11211
                     proto: 'tcp'
                     source: <%net_cidr%>
+          - {}
+        if:
+          - and: [{not: memcached_network_unset}, enable_non_tls_port]
           - '121 memcached':
               dport: 11211
               proto: 'tcp'
               source: {get_param: MemcachedIpSubnet}
+          - {}
       monitoring_subscription: {get_param: MonitoringSubscriptionMemcached}
       config_settings:
         map_merge:
@@ -139,6 +179,34 @@ outputs:
             # internal_api -> IP
             # internal_api_uri -> [IP]
             # internal_api_subnet - > IP/CIDR
+            memcached::listen_addr:
+              list_concat:
+                - - if:
+                    - is_ipv6
+                    - '::1'
+                    - '127.0.0.1'
+                  - str_replace:
+                      template:
+                        "%{hiera('$NETWORK')}"
+                      params:
+                        $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                - if:
+                  - enable_non_tls_port
+                  - - str_replace:
+                        template:
+                          "notls:%{hiera('$NETWORK_uri')}:11211"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                    - if:
+                      - is_ipv6
+                      - 'notls:[::1]:11211'
+                      - 'notls:127.0.0.1:11211'
+                  - []
+            # NOTE(xek): the IP addresses are configured with:
+            # memcached::listen_addr - the new way
+            # memcached::listen_ip - will be deprecated
+            # memcached::notls_listener_port/addr - will be deprecated
+            # see: https://github.com/saz/puppet-memcached/pull/127
             memcached::listen_ip:
               - if:
                 - is_ipv6
@@ -159,6 +227,7 @@ outputs:
                     "%{hiera('$NETWORK_uri')}"
                   params:
                     $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+            memcached::tcp_port: {get_param: MemcachedPort}
             memcached::max_connections: {get_param: MemcachedMaxConnections}
             memcached::max_memory: {get_param: MemcachedMaxMemory}
             # https://access.redhat.com/security/cve/cve-2018-1000115
@@ -175,6 +244,23 @@ outputs:
             memcached::disable_cachedump: true
             memcached::logstdout: true
             tripleo::profile::base::memcached::enable_internal_memcached_tls: {get_param: MemcachedTLS}
+          -
+            # NOTE: This config is necessary while there are still services
+            # consuming Memcached that do not support TLS. Once all services
+            # do support TLS, this config should be dropped.
+            if:
+            - enable_non_tls_port
+            - memcached::notls_listener_port: 11211
+              memcached::notls_listener_addr:
+                str_replace:
+                  template:
+                    "%{hiera('$NETWORK_uri')}"
+                  params:
+                    $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+              memcached_port: {get_param: MemcachedPort}
+              memcached_authtoken_port: 11211
+            - memcached_port: {get_param: MemcachedPort}
+              memcached_authtoken_port: {get_param: MemcachedPort}
           -
             if:
             - internal_tls_enabled
@@ -207,7 +293,11 @@ outputs:
             collectd::plugin::memcached::instances:
               local:
                 host: "%{hiera('memcached::listen_ip_uri')}"
-                port: 11211
+                port: # collectd has no support to Memcached+TLS yet.
+                  - if:
+                    - enable_non_tls_port
+                    - 11211
+                    - {get_param: MemcachedPort}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: 'memcached'
