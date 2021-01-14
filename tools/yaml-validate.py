@@ -1015,8 +1015,7 @@ def validate_service_hiera_interpol(f, tpl):
             if 'apache::mod::remoteip::proxy_ips' in path:
                 continue
             # Omit Designate rndc_allowed_addressses
-            if ('tripleo::profile::base::designate::rndc_allowed_addresses' in
-                    path):
+            if ('rndc_allowed_addresses' in path):
                 continue
             # Omit Neutron ml2 overlay_ip_version
             if 'neutron::plugins::ml2::overlay_ip_version' in path:
