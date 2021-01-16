@@ -192,3 +192,28 @@ outputs:
                 daemon_reload: true
                 name: certmonger.service
             when: ipa_default_conf.stat.exists == False
+      external_deploy_tasks:
+        - name: get IPA conf file
+          when: step|int == 1
+          fetch:
+            src: /etc/ipa/default.conf
+            dest: /tmp/ansible
+        - name: read IPA server name
+          when: step|int == 1
+          set_fact:
+            ipa_server_name: "{{ lookup('ini', 'server section=global file=/tmp/ansible/{{ inventory_hostname }}/etc/ipa/default.conf') }}"
+        - name: add services
+          when: step|int == 1
+          block:
+            - include_role:
+                name: tripleo_ipa_registration
+              vars:
+                tripleo_ipa_enroll_base_server: False
+                tripleo_ipa_delegate_server: "{{ item }}"
+                tripleo_ipa_base_server_fqdn:  "{{ hostvars[item]['fqdn_canonical'] }}"
+                tripleo_ipa_server_metadata: "{{ hostvars[item]['service_metadata_settings'] | to_json }}"
+              loop: "{{ groups.certmonger_user }}"
+          environment:
+            IPA_USER: "nova/{{ ansible_fqdn }}"
+            KRB5_CLIENT_KTNAME: "/etc/novajoin/krb5.keytab"
+            IPA_HOST: "{{ ipa_server_name }}"
