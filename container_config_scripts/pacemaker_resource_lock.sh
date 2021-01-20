@@ -1,12 +1,7 @@
 #!/bin/bash
 
 MAX_RETRIES=10
-TMP_CIB=$(mktemp -p /var/lib/pacemaker/cib -t tmpcib.XXXXXXXX)
-function finish {
-    rm -f $TMP_CIB
-}
-trap finish EXIT
-trap exit INT TERM
+CIB_ENOTFOUND=105
 
 usage() {
    echo "Set a global property in the cluster with a validity timestamp."
@@ -25,16 +20,39 @@ error() {
     exit 1
 }
 
+lock_create() {
+    local name=$1
+    local data=$2
+    # cibadmin won't overwrite a key if someone else succeeded to create it concurrently
+    cibadmin --sync-call --scope crm_config --create --xml-text "<cluster_property_set id='${name}'><nvpair id='${name}-pair' name='${name}' value='${data}'/></cluster_property_set>" &>/dev/null
+    return $?
+}
+
+lock_update() {
+    local name=$1
+    local expected_data=$2
+    local new_data=$3
+    # we only update the lock we expect to see, so we can't update someone else's lock
+    cibadmin --sync-call --scope crm_config --modify --xpath "//cluster_property_set/nvpair[@name='${name}' and @value='${expected_data}']/.." --xml-text "<nvpair id='${name}-pair' name='${name}' value='${new_data}'/>" &>/dev/null
+    return $?
+}
+
+lock_delete() {
+    local name=$1
+    local expected_data=$2
+    # we only delete the lock we expect to see, so we can't delete someone else's lock
+    cibadmin --sync-call --scope crm_config --delete --xpath "//cluster_property_set/nvpair[@name='${name}' and @value='${expected_data}']/.." &>/dev/null
+    return $?
+}
 
 lock_get() {
-    local cib_copy=$1
-    local lockname=$2
+    local lockname=$1
     local res
     local rc
-    res=$(pcs -f $cib_copy property show "$lockname")
+    res=$(cibadmin --query --scope crm_config --xpath "//cluster_property_set/nvpair[@name='$lockname']" 2>/dev/null)
     rc=$?
     if [ $rc -eq 0 ]; then
-        echo "$res" |  grep -w "$lockname" | cut -d' ' -f3
+        echo "$res" | sed -n 's/.*value="\([^"]*\)".*/\1/p'
     fi
     return $rc
 }
@@ -92,8 +110,8 @@ try_action() {
     done
 }
 
-# The lock mechanism uses the CIB's num_updates tag to implement
-# a conditional store. Cluster-wide locking is guaranteed by pacemaker
+# The lock mechanism uses cibadmin's atomic creation so cluster-wide
+# state coherency is guaranteed by pacemaker
 lock_acquire() {
     local lockname=$1
     local requester=$2
@@ -103,24 +121,15 @@ lock_acquire() {
     local expiry
     local owner
 
-    log "Snapshot the current CIB"
-    pcs cluster cib > $TMP_CIB
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        log "Could not snapshot the CIB"
-        return 2
-    fi
-
     log "Check whether the lock is already held in the CIB"
-    lock=$(lock_get $TMP_CIB $lockname)
+    lock=$(lock_get $lockname)
     rc=$?
-    if [ $rc -ne 0 ]; then
-        log "Could not retrieve info from snapshot CIB"
+    if [ $rc -ne 0 ] && [ $rc -ne $CIB_ENOTFOUND ]; then
+        log "Could not retrieve info from the CIB"
         return 2
     fi
 
     if [ -n "$lock" ]; then
-        log "Lock exists, check whether it has expired"
         lock_has_expired $lock
         rc=$?
         if [ $rc -eq 0 ]; then
@@ -129,7 +138,7 @@ lock_acquire() {
             # lock is still held. check whether we're the owner
             owner=$(lock_owner $lock)
             if [ "$owner" = "$requester" ];then
-                log "Already own the lock, acquiring attempt will just reconfigure the TTL"
+                log "Requester already owns the lock, acquiring attempt will just reconfigure the TTL"
             else
                 log "Lock is held by someone else ($owner)"
                 return 1
@@ -139,20 +148,24 @@ lock_acquire() {
         log "Lock is not held yet"
     fi
 
-    log "Prepare the snapshot CIB to acquire the lock"
+    # prepare the lock info
     expiry=$(($(date +%s) + $ttl))
-    pcs -f $TMP_CIB property set "$lockname"="$requester:$expiry" --force
 
-    # Store Conditional: only works if no update have been pushed in the meantime"
-    log "Try to push the CIB to signal lock is acquired"
-    pcs cluster cib-push $TMP_CIB
-    rc=$?
+    if [ -n "$lock" ]; then
+        log "Attempting to update the lock"
+        lock_update $lockname "$lock" "$requester:$expiry"
+        rc=$?
+    else
+        log "Attempting to acquire the lock"
+        lock_create $lockname "$requester:$expiry"
+        rc=$?
+    fi
 
     if [ $rc -eq 0 ]; then
         log "Lock '$lockname' acquired by '$requester', valid until $(date -d @$expiry)"
         return 0
     else
-        log "CIB changed since snapshot, lock cannot be acquired"
+        log "CIB changed, lock cannot be acquired"
         return 3
     fi
 }
@@ -167,19 +180,11 @@ lock_release() {
     local lock
     local owner
 
-    log "Snapshot the current CIB"
-    pcs cluster cib > $TMP_CIB
-    rc=$?
-    if [ $rc -ne 0 ]; then
-        log "Could not snapshot the CIB"
-        return 2
-    fi
-
     log "Check whether the lock is already held in the CIB"
-    lock=$(lock_get $TMP_CIB $lockname)
+    lock=$(lock_get $lockname)
     rc=$?
-    if [ $rc -ne 0 ]; then
-        log "Could not retrieve info from snapshot CIB"
+    if [ $rc -ne 0 ] && [ $rc -ne $CIB_ENOTFOUND ]; then
+        log "Could not retrieve info from the CIB"
         return 2
     fi
 
@@ -195,19 +200,14 @@ lock_release() {
         fi
     fi
 
-    log "Prepare the snapshot CIB to release the lock"
-    pcs -f $TMP_CIB property set "$lockname"=""
-
-    # Store Conditional: only works if no update have been pushed in the meantime"
-    log "Try to push the CIB to signal lock is released"
-    pcs cluster cib-push $TMP_CIB
+    lock_delete $lockname "$lock"
     rc=$?
 
     if [ $rc -eq 0 ]; then
         log "Lock '$lockname' released by '$requester'"
         return 0
     else
-        log "CIB changed since snapshot, lock cannot be released"
+        log "CIB deletion error, lock cannot be released"
         return 3
     fi
 }
