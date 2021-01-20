@@ -72,6 +72,12 @@ Role Options
    configuration would be skipped for the role. The names should match
    those defined in network_data.yaml
 
+* rhsm_enforce: (boolean), optional, default to true. Some role may
+  not follow the EUS stream constraint, like CephOSD or composed Ceph
+  Mon/Mgr. This switch ensures that we can model this and disable the
+  check when it is not needed. Note that on non Red Hat environment
+  this switch has no effect.
+
 Working with Roles
 ==================
 The tripleoclient provides a series of commands that can be used to view
