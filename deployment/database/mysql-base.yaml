@@ -155,31 +155,6 @@ outputs:
               tripleo::profile::base::database::mysql::certificate_specs:
                 service_certificate: '/etc/pki/tls/certs/mysql.crt'
                 service_key: '/etc/pki/tls/private/mysql.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-                dnsnames:
-                  - str_replace:
-                      template: "%{hiera('cloud_name_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-                  - str_replace:
-                      template:
-                        "%{hiera('fqdn_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-                principal:
-                  str_replace:
-                    template: "mysql/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: MysqlCertificateKeySize}
             - {}
           -
             if:
@@ -198,4 +173,37 @@ outputs:
             - service: mysql
               network: {get_param: [ServiceNetMap, MysqlNetwork]}
               type: node
+          - null
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: mysql
+                        dns:
+                          - str_replace:
+                              template: "{{fqdn_$NETWORK}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+                          - str_replace:
+                              template: "{{cloud_names.cloud_name_NETWORK}}"
+                              params:
+                                NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+                        principal:
+                          str_replace:
+                            template: "mysql/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: MysqlCertificateKeySize}
+                        ca: ipa
           - null

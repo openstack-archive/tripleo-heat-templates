@@ -161,7 +161,6 @@ Example
    * OS::TripleO::Services::CACerts
    * OS::TripleO::Services::CephClient
    * OS::TripleO::Services::CephExternal
-   * OS::TripleO::Services::CertmongerUser
    * OS::TripleO::Services::Collectd
    * OS::TripleO::Services::ComputeCeilometerAgent
    * OS::TripleO::Services::ComputeNeutronCorePlugin

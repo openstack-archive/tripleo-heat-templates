@@ -981,6 +981,9 @@ def validate_service_hiera_interpol(f, tpl):
             # Omit if external deploy tasks in the path
             if 'external_deploy_tasks' in path:
                 continue
+            # Omit if deploy steps tasks in the path
+            if 'deploy_steps_tasks' in path:
+                continue
             # Omit apache remoteip proxy_ips
             if 'apache::mod::remoteip::proxy_ips' in path:
                 continue

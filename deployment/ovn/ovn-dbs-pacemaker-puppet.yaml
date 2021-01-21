@@ -181,24 +181,6 @@ outputs:
                 get_param: InternalTLSCAFile
               tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
               tripleo::profile::pacemaker::ovn_dbs_bundle::enable_internal_tls: true
-              ovn_dbs_certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/ovn_dbs.crt'
-                service_key: '/etc/pki/tls/private/ovn_dbs.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                principal:
-                  str_replace:
-                    template: "ovn_dbs/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: OvnDBSCertificateKeySize}
             - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
@@ -242,29 +224,57 @@ outputs:
             - { 'path': /var/log/containers/openvswitch, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/openvswitch/ovn, 'setype': container_file_t }
       deploy_steps_tasks:
-        - name: OVN DBS tag container image for pacemaker
-          when: step|int == 1
-          import_role:
-            name: tripleo_container_tag
-          vars:
-            container_image: {get_param: ContainerOvnDbsImage}
-            container_image_latest: *ovn_dbs_image_pcmklatest
-        - name: OVNDbs HA Wrappers Step
-          when: step|int == 3
-          block: &ovn_dbs_puppet_bundle
-            - name: Ovn dbs puppet bundle
+        list_concat:
+          - - name: OVN DBS tag container image for pacemaker
+              when: step|int == 1
               import_role:
-                name: tripleo_ha_wrapper
+                name: tripleo_container_tag
               vars:
-                tripleo_ha_wrapper_service_name: ovn_dbs
-                tripleo_ha_wrapper_resource_name: ovndbs_servers
-                tripleo_ha_wrapper_bundle_name: ovn-dbs-bundle
-                tripleo_ha_wrapper_resource_state: Slave Master
-                tripleo_ha_wrapper_puppet_config_volume: ovn_dbs
-                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::ovn_dbs_bundle'
-                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
-                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
-
+                container_image: {get_param: ContainerOvnDbsImage}
+                container_image_latest: *ovn_dbs_image_pcmklatest
+            - name: OVNDbs HA Wrappers Step
+              when: step|int == 3
+              block: &ovn_dbs_puppet_bundle
+                - name: Ovn dbs puppet bundle
+                  import_role:
+                    name: tripleo_ha_wrapper
+                  vars:
+                    tripleo_ha_wrapper_service_name: ovn_dbs
+                    tripleo_ha_wrapper_resource_name: ovndbs_servers
+                    tripleo_ha_wrapper_bundle_name: ovn-dbs-bundle
+                    tripleo_ha_wrapper_resource_state: Slave Master
+                    tripleo_ha_wrapper_puppet_config_volume: ovn_dbs
+                    tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::ovn_dbs_bundle'
+                    tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
+          - if:
+            - internal_tls_enabled
+            -
+              - name: Certificate generation
+                when: step|int == 1
+                block:
+                  - include_role:
+                      name: linux-system-roles.certificate
+                    vars:
+                      certificate_requests:
+                        - name: ovn_dbs
+                          dns:
+                            str_replace:
+                              template: "{{fqdn_$NETWORK}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                          principal:
+                            str_replace:
+                              template: "ovn_controller/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                          key_size:
+                            if:
+                              - key_size_override_unset
+                              - {get_param: CertificateKeySize}
+                              - {get_param: OvnDBSCertificateKeySize}
+                          ca: ipa
+            - []
       update_tasks:
         - name: Tear-down non-HA ovn-dbs containers
           when:

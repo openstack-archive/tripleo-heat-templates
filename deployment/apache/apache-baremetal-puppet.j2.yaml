@@ -70,12 +70,10 @@ resources:
         # We skip the tenant and management network (vip != false)
         # since we don't generate certificates for those.
         - ctlplane
-{%- for network in networks if network.enabled|default(true) %}
-  {%- if network.vip | default(false) %}
+{%- for network in networks if network.enabled|default(true) and network.vip|default(false) %}
         - {{network.name_lower}}
-  {%- endif %}
 {%- endfor %}
-
+{% raw -%}
 outputs:
   role_data:
     description: Role data for the Apache role.
@@ -112,8 +110,6 @@ outputs:
               generate_service_certificates: true
               apache::mod::ssl::ssl_ca: {get_param: InternalTLSCAFile}
               apache::mod::ssl::ssl_protocol: ['all', '-SSLv2', '-SSLv3', '-TLSv1']
-              tripleo::certmonger::apache_dirs::certificate_dir: '/etc/pki/tls/certs/httpd'
-              tripleo::certmonger::apache_dirs::key_dir: '/etc/pki/tls/private/httpd'
               apache_certificates_specs:
                 map_merge:
                   repeat:
@@ -121,14 +117,6 @@ outputs:
                       httpd-NETWORK:
                         service_certificate: '/etc/pki/tls/certs/httpd/httpd-NETWORK.crt'
                         service_key: '/etc/pki/tls/private/httpd/httpd-NETWORK.key'
-                        hostname: "%{hiera('fqdn_NETWORK')}"
-                        principal: "HTTP/%{hiera('fqdn_NETWORK')}"
-                        postsave_cmd: "pkill -USR1 httpd"
-                        key_size:
-                          if:
-                            - key_size_override_unset
-                            - {get_param: CertificateKeySize}
-                            - {get_param: ApacheCertificateKeySize}
                     for_each:
                       NETWORK: {get_attr: [ApacheNetworks, value]}
             - {}
@@ -145,3 +133,43 @@ outputs:
                 $NETWORK: {get_attr: [ApacheNetworks, value]}
           - null
       upgrade_tasks: []
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - name: Create dirs for certificates and keys
+                  file:
+                    path: "{{ item }}"
+                    state: directory
+                    serole: object_r
+                    setype: cert_t
+                    seuser: system_u
+                  with_items:
+                    - '/etc/pki/tls/certs/httpd'
+                    - '/etc/pki/tls/private/httpd'
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      repeat:
+                        template:
+                          name: httpd-NETWORK
+                          dns: "{{fqdn_NETWORK}}"
+                          principal: "HTTP/{{fqdn_NETWORK}}@{{idm_realm}}"
+                          run_after: |
+                            cp /etc/pki/tls/certs/httpd-NETWORK.crt /etc/pki/tls/certs/httpd/httpd-NETWORK.crt
+                            cp /etc/pki/tls/private/httpd-NETWORK.key /etc/pki/tls/private/httpd/httpd-NETWORK.key
+                            pkill -USR1 httpd
+                          key_size:
+                            if:
+                              - key_size_override_unset
+                              - {get_param: CertificateKeySize}
+                              - {get_param: ApacheCertificateKeySize}
+                          ca: ipa
+                        for_each:
+                          NETWORK: {get_attr: [ApacheNetworks, value]}
+          - null
+{%- endraw %}
