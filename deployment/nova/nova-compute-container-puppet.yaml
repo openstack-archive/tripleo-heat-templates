@@ -373,6 +373,26 @@ parameters:
     description: Whether to wait for `network-vif-plugged` events before starting guest transfer.
     default: true
     type: boolean
+  NovaLiveMigrationPermitPostCopy:
+    description: Wether to switch the VM active on destination node before migration is complete,
+                 therefore ensuring an upper bound on the memory that needs to be transferred.
+    default: ''
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+    tags:
+      - role_specific
+  NovaLiveMigrationPermitAutoConverge:
+    description: Auto converge will throttles down CPU if a progress of on-going live migration is
+                 slow. Auto converge will only be used if this flag is set to True and post copy is
+                 not permitted or post copy is unavailable due to the version of libvirt and QEMU
+                 in use.
+    default: ''
+    type: string
+    constraints:
+      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+    tags:
+      - role_specific
   MultipathdEnable:
     default: false
     description: Whether to enable the multipath daemon
@@ -635,6 +655,8 @@ resources:
               nova_compute_opt_env_vars: NovaComputeOptEnvVars
               nova::workarounds::never_download_image_if_on_rbd: NovaDisableImageDownloadToRbd
               nova::compute::image_type_exclude_list: NovaImageTypeExcludeList
+              nova_permit_post_copy: NovaLiveMigrationPermitPostCopy
+              nova_permit_auto_converge: NovaLiveMigrationPermitAutoConverge
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -720,7 +742,8 @@ resources:
               NovaComputeOptEnvVars: {get_param: NovaComputeOptEnvVars}
               NovaDisableImageDownloadToRbd: {get_param: NovaDisableImageDownloadToRbd}
               NovaImageTypeExcludeList: {get_param: NovaImageTypeExcludeList}
-
+              NovaLiveMigrationPermitPostCopy: {get_param: NovaLiveMigrationPermitPostCopy}
+              NovaLiveMigrationPermitAutoConverge: {get_param: NovaLiveMigrationPermitAutoConverge}
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
@@ -768,6 +791,18 @@ conditions:
     and:
     - equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]
     - equals: [{get_param: OvsDpdkSocketMemory}, ""]
+
+  permit_post_copy_set:
+    not:
+      and:
+      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitPostCopy]}, '']
+      - equals: [{get_param: NovaLiveMigrationPermitPostCopy}, '']
+
+  permit_auto_converge_set:
+    not:
+      and:
+      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitAutoConverge]}, '']
+      - equals: [{get_param: NovaLiveMigrationPermitAutoConverge}, '']
 
 outputs:
   role_data:
@@ -830,6 +865,27 @@ outputs:
             nova::compute::instance_usage_audit_period: 'hour'
             nova::compute::consecutive_build_service_disable_threshold: {get_param: NovaAutoDisabling}
             nova::compute::live_migration_wait_for_vif_plug: {get_param: NovaLiveMigrationWaitForVIFPlug}
+            nova::migration::live_migration_permit_post_copy:
+              if:
+                - permit_post_copy_set
+                - contains:
+                  - {get_attr: [RoleParametersValue, value, nova_permit_post_copy]}
+                  - ["TRUE", "true", "True"]
+                - if:
+                  - reserved_huge_pages_set
+                  - true
+                  - false
+            nova::migration::live_migration_permit_auto_converge:
+              if:
+                - permit_auto_converge_set
+                - contains:
+                  - {get_attr: [RoleParametersValue, value, nova_permit_auto_converge]}
+                  - ["TRUE", "true", "True"]
+                - if:
+                  - reserved_huge_pages_set
+                  - true
+                  - false
+
             # TUNNELLED mode provides a security improvement for migration, but
             # can't be used in combination with block migration. So we only enable it
             # when shared storage is available (Ceph RDB is currently the only option).
