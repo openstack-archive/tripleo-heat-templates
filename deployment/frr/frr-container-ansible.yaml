@@ -1,0 +1,236 @@
+heat_template_version: rocky
+
+description: >
+  Configures FRR on the host
+
+parameters:
+  ContainerFrrImage:
+    description: The container image for Frr
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  FrrBfdEnabled:
+    default: false
+    description: Enable Bidirectional Forwarding Detection
+    type: boolean
+  FrrBgpEnabled:
+    default: true
+    description: Enable BGP
+    type: boolean
+  FrrBgpAsn:
+    default: 65000
+    description: Default ASN to be used within FRR
+    type: number
+  FrrBgpIpv4Enabled:
+    default: true
+    description: Enable BGP advertisement of IPv4 routes
+    type: boolean
+  FrrBgpIpv4AllowASIn:
+    default: false
+    description: Allow for IPv4 routes to be received and processed even if the
+                 router detects its own ASN in the AS-Path.
+    type: boolean
+  FrrBgpIpv4SrcNetwork:
+    default: ctlplane
+    description: The name of the Neutron network from where the IP address of
+                 the node will be taken and set as source IPv4 address on the
+                 default route.
+    type: string
+  FrrBgpIpv6Enabled:
+    default: true
+    description: Enable BGP advertisement of IPv6 routes
+    type: boolean
+  FrrBgpIpv6AllowASIn:
+    default: false
+    description: Allow for IPv6 routes to be received and processed even if the
+                 router detects its own ASN in the AS-Path.
+    type: boolean
+  FrrBgpIpv6SrcNetwork:
+    default: ctlplane
+    description: The name of the Neutron network from where the IP address of
+                 the node will be taken and set as source IPv6 address on the
+                 default route.
+    type: string
+  FrrBgpUplinks:
+    default: ['nic1', 'nic2']
+    description: List of uplink network interfaces.
+    type: comma_delimited_list
+  FrrBgpUplinksScope:
+    default: 'internal'
+    type: string
+    description: Either peer with internal (iBGP) or external (eBGP) neighbors.
+    constraints:
+      - allowed_values: ['internal', 'external']
+  FrrLoggingSource:
+    type: json
+    default:
+      tag: system.frr
+      file: /var/log/containers/frr/frr.log
+  FrrLogLevel:
+    default: 'informational'
+    type: string
+    description: log level
+    constraints:
+      - allowed_values: ['emergencies', 'alerts', 'critical', 'errors',
+                         'warnings', 'notifications', 'informational',
+                         'debugging']
+  FrrZebraEnabled:
+    default: true
+    description: enable Zebra
+    type: boolean
+  FrrPacemakerVipNic:
+    default: 'lo'
+    description: Name of the nic that the pacemaker VIPs will be added to when
+                 runninng with FRR.
+    type: string
+  FrrBgpNeighborTtlSecurityHops:
+    default: 1
+    description: Enforce Generalized TTL Security Mechanism (GTSM) where only
+                 neighbors that are the specified number of hops away will be
+                 allowed to become neighbors. Setting value to zero or less
+                 will disable GTSM.
+    type: number
+
+outputs:
+  role_data:
+    description: Role data for the FRR service
+    value:
+      service_name: frr
+      config_settings:
+        tripleo::pacemaker::force_nic: {get_param: FrrPacemakerVipNic}
+      service_config_settings:
+        rsyslog:
+          tripleo_logging_sources_frr:
+            - {get_param: FrrLoggingSource}
+      firewall_rules:
+        map_merge:
+          - if:
+            - {get_param: FrrBgpEnabled}
+            - '156 bgp tcp':
+                proto: 'tcp'
+                dport: 179
+            - {}
+          - if:
+            - {get_param: FrrBfdEnabled}
+            - '156 bfd udp':
+                 proto: 'udp'
+                 dport:
+                 - 3784
+                 - 3785
+            - {}
+      kolla_config:
+        /var/lib/kolla/config_files/frr.json:
+          # Note: This is currently needed because watchfrr *always* demonizes
+          command: bash -c $* -- eval /usr/lib/frr/frr start && /bin/sleep infinity
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /etc/frr
+              owner: frr:frr
+              recurse: true
+            - path: /var/log/frr
+              owner: frr:frr
+              recurse: true
+
+      docker_config:
+        # NOTE: Create container-startup-config file in step 0 so that TripleO
+        # does not auto-start the FRR container (it does so for containers in
+        # step 1-5). FRR needs to be started in step 1 but before any HA service.
+        step_0:
+          frr:
+            start_order: 0
+            image: {get_param: ContainerFrrImage}
+            net: host
+            state: stopped
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            cap_add:
+              - NET_BIND_SERVICE
+              - NET_RAW
+              - NET_ADMIN
+              - SYS_ADMIN
+            # We cannot bind mount the InternalTLSCAFile as freeipa might not
+            # be reachable without frr
+            volumes:
+              - /etc/hosts:/etc/hosts:ro
+              - /etc/localtime:/etc/localtime:ro
+              - /dev/log:/dev/log
+              # OpenSSL trusted CAs
+              - /etc/pki/ca-trust/extracted:/etc/pki/ca-trust/extracted:ro
+              - /etc/pki/ca-trust/source/anchors:/etc/pki/ca-trust/source/anchors:ro
+              - /etc/pki/tls/certs/ca-bundle.crt:/etc/pki/tls/certs/ca-bundle.crt:ro
+              - /etc/pki/tls/certs/ca-bundle.trust.crt:/etc/pki/tls/certs/ca-bundle.trust.crt:ro
+              - /etc/pki/tls/cert.pem:/etc/pki/tls/cert.pem:ro
+              - /var/lib/kolla/config_files/frr.json:/var/lib/kolla/config_files/config.json:ro
+              - /var/lib/config-data/ansible-generated/frr:/var/lib/kolla/config_files/src:ro
+              - /var/log/containers/frr:/var/log/frr:z
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode }}"
+          with_items:
+            - { 'path': /var/log/containers/frr, 'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/lib/config-data/ansible-generated/frr, 'setype': container_file_t, 'mode': '0750' }
+      deploy_steps_tasks:
+        - name: Configure and start FRR before an HA service
+          when: step|int == 1
+          block:
+            - name: Configure FRR
+              import_role:
+                name: tripleo_frr
+              vars:
+                tripleo_frr_config_basedir: /var/lib/config-data/ansible-generated/frr
+                tripleo_frr_bfd: {get_param: FrrBfdEnabled}
+                tripleo_frr_bgp: {get_param: FrrBgpEnabled}
+                tripleo_frr_bgp_asn: {get_param: FrrBgpAsn}
+                tripleo_frr_bgp_ipv4: {get_param: FrrBgpIpv4Enabled}
+                tripleo_frr_bgp_ipv4_allowas_in: {get_param: FrrBgpIpv4AllowASIn}
+                tripleo_frr_bgp_ipv4_src_network: {get_param: FrrBgpIpv4SrcNetwork}
+                tripleo_frr_bgp_ipv6: {get_param: FrrBgpIpv6Enabled}
+                tripleo_frr_bgp_ipv6_allowas_in: {get_param: FrrBgpIpv6AllowASIn}
+                tripleo_frr_bgp_ipv6_src_network: {get_param: FrrBgpIpv6SrcNetwork}
+                tripleo_frr_bgp_neighbor_ttl_security_hops: {get_param: FrrBgpNeighborTtlSecurityHops}
+                tripleo_frr_bgp_uplinks: {get_param: FrrBgpUplinks}
+                tripleo_frr_bgp_uplinks_scope: {get_param: FrrBgpUplinksScope}
+                tripleo_frr_log_level: {get_param: FrrLogLevel}
+                tripleo_frr_zebra: {get_param: FrrZebraEnabled}
+            - name: Start FRR
+              include_role:
+                name: tripleo_container_manage
+              vars:
+                tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_0"
+                tripleo_container_manage_config_id: "frr"
+                tripleo_container_manage_config_patterns: "frr.json"
+                tripleo_container_manage_systemd_order: true
+      update_tasks: []
+      upgrade_tasks: []
