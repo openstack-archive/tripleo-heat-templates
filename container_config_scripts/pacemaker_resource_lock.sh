@@ -213,6 +213,29 @@ lock_release() {
 }
 
 
+# Retrieve the owner of a lock from the CIB
+# this is a read-only operation, so no need to log debug info
+lock_get_owner() {
+    local lockname=$1
+    local rc
+    local lock
+    local owner
+
+    lock=$(lock_get $lockname)
+    rc=$?
+    if [ $rc -ne 0 ] && [ $rc -ne $CIB_ENOTFOUND ]; then
+        return 2
+    fi
+
+    if [ -z "$lock" ]; then
+        return 1
+    else
+        lock_owner $lock
+        return 0
+    fi
+}
+
+
 ACTION=$1
 LOCKNAME=$2
 REQUESTER=$3
@@ -223,8 +246,13 @@ if [ -z "$ACTION" ]; then
 fi
 
 if [ $ACTION != "--help" ]; then
-    if [ -z "$LOCKNAME" ] || [ -z "$REQUESTER" ]; then
-        error "You must specific a lock name and a requester"
+    if [ -z "$LOCKNAME" ]; then
+        error "You must specific a lock name"
+    fi
+    if [ $ACTION != "--owner" ] && [ $ACTION != "-o" ]; then
+        if [ -z "$REQUESTER" ]; then
+            error "You must specific a lock requester"
+        fi
     fi
 fi
 
@@ -232,6 +260,8 @@ case $ACTION in
     --help) usage; exit 0;;
     --acquire|-a) try_action lock_acquire $LOCKNAME $REQUESTER $TTL;;
     --release|-r) try_action lock_release $LOCKNAME $REQUESTER;;
+    --acquire-once|-A) lock_acquire $LOCKNAME $REQUESTER $TTL;;
+    --owner|-o) lock_get_owner $LOCKNAME;;
     *) error "Invalid action";;
 esac
 exit $?
