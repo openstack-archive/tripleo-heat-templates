@@ -147,6 +147,107 @@ parameters:
     type: boolean
     tags:
       - role_specific
+  NovaComputeForceRawImages:
+    default: true
+    description: |
+      Set to "True" to convert non-raw cached base images to raw format.
+      Set to "False" if you have a system with slow I/O or low available space,
+      trading the higher CPU requirements of compression for that of minimized input
+      bandwidth.
+      Notes::
+      - The Compute service removes any compression from the base image during
+        compression, to avoid CPU bottlenecks. Converted images cannot have backing
+        files, which might be a security issue.
+      - The raw image format uses more space than other image formats, for example,
+        qcow2.
+        Raw base images are always used with libvirt_images_type=lvm.
+    type: boolean
+    tags:
+      - role_specific
+  NovaComputeUseCowImages:
+    default: true
+    description: |
+      Set to "True" to use CoW (Copy on Write) images in cqow2 format for libvirt
+      instance disks. With CoW, depending on the backing store and host caching,
+      there might be better concurrency achieved by having each instance operate
+      on its own copy.
+      Set to "False" to use the raw format. Raw format uses more space for common
+      parts of the disk image.
+    type: boolean
+    tags:
+      - role_specific
+  NovaComputeLibvirtPreAllocateImages:
+    default: 'none'
+    description: |
+      Specifies the preallocation mode for libvirt instance disks.
+      Set to one of the following valid values::
+      - none - No storage is provisioned at instance start.
+      - space - Storage is fully allocated at instance start using fallocate,
+                which can help with both space guarantees and I/O performance.
+
+      Even when not using CoW instance disks, the copy each instance gets is sparse
+      and so the instance might fail unexpectedly at run time with ENOSPC. By
+      running fallocate(1) on the instance disk images, the Compute service
+      immediately and efficiently allocates the space for them in the file system,
+      if supported. Run time performance should also be improved because the file
+      system does not have to dynamically allocate blocks at run time, which reduces
+      CPU overhead and file fragmentation.
+    type: string
+    constraints:
+      - allowed_values: [ 'none', 'space']
+    tags:
+      - role_specific
+  NovaComputeImageCacheManagerInterval:
+    default: 2400
+    description: |
+      Specifies the number of seconds to wait between runs of the image cache
+      manager, which impacts base image caching on Compute nodes. This period
+      is used in the auto removal of unused cached images configured with
+      remove_unused_base_images and remove_unused_original_minimum_age_seconds.
+
+      Set to "0" to run at the default interval of 60 seconds (not recommended)
+    type: number
+    constraints:
+      - range: { min: -1}
+    tags:
+      - role_specific
+  NovaComputeImageCacheRemoveUnusedBaseImages:
+    default: true
+    description: |
+      Set to "True" to automatically remove unused base images from the cache
+      at intervals configured by using image_cache_manager_interval. Images
+      are defined as unused if they have not been accessed during the time
+      specified by using remove_unused_original_minimum_age_seconds.
+    type: boolean
+    tags:
+      - role_specific
+  NovaComputeImageCacheRemoveUnusedResizedMinimumAge:
+    default: 3600
+    description: |
+      Specifies the minimum age that an unused resized base image must be to
+      be removed from the cache, in seconds. Unused unresized base images
+      younger than this will not be removed.
+    type: number
+    constraints:
+      - range: { min: 1}
+    tags:
+      - role_specific
+  NovaComputeImageCachePrecacheConcurrency:
+    default: 1
+    description: |
+      Maximum number of Compute nodes to trigger image precaching in parallel.
+      When an image precache request is made, Compute nodes are contacted {by
+      who/which service} to initiate the download.
+
+      Higher numbers will cause more computes to work in parallel and may result
+      in reduced time to complete the operation, but may also DDoS the image
+      service. Lower numbers will result in more sequential operation, lower
+      image service load, but likely longer runtime to completion.
+    type: number
+    constraints:
+      - range: { min: 1}
+    tags:
+      - role_specific
   NovaPCIPassthrough:
     description: >
       List of PCI Passthrough whitelist parameters.
@@ -715,6 +816,13 @@ resources:
               nova_permit_auto_converge: NovaLiveMigrationPermitAutoConverge
               nova_glance_enable_rbd_download: NovaGlanceEnableRbdDownload
               nova_glance_rbd_download_multistore_id: NovaGlanceRbdDownloadMultistoreID
+              nova::compute::force_raw_images: NovaComputeForceRawImages
+              nova::compute::use_cow_images: NovaComputeUseCowImages
+              nova::compute::libvirt::preallocate_images: NovaComputeLibvirtPreAllocateImages
+              nova::compute::image_cache::manager_interval: NovaComputeImageCacheManagerInterval
+              nova::compute::image_cache::remove_unused_base_images: NovaComputeImageCacheRemoveUnusedBaseImages
+              nova::compute::image_cache::remove_unused_resized_minimum_age_seconds: NovaComputeImageCacheRemoveUnusedResizedMinimumAge
+              nova::compute::image_cache::precache_concurrency: NovaComputeImageCachePrecacheConcurrency
             - values: {get_param: [RoleParameters]}
           - values:
               NovaVcpuPinSet: {get_param: NovaVcpuPinSet}
@@ -805,6 +913,13 @@ resources:
               NovaLibvirtMaxQueues: {get_param: NovaLibvirtMaxQueues}
               NovaGlanceEnableRbdDownload: {get_param: NovaGlanceEnableRbdDownload}
               NovaGlanceRbdDownloadMultistoreID: {get_param: NovaGlanceRbdDownloadMultistoreID}
+              NovaComputeForceRawImages: {get_param: NovaComputeForceRawImages}
+              NovaComputeUseCowImages: {get_param: NovaComputeUseCowImages}
+              NovaComputeLibvirtPreAllocateImages: {get_param: NovaComputeLibvirtPreAllocateImages}
+              NovaComputeImageCacheManagerInterval: {get_param: NovaComputeImageCacheManagerInterval}
+              NovaComputeImageCacheRemoveUnusedBaseImages: {get_param: NovaComputeImageCacheRemoveUnusedBaseImages}
+              NovaComputeImageCacheRemoveUnusedResizedMinimumAge: {get_param: NovaComputeImageCacheRemoveUnusedResizedMinimumAge}
+              NovaComputeImageCachePrecacheConcurrency: {get_param: NovaComputeImageCachePrecacheConcurrency}
 
 conditions:
   enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
