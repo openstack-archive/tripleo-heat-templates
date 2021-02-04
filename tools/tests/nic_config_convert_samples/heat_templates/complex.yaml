@@ -1,0 +1,239 @@
+heat_template_version: rocky
+
+parameters:
+  # Supernets
+  StorageSupernet:
+    type: string
+  StorageMgmtSupernet:
+    type: string
+  InternalApiSupernet:
+    type: string
+  TenantSupernet:
+    type: string
+  ExternalSupernet:
+    type: string
+
+  # Default Routes
+  ControlPlaneDefaultRoute:
+    type: string
+  ControlPlaneEdge1DefaultRoute:
+    type: string
+  ControlPlaneEdge2DefaultRoute:
+    type: string
+  StorageInterfaceDefaultRoute:
+    type: string
+  StorageEdge1InterfaceDefaultRoute:
+    type: string
+  StorageEdge2InterfaceDefaultRoute:
+    type: string
+  StorageMgmtInterfaceDefaultRoute:
+    type: string
+  StorageMgmtEdge1InterfaceDefaultRoute:
+    type: string
+  StorageMgmtEdge2InterfaceDefaultRoute:
+    type: string
+  InternalApiInterfaceDefaultRoute:
+    type: string
+  InternalApiEdge1InterfaceDefaultRoute:
+    type: string
+  InternalApiEdge2InterfaceDefaultRoute:
+    type: string
+  TenantInterfaceDefaultRoute:
+    type: string
+  TenantEdge1InterfaceDefaultRoute:
+    type: string
+  TenantEdge2InterfaceDefaultRoute:
+    type: string
+  ExternalInterfaceDefaultRoute:
+    type: string
+
+  # IP subnets
+  StorageIpSubnet:
+    default: ''
+    type: string
+  StorageEdge1IpSubnet:
+    default: ''
+    type: string
+  StorageEdge2IpSubnet:
+    default: ''
+    type: string
+  StorageMgmtIpSubnet:
+    default: ''
+    type: string
+  StorageMgmtEdge1IpSubnet:
+    default: ''
+    type: string
+  StorageMgmtEdge2IpSubnet:
+    default: ''
+    type: string
+  InternalApiIpSubnet:
+    default: ''
+    type: string
+  InternalApiEdge1IpSubnet:
+    default: ''
+    type: string
+  InternalApiEdge2IpSubnet:
+    default: ''
+    type: string
+  TenantIpSubnet:
+    default: ''
+    type: string
+  TenantEdge1IpSubnet:
+    default: ''
+    type: string
+  TenantEdge2IpSubnet:
+    default: ''
+    type: string
+  ExternalIpSubnet:
+    default: ''
+    type: string
+  ManagementIpSubnet:
+    default: ''
+    type: string
+
+  # VLAN IDs
+  StorageNetworkVlanID:
+    default: 121
+    type: number
+  StorageEdge1NetworkVlanID:
+    default: 131
+    type: number
+  StorageEdge2NetworkVlanID:
+    default: 141
+    type: number
+  StorageMgmtNetworkVlanID:
+    default: 122
+    type: number
+  StorageMgmtEdge1NetworkVlanID:
+    default: 132
+    type: number
+  StorageMgmtEdge2NetworkVlanID:
+    default: 142
+    type: number
+  InternalApiNetworkVlanID:
+    default: 123
+    type: number
+  InternalApiEdge1NetworkVlanID:
+    default: 133
+    type: number
+  InternalApiEdge2NetworkVlanID:
+    default: 143
+    type: number
+  TenantNetworkVlanID:
+    default: 124
+    type: number
+  TenantEdge1NetworkVlanID:
+    default: 134
+    type: number
+  TenantEdge2NetworkVlanID:
+    default: 144
+    type: number
+  ExternalNetworkVlanID:
+    default: 200
+    type: number
+  ManagementNetworkVlanID:
+    default: 300
+    type: number
+
+  # Subnet CIDR
+  ControlPlaneSubnetCidr:
+    type: string
+  ControlPlaneEdge1SubnetCidr:
+    type: string
+  ControlPlaneEdge2SubnetCidr:
+    type: string
+
+  ControlPlaneIp:
+    type: string
+  DnsServers:
+    type: comma_delimited_list
+
+  # EC2 metadata server IPs
+  EC2MetadataIp:
+    type: string
+  Edge1EC2MetadataIp:
+    type: string
+  Edge2EC2MetadataIp:
+    type: string
+
+resources:
+  OsNetConfigImpl:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      config:
+        str_replace:
+          template:
+            get_file: /usr/share/openstack-tripleo-heat-templates/network/scripts/run-os-net-config.sh
+          params:
+            $network_config:
+              network_config:
+              - type: interface
+                name: nic1
+                use_dhcp: false
+                dns_servers:
+                  get_param: DnsServers
+                addresses:
+                - ip_netmask:
+                    list_join:
+                    - /
+                    - - get_param: ControlPlaneIp
+                      - get_param: ControlPlaneEdge1SubnetCidr
+                routes:
+
+                routes:
+                  list_concat_unique:
+                    - default: true
+                      next_hop:
+                        get_param: ControlPlaneEdge1DefaultRoute
+                    - - ip_netmask: 192.168.254.0/24
+                        next_hop: 192.168.24.1
+                    - - ip_netmask: 169.254.169.254/32
+                        next_hop:
+                          get_param: Edge1EC2MetadataIp
+              - type: ovs_bridge
+                name: br-ex
+                use_dhcp: false
+                members:
+                - type: interface
+                  name: nic2
+                  primary: true
+                - type: vlan
+                  vlan_id:
+                    get_param: StorageEdge1NetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: StorageEdge1IpSubnet
+                  routes:
+                  - ip_netmask:
+                      get_param: StorageSupernet
+                    next_hop:
+                      get_param: StorageEdge1InterfaceDefaultRoute
+                - type: vlan
+                  vlan_id:
+                    get_param: InternalApiEdge1NetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: InternalApiEdge1IpSubnet
+                  routes:
+                  - ip_netmask:
+                      get_param: InternalApiSupernet
+                    next_hop:
+                      get_param: InternalApiEdge1InterfaceDefaultRoute
+                - type: vlan
+                  vlan_id:
+                    get_param: TenantEdge1NetworkVlanID
+                  addresses:
+                  - ip_netmask:
+                      get_param: TenantEdge1IpSubnet
+                  routes:
+                  - ip_netmask:
+                      get_param: TenantSupernet
+                    next_hop:
+                      get_param: TenantEdge1InterfaceDefaultRoute
+
+outputs:
+  OS::stack_id:
+    description: The OsNetConfigImpl resource.
+    value:
+      get_resource: OsNetConfigImpl

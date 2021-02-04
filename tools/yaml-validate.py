@@ -1371,6 +1371,9 @@ for base_path in path_args:
                 dirs.remove('.tox')
             for f in files:
                 file_path = os.path.join(subdir, f)
+                if 'tools/tests/nic_config_convert_samples' in file_path:
+                    continue
+
                 if 'environments/services-docker' in file_path:
                     print("ERROR: environments/services-docker should not be "
                           "used any more, use environments/services instead: "

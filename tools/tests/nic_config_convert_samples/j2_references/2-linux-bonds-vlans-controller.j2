@@ -1,0 +1,95 @@
+---
+{% set mtu_ctlplane_list = [ctlplane_mtu] %}
+{% set mtu_dataplane_list = [] %}
+{% for network in role_networks %}
+{# This block resolves the minimum viable MTU for interfaces connected to #}
+{# the dataplane network(s), which start by Tenant, and also bonds #}
+{# and bridges that carry multiple VLANs. Each VLAN may have different MTU. #}
+{# The bridge, bond or interface must have an MTU to allow the VLAN with the #}
+{# largest MTU. #}
+{% if network.startswith('Tenant') %}
+{{ mtu_dataplane_list.append(lookup('vars', networks_lower[network] ~ '_mtu')) }}
+{# This block resolves the minimum viable MTU for interfaces connected to #}
+{# the control plane network(s) (don't start by Tenant), and also bonds #}
+{# and bridges that carry multiple VLANs. Each VLAN may have different MTU. #}
+{# The bridge, bond or interface must have an MTU to allow the VLAN with the #}
+{# largest MTU. #}
+{% else %}
+{{ mtu_ctlplane_list.append(lookup('vars', networks_lower[network] ~ '_mtu')) }}
+{%- endfor %}
+{% set min_viable_mtu_ctlplane = mtu_ctlplane_list | max %}
+{% set min_viable_mtu_dataplane = mtu_dataplane_list | max %}
+network_config:
+- type: interface
+  name: nic1
+  mtu: {{ ctlplane_mtu }}
+  use_dhcp: false
+  addresses:
+  - ip_netmask: {{ ctlplane_ip }}/{{ ctlplane_subnet_cidr }}
+  routes: {{ [ctlplane_host_routes] | flatten | unique }}
+- type: linux_bond
+  name: bond_api
+  mtu: {{ min_viable_mtu_ctlplane }}
+  use_dhcp: false
+  bonding_options: {{ bond_interface_ovs_options }}
+  dns_servers: {{ ctlplane_dns_nameservers }}
+  domain: {{ dns_search_domains }}
+  members:
+  - type: interface
+    name: nic2
+    mtu: {{ min_viable_mtu_ctlplane }}
+    primary: true
+  - type: interface
+    name: nic3
+    mtu: {{ min_viable_mtu_ctlplane }}
+- type: vlan
+  device: bond_api
+  mtu: {{ storage_mtu }}
+  vlan_id: {{ storage_vlan_id }}
+  addresses:
+  - ip_netmask: {{ storage_ip }}/{{ storage_cidr }}
+  routes: {{ [storage_host_routes] | flatten | unique }}
+- type: vlan
+  device: bond_api
+  mtu: {{ storage_mgmt_mtu }}
+  vlan_id: {{ storage_mgmt_vlan_id }}
+  addresses:
+  - ip_netmask: {{ storage_mgmt_ip }}/{{ storage_mgmt_cidr }}
+  routes: {{ [storage_mgmt_host_routes] | flatten | unique }}
+- type: vlan
+  device: bond_api
+  mtu: {{ internal_api_mtu }}
+  vlan_id: {{ internal_api_vlan_id }}
+  addresses:
+  - ip_netmask: {{ internal_api_ip }}/{{ internal_api_cidr }}
+  routes: {{ [internal_api_host_routes] | flatten | unique }}
+- type: vlan
+  device: bond_api
+  mtu: {{ external_mtu }}
+  vlan_id: {{ external_vlan_id }}
+  addresses:
+  - ip_netmask: {{ external_ip }}/{{ external_cidr }}
+  routes: {{ [external_host_routes, [{'default': True, 'next_hop': external_gateway_ip}]] | flatten | unique }}
+- type: ovs_bridge
+  name: bridge_name
+  dns_servers: {{ ctlplane_dns_nameservers }}
+  members:
+  - type: linux_bond
+    name: bond-data
+    mtu: {{ min_viable_mtu_dataplane }}
+    bonding_options: {{ bond_interface_ovs_options }}
+    members:
+    - type: interface
+      name: nic4
+      mtu: {{ min_viable_mtu_dataplane }}
+      primary: true
+    - type: interface
+      name: nic5
+      mtu: {{ min_viable_mtu_dataplane }}
+- type: vlan
+  device: bond-data
+  mtu: {{ tenant_mtu }}
+  vlan_id: {{ tenant_vlan_id }}
+  addresses:
+  - ip_netmask: {{ tenant_ip }}/{{ tenant_cidr }}
+  routes: {{ [tenant_host_routes] | flatten | unique }}
