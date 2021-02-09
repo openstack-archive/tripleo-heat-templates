@@ -362,6 +362,10 @@ def clean_templates(base_path, role_data_path, network_data_path):
             'network', 'ports', '%s_v6.yaml' % network['name_lower'])
         ports_from_pool_v6_path = os.path.join(
             'network', 'ports', '%s_from_pool_v6.yaml' % network['name_lower'])
+        deployed_ports_path = os.path.join(
+            'network', 'ports', 'deployed_%s.yaml' % network['name_lower'])
+        deployed_vip_ports_path = os.path.join(
+            'network', 'ports', 'deployed_vip_%s.yaml' % network['name_lower'])
 
         delete(network_path)
         delete(network_from_pool_path)
@@ -373,6 +377,8 @@ def clean_templates(base_path, role_data_path, network_data_path):
         delete(ports_from_pool_path)
         delete(ports_v6_path)
         delete(ports_from_pool_v6_path)
+        delete(deployed_ports_path)
+        delete(deployed_vip_ports_path)
 
     with open(role_data_path) as role_data_file:
         role_data = yaml.safe_load(role_data_file)
