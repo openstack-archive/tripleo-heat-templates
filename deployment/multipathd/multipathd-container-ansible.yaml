@@ -1,0 +1,128 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack containerized Multipathd service
+
+parameters:
+  ContainerMultipathdImage:
+    description: image
+    type: string
+  ContainerMultipathdConfigImage:
+    description: The container image to use for the multipathd config_volume
+    type: string
+  MultipathdEnable:
+    default: false
+    description: Whether to enable the multipath daemon
+    type: boolean
+  MultipathdCustomConfigFile:
+    default: ''
+    description: Fully qualified path of a local multipath.conf file to be
+                 installed on the overcloud nodes. By default, a minimal
+                 multipath.conf file will be installed. NOTE - Other TripleO
+                 multipath parameters will override any corresponding
+                 value in the local custom config file. For example, if
+                 MultipathdEnableUserFriendlyNames is False, the files on the
+                 overcloud nodes will be updated match, even if the setting is
+                 enabled in the local custom file.
+    type: string
+  MultipathdEnableUserFriendlyNames:
+    default: false
+    description: Whether to enable assigning a user friendly name to each path
+    type: boolean
+  MultipathdEnableFindMultipaths:
+    default: true
+    description: Whether to automatically create a multipath device for each path
+    type: boolean
+  MultipathdSkipKpartx:
+    default: true
+    description: Whether to skip automatically creating partitions on the device
+    type: boolean
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Multipathd API role.
+    value:
+      service_name: multipathd
+      config_settings: {}
+      service_config_settings: {}
+      kolla_config:
+        /var/lib/kolla/config_files/multipathd.json:
+          command: /usr/sbin/multipathd -d
+          config_files:
+            - source: "/var/lib/kolla/config_files/src-iscsid/*"
+              dest: "/etc/iscsi/"
+              merge: true
+              preserve_properties: true
+      docker_config:
+        step_3:
+          multipathd:
+            start_order: 1
+            image: {get_param: ContainerMultipathdImage}
+            net: host
+            privileged: true
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/multipathd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
+                  - /dev/:/dev/
+                  - /run/:/run/
+                  - /sys:/sys
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/iscsi:/var/lib/iscsi:z
+                  - /etc/multipath:/etc/multipath:z
+                  - /etc/multipath.conf:/etc/multipath.conf:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      deploy_steps_tasks:
+        - name: Configure multipathd
+          when: step|int == 2
+          import_role:
+            name: tripleo_multipathd
+          vars:
+            tripleo_multipathd_enable: {get_param: MultipathdEnable}
+            tripleo_multipathd_custom_config_file: {get_param: MultipathdCustomConfigFile}
+            tripleo_multipathd_find_multipaths: {get_param: MultipathdEnableFindMultipaths}
+            tripleo_multipathd_skip_kpartx: {get_param: MultipathdSkipKpartx}
+            tripleo_multipathd_user_friendly_names: {get_param: MultipathdEnableUserFriendlyNames}
+      host_prep_tasks:
+        - name: Prep host for multipathd
+          import_role:
+            name: tripleo_multipathd
+            tasks_from: host_prep
+      upgrade_tasks: []
