@@ -46,7 +46,7 @@ _FILE_HEADER = (
 _PARAMETERS = "parameters"
 # Certain parameter names can't be changed, but shouldn't be shown because
 # they are never intended for direct user input.
-_PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex', 'DefaultPasswords']
+_PRIVATE_OVERRIDES = ['server', 'servers', 'NodeIndex']
 # Hidden params are not included by default when the 'all' option is used,
 # but can be explicitly included by referencing them in sample_defaults or
 # static.  This allows us to generate sample environments using them when

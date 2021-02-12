@@ -37,8 +37,8 @@ valid_heat_template_versions = [
 
 current_heat_template_version = valid_heat_template_versions[-1]
 
-required_params = ['EndpointMap', 'ServiceNetMap', 'DefaultPasswords',
-                   'RoleName', 'RoleParameters', 'ServiceData']
+required_params = ['EndpointMap', 'ServiceNetMap', 'RoleName',
+                   'RoleParameters', 'ServiceData']
 
 # NOTE(bnemec): The duplication in this list is intentional.  For the
 # transition to generated environments we have two copies of these files,
@@ -188,8 +188,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'server': ['description'],
     'servers': ['description'],
     'ExtraConfig': ['description'],
-    'DefaultPasswords': ['description',
-                         'default'],
     'BondInterfaceOvsOptions': ['description',
                                 'default',
                                 'constraints'],
