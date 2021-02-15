@@ -7,8 +7,11 @@
 - name: Ensure /var/log/journal exists
   become: true
   file: path=/var/log/journal state=directory mode=0750 owner=root group=root setype=var_log_t
-- name: Populate service facts
-  service_facts:
+- name: Check cloud-init status
+  shell: systemctl is-active cloud-init.service || systemctl is-enabled cloud-init.service
+  failed_when: false
+  become: true
+  register: cloud_init_enabled
 - name: Wait for cloud-init to finish, if enabled
   cloud_init_data_facts:
     filter: status
@@ -18,9 +21,9 @@
     not res.cloud_init_data_facts.status.v1.stage
   retries: 50
   delay: 5
-  when: >
-    'cloud-init.service' in ansible_facts.services and
-    ansible_facts.services['cloud-init.service']['status'] == 'enabled'
+  when:
+    - cloud_init_enabled.rc is defined
+    - cloud_init_enabled.rc == 0
 - name: Create /var/lib/container-puppet
   become: true
   no_log: True
