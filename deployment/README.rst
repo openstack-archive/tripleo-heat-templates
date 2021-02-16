@@ -201,10 +201,6 @@ the services. Following are the list of default parameters:
    endpoint data generated for all services, based on the data included in
    ../network/endpoints/endpoint_data.yaml.
 
- * DefaultPasswords: Mapping of service -> default password. Used to pass some
-   passwords from the parent templates, this is a legacy interface and should
-   not be used by new services.
-
  * RoleName: Name of the role on which this service is deployed. A service can
    be deployed in multiple roles. This is an internal parameter (should not be
    set via environment file), which is fetched from the name attribute of the
