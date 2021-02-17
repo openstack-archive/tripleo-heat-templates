@@ -212,6 +212,65 @@ outputs:
                   - ''
                   - - "#!/bin/bash\n\n"
                     - {get_param: LeappRepoInitCommand}
+            # WA for UEFI systems rhbz#1925078
+            - name: Check if system was booted via EFI
+              stat:
+                path: /sys/firmware/efi
+              register: efi
+            - name: Check if efi partition is present in /etc/fstab
+              failed_when: false
+              register: efi_fstab
+              shell: |
+                grep efi /etc/fstab
+            - name: Find out the UUID of UEFI device
+              register: efi_dev
+              failed_when: false
+              shell: |
+                blkid -s UUID -o value "$(blkid -t TYPE=vfat | grep -i efi | cut -d ':' -f1)"
+            - name: Check if red is in efibootmgr
+              register: efi_broken
+              failed_when: false
+              shell: |
+                efibootmgr | grep "red$"
+            - when:
+                - efi_fstab.rc is defined
+                - efi_dev.rc is defined
+                - efi_broken.rc is defined
+                - efi.stat.exists|bool
+                - efi_fstab.rc == 1
+                - efi_dev.rc == 0
+                - efi_broken.rc == 0
+              block:
+                - name: Copy /boot/efi/EFI/redhat to /tmp
+                  copy:
+                    src: /boot/efi/EFI/redhat/
+                    dest: /tmp/workaround_1925078_redhat/
+                    remote_src: true
+                - name: Insert /etc/fstab record
+                  lineinfile:
+                    dest: "/etc/fstab"
+                    line: "UUID={{ efi_dev.stdout }} /boot/efi vfat umask=0077 0 1"
+                - name: Mount the /boot/efi
+                  command: mount /boot/efi
+                - name: Copy /tmp/redhat to /boot/efi/EFI/redhat
+                  copy:
+                    src: /tmp/workaround_1925078_redhat/
+                    dest: /boot/efi/EFI/redhat/
+                    remote_src: true
+                - name: Create boot record
+                  shell: |
+                    DEVICE_PATH="$(blkid -t TYPE=vfat | grep -i efi | cut -d ':' -f1)"
+                    DEVICE="$(lsblk -no pkname $DEVICE_PATH)"
+                    PARTITION="$(echo $DEVICE_PATH | awk '{print $NF}' FS=/$DEVICE)"
+                    efibootmgr -c -L 'Red Hat Enterprise Linux' -d $(echo $DEVICE_PATH | sed s/$PARTITION\$//) -p $PARTITION -l '\EFI\redhat\shimx64.efi'
+                - name: Create grub config file
+                  command: grub2-mkconfig -o /boot/efi/EFI/redhat/grub.cfg
+                - name: Remove btrfs module in case fuse just loaded it
+                  failed_when: false
+                  command: rmmod btrfs
+                - name: Set workaround_1925078_fired
+                  set_fact:
+                    workaround_1925078_fired: True
             - name: install leapp
               package:
                 name: leapp
@@ -323,6 +382,13 @@ outputs:
             - step|int == 4
             - upgrade_leapp_enabled
           block:
+            - name: Reset boot order if WA#1925078 fired
+              shell: |
+                NEXT_BOOT="$(efibootmgr | grep BootOrder | awk -F'[ ,]*' '{print $2}')"
+                efibootmgr -n $NEXT_BOOT
+              when:
+                - workaround_1925078_fired is defined
+                - workaround_1925078_fired|bool
             - name: reboot to perform the upgrade
               reboot:
                 reboot_timeout: "{{upgrade_leapp_reboot_timeout}}"
