@@ -55,6 +55,9 @@ conditions:
 
 resources:
 
+  ContainersCommon:
+    type: ../containers-common.yaml
+
   MysqlBase:
     type: ./mysql-base.yaml
     properties:
@@ -124,6 +127,10 @@ outputs:
             - path: /etc/pki/tls/private/mysql.key
               owner: mysql:mysql
               optional: true
+      container_config_scripts:
+        map_merge:
+          - {get_attr: [ContainersCommon, container_config_scripts]}
+          - {get_attr: [MysqlBase, container_config_scripts]}
       docker_config:
         # Kolla_bootstrap runs before permissions set by kolla_config
         step_1:
@@ -196,6 +203,23 @@ outputs:
             volumes: *mysql_volumes
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          mysql_upgrade_db:
+            # update mysql db on disk after a version upgrade (idempotent)
+            config_volume: mysql
+            start_order: 3
+            detach: false
+            image: *mysql_image
+            volumes:
+              list_concat:
+                - *mysql_volumes
+                - - /var/lib/config-data/puppet-generated/mysql/root:/root:rw
+                  - /var/lib/container-config-scripts/:/container-config-scripts/:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            net: host
+            user: root
+            command:
+              - '/container-config-scripts/mysql_upgrade_db.sh'
         step_3:
           # sync credentials config on the running container if it was
           # changed by the docker_puppet_task during step 2
@@ -245,13 +269,12 @@ outputs:
             - {'path': /var/log/containers/mysql, 'setype': 'container_file_t', 'mode': '0750'}
             - {'path': /var/lib/mysql, 'setype': 'container_file_t'}
       upgrade_tasks:
-          # LP 1810136
-          # After upgrade, the new mariadb (e.g. 10.3) might not be able
-          # to replay the redo log of an older one (e.g. 10.1) if mysql
-          # stopped unexpectedly. If the container image differs, force
-          # mysql to stop and clean the redo log here to avoid issue after
-          # upgrade.
-        - name: Stop MySQL server and ensure redo log is cleaned up before upgrade
+          # When mariadb is upgraded to a new major release, one must run
+          # mysql_upgrade to upgrade the DB's system tables, and potentially
+          # run other storage upgrade. We want to that as early as possible
+          # so the database is fully upgraded when services are restarted
+          # during deploy steps.
+        - name: Stop MySQL server and upgrade the database if needed
           when: step|int == 2
           block:
             - name: Get Mysql container image name before upgrade
@@ -272,18 +295,22 @@ outputs:
                   list_join:
                     - ' '
                     - - 'kolla_set_configs;'
-                      - 'mysqld_safe --user=mysql --skip-networking &'
+                      - 'mysqld_safe --user=mysql --skip-networking --log-error=/var/log/mariadb/mariadb-upgrade.log &'
                       - 'timeout 180 sh -c ''while ! mysqladmin ping --silent; do sleep 1; done'';'
                       - 'mysqladmin shutdown'
             - name: Bind mounts for temporary clean-up container
               set_fact:
-                mysql_clean_up_volumes: *mysql_volumes
+                mysql_upgrade_volumes: *mysql_volumes
             - name: Stop the current mysql container
               systemd:
                 state: stopped
                 name: tripleo_mysql
               when: pre_upgrade_mysql_image != post_upgrade_mysql_image
             - name: Clean up redo log by running a transient mysql server
+              # After upgrade, the new mariadb (e.g. 10.3) might not be able
+              # to replay the redo log of an older one (e.g. 10.1) if mysql
+              # stopped unexpectedly. So run a temporary server to cleanup
+              # the redo log now before upgrade.
               shell:
                 str_replace:
                   template:
@@ -291,10 +318,6 @@ outputs:
                   params:
                     ENV: '-e "KOLLA_CONFIG_STRATEGY=COPY_ALWAYS"'
                     IMAGE: "{{ pre_upgrade_mysql_image }}"
-                    VOLUMES: "-v {{ mysql_clean_up_volumes | join(' -v ') }}"
+                    VOLUMES: "-v {{ mysql_upgrade_volumes | join(' -v ') }}"
                     SCRIPT: "{{ mysql_clean_up_script }}"
               when: pre_upgrade_mysql_image != post_upgrade_mysql_image
-      post_upgrade_tasks:
-        - name: Check and upgrade Mysql database after major version upgrade
-          command: "{{ container_cli }} exec -u root mysql mysql_upgrade"
-          when: step|int == 2
