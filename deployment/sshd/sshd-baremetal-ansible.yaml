@@ -1,0 +1,105 @@
+heat_template_version: rocky
+
+description: >
+  Configure sshd_config
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  BannerText:
+    default: ''
+    description: Configures Banner text in sshd_config
+    type: string
+  MessageOfTheDay:
+    default: ''
+    description: Configures /etc/motd text
+    type: string
+  SshServerOptions:
+    default:
+      HostKey:
+        - '/etc/ssh/ssh_host_rsa_key'
+        - '/etc/ssh/ssh_host_ecdsa_key'
+        - '/etc/ssh/ssh_host_ed25519_key'
+      SyslogFacility: 'AUTHPRIV'
+      AuthorizedKeysFile: '.ssh/authorized_keys'
+      ChallengeResponseAuthentication: 'no'
+      GSSAPIAuthentication: 'yes'
+      GSSAPICleanupCredentials: 'no'
+      UsePAM: 'yes'
+      UseDNS: 'no'
+      X11Forwarding: 'yes'
+      AcceptEnv:
+        - 'LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES'
+        - 'LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT'
+        - 'LC_IDENTIFICATION LC_ALL LANGUAGE'
+        - 'XMODIFIERS'
+      Subsystem: 'sftp  /usr/libexec/openssh/sftp-server'
+    description: Mapping of sshd_config values
+    type: json
+  PasswordAuthentication:
+    default: 'no'
+    description: Whether or not disable password authentication
+    type: string
+  SshFirewallAllowAll:
+    default: false
+    description: Set this to true to open up ssh access from all sources.
+    type: boolean
+
+conditions:
+  ssh_firewall_allow_all: {equals: [{get_param: SshFirewallAllowAll}, true]}
+  ssh_banner_text_empty: {equals: [{get_param: BannerText}, '']}
+  ssh_motd_text_empty: {equals: [{get_param: MessageOfTheDay}, '']}
+
+outputs:
+  role_data:
+    description: Role data for the ssh
+    value:
+      service_name: sshd
+      firewall_rules:
+        '003 accept ssh from all':
+          proto: 'tcp'
+          dport: 22
+          extras:
+            ensure: {if: [ssh_firewall_allow_all, 'present', 'absent']}
+      host_prep_config:
+        - include_role:
+            name: tripleo_ssh
+          vars:
+            tripleo_sshd_server_options: {get_param: SshServerOptions}
+            tripleo_sshd_password_authentication: {get_param: PasswordAuthentication}
+            tripleo_sshd_banner_enabled:
+              if:
+                - ssh_banner_text_empty
+                - true
+                - false
+            tripleo_sshd_banner_text: {get_param: BannerText}
+            tripleo_sshd_motd_enabled:
+              if:
+                - ssh_motd_text_empty
+                - true
+                - false
+            tripleo_sshd_message_of_the_day: {get_param: MessageOfTheDay}
