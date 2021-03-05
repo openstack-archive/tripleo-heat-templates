@@ -1216,8 +1216,11 @@ outputs:
           - name: disable KSM on compute
             when: not compute_ksm_enabled|bool
             block:
-            - name: Populate service facts (ksm)
-              service_facts: # needed to make yaml happy
+            - name: Check for ksm
+              shell: systemctl is-active ksm.service || systemctl is-enabled ksm.service
+              become: true
+              failed_when: false
+              register: ksm_service_check
             - name: disable KSM services
               service:
                 name: "{{ item }}"
@@ -1226,7 +1229,9 @@ outputs:
               with_items:
                 - ksm.service
                 - ksmtuned.service
-              when: "'ksm.service' in ansible_facts.services"
+              when:
+                - ksm_service_check.rc is defined
+                - ksm_service_check.rc == 0
               register: ksmdisabled
             # When KSM is disabled, any memory pages that were shared prior to
             # deactivating KSM are still shared. To delete all of the PageKSM
@@ -1234,13 +1239,12 @@ outputs:
             - name: delete PageKSM after disable ksm on compute
               command: echo 2 >/sys/kernel/mm/ksm/run
               when:
-                - "'ksm.service' in ansible_facts.services"
+                - ksm_service_check.rc is defined
+                - ksm_service_check.rc == 0
                 - ksmdisabled is changed
           - name: enable KSM on compute
             when: compute_ksm_enabled|bool
             block:
-            - name: Populate service facts (ksm)
-              service_facts: # needed to make yaml happy
             # mschuppert: we can remove the CentOS/RHEL split here when CentOS8/
             # RHEL8 is available and we have the same package name providing the
             # KSM services
