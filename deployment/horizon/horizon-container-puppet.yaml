@@ -41,7 +41,7 @@ parameters:
     description: Set to True to enable debugging on all services.
     type: boolean
   HorizonDebug:
-    default: false
+    default: ''
     description: Set to True to enable debugging Horizon service.
     type: string
     constraints:
@@ -150,7 +150,7 @@ parameter_groups:
   - MemcachedIPv6
 
 conditions:
-  debug_unset: {equals : [{get_param: Debug}, '']}
+  service_debug_unset: {equals : [{get_param: HorizonDebug}, '']}
   websso_enabled: {equals : [{get_param: WebSSOEnable}, True]}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   horizon_domain_choices_set: {not: {equals: [{get_param: HorizonDomainChoices}, []]}}
@@ -160,12 +160,16 @@ conditions:
       - 6
   horizon_logger_debug:
     or:
-    - yaql:
-        expression: $.data.horizon_debug.matches("true|True|TRUE")
-        data:
-          horizon_debug:
-            get_param: HorizonDebug
-    - get_param: Debug
+      - and:
+          - service_debug_unset
+          - get_param: Debug
+      - and:
+          - not: service_debug_unset
+          - yaql:
+              expression: $.data.horizon_debug.matches("true|True|TRUE")
+              data:
+                horizon_debug:
+                  get_param: HorizonDebug
 
 resources:
 
@@ -238,9 +242,9 @@ outputs:
           - {}
         -
           if:
-          - debug_unset
-          - horizon::django_debug: { get_param: HorizonDebug }
+          - service_debug_unset
           - horizon::django_debug: { get_param: Debug }
+          - horizon::django_debug: { get_param: HorizonDebug }
         - if:
           - horizon_logger_debug
           - horizon::log_level: 'DEBUG'
