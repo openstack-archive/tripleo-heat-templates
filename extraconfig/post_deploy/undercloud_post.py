@@ -142,10 +142,6 @@ def _store_passwords_in_mistral_env(mistral):
           'successfully.')
 
 
-def _prepare_ssh_environment(mistral):
-    mistral.executions.create('tripleo.validations.v1.copy_ssh_key')
-
-
 def _create_default_plan(mistral):
     plan_exists = [True for c in sdk.list_containers() if
                    c['name'] == 'overcloud']
@@ -183,10 +179,6 @@ try:
         _configure_workbooks_and_workflows(mistral)
         _store_passwords_in_mistral_env(mistral)
         _create_default_plan(mistral)
-        if tripleo_validations_enabled:
-            _prepare_ssh_environment(mistral)
-            print("INFO: Undercloud post - "
-                  "SSH Keys for TripleO Validations deployed.")
 except Exception:
     print('ERROR: Undercloud Post - Failed.')
     raise
