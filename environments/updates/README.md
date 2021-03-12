@@ -13,6 +13,3 @@ Contents
 
 **update-from-deloyed-server-newton.yaml**
   To be used when updating from the deployed-server template from Newton.
-
-**update-from-ceph-newton.yaml**
-  To be used when updating Ceph from the storage-environment template from Newton.
