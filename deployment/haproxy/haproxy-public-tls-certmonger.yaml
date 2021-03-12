@@ -61,40 +61,100 @@ outputs:
       config_settings:
         generate_service_certificates: true
         tripleo::haproxy::service_certificate: {get_param: DeployedSSLCertificatePath}
-        tripleo::certmonger::haproxy_dirs::certificate_dir:
-          get_param: HAProxyInternalTLSCertsDirectory
-        tripleo::certmonger::haproxy_dirs::key_dir:
-          get_param: HAProxyInternalTLSKeysDirectory
       certificates_specs:
         haproxy-external:
           service_pem: {get_param: DeployedSSLCertificatePath}
-          service_certificate:
-            list_join:
-            - ''
-            - - {get_param: HAProxyInternalTLSCertsDirectory}
-              - '/overcloud-haproxy-external.crt'
-          service_key:
-            list_join:
-            - ''
-            - - {get_param: HAProxyInternalTLSKeysDirectory}
-              - '/overcloud-haproxy-external.key'
-          hostname:
-            str_replace:
-              template: "%{hiera('cloud_name_NETWORK')}"
-              params:
-                NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
-          principal:
-            str_replace:
-              template: "haproxy/%{hiera('cloud_name_NETWORK')}"
-              params:
-                NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
-          postsave_cmd: "/usr/bin/certmonger-haproxy-refresh.sh reload external"
-          key_size:
-            if:
-              - key_size_override_unset
-              - {get_param: CertificateKeySize}
-              - {get_param: HAProxyCertificateKeySize}
       metadata_settings:
         - service: haproxy
           network: {get_param: [ServiceNetMap, PublicNetwork]}
           type: vip
+      deploy_steps_tasks:
+        - name: Certificate generation
+          when: step|int == 1
+          block:
+            - name: make sure certmonger is installed
+              package:
+                name: certmonger
+                state: present
+            - name: make sure certmonger service is started
+              systemd:
+                state: started
+                enabled: true
+                masked: false
+                name: certmonger.service
+            - name: Create dirs for certificates and keys
+              file:
+                path: "{{ item }}"
+                state: directory
+                serole: object_r
+                setype: cert_t
+                seuser: system_u
+              with_items:
+                - {get_param: HAProxyInternalTLSCertsDirectory}
+                - {get_param: HAProxyInternalTLSKeysDirectory}
+            - name: Extract and trust certmonger's local CA
+              shell: |
+                set -e
+                ca_pem='/etc/pki/ca-trust/source/anchors/cm-local-ca.pem'
+                if ! { test -e ${ca_pem} && openssl x509 -checkend 0 -noout -in ${ca_pem}; }; then
+                    openssl pkcs12 -in /var/lib/certmonger/local/creds -out ${ca_pem} -nokeys -nodes -passin pass:''
+                    chmod 0644 ${ca_pem}
+                    update-ca-trust extract
+                fi
+                test -e ${ca_pem} && openssl x509 -checkend 0 -noout -in ${ca_pem}
+              retries: 5
+              delay: 1
+              until: result.rc == 0
+            - include_role:
+                name: linux-system-roles.certificate
+              vars:
+                certificate_requests:
+                  - name: haproxy-external-cert
+                    dns:
+                      str_replace:
+                        template: "{{cloud_names.cloud_name_NETWORK}}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                    ip:
+                      str_replace:
+                        template: "{{[cloud_names.cloud_name_NETWORK]|ipaddr}}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                    principal:
+                      str_replace:
+                        template: "haproxy/{{cloud_names.cloud_name_NETWORK}}@{{idm_realm|default('UNDERCLOUD')}}"
+                        params:
+                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                    run_after:
+                      str_replace:
+                        template: |
+                          # Copy crt and key for backward compatibility
+                          cp "/etc/pki/tls/certs/haproxy-external-cert.crt" "CERTSDIR/overcloud-haproxy-external.crt"
+                          cp "/etc/pki/tls/private/haproxy-external-cert.key" "KEYSDIR/overcloud-haproxy-external.key"
+
+                          ca_path="/etc/ipa/ca.crt"
+                          service_crt="CERTSDIR/overcloud-haproxy-external.crt"
+                          service_key="KEYSDIR/overcloud-haproxy-external.key"
+                          service_pem="PEMPATH"
+
+                          cat "$service_crt" "$ca_path" "$service_key" > "$service_pem"
+
+                          container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -w -E 'haproxy(-bundle-.*-[0-9]+)?')
+                          # Refresh the pem at the mount-point
+                          {{container_cli}} cp $service_pem "$container_name:/var/lib/kolla/config_files/src-tls/$service_pem"
+                          # Copy the new pem from the mount-point to the real path
+                          {{container_cli}} exec $container_name" cp "/var/lib/kolla/config_files/src-tls$service_pem" "$service_pem"
+                          # Set appropriate permissions
+                          {{container_cli}} exec $container_name" chown haproxy:haproxy "$service_pem"
+                          # Trigger a reload for HAProxy to read the new certificates
+                          {{container_cli}} kill --signal HUP $container_name"
+                        params:
+                          CERTSDIR: {get_param: HAProxyInternalTLSCertsDirectory}
+                          KEYSDIR: {get_param: HAProxyInternalTLSKeysDirectory}
+                          PEMPATH: {get_param: DeployedSSLCertificatePath}
+                    key_size:
+                      if:
+                        - key_size_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: HAProxyCertificateKeySize}
+                    ca: "{{idm_realm|default|ternary('ipa','self-sign')}}"

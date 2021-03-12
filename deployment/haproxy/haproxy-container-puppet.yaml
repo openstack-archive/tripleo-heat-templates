@@ -291,53 +291,62 @@ outputs:
               environment:
                 KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
-        - name: Configure rsyslog for HAproxy container
-          when: step|int == 1
-          block:
-            - name: Check if rsyslog exists
-              shell: systemctl is-active rsyslog
-              register: rsyslog_config
-            - when:
-                - rsyslog_config is changed
-                - rsyslog_config.rc == 0
+        list_concat:
+          - - name: Configure rsyslog for HAproxy container
+              when: step|int == 1
               block:
-                - name: Forward logging to haproxy.log file
-                  blockinfile:
-                    content: |
-                      if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
-                      & stop
-                    create: yes
-                    path: /etc/rsyslog.d/openstack-haproxy.conf
-                  vars:
-                    facility: {get_param: HAProxySyslogFacility}
-                  register: logconfig
-                - name: restart rsyslog service after logging conf change
-                  service:
-                    name: rsyslog
-                    state: restarted
-                  when: logconfig is changed
-        - name: Run puppet on the host to apply IPtables rules
-          no_log: true
-          when: step|int == 1
-          register: puppet_host_outputs
-          shell: |
-            puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
-                --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-          register: puppet_host_outputs
-          changed_when: puppet_host_outputs.rc == 2
-          failed_when: false
-          vars:
-            puppet_execute: include tripleo::profile::base::haproxy
-            puppet_tags: tripleo::firewall::rule
-            puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-            puppet_debug: {get_param: ConfigDebug}
-        - name: "Debug output for task: Run puppet on the host to apply IPtables rules"
-          debug:
-            var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
-          when:
-            - not (ansible_check_mode | bool)
-            - puppet_host_outputs.rc is defined
-          failed_when: puppet_host_outputs.rc not in [0, 2]
+                - name: Check if rsyslog exists
+                  shell: systemctl is-active rsyslog
+                  register: rsyslog_config
+                - when:
+                    - rsyslog_config is changed
+                    - rsyslog_config.rc == 0
+                  block:
+                    - name: Forward logging to haproxy.log file
+                      blockinfile:
+                        content: |
+                          if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
+                          & stop
+                        create: yes
+                        path: /etc/rsyslog.d/openstack-haproxy.conf
+                      vars:
+                        facility: {get_param: HAProxySyslogFacility}
+                      register: logconfig
+                    - name: restart rsyslog service after logging conf change
+                      service:
+                        name: rsyslog
+                        state: restarted
+                      when: logconfig is changed
+            - name: Run puppet on the host to apply IPtables rules
+              no_log: true
+              when: step|int == 1
+              register: puppet_host_outputs
+              shell: |
+                puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
+                    --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
+              register: puppet_host_outputs
+              changed_when: puppet_host_outputs.rc == 2
+              failed_when: false
+              vars:
+                puppet_execute: include tripleo::profile::base::haproxy
+                puppet_tags: tripleo::firewall::rule
+                puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
+                puppet_debug: {get_param: ConfigDebug}
+            - name: "Debug output for task: Run puppet on the host to apply IPtables rules"
+              debug:
+                var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
+              when:
+                - not (ansible_check_mode | bool)
+                - puppet_host_outputs.rc is defined
+              failed_when: puppet_host_outputs.rc not in [0, 2]
+          - if:
+            - public_tls_enabled
+            - get_attr: [HAProxyPublicTLS, role_data, deploy_steps_tasks]
+            - []
+          - if:
+            - internal_tls_enabled
+            - get_attr: [HAProxyInternalTLS, role_data, deploy_steps_tasks]
+            - []
       upgrade_tasks:
         - name: ensure we have haproxy log dir with the correct setype
           file:

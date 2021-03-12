@@ -81,24 +81,6 @@ outputs:
                 tripleo::profile::base::octavia::provider::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/ovn_octavia.crt'
                 tripleo::profile::base::octavia::provider::ovn::ovn_nb_private_key: '/etc/pki/tls/private/ovn_octavia.key'
                 generate_service_certificates: true
-                ovn_octavia_certificate_specs:
-                  service_certificate: '/etc/pki/tls/certs/ovn_octavia.crt'
-                  service_key: '/etc/pki/tls/private/ovn_octavia.key'
-                  hostname:
-                    str_replace:
-                      template: "%{hiera('fqdn_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                  principal:
-                    str_replace:
-                      template: "ovn_octavia/%{hiera('fqdn_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                  key_size:
-                    if:
-                      - key_size_override_unset
-                      - {get_param: CertificateKeySize}
-                      - {get_param: OctaviaCertificateKeySize}
               - {}
       puppet_tags: octavia_ovn_provider_config
       provider_driver_labels:
@@ -145,3 +127,32 @@ outputs:
               merge: true
               preserve_properties: true
           - []
+      deploy_steps_tasks:
+        if:
+          - ovn_and_tls
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: ovn_octavia
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_$NETWORK}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        principal:
+                          str_replace:
+                            template: "ovn_octavia/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: OctaviaCertificateKeySize}
+                        ca: ipa
+          - null

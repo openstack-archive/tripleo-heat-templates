@@ -102,7 +102,7 @@ outputs:
                 tripleo_ipa_delegate_server: "{{ item }}"
                 tripleo_ipa_base_server_fqdn:  "{{ hostvars[item]['fqdn_canonical'] }}"
                 tripleo_ipa_server_metadata: "{{ hostvars[item]['service_metadata_settings'] | to_json }}"
-              loop: "{{ groups.certmonger_user }}"
+              loop: "{{ groups.ipaservice }}"
             - include_role:
                 name: tripleo_ipa_dns
               vars:
@@ -117,51 +117,82 @@ outputs:
                 KRB5_CLIENT_KTNAME: {get_param: IdMNovaKeytab}
               - IPA_USER: "nova/{{ ansible_facts['fqdn'] }}"
                 KRB5_CLIENT_KTNAME: {get_param: IdMNovaKeytab}
-      deploy_steps_tasks:
         - name: enroll the node as an ipa client
+          #NOTE(xek): this is moved to external_deploy_tasks to make sure this happens before certificates are requested from certmonger
           when: step|int == 1
           vars:
-            map_merge:
-              -
-                state: present
-                ipaclient_otp: "{{ ipa_host_otp }}"
-                idm_enroll_base_server: {get_param: IdMEnrollBaseServer}
-                ipaclient_mkhomedir: {get_param: MakeHomeDir}
-                ipaclient_no_ntp: {get_param: IdMNoNtpSetup}
-                ipaclient_force: yes
-                ipaclient_hostname: "{{ fqdn_canonical }}"
-                ipaclient_install_packages: {get_param: IdMInstallClientPackages}
-                ipaclients:
-                  - "{{ inventory_hostname }}"
-              -
-                if:
-                - idm_server_provided
-                - ipaclient_servers: {get_param: IdMServer}
-                  ipaclient_domain: {get_param: IdMDomain}
-                - {}
+            ipaclient_install_packages: {get_param: IdMInstallClientPackages}
+            idm_enroll_base_server: {get_param: IdMEnrollBaseServer}
           block:
             - name: check if default.conf exists
+              delegate_to: "{{ item }}"
               stat:
                 path: /etc/ipa/default.conf
               register: ipa_conf_exists
+              loop: "{{ groups.ipaservice }}"
             - name: install openssl-perl
+              delegate_to: "{{ item }}"
+              become: true
               package:
                 name: openssl-perl
                 state: present
+              loop: "{{ groups.ipaservice }}"
               when:
                 - ipaclient_install_packages|bool
-            - block:
-                - name: register as an ipa client
-                  import_role:
-                    name: ipaclient
-                - name: restart certmonger service
-                  systemd:
-                    state: restarted
-                    daemon_reload: true
-                    name: certmonger.service
+            - name: register as an ipa client
+              include_role:
+                name: ipaclient
+                apply:
+                  delegate_to: "{{ outer_item.0 }}"
+                  become: true
+              vars:
+                map_merge:
+                  -
+                    state: present
+                    ipaclient_otp: "{{ hostvars[outer_item.0]['ipa_host_otp'] }}"
+                    ipaclient_mkhomedir: {get_param: MakeHomeDir}
+                    ipaclient_no_ntp: {get_param: IdMNoNtpSetup}
+                    ipaclient_force: yes
+                    ipaclient_hostname: "{{ hostvars[outer_item.0]['fqdn_canonical'] }}"
+                    ipaclients:
+                      - "{{ outer_item.0 }}"
+                  -
+                    if:
+                    - idm_server_provided
+                    - ipaclient_servers: {get_param: IdMServer}
+                      ipaclient_domain: {get_param: IdMDomain}
+                    - {}
               when:
                 - idm_enroll_base_server|bool
-                - not ipa_conf_exists.stat.exists
+                - not outer_item.1.stat.exists
+              loop: "{{ groups.ipaservice|zip(ipa_conf_exists.results)|list }}"
+              loop_control:
+                loop_var: outer_item
+            - name: restart certmonger service
+              delegate_to: "{{ item.0 }}"
+              become: true
+              systemd:
+                state: restarted
+                daemon_reload: true
+                name: certmonger.service
+              when:
+                - idm_enroll_base_server|bool
+                - not item.1.stat.exists
+              loop: "{{ groups.ipaservice|zip(ipa_conf_exists.results)|list }}"
+            - name: set discovered ipa realm
+              delegate_to: "{{ item }}"
+              delegate_facts: true
+              set_fact:
+                idm_realm:
+                  str_replace:
+                    template:
+                      "{{ lookup('ini', 'realm default=DEFAULT section=global file=/etc/ipa/default.conf')}}"
+                    params:
+                      DEFAULT:
+                        yaql:
+                          expression: $.data.toUpper()
+                          data: {get_param: IdMDomain}
+              loop: "{{ groups.ipaservice }}"
       scale_tasks:
         - when: step|int == 1
           tags: down

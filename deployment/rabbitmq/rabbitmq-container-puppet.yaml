@@ -208,22 +208,6 @@ outputs:
               tripleo::profile::base::rabbitmq::certificate_specs:
                 service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
                 service_key: '/etc/pki/tls/private/rabbitmq.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
-                principal:
-                  str_replace:
-                    template: "rabbitmq/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
-                postsave_cmd: "/usr/bin/certmonger-rabbitmq-refresh.sh"
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: RabbitmqCertificateKeySize}
             - {}
           - rabbitmq::admin_enable: false
             rabbitmq::management_enable: true
@@ -349,6 +333,48 @@ outputs:
             - service: rabbitmq
               network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
               type: node
+          - null
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: rabbitmq
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_$NETWORK}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+                        principal:
+                          str_replace:
+                            template: "rabbitmq/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, RabbitmqNetwork]}
+                        run_after: |
+                          container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -w -E 'rabbitmq(-bundle-.*-[0-9]+)?')
+                          service_crt="/etc/pki/tls/certs/rabbitmq.crt"
+                          service_key="/etc/pki/tls/private/rabbitmq.key"
+                          # Copy the new cert from the mount-point to the real path
+                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                          # Copy the new key from the mount-point to the real path
+                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+                          # Set appropriate permissions
+                          {{container_cli}} exec -u root "$container_name" chown rabbitmq:rabbitmq "$service_crt"
+                          {{container_cli}} exec -u root "$container_name" chown rabbitmq:rabbitmq "$service_key"
+                          # Trigger a pem cache clear in RabbitMQ to read the new certificates
+                          {{container_cli}} exec "$container_name" rabbitmqctl eval "ssl:clear_pem_cache()."
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: RabbitmqCertificateKeySize}
+                        ca: ipa
           - null
       host_prep_tasks:
         - name: create persistent directories

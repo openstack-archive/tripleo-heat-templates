@@ -229,39 +229,6 @@ outputs:
           - if:
             - internal_tls_enabled
             - generate_service_certificates: true
-              tripleo::metrics::qdr::service_certificate: '/etc/pki/tls/certs/metrics_qdr.crt'
-              tripleo::metrics::qdr::service_key: '/etc/pki/tls/private/metrics_qdr.key'
-              tripleo::profile::base::metrics::qdr::certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/metrics_qdr.crt'
-                service_key: '/etc/pki/tls/private/metrics_qdr.key'
-                postsave_cmd: "/usr/bin/certmonger-metrics-qdr-refresh.sh"
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK:
-                        get_param:
-                          - ServiceNetMap
-                          - str_replace:
-                              template: "ROLENAMEMetricsQdrNetwork"
-                              params:
-                                ROLENAME: {get_param: RoleName}
-                principal:
-                  str_replace:
-                    template: "metrics_qdr/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK:
-                        get_param:
-                          - ServiceNetMap
-                          - str_replace:
-                              template: "ROLENAMEMetricsQdrNetwork"
-                              params:
-                                ROLENAME: {get_param: RoleName}
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: QdrCertificateKeySize}
               tripleo::profile::base::metrics::qdr::ssl_profiles:
                 list_concat:
                   - get_param: MetricsQdrSSLProfiles
@@ -359,6 +326,60 @@ outputs:
                   - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: metrics_qdr
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_NETWORK}}"
+                            params:
+                              NETWORK:
+                                get_param:
+                                  - ServiceNetMap
+                                  - str_replace:
+                                      template: "ROLENAMEMetricsQdrNetwork"
+                                      params:
+                                        ROLENAME: {get_param: RoleName}
+                        principal:
+                          str_replace:
+                            template: "metrics_qdr/{{fqdn_NETWORK}}@{{idm_realm}}"
+                            params:
+                              NETWORK:
+                                get_param:
+                                  - ServiceNetMap
+                                  - str_replace:
+                                      template: "ROLENAMEMetricsQdrNetwork"
+                                      params:
+                                        ROLENAME: {get_param: RoleName}
+                        run_after: |
+                          container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep metrics_qdr)
+                          service_crt="/etc/pki/tls/certs/metrics_qdr.crt"
+                          service_key="/etc/pki/tls/private/metrics_qdr.key
+                          # Copy the new cert from the mount-point to the real path
+                          {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                          # Copy the new key from the mount-point to the real path
+                          {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+                          # Set appropriate permissions
+                          {{container_cli}} exec "$container_name" chown qdrouterd:qdrouterd "$service_crt"
+                          {{container_cli}} exec "$container_name" chown qdrouterd:qdrouterd "$service_key"
+                          # Trigger a container restart to read the new certificate
+                          {{container_cli}} restart "$container_name"
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: QdrCertificateKeySize}
+                        ca: ipa
+          - null
       host_prep_tasks:
         - name: create persistent logs directory
           file:

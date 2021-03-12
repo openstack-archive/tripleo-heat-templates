@@ -138,6 +138,24 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  HAProxyPublicTLS:
+    type: OS::TripleO::Services::HAProxyPublicTLS
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
+  HAProxyInternalTLS:
+    type: OS::TripleO::Services::HAProxyInternalTLS
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+
 outputs:
   role_data:
     description: Role data for the HAproxy role.
@@ -280,53 +298,62 @@ outputs:
       metadata_settings:
         {get_attr: [HAProxyBase, role_data, metadata_settings]}
       deploy_steps_tasks:
-        - name: Configure rsyslog for HAproxy container managed by Pacemaker
-          when: step|int == 1
-          block:
-            - name: Check if rsyslog exists
-              shell: systemctl is-active rsyslog
-              register: rsyslog_config
-            - when:
-                - rsyslog_config is changed
-                - rsyslog_config.rc == 0
+        list_concat:
+          - - name: Configure rsyslog for HAproxy container managed by Pacemaker
+              when: step|int == 1
               block:
-                - name: Forward logging to haproxy.log file
-                  blockinfile:
-                    content: |
-                      if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
-                      & stop
-                    create: yes
-                    path: /etc/rsyslog.d/openstack-haproxy.conf
-                  vars:
-                    facility: {get_param: HAProxySyslogFacility}
-                  register: logconfig
-                - name: restart rsyslog service after logging conf change
-                  service:
-                    name: rsyslog
-                    state: restarted
-                  when: logconfig is changed
-        - name: HAproxy tag container image for pacemaker
-          when: step|int == 1
-          import_role:
-            name: tripleo_container_tag
-          vars:
-            container_image: {get_param: ContainerHAProxyImage}
-            container_image_latest: *haproxy_image_pcmklatest
-        - name: HAproxy HA Wrappers Step
-          when: step|int == 2
-          block: &haproxy_puppet_bundle
-            - name: HAproxy puppet bundle
+                - name: Check if rsyslog exists
+                  shell: systemctl is-active rsyslog
+                  register: rsyslog_config
+                - when:
+                    - rsyslog_config is changed
+                    - rsyslog_config.rc == 0
+                  block:
+                    - name: Forward logging to haproxy.log file
+                      blockinfile:
+                        content: |
+                          if $syslogfacility-text == '{{facility}}' and $programname == 'haproxy' then -/var/log/containers/haproxy/haproxy.log
+                          & stop
+                        create: yes
+                        path: /etc/rsyslog.d/openstack-haproxy.conf
+                      vars:
+                        facility: {get_param: HAProxySyslogFacility}
+                      register: logconfig
+                    - name: restart rsyslog service after logging conf change
+                      service:
+                        name: rsyslog
+                        state: restarted
+                      when: logconfig is changed
+            - name: HAproxy tag container image for pacemaker
+              when: step|int == 1
               import_role:
-                name: tripleo_ha_wrapper
+                name: tripleo_container_tag
               vars:
-                tripleo_ha_wrapper_service_name: haproxy
-                tripleo_ha_wrapper_resource_name: haproxy-bundle
-                tripleo_ha_wrapper_bundle_name: haproxy-bundle
-                tripleo_ha_wrapper_resource_state: Started
-                tripleo_ha_wrapper_puppet_config_volume: haproxy
-                tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::haproxy_bundle'
-                tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
-                tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
+                container_image: {get_param: ContainerHAProxyImage}
+                container_image_latest: *haproxy_image_pcmklatest
+            - name: HAproxy HA Wrappers Step
+              when: step|int == 2
+              block: &haproxy_puppet_bundle
+                - name: HAproxy puppet bundle
+                  import_role:
+                    name: tripleo_ha_wrapper
+                  vars:
+                    tripleo_ha_wrapper_service_name: haproxy
+                    tripleo_ha_wrapper_resource_name: haproxy-bundle
+                    tripleo_ha_wrapper_bundle_name: haproxy-bundle
+                    tripleo_ha_wrapper_resource_state: Started
+                    tripleo_ha_wrapper_puppet_config_volume: haproxy
+                    tripleo_ha_wrapper_puppet_execute: 'include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::haproxy_bundle'
+                    tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
+                    tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
+          - if:
+            - public_tls_enabled
+            - get_attr: [HAProxyPublicTLS, role_data, deploy_steps_tasks]
+            - []
+          - if:
+            - internal_tls_enabled
+            - get_attr: [HAProxyInternalTLS, role_data, deploy_steps_tasks]
+            - []
       update_tasks:
         - name: Tear-down non-HA haproxy container
           when:

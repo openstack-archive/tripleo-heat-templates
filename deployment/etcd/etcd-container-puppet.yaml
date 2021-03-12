@@ -129,32 +129,6 @@ outputs:
             tripleo::profile::base::etcd::certificate_specs:
               service_certificate: '/etc/pki/tls/certs/etcd.crt'
               service_key: '/etc/pki/tls/private/etcd.key'
-              hostname:
-                str_replace:
-                  template: "%{hiera('fqdn_NETWORK')}"
-                  params:
-                    NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
-              principal:
-                str_replace:
-                  template: "etcd/%{hiera('fqdn_NETWORK')}"
-                  params:
-                    NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
-              dnsnames:
-                - str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
-                - str_replace:
-                    template:
-                      "%{hiera('NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
-              postsave_cmd: '/usr/bin/certmonger-etcd-refresh.sh'
-              key_size:
-                if:
-                  - key_size_override_unset
-                  - {get_param: CertificateKeySize}
-                  - {get_param: EtcdCertificateKeySize}
             etcd::trusted_ca_file: {get_param: InternalTLSCAFile}
             etcd::peer_trusted_ca_file: {get_param: InternalTLSCAFile}
           -
@@ -227,6 +201,57 @@ outputs:
           volumes:
             - /var/lib/config-data/etcd/etc/etcd/:/etc/etcd:ro
             - /var/lib/etcd:/var/lib/etcd:ro
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: etcd
+                        dns:
+                          - str_replace:
+                              template: "{{fqdn_$NETWORK}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                          - str_replace:
+                              template: "{{cloud_names.cloud_name_NETWORK}}"
+                              params:
+                                NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                        principal:
+                          str_replace:
+                            template: "etcd/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                        run_after: |
+                          # cinder uses etcd, so its containers also need to be refreshed
+                          container_names=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -E 'cinder|etcd')
+                          service_crt="/etc/pki/tls/certs/etcd.crt"
+                          service_key="/etc/pki/tls/private/etcd.key"
+                          kolla_dir="/var/lib/kolla/config_files/src-tls"
+                          # For each container, check whether the cert file needs to be updated.
+                          # The check is necessary because the original THT design directly bind mounted
+                          # the files to their final location, and did not copy them in via $kolla_dir.
+                          # Regardless of whether the container is directly using the files, or a copy,
+                          # there's no need to trigger a reload because the cert is not cached.
+                          for container_name in ${container_names[*]}; do
+                              {{container_cli}} exec -u root "$container_name" bash -c "
+                          [[ -f ${kolla_dir}/${service_crt} ]] && cp ${kolla_dir}/${service_crt} $service_crt;
+                          [[ -f ${kolla_dir}/${service_key} ]] && cp ${kolla_dir}/${service_key} $service_key;
+                          true
+                          "
+                          done
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: EtcdCertificateKeySize}
+                        ca: ipa
+          - null
       host_prep_tasks:
           - name: create /var/lib/etcd
             file:

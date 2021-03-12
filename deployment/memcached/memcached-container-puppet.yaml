@@ -266,22 +266,6 @@ outputs:
               tripleo::profile::base::memcached::certificate_specs:
                 service_certificate: '/etc/pki/tls/certs/memcached.crt'
                 service_key: '/etc/pki/tls/private/memcached.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_$NETWORK')}"
-                    params:
-                      $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
-                principal:
-                  str_replace:
-                    template: "memcached/%{hiera('fqdn_$NETWORK')}"
-                    params:
-                      $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
-                postsave_cmd: "/usr/bin/certmonger-memcached-refresh.sh"
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: MemcachedCertificateKeySize}
             - {}
       service_config_settings:
         collectd:
@@ -357,6 +341,50 @@ outputs:
             - service: memcached
               network: {get_param: [ServiceNetMap, MemcachedNetwork]}
               type: node
+          - null
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: memcached
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_$NETWORK}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                        principal:
+                          str_replace:
+                            template: "memcached/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
+                        run_after: |
+                          container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep memcached)
+                          service_crt="/etc/pki/tls/certs/memcached.crt"
+                          service_key="/etc/pki/tls/private/memcached.key"
+                          # Copy the new cert from the mount-point to the real path
+                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                          # Copy the new key from the mount-point to the real path
+                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+                          # Set appropriate permissions
+                          {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_crt"
+                          {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_key"
+                          # Send refresh_certs command to memcached to read the new certificate
+                          memcached_ip="$(hiera -c /etc/puppet/hiera.yaml memcached::listen_ip.0 127.0.0.1)"
+                          memcached_port="$(hiera -c /etc/puppet/hiera.yaml memcached::tcp_port 11211)"
+                          echo refresh_certs | openssl s_client -connect $memcached_ip:$memcached_port
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: MemcachedCertificateKeySize}
+                        ca: ipa
           - null
       host_prep_tasks:
         - name: create persistent directories

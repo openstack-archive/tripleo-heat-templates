@@ -185,24 +185,6 @@ outputs:
             - internal_tls_enabled
             - generate_service_certificates: true
               tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
-              ovn_controller_certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/ovn_controller.crt'
-                service_key: '/etc/pki/tls/private/ovn_controller.key'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                principal:
-                  str_replace:
-                    template: "ovn_controller/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: ContainerOvnCertificateKeySize}
             - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
@@ -308,6 +290,35 @@ outputs:
                   - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      deploy_steps_tasks:
+        if:
+          - internal_tls_enabled
+          -
+            - name: Certificate generation
+              when: step|int == 1
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: ovn_controller
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_$NETWORK}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        principal:
+                          str_replace:
+                            template: "ovn_controller/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: ContainerOvnCertificateKeySize}
+                        ca: ipa
+          - null
       host_prep_tasks:
         - name: create persistent directories
           file:

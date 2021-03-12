@@ -59,12 +59,12 @@ resources:
         # we don't need a certificate for that, and the external
         # network will be handled in another template.
         - ctlplane
-{%- for network in networks if network.vip|default(false) %}
+{%- for network in networks if network.enabled|default(true) and network.vip|default(false) %}
   {%- if network.name_lower != 'external' and network.name_lower != 'tenant' %}
         - {{network.name_lower}}
   {%- endif %}
 {%- endfor %}
-
+{% raw -%}
 outputs:
   role_data:
     description: Role data for the HAProxy internal TLS via certmonger role.
@@ -73,10 +73,6 @@ outputs:
       config_settings:
         generate_service_certificates: true
         tripleo::haproxy::use_internal_certificates: true
-        tripleo::certmonger::haproxy_dirs::certificate_dir:
-          get_param: HAProxyInternalTLSCertsDirectory
-        tripleo::certmonger::haproxy_dirs::key_dir:
-          get_param: HAProxyInternalTLSKeysDirectory
       certificates_specs:
         map_merge:
           repeat:
@@ -87,27 +83,6 @@ outputs:
                   - ''
                   - - {get_param: HAProxyInternalTLSCertsDirectory}
                     - '/overcloud-haproxy-NETWORK.pem'
-                service_certificate:
-                  list_join:
-                  - ''
-                  - - {get_param: HAProxyInternalTLSCertsDirectory}
-                    - '/overcloud-haproxy-NETWORK.crt'
-                service_key:
-                  list_join:
-                  - ''
-                  - - {get_param: HAProxyInternalTLSKeysDirectory}
-                    - '/overcloud-haproxy-NETWORK.key'
-                hostname: "%{hiera('fqdn_NETWORK')}"
-                dnsnames:
-                  - "%{hiera('cloud_name_NETWORK')}"
-                  - "%{hiera('fqdn_NETWORK')}"
-                principal: "haproxy/%{hiera('fqdn_NETWORK')}"
-                postsave_cmd: "/usr/bin/certmonger-haproxy-refresh.sh reload NETWORK"
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: HAProxyCertificateKeySize}
             for_each:
               NETWORK: {get_attr: [HAProxyNetworks, value]}
       metadata_settings:
@@ -121,3 +96,63 @@ outputs:
             type: node
           for_each:
             $NETWORK: {get_attr: [HAProxyNetworks, value]}
+      deploy_steps_tasks:
+        - name: Certificate generation
+          when: step|int == 1
+          block:
+            - name: Create dirs for certificates and keys
+              file:
+                path: "{{ item }}"
+                state: directory
+                serole: object_r
+                setype: cert_t
+                seuser: system_u
+              with_items:
+                - {get_param: HAProxyInternalTLSCertsDirectory}
+                - {get_param: HAProxyInternalTLSKeysDirectory}
+            - include_role:
+                name: linux-system-roles.certificate
+              vars:
+                certificate_requests:
+                  repeat:
+                    template:
+                      name: haproxy-NETWORK-cert
+                      dns:
+                        - "{{fqdn_NETWORK}}"
+                        - "{{cloud_names.cloud_name_NETWORK}}"
+                      principal: "haproxy/{{fqdn_NETWORK}}@{{idm_realm}}"
+                      run_after:
+                        str_replace:
+                          template: |
+                            # Copy crt and key for backward compatibility
+                            cp "/etc/pki/tls/certs/haproxy-NETWORK-cert.crt" "CERTSDIR/overcloud-haproxy-NETWORK.crt"
+                            cp "/etc/pki/tls/private/haproxy-NETWORK-cert.key" "KEYSDIR/overcloud-haproxy-NETWORK.key"
+
+                            ca_path="/etc/ipa/ca.crt"
+                            service_crt="CERTSDIR/overcloud-haproxy-NETWORK.crt"
+                            service_key="KEYSDIR/overcloud-haproxy-NETWORK.key"
+                            service_pem="CERTSDIR/overcloud-haproxy-NETWORK.pem"
+
+                            cat "$service_crt" "$ca_path" "$service_key" > "$service_pem"
+
+                            container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -w -E 'haproxy(-bundle-.*-[0-9]+)?')
+                            # Refresh the pem at the mount-point
+                            {{container_cli}} cp $service_pem "$container_name:/var/lib/kolla/config_files/src-tls/$service_pem"
+                            # Copy the new pem from the mount-point to the real path
+                            {{container_cli}} exec $container_name" cp "/var/lib/kolla/config_files/src-tls$service_pem" "$service_pem"
+                            # Set appropriate permissions
+                            {{container_cli}} exec $container_name" chown haproxy:haproxy "$service_pem"
+                            # Trigger a reload for HAProxy to read the new certificates
+                            {{container_cli}} kill --signal HUP $container_name"
+                          params:
+                            CERTSDIR: {get_param: HAProxyInternalTLSCertsDirectory}
+                            KEYSDIR: {get_param: HAProxyInternalTLSKeysDirectory}
+                      key_size:
+                        if:
+                          - key_size_override_unset
+                          - {get_param: CertificateKeySize}
+                          - {get_param: HAProxyCertificateKeySize}
+                      ca: ipa
+                    for_each:
+                      NETWORK: {get_attr: [HAProxyNetworks, value]}
+{%- endraw %}

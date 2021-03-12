@@ -52,7 +52,7 @@ parameters:
                  enable TLS transaport for libvirt VNC and configure the
                  relevant keys for libvirt.
   InternalTLSVncProxyCAFile:
-    default: '/etc/pki/CA/certs/vnc.crt'
+    default: '/etc/ipa/ca.crt'
     type: string
     description: Specifies the CA cert to use for VNC TLS.
   CertificateKeySize:
@@ -75,7 +75,7 @@ parameters:
     default: ''
     description: This specifies the CA certificate to use for VNC TLS.
                  This file will be symlinked to the default CA path,
-                 which is /etc/pki/libvirt-vnc/ca-cert.pem.
+                 which is /etc/pki/CA/certs/vnc.crt.
                  This parameter should be used if the default (which comes from
                  the InternalTLSVncProxyCAFile parameter) is not desired. The current
                  default reflects TripleO's default CA, which is FreeIPA.
@@ -202,9 +202,9 @@ outputs:
               -
                 nova::vncproxy::allow_vencrypt: true
                 nova::vncproxy::allow_noauth: {if: [allow_noauth, true, false]}
-                nova::vncproxy::vencrypt_key: /etc/pki/libvirt-vnc/client-key.pem
-                nova::vncproxy::vencrypt_cert: /etc/pki/libvirt-vnc/client-cert.pem
-                nova::vncproxy::vencrypt_ca: /etc/pki/libvirt-vnc/ca-cert.pem
+                nova::vncproxy::vencrypt_key: /etc/pki/tls/private/libvirt-vnc-client-cert.key
+                nova::vncproxy::vencrypt_cert: /etc/pki/tls/certs/libvirt-vnc-client-cert.crt
+                nova::vncproxy::vencrypt_ca: /etc/pki/CA/certs/vnc.crt
                 nova::ssl_only: true
                 nova::console_ssl_ciphers:
                   if:
@@ -212,58 +212,9 @@ outputs:
                     - null
                     - get_param: NovaVNCProxySSLCiphers
                 nova::console_ssl_minimum_version: {get_param: NovaVNCProxySSLMinimumVersion}
-                nova::cert: /etc/pki/tls/certs/novnc_proxy.crt
-                nova::key: /etc/pki/tls/private/novnc_proxy.key
+                nova::cert: /etc/pki/tls/certs/novnc-proxy.crt
+                nova::key: /etc/pki/tls/private/novnc-proxy.key
                 generate_service_certificates: true
-                tripleo::certmonger::ca::libvirt_vnc::origin_ca_pem:
-                  if:
-                    - libvirt_vnc_specific_ca_unset
-                    - get_param: InternalTLSVncProxyCAFile
-                    - get_param: LibvirtVncCACert
-                tripleo::certmonger::libvirt_vnc_dirs::certificate_dir: '/etc/pki/libvirt-vnc'
-                libvirt_vnc_certificates_specs:
-                  libvirt-vnc-client-cert:
-                    cacertfile:
-                      if:
-                        - libvirt_vnc_specific_ca_unset
-                        - get_param: InternalTLSVncProxyCAFile
-                        - null
-                    service_certificate: '/etc/pki/libvirt-vnc/client-cert.pem'
-                    service_key: '/etc/pki/libvirt-vnc/client-key.pem'
-                    notify_service: '%{::nova::params::vncproxy_service_name}'
-                    hostname:
-                      str_replace:
-                        template: "%{hiera('fqdn_NETWORK')}"
-                        params:
-                          NETWORK: {get_param: [ServiceNetMap, NovaVncProxyNetwork]}
-                    principal:
-                      str_replace:
-                        template: "libvirt-vnc/%{hiera('fqdn_NETWORK')}"
-                        params:
-                          NETWORK: {get_param: [ServiceNetMap, NovaVncProxyNetwork]}
-                    key_size:
-                      if:
-                        - key_size_libvirtvnc_override_unset
-                        - {get_param: CertificateKeySize}
-                        - {get_param: LibvirtVNCClientCertificateKeySize}
-                novnc_proxy_certificates_specs:
-                  service_certificate: '/etc/pki/tls/certs/novnc_proxy.crt'
-                  service_key: '/etc/pki/tls/private/novnc_proxy.key'
-                  hostname:
-                    str_replace:
-                      template: "%{hiera('fqdn_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
-                  principal:
-                    str_replace:
-                      template: "novnc-proxy/%{hiera('fqdn_NETWORK')}"
-                      params:
-                        NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
-                  key_size:
-                    if:
-                      - key_size_novavnc_override_unset
-                      - {get_param: CertificateKeySize}
-                      - {get_param: NovaVNCCertificateKeySize}
               - {}
       service_config_settings:
         rabbitmq: {get_attr: [NovaBase, role_data, service_config_settings], rabbitmq}
@@ -304,8 +255,12 @@ outputs:
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
-            - path: /etc/pki/tls/private/novnc_proxy.key
+            - path: /etc/pki/tls/certs/novnc-proxy.crt
+              owner: root:root
+              perm: '0644'
+            - path: /etc/pki/tls/private/novnc-proxy.key
               owner: root:nova
+              perm: '0640'
       docker_config:
         step_4:
           nova_vnc_proxy:
@@ -327,17 +282,17 @@ outputs:
                     - use_tls_for_vnc
                     -
                       - str_replace:
-                          template: "CACERT:/etc/pki/libvirt-vnc/ca-cert.pem:ro"
+                          template: "CACERT:/etc/pki/CA/certs/vnc.crt:ro"
                           params:
                             CACERT:
                               if:
                                 - libvirt_vnc_specific_ca_unset
                                 - get_param: InternalTLSVncProxyCAFile
                                 - get_param: LibvirtVncCACert
-                      - /etc/pki/libvirt-vnc/client-cert.pem:/etc/pki/libvirt-vnc/client-cert.pem:ro
-                      - /etc/pki/libvirt-vnc/client-key.pem:/etc/pki/libvirt-vnc/client-key.pem:ro
-                      - /etc/pki/tls/certs/novnc_proxy.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/novnc_proxy.crt:ro
-                      - /etc/pki/tls/private/novnc_proxy.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/novnc_proxy.key:ro
+                      - /etc/pki/tls/certs/libvirt-vnc-client-cert.crt:/etc/pki/tls/certs/libvirt-vnc-client-cert.crt:ro
+                      - /etc/pki/tls/private/libvirt-vnc-client-cert.key:/etc/pki/tls/private/libvirt-vnc-client-cert.key:ro
+                      - /etc/pki/tls/certs/novnc-proxy.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/novnc-proxy.crt:ro
+                      - /etc/pki/tls/private/novnc-proxy.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/novnc-proxy.key:ro
                     - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
@@ -353,22 +308,83 @@ outputs:
               type: node
           - null
       deploy_steps_tasks:
-        - name: validate nova-vnc-proxy container state
-          podman_container_info:
-            name: nova_vnc_proxy
-          register: nova_vnc_proxy_infos
-          failed_when:
-            - nova_vnc_proxy_infos.containers.0.Healthcheck.Status is defined
-            - "'healthy' not in nova_vnc_proxy_infos.containers.0.Healthcheck.Status"
-          retries: 10
-          delay: 30
-          tags:
-            - opendev-validation
-            - opendev-validation-nova
-          when:
-            - container_cli == 'podman'
-            - not container_healthcheck_disabled
-            - step|int == 5
+        list_concat:
+          - - name: validate nova-vnc-proxy container state
+              podman_container_info:
+                name: nova_vnc_proxy
+              register: nova_vnc_proxy_infos
+              failed_when:
+                - nova_vnc_proxy_infos.containers.0.Healthcheck.Status is defined
+                - "'healthy' not in nova_vnc_proxy_infos.containers.0.Healthcheck.Status"
+              retries: 10
+              delay: 30
+              tags:
+                - opendev-validation
+                - opendev-validation-nova
+              when:
+                - container_cli == 'podman'
+                - not container_healthcheck_disabled
+                - step|int == 5
+          - if:
+            - use_tls_for_vnc
+            -
+              - name: Certificate generation
+                when: step|int == 1
+                block:
+                  - include_role:
+                      name: linux-system-roles.certificate
+                    vars:
+                      certificate_requests:
+                        - name: libvirt-vnc-client-cert
+                          dns:
+                            str_replace:
+                              template: "{{fqdn_NETWORK}}"
+                              params:
+                                NETWORK: {get_param: [ServiceNetMap, NovaVncProxyNetwork]}
+                          principal:
+                            str_replace:
+                              template: "libvirt-vnc/{{fqdn_NETWORK}}@{{idm_realm}}"
+                              params:
+                                NETWORK: {get_param: [ServiceNetMap, NovaVncProxyNetwork]}
+                          key_size:
+                            if:
+                              - key_size_libvirtvnc_override_unset
+                              - {get_param: CertificateKeySize}
+                              - {get_param: LibvirtVNCClientCertificateKeySize}
+                          ca: ipa
+                        - name: novnc-proxy
+                          dns:
+                            str_replace:
+                              template: "{{fqdn_$NETWORK}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+                          principal:
+                            str_replace:
+                              template: "novnc-proxy/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+                          run_after: |
+                            container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep nova_vnc_proxy)
+                            service_crt="/etc/pki/tls/certs/novnc-proxy.crt"
+                            service_key="/etc/pki/tls/private/novnc-proxy.key"
+                            # Copy the new cert from the mount-point to the real path
+                            {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                            # Copy the new key from the mount-point to the real path
+                            {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+
+                            # Set permissions
+                            {{container_cli}} exec -u root "$container_name" chmod 0644 $service_crt
+                            {{container_cli}} exec -u root "$container_name" chmod 0640 $service_key
+                            {{container_cli}} exec -u root "$container_name" chgrp nova $service_key
+
+                            # No need to trigger a reload for novnc proxy since the cert is not cached
+                          key_size:
+                            if:
+                              - key_size_libvirtvnc_override_unset
+                              - {get_param: CertificateKeySize}
+                              - {get_param: NovaVNCCertificateKeySize}
+                          ca: ipa
+            - []
       host_prep_tasks:
         list_concat:
           -  {get_attr: [NovaLogging, host_prep_tasks]}
