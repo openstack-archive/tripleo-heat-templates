@@ -301,27 +301,57 @@ parameters:
     default: "/home/stack/ceph_client.yml"
     type: string
     description: The undercloud path where cephadm exports the Ceph Client configuration.
-  CephSpecPath:
-    default: "/home/stack/ceph_spec.yml"
-    type: string
-    description: |
-      The undercloud path of a valid Ceph orchestrator-cli-service-spec file. If this
-      file does not exist, then no ceph service spec is not applied by tripleo_cephadm
-      role.
-  CephDynamicSpec:
-    type: boolean
-    default: false
-    description: |
-      If true tripleo_cephadm role will build a orchestrator-cli-service-spec file
-      based on the data found in the inventory (which is based on composable roles).
-      If a valid CephSpecPath exists then the dynamic spec is created and applied
-      first and then the CephSpecPath is applied.
   CephAnsibleSkipClient:
     description: |
       This boolean (when true) prevents the ceph-ansible client role execution
       by adding the ceph-ansible tag 'ceph_client' to the --skip-tags list.
     type: boolean
     default: true
+  CephDynamicSpec:
+    type: boolean
+    default: true
+    description: |
+      If true the tripleo_run_cephadm role will build an orchestrator-cli-service-spec
+      file based on the data found in the inventory (which is based on composable roles)
+      by using the ceph_spec_bootstrap Ansible module in tripleo-ansible.
+  CephSpecPath:
+    default: "{{ playbook_dir }}/cephadm/ceph_spec.yaml"
+    type: string
+    description: |
+      The path on the undercloud to a valid Ceph orchestrator CLI service spec file.
+      If you do not want the spec to be generated automatically and instead prefer
+      to supply your own spec, then place your spec at this path on the undercloud
+      and set CephDynamicSpec to false. If CephDynamicSpec is true and CephSpecPath
+      is set to a valid path, then the spec will be created at that path before it
+      is used to deploy Ceph. By default the spec will be created by config-download
+      in config-download/<stack>/cephadm/ceph_spec.yaml.
+  CephOsdSpec:
+    description: |
+      If CephDynamicSpec is true, then any valid OSD service specification set in
+      CephOsdSpec will appear in the genereated Ceph spec for the 'osd' service_type.
+      Replaces CephAnsibleDisksConfig. This parameter has no effect if CephDynamicSpec
+      is false. Use this paramter to override the default of using all available block
+      devices as data_devices. See the Ceph documentation for cephadm drivegroups.
+      Exclude service_type, service_id, and placement from this parameter. In the
+      example below all rotating devices will be data devices and all non-rotating
+      devices will be used as shared devices (wal, db).
+        CephOsdSpec:
+          data_devices:
+            rotational: 1
+          db_devices:
+            rotational: 0
+    type: json
+    default:
+      data_devices:
+        all: true
+  CephSpecFqdn:
+    default: false
+    type: boolean
+    description: |
+      If both CephDynamicSpec and CephSpecFqdn are true, then the hostname and
+      hosts of the generated Ceph spec will have their fully qualified domain
+      name instead of their short hostname. This parameter has no effect if
+      CephDynamicSpec is false.
 
 parameter_groups:
 - label: deprecated
@@ -512,8 +542,6 @@ resources:
           tripleo_ceph_client_vars: {get_param: CephClientConfigVars}
           tripleo_cephadm_dashboard_enabled: {get_param: CephEnableDashboard}
           cephfs: {get_param: ManilaCephFSShareBackendName}
-          tripleo_cephadm_spec_ansible_host: {get_param: CephSpecPath}
-          tripleo_cephadm_dynamic_spec: {get_param: CephDynamicSpec}
           tripleo_cephadm_container_ns: {get_attr: [ContainerImageUrlParts, value, host]}
           tripleo_cephadm_container_image: {get_attr: [ContainerImageUrlParts, value, image]}
           tripleo_cephadm_container_tag: {get_attr: [ContainerImageUrlParts, value, image_tag]}
@@ -570,6 +598,10 @@ outputs:
                 manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
                 ceph_keys: {get_attr: [CephKeyVars, value, vars]}
                 ceph_config_overrides: {get_param: CephConfigOverrides}
+                tripleo_run_cephadm_spec_path: {get_param: CephSpecPath}
+                tripleo_cephadm_dynamic_spec: {get_param: CephDynamicSpec}
+                ceph_spec_fqdn: {get_param: CephSpecFqdn}
+                ceph_osd_spec: {get_param: CephOsdSpec}
                 ceph_default_overrides:
                   if:
                     - msgr_secure_mode
