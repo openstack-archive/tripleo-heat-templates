@@ -46,6 +46,7 @@ DUAL_MIN_VIABLE_MTU_HEADER = (
     "{# largest MTU. #}\n"
     "{% else %}\n"
     "{{ mtu_ctlplane_list.append(lookup('vars', networks_lower[network] ~ '_mtu')) }}\n"  # noqa
+    "{%- endif %}\n"
     "{%- endfor %}\n"
     "{% set min_viable_mtu_ctlplane = mtu_ctlplane_list | max %}\n"
     "{% set min_viable_mtu_dataplane = mtu_dataplane_list | max %}\n"
