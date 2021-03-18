@@ -277,11 +277,41 @@ outputs:
 {%- endfor %}
   network_attrs:
     description: {{network.name}} network's attributes
-    value: {get_attr: [{{network.name}}Network]}
+    value:
+      if:
+        - manage_networks
+        - {get_attr: [{{network.name}}Network, show]}
+        - name: {{network.name_lower}}
+          dns_domain:
+            list_join:
+            - '.'
+            - - {{network.name.lower()}}
+              - {get_param: CloudDomain}
+              - ''
+          mtu: {{network.mtu|default('1500')}}
+
   subnet_attrs:
     description: Map of attributes for subnets in the {{network.name}} network
     value:
-      {{network.name_lower}}_subnet: {get_attr: [{{network.name}}Subnet]}
+      if:
+        - manage_networks
+        - {{network.name_lower}}_subnet: {get_attr: [{{network.name}}Subnet, show]}
 {%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
-      {{subnet}}: {get_attr: [{{network.name}}Subnet_{{subnet}}]}
+          {{subnet}}: {get_attr: [{{network.name}}Subnet_{{subnet}}, show]}
+{%- endfor %}
+        - {{network.name_lower}}_subnet:
+            name: {{network.name_lower}}_subnet
+            cidr: {get_param: {{network.name}}NetCidr}
+            dns_nameservers: []
+            gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute}
+            host_routes: {get_param: {{network.name}}Routes}
+            ip_version: {if: [is_ipv6, 6, 4]}
+{%- for subnet in network.subnets|default({}) if network.subnets[subnet].enabled|default(true) %}
+          {{subnet}}:
+            name: {{subnet}}
+            cidr: {get_param: {{network.name}}SubnetCidr_{{subnet}}}
+            dns_nameservers: []
+            gateway_ip: {get_param: {{network.name}}InterfaceDefaultRoute_{{subnet}}}
+            host_routes: {get_param: {{network.name}}Routes_{{subnet}}}
+            ip_version: {if: [is_ipv6, 6, 4]}
 {%- endfor %}
