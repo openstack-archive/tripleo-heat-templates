@@ -240,12 +240,24 @@ parameters:
     description:
       Whether instances can attach cinder volumes from a different availability zone.
     type: boolean
+  MemcachedTLS:
+    default: false
+    description: Set to True to enable TLS on Memcached service.
+                 Because not all services support Memcached TLS, during the
+                 migration period, Memcached will listen on 2 ports - on the
+                 port set with MemcachedPort parameter (above) and on 11211,
+                 without TLS.
+    type: boolean
 
 conditions:
 
   compute_upgrade_level_empty: {equals : [{get_param: UpgradeLevelNovaCompute}, '']}
   service_debug_unset: {equals : [{get_param: NovaDebug}, '']}
-  cache_enabled: {equals: [{get_param: EnableCache}, true]}
+  tls_cache_enabled:
+    and:
+      - {equals : [{get_param: EnableCache}, true]}
+      - {equals : [{get_param: MemcachedTLS}, true]}
+  cache_disabled: {equals : [{get_param: EnableCache}, false]}
   enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
 resources:
@@ -309,8 +321,6 @@ outputs:
           nova::db::database_db_max_retries: -1
           nova::db::database_max_retries: -1
           nova::network::neutron::ovs_bridge: {get_param: NovaOVSBridge}
-          nova::cache::enabled: true
-          nova::cache::backend: 'dogpile.cache.memcached'
           nova::cron::archive_deleted_rows::minute: {get_param: NovaCronArchiveDeleteRowsMinute}
           nova::cron::archive_deleted_rows::hour: {get_param: NovaCronArchiveDeleteRowsHour}
           nova::cron::archive_deleted_rows::monthday: {get_param: NovaCronArchiveDeleteRowsMonthday}
@@ -339,14 +349,13 @@ outputs:
           nova_is_additional_cell: {get_param: NovaAdditionalCell}
           nova::cross_az_attach: {get_param: NovaCrossAZAttach}
         - get_attr: [RoleParametersValue, value]
-        -
+        - nova::cache::enabled: {get_param: EnableCache}
+          nova::cache::tls_enabled: {get_param: MemcachedTLS}
           if:
-          - cache_enabled
-          - nova::cache::enabled: true
-            nova::cache::backend: 'dogpile.cache.memcached'
-          - {}
-        -
-          if:
+            - tls_cache_enabled
+            - nova::cache::backend: 'dogpile.cache.pymemcache'
+            - nova::cache::backend: 'dogpile.cache.memcached'
+        - if:
           - compute_upgrade_level_empty
           - {}
           - nova::upgrade_level_compute: {get_param: UpgradeLevelNovaCompute}

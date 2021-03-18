@@ -129,10 +129,21 @@ parameters:
     default: ''
     description: Indicate whether this resource may be shared with the domain received in the request
                  "origin" header.
+  MemcachedTLS:
+    default: false
+    description: Set to True to enable TLS on Memcached service.
+                 Because not all services support Memcached TLS, during the
+                 migration period, Memcached will listen on 2 ports - on the
+                 port set with MemcachedPort parameter (above) and on 11211,
+                 without TLS.
+    type: boolean
 
 conditions:
   service_debug_unset: {equals : [{get_param: HeatDebug}, '']}
-  cache_enabled: {equals : [{get_param: EnableCache}, true]}
+  tls_cache_enabled:
+    and:
+      - {equals : [{get_param: EnableCache}, true]}
+      - {equals : [{get_param: MemcachedTLS}, true]}
   cors_allowed_origin_unset: {equals : [{get_param: HeatCorsAllowedOrigin}, '']}
 
 outputs:
@@ -189,9 +200,10 @@ outputs:
             heat::cron::purge_deleted::destination: {get_param: HeatCronPurgeDeletedDestination}
             heat::max_json_body_size: {get_param: HeatMaxJsonBodySize}
           -
+            heat::cache::enabled: {get_param: EnableCache}
+            heat::cache::tls_enabled: {get_param: MemcachedTLS}
+            heat::cache::resource_finder_caching: false
             if:
-            - cache_enabled
-            - heat::cache::enabled: true
-              heat::cache::backend: 'dogpile.cache.memcached'
-              heat::cache::resource_finder_caching: false
-            - {}
+              - tls_cache_enabled
+              - heat::cache::backend: 'dogpile.cache.pymemcache'
+              - heat::cache::backend: 'dogpile.cache.memcached'
