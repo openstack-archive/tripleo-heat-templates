@@ -1,4 +1,4 @@
-heat_template_version: rocky
+heat_template_version: wallaby
 
 description: >
   OpenStack Swift Ringbuilder
@@ -54,6 +54,10 @@ parameters:
     default: true
     description: 'Use a local directory for Swift storage services when building rings'
     type: boolean
+  SwiftUseNodeDataLookup:
+    default: false
+    description: Use NodeDataLookup for disk devices in order to use persistent naming
+    type: boolean
   SwiftRingGetTempurl:
     default: ''
     description: A temporary Swift URL to download rings from.
@@ -85,24 +89,27 @@ outputs:
     value:
       service_name: swift_ringbuilder
       config_settings:
-        tripleo::profile::base::swift::ringbuilder::skip_consistency_check: true
-        tripleo::profile::base::swift::ringbuilder::swift_ring_get_tempurl: {get_param: SwiftRingGetTempurl}
-        tripleo::profile::base::swift::ringbuilder::swift_ring_put_tempurl: {get_param: SwiftRingPutTempurl}
-        tripleo::profile::base::swift::ringbuilder::build_ring: {get_param: SwiftRingBuild}
-        tripleo::profile::base::swift::ringbuilder::replicas: {get_param: SwiftReplicas}
-        tripleo::profile::base::swift::ringbuilder::part_power: {get_param: SwiftPartPower}
-        tripleo::profile::base::swift::ringbuilder::min_part_hours: {get_param: SwiftMinPartHours}
-        tripleo::profile::base::swift::ringbuilder::raw_disk_prefix: 'r1z1-'
-        tripleo::profile::base::swift::ringbuilder::raw_disks:
-          yaql:
-            expression: $.data.raw_disk_lists.flatten()
-            data:
-              raw_disk_lists:
-              - {if: [swift_use_local_dir, [':%PORT%/d1'], []]}
-              - repeat:
-                  template: ':%PORT%/DEVICE'
-                  for_each:
-                    DEVICE: {get_param: SwiftRawDisks}
+        map_merge:
+          - tripleo::profile::base::swift::ringbuilder::skip_consistency_check: true
+            tripleo::profile::base::swift::ringbuilder::swift_ring_get_tempurl: {get_param: SwiftRingGetTempurl}
+            tripleo::profile::base::swift::ringbuilder::swift_ring_put_tempurl: {get_param: SwiftRingPutTempurl}
+            tripleo::profile::base::swift::ringbuilder::build_ring: {get_param: SwiftRingBuild}
+            tripleo::profile::base::swift::ringbuilder::replicas: {get_param: SwiftReplicas}
+            tripleo::profile::base::swift::ringbuilder::part_power: {get_param: SwiftPartPower}
+            tripleo::profile::base::swift::ringbuilder::min_part_hours: {get_param: SwiftMinPartHours}
+            tripleo::profile::base::swift::ringbuilder::raw_disk_prefix: 'r1z1-'
+          - if:
+            - {get_param: SwiftUseNodeDataLookup}
+            - {}
+            - tripleo::profile::base::swift::ringbuilder::raw_disks:
+                list_concat:
+                    - if:
+                        - swift_use_local_dir
+                        - - ':%PORT%/d1'
+                    - repeat:
+                        template: ':%PORT%/DEVICE'
+                        for_each:
+                          DEVICE: {get_param: SwiftRawDisks}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:

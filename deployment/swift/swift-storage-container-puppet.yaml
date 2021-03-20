@@ -62,6 +62,10 @@ parameters:
     default: false
     description: Value of mount_check in Swift account/container/object -server.conf
     type: boolean
+  SwiftUseNodeDataLookup:
+    default: false
+    description: Use NodeDataLookup for disk devices in order to use persistent naming
+    type: boolean
   SwiftAccountWorkers:
     default: 0
     description: Number of workers for Swift account service.
@@ -118,6 +122,7 @@ conditions:
   account_workers_zero: {equals : [{get_param: SwiftAccountWorkers}, '0']}
   container_workers_zero: {equals : [{get_param: SwiftContainerWorkers}, '0']}
   object_workers_zero: {equals : [{get_param: SwiftObjectWorkers}, '0']}
+  use_node_data_lookup: {equals : [{get_param: SwiftUseNodeDataLookup}, true]}
 
 resources:
 
@@ -166,8 +171,12 @@ outputs:
               - healthcheck
               - recon
               - account-server
-            swift::storage::disks::args: {get_param: SwiftRawDisks}
-            swift::storage::all::storage_local_net_ip:
+          -
+            if:
+            - use_node_data_lookup
+            - {}
+            - swift::storage::disks::args: {get_param: SwiftRawDisks}
+          - swift::storage::all::storage_local_net_ip:
               str_replace:
                  template:
                    "%{hiera('$NETWORK')}"
@@ -612,6 +621,9 @@ outputs:
         - name: Set swift_use_local_disks fact
           set_fact:
             swift_use_local_disks: {get_param: SwiftUseLocalDir}
+        - name: Set use_node_data_lookup fact
+          set_fact:
+            use_node_data_lookup: {get_param: SwiftUseNodeDataLookup}
         - name: Create Swift d1 directory if needed
           file:
             path: "/srv/node/d1"
@@ -620,6 +632,15 @@ outputs:
         - name: Set fact for SwiftRawDisks
           set_fact:
             swift_raw_disks: {get_param: SwiftRawDisks}
+          when: not use_node_data_lookup|bool
+        - name: Get hiera swift::storage::disks::args
+          shell: hiera -c /etc/puppet/hiera.yaml swift::storage::disks::args | sed =e 's/=>/:/g'
+          register: hiera_output
+          when: use_node_data_lookup|bool
+        - name: Set fact for swift_raw_disks
+          set_fact:
+            swift_raw_disks: "{{ hiera_output.stdout | from_json }}"
+          when: use_node_data_lookup|bool
         - name: Format SwiftRawDisks
           filesystem:
             fstype: xfs
