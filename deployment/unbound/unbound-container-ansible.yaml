@@ -1,0 +1,134 @@
+heat_template_version: rocky
+
+description: >
+  OpenStack containerized Unbound DNS resolver
+
+parameters:
+  ContainerUnboundImage:
+    description: image
+    type: string
+  ContainerUnboundConfigImage:
+    description: The container image to use for the unbound config_volume
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  MonitoringSubscriptionUnbound:
+    default: 'overcloud-unbound'
+    type: string
+
+# Unbound specific parameters
+  UnboundAllowedCIDRs:
+    default: []
+    description: A list of CIDRs allowed to make queries through Unbound.
+                 Example, ['192.0.2.0/24', '198.51.100.0/24']
+    type: comma_delimited_list
+  UnboundLogQueries:
+    default: false
+    description: If true, Unbound will log the query requests.
+    type: boolean
+  UnboundSecurityHarden:
+    default: true
+    description: When true, Unbound will block certain queries that could
+                 have security implications to the Unbound service.
+    type: boolean
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the Unbound instance.
+    value:
+      service_name: unbound
+      firewall_rules:
+        '140 unbound udp':
+          proto: 'udp'
+          dport:
+            - 53
+        '141 unbound tcp':
+          proto: 'tcp'
+          dport:
+            - 53
+            - 853
+      monitoring_subscription: {get_param: MonitoringSubscriptionUnbound}
+      config_settings: {}
+      service_config_settings: {}
+      kolla_config:
+        /var/lib/kolla/config_files/unbound.json:
+          command: /usr/sbin/unbound -d -d -p
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/etc/unbound/conf.d/"
+              merge: true
+              owner: unbound:unbound
+              perm: '0640'
+          permissions:
+            - path: /var/log/unbound
+              owner: unbound:unbound
+              recurse: true
+      docker_config:
+        step_3:
+          unbound:
+            start_order: 1
+            image: {get_param: ContainerUnboundImage}
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /usr/sbin/unbound-streamtcp -u . SOA IN
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /run/:/run/
+                  - /var/lib/kolla/config_files/unbound.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/log/containers/unbound:/var/log/unbound:z
+                  - /var/lib/config-data/ansible-generated/unbound:/var/lib/kolla/config_files/src:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode }}"
+          with_items:
+            - { 'path': /var/log/containers/unbound, 'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/lib/config-data/ansible-generated/unbound, 'setype': container_file_t, 'mode': '0750' }
+      deploy_steps_tasks:
+        - name: Configure Unbound
+          when: step|int == 0
+          import_role:
+            name: tripleo_unbound
+          vars:
+            tripleo_unbound_config_basedir: /var/lib/config-data/ansible-generated/unbound
+            tripleo_unbound_network_name: {get_param: [ServiceNetMap, UnboundNetwork]}
+            tripleo_unbound_external_network_name: {get_param: [ServiceNetMap, PublicNetwork]}
+            tripleo_unbound_internal_network_name: {get_param: [ServiceNetMap, NeutronApiNetwork]}
+            tripleo_unbound_allowed_cidrs: {get_param: UnboundAllowedCIDRs}
+            tripleo_unbound_log_queries: {get_param: UnboundLogQueries}
+            tripleo_unbound_security_harden: {get_param: UnboundSecurityHarden}
