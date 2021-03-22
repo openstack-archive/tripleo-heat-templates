@@ -4,6 +4,9 @@ description: >
   OpenStack containerized Ovn Controller agent.
 
 parameters:
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -118,6 +121,22 @@ parameters:
     default: ''
     description: Override the private key size used when creating the
                  certificate for this service
+  OVNStaticBridgeMacMappings:
+    type: json
+    default: {}
+    description: |
+      Static OVN Bridge MAC address mappings. Unique OVN bridge mac addresses
+      is dynamically allocated by creating neutron ports. When neutron isn't
+      available, for instance in the standalone deployment, use this parameter
+      to provide static OVN bridge mac addresses. For example:
+         controller-0:
+           datacenter: 00:00:5E:00:53:00
+           provider: 00:00:5E:00:53:01
+         compute-0:
+           datacenter: 00:00:5E:00:54:00
+           provider: 00:00:5E:00:54:01
+    tags:
+      - role_specific
 
 conditions:
   force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
@@ -147,6 +166,21 @@ resources:
               NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
               OVNCMSOptions: {get_param: OVNCMSOptions}
               OvsHwOffload: {get_param: OvsHwOffload}
+
+  OVNBridgeMappingsValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+              - ovn_bridge_mappings: NeutronBridgeMappings
+                ovn_static_bridge_mac_mappings: OVNStaticBridgeMacMappings
+              - values: {get_param: [RoleParameters]}
+          - values:
+              NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
+              OVNStaticBridgeMacMappings: {get_param: OVNStaticBridgeMacMappings}
+
 
 outputs:
   role_data:
@@ -369,4 +403,25 @@ outputs:
           service:
             name: neutron-cleanup
             enabled: yes
+      external_deploy_tasks:
+        - when:
+            - step|int == 0
+          name: ovn_controller_external_deploy_init
+          block:
+            - name:
+                str_replace:
+                  template: create ovn mac address for $ROLE_NAME role nodes
+                  params:
+                    $ROLE_NAME: {get_param: RoleName}
+              tripleo_ovn_mac_addresses:
+                playbook_dir: "{{ playbook_dir }}"
+                stack_name: {get_param: RootStackName}
+                role_name: {get_param: RoleName}
+                server_resource_names:
+                  str_replace:
+                    template: '{{ groups["$ROLE_NAME"] }}'
+                    params:
+                      $ROLE_NAME: {get_param: RoleName}
+                ovn_bridge_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_bridge_mappings]}
+                ovn_static_bridge_mac_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_static_bridge_mac_mappings]}
       upgrade_tasks: []
