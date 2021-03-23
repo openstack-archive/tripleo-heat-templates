@@ -55,7 +55,7 @@ parameters:
     description: The short name of the Cinder Backup backend to use.
     type: string
     constraints:
-    - allowed_values: ['swift', 'ceph', 'nfs']
+    - allowed_values: ['swift', 'ceph', 'nfs', 'gcs', 's3']
   CinderBackupRbdPoolName:
     default: backups
     type: string
@@ -67,6 +67,39 @@ parameters:
     default: 'context=system_u:object_r:container_file_t:s0'
     description: Mount options passed to the NFS client. See NFS man
                  page for details.
+    type: string
+  CinderBackupGcsCredentials:
+    default: {}
+    description: The GCS service account credentials, in JSON format.
+    type: json
+  CinderBackupGcsProjectId:
+    default: ''
+    description: The GCS project ID.
+    type: string
+  CinderBackupGcsBucket:
+    default: volumebackups
+    description: The GCS bucket where backups are to be stored.
+    type: string
+  CinderBackupGcsBucketLocation:
+    default: ''
+    description: If set, it specifies the location where the GCS bucket
+                 should be created.
+    type: string
+  CinderBackupS3EndpointUrl:
+    default: ''
+    description: The URL where the S3 server is listening.
+    type: string
+  CinderBackupS3AccessKey:
+    default: ''
+    description: The S3 query token access key.
+    type: string
+  CinderBackupS3SecretKey:
+    default: ''
+    description: The S3 query token secret key.
+    type: string
+  CinderBackupS3Bucket:
+    default: volumebackups
+    description: The S3 bucket where backups are to be stored.
     type: string
   MonitoringSubscriptionCinderBackup:
     default: 'overcloud-cinder-backup'
@@ -101,18 +134,46 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [CinderBase, role_data, config_settings]
-          - cinder::backup::ceph::backup_ceph_user: {get_param: CephClientUserName}
-            cinder::backup::ceph::backup_ceph_pool: {get_param: CinderBackupRbdPoolName}
-            cinder::backup::ceph::backup_ceph_conf:
-              list_join:
-              - ''
-              - - '/etc/ceph/'
-                - {get_param: CephClusterName}
-                - '.conf'
-            cinder::backup::swift::backup_swift_container: volumebackups
-            cinder::backup::swift::swift_catalog_info: 'object-store:swift:internalURL'
-            cinder::backup::nfs::backup_share: {get_param: CinderBackupNfsShare}
-            cinder::backup::nfs::backup_mount_options: {get_param: CinderBackupNfsMountOptions}
+          -
+            if:
+            - {equals: [{get_param: CinderBackupBackend}, 'ceph']}
+            - cinder::backup::ceph::backup_ceph_user: {get_param: CephClientUserName}
+              cinder::backup::ceph::backup_ceph_pool: {get_param: CinderBackupRbdPoolName}
+              cinder::backup::ceph::backup_ceph_conf:
+                list_join:
+                - ''
+                - - '/etc/ceph/'
+                  - {get_param: CephClusterName}
+                  - '.conf'
+            - {}
+          -
+            if:
+            - {equals: [{get_param: CinderBackupBackend}, 'swift']}
+            - cinder::backup::swift::backup_swift_container: volumebackups
+              cinder::backup::swift::swift_catalog_info: 'object-store:swift:internalURL'
+            - {}
+          -
+            if:
+            - {equals: [{get_param: CinderBackupBackend}, 'nfs']}
+            - cinder::backup::nfs::backup_share: {get_param: CinderBackupNfsShare}
+              cinder::backup::nfs::backup_mount_options: {get_param: CinderBackupNfsMountOptions}
+            - {}
+          -
+            if:
+            - {equals: [{get_param: CinderBackupBackend}, 'gcs']}
+            - tripleo::profile::base::cinder::backup::gcs::credentials: {get_param: CinderBackupGcsCredentials}
+              cinder::backup::google::backup_gcs_project_id: {get_param: CinderBackupGcsProjectId}
+              cinder::backup::google::backup_gcs_bucket: {get_param: CinderBackupGcsBucket}
+              cinder::backup::google::backup_gcs_bucket_location: {get_param: CinderBackupGcsBucketLocation}
+            - {}
+          -
+            if:
+            - {equals: [{get_param: CinderBackupBackend}, 's3']}
+            - cinder::backup::s3::backup_s3_endpoint_url: {get_param: CinderBackupS3EndpointUrl}
+              cinder::backup::s3::backup_s3_store_access_key: {get_param: CinderBackupS3AccessKey}
+              cinder::backup::s3::backup_s3_store_secret_key: {get_param: CinderBackupS3SecretKey}
+              cinder::backup::s3::backup_s3_store_bucket: {get_param: CinderBackupS3Bucket}
+            - {}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_cinder_backup:
