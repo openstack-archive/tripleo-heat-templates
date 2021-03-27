@@ -135,10 +135,19 @@ outputs:
                             cat "$service_crt" "$ca_path" "$service_key" > "$service_pem"
 
                             container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -w -E 'haproxy(-bundle-.*-[0-9]+)?')
-                            # Refresh the pem at the mount-point
-                            {{container_cli}} cp $service_pem "$container_name:/var/lib/kolla/config_files/src-tls/$service_pem"
-                            # Copy the new pem from the mount-point to the real path
-                            {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_pem" "$service_pem"
+                            # Inject the new pem into the running container
+                            if echo "$container_name" | grep -q "^haproxy-bundle"; then
+                              # lp#1917868: Do not use podman cp with HA containers as they get
+                              # frozen temporarily and that can make pacemaker operation fail.
+                              tar -c "$service_pem" | {{container_cli}} exec -i "$container_name" tar -C / -xv
+                              # no need to update the mount point, because pacemaker
+                              # recreates the container when it's restarted
+                            else
+                              # Refresh the pem at the mount-point
+                              {{container_cli}} cp $service_pem "$container_name:/var/lib/kolla/config_files/src-tls/$service_pem"
+                              # Copy the new pem from the mount-point to the real path
+                              {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_pem" "$service_pem"
+                            fi
                             # Set appropriate permissions
                             {{container_cli}} exec "$container_name" chown haproxy:haproxy "$service_pem"
                             # Trigger a reload for HAProxy to read the new certificates
