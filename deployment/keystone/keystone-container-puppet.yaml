@@ -75,6 +75,14 @@ parameters:
   EnableInternalTLS:
     type: boolean
     default: false
+  MemcachedTLS:
+    default: false
+    description: Set to True to enable TLS on Memcached service.
+                 Because not all services support Memcached TLS, during the
+                 migration period, Memcached will listen on 2 ports - on the
+                 port set with MemcachedPort parameter (above) and on 11211,
+                 without TLS.
+    type: boolean
   KeystoneSSLCertificate:
     default: ''
     description: Keystone certificate for verifying token validity.
@@ -355,7 +363,14 @@ conditions:
   keystone_federation_enabled: {equals: [{get_param: KeystoneFederationEnable}, True]}
   keystone_openidc_enabled: {equals: [{get_param: KeystoneOpenIdcEnable}, True]}
   service_debug_unset: {equals : [{get_param: KeystoneDebug}, '']}
-  cache_enabled: {equals: [{get_param: EnableCache}, true]}
+  nontls_cache_enabled:
+    and:
+      - {get_param: EnableCache}
+      - not: {get_param: MemcachedTLS}
+  tls_cache_enabled:
+    and:
+      - {get_param: EnableCache}
+      - {get_param: MemcachedTLS}
   enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
   # Security compliance
@@ -482,11 +497,12 @@ outputs:
                   params:
                     $NETWORK: {get_param: [ServiceNetMap, KeystoneAdminApiNetwork]}
           -
+            keystone::cache::enabled: {get_param: EnableCache}
+            keystone::cache::tls_enabled: {get_param: MemcachedTLS}
             if:
-            - cache_enabled
-            - keystone::cache::enabled: true
-              keystone::cache::backend: 'dogpile.cache.memcached'
-            - {}
+            - tls_cache_enabled
+            - keystone::cache::backend: 'dogpile.cache.pymemcache'
+            - keystone::cache::backend: 'dogpile.cache.memcached'
           -
             if:
             - keystone_federation_enabled
@@ -525,7 +541,7 @@ outputs:
                     get_param: KeystoneOpenIdcIntrospectionEndpoint
                 -
                   if:
-                  - cache_enabled
+                  - nontls_cache_enabled
                   - keystone::federation::openidc::openidc_cache_type: 'memcache'
                   - {}
             - {}
