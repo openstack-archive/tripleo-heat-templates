@@ -107,21 +107,36 @@ outputs:
       deploy_steps_tasks:
         - name: configure tmpwatch on the host
           when: step|int == 2
-          copy:
-            dest: /etc/cron.daily/containers-tmpwatch
-            owner: root
-            group: root
-            mode: 0755
-            content: |
-              #!/bin/sh
-              tmpwatch --nodirs \
-                -X "/var/log/containers/*/*log" \
-                -X "/var/log/containers/*/*/*log" \
-                -X "/var/log/containers/*/*err" \
-                {{ LogrotatePurgeAfterDays|int +1 }}d \
-                /var/log/containers/ 2>&1 | logger -t container-tmpwatch
-          vars:
-             LogrotatePurgeAfterDays: {get_param: LogrotatePurgeAfterDays}
+          block:
+            - name: Push script
+              copy:
+                dest: /usr/local/sbin/containers-tmpwatch
+                owner: root
+                group: root
+                mode: 0755
+                content: |
+                  #!/bin/sh
+                  tmpwatch --nodirs \
+                    -X "/var/log/containers/*/*log" \
+                    -X "/var/log/containers/*/*/*log" \
+                    -X "/var/log/containers/*/*err" \
+                    {{ LogrotatePurgeAfterDays|int +1 }}d \
+                    /var/log/containers/ 2>&1 | logger -t container-tmpwatch
+              vars:
+                 LogrotatePurgeAfterDays: {get_param: LogrotatePurgeAfterDays}
+            - name: Insert cronjob in root crontab
+              cron:
+                name: "Remove old logs"
+                special_time: "daily"
+                user: "root"
+                job: "/usr/local/sbin/containers-tmpwatch"
+      update_tasks: &tmpwatch_script_clean
+        - name: Ensure old cron.daily is absent
+          when: step|int == 1
+          file:
+            path: /etc/cron.daily/containers-tmpwatch
+            state: absent
+      upgrade_tasks: *tmpwatch_script_clean
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: crond
