@@ -33,7 +33,7 @@ def is_string(value):
 # list should contain only the alias name for the current branch.
 # This allows to avoid merging old templates versions aliases.
 valid_heat_template_versions = [
-  'rocky',
+  'wallaby',
 ]
 
 current_heat_template_version = valid_heat_template_versions[-1]
