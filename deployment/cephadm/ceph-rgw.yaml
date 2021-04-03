@@ -59,6 +59,7 @@ parameters:
 conditions:
   dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
+  key_size_override_unset: {equals: [{get_param: CephCertificateKeySize}, '']}
 
 resources:
   CephBase:
@@ -168,32 +169,6 @@ outputs:
                       - radosgw_frontend_ssl_certificate: '/etc/pki/tls/certs/ceph_rgw.pem'
                     - {get_attr: [CephRgwAnsibleVars, value, vars]}
                   ceph_rgw_config_overrides: {get_attr: [CephRgwConfigOverrides, value, vars]}
-      config_settings:
-        map_merge:
-          - if:
-            - internal_tls_enabled
-            -
-              ceph_rgw_certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/ceph_rgw.crt'
-                service_key: '/etc/pki/tls/private/ceph_rgw.key'
-                service_pem: '/etc/pki/tls/certs/ceph_rgw.pem'
-                hostname:
-                  str_replace:
-                    template: "%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
-                principal:
-                  str_replace:
-                    template: "ceph_rgw/%{hiera('fqdn_NETWORK')}"
-                    params:
-                      NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
-                postsave_cmd: "/usr/bin/certmonger-rgw-refresh.sh"
-                key_size:
-                  if:
-                    - key_size_override_unset
-                    - {get_param: CertificateKeySize}
-                    - {get_param: CephRgwCertificateKeySize}
-            - {}
       metadata_settings:
         if:
         - internal_tls_enabled
@@ -202,3 +177,42 @@ outputs:
             network: {get_param: [ServiceNetMap, CephRgwNetwork]}
             type: node
         - null
+      deploy_steps_tasks:
+        - name: Certificate generation
+          when:
+            - step|int == 1
+            - enable_internal_tls
+          block:
+            - include_role:
+                name: linux-system-roles.certificate
+              vars:
+                certificate_requests:
+                  - name: ceph_rgw
+                    dns:
+                      str_replace:
+                        template: "{{fqdn_$NETWORK}}"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
+                    principal:
+                      str_replace:
+                        template: "ceph_rgw/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, CephRgwNetwork]}
+                    run_after: |
+                      # Create PEM file
+                      pemfile=/etc/pki/tls/certs/ceph_rgw.pem
+                      cat /etc/pki/tls/certs/ceph_rgw.crt /etc/ipa/ca.crt /etc/pki/tls/private/ceph_rgw.key > $pemfile
+                      chmod 0640 $pemfile
+                      chown 472:472 $pemfile
+                      # Get ceph rgw systemd unit
+                      rgw_unit=$(systemctl list-unit-files | awk '/radosgw/ {print $1}')
+                      # Restart the rgw systemd unit
+                      if [ -n "$rgw_unit" ]; then
+                          systemctl restart "$rgw_unit"
+                      fi
+                    key_size:
+                      if:
+                        - key_size_override_unset
+                        - {get_param: CertificateKeySize}
+                        - {get_param: CephRgwCertificateKeySize}
+                    ca: ipa
