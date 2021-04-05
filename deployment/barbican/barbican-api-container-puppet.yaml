@@ -163,18 +163,11 @@ parameters:
       perform configuration on a Heat stack-update.
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  thales_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoThalesEnabled}, true]}
-  atos_hsm_enabled:     {equals: [{get_param: BarbicanPkcs11CryptoATOSEnabled}, true]}
-  lunasa_hsm_enabled:   {equals: [{get_param: BarbicanPkcs11CryptoLunasaEnabled}, true]}
   hsm_enabled:
     or:
-    - thales_hsm_enabled
-    - atos_hsm_enabled
-    - lunasa_hsm_enabled
-  pkcs11_plugin_enabled: {equals: [{get_param: BarbicanPkcs11CryptoEnabled}, true]}
-  pkcs11_rewrap_pkeks: {equals: [{get_param: BarbicanPkcs11CryptoRewrapKeys}, true]}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
+    - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+    - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+    - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
   # Luna Clients use FQDN by default.  When LunasaClientIPNetwork is set we
   # will use the Controller's IP address from that network instead.
   lunasa_hsm_use_fqdn: {equals: [{get_param: LunasaClientIPNetwork}, '']}
@@ -278,16 +271,14 @@ outputs:
                 path: /barbican
                 query:
                   if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: barbican
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
+                    - {get_param: EnableSQLAlchemyCollectd}
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
+                      plugin: collectd
+                      collectd_program_name: barbican
+                      collectd_host: localhost
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
 
       service_config_settings:
         map_merge:
@@ -347,9 +338,8 @@ outputs:
               preserve_properties: true
       external_deploy_tasks:
         if:
-        - thales_hsm_enabled
-        -
-          - name: Add ip addresses to the RFS server
+        - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+        - - name: Add ip addresses to the RFS server
             when: step|int == 2
             block:
               - name: get the ip addresses for the barbican nodes
@@ -427,18 +417,15 @@ outputs:
                 file:
                   path: "{{thales_rfs_playbook_dir}}"
                   state: absent
-        - null
       deploy_steps_tasks:
         list_concat:
           - get_attr: [ApacheServiceBase, role_data, deploy_steps_tasks]
           - if:
             - hsm_enabled
             - list_concat:
-              -
-                if:
-                  - thales_hsm_enabled
-                  -
-                    - name: Thales client install
+              - if:
+                  - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+                  - - name: Thales client install
                       when: step|int == 2
                       block:
                         - set_fact:
@@ -454,24 +441,18 @@ outputs:
                             map_merge:
                               - thales_install_client: true
                               - {get_param: ThalesVars}
-                  - null
-              -
-                if:
-                  - atos_hsm_enabled
-                  -
-                    - name: ATOS client install
+              - if:
+                  - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+                  - - name: ATOS client install
                       when: step|int == 2
                       block:
                       - include_role:
                           name: atos_hsm
                         vars:
                           {get_param: ATOSVars}
-                  - null
-              -
-                if:
-                  - lunasa_hsm_enabled
-                  -
-                    - name: Lunasa client install
+              - if:
+                  - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+                  - - name: Lunasa client install
                       when: step|int == 2
                       block:
                       - name: install the lunasa client
@@ -494,15 +475,13 @@ outputs:
                                       "{{$NETWORK_ip}}"
                                     params:
                                       $NETWORK: {get_param: LunasaClientIPNetwork}
-                  - null
-            - null
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
           map_merge:
           - get_attr: [BarbicanApiLogging, docker_config, step_2]
           - if:
-            - atos_hsm_enabled
+            - {get_param: BarbicanPkcs11CryptoATOSEnabled}
             - barbican_init_atos_directory:
                 image: &barbican_api_image {get_param: ContainerBarbicanApiImage}
                 net: host
@@ -515,7 +494,7 @@ outputs:
         step_3:
           map_merge:
             - if:
-              - pkcs11_plugin_enabled
+              - {get_param: BarbicanPkcs11CryptoEnabled}
               - barbican_api_create_mkek:
                   start_order: 0
                   image: *barbican_api_image
@@ -526,31 +505,21 @@ outputs:
                     list_concat:
                       - {get_attr: [ContainersCommon, volumes]}
                       - {get_attr: [BarbicanApiLogging, volumes]}
-                      -
-                        - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
+                      - - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
                         - /var/lib/config-data/barbican/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                      -
-                        if:
-                          - thales_hsm_enabled
-                          -
-                            - /lib64/libnsl.so.1:/lib64/libnsl.so.1
+                      - if:
+                          - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+                          - - /lib64/libnsl.so.1:/lib64/libnsl.so.1
                             - /opt/nfast:/opt/nfast
-                          - null
-                      -
-                        if:
-                          - atos_hsm_enabled
-                          -
-                            - /etc/proteccio:/etc/proteccio
+                      - if:
+                          - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+                          - - /etc/proteccio:/etc/proteccio
                             - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
-                          - null
-                      -
-                        if:
-                          - lunasa_hsm_enabled
-                          -
-                            - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                      - if:
+                          - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+                          - - /etc/Chrystoki.conf:/etc/Chrystoki.conf
                             - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
                             - /usr/safenet/lunaclient:/usr/safenet/lunaclient
-                          - null
                   environment:
                     # NOTE: this should force this container to re-run on each
                     # update (scale-out, etc.)
@@ -567,9 +536,8 @@ outputs:
                         - "hsm gen_mkek --label"
                         - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
                         - "'"
-              - {}
             - if:
-              - pkcs11_plugin_enabled
+              - {get_param: BarbicanPkcs11CryptoEnabled}
               - barbican_api_create_hmac:
                   start_order: 0
                   image: *barbican_api_image
@@ -593,7 +561,7 @@ outputs:
                         - "'"
               - {}
             - if:
-              - thales_hsm_enabled
+              - {get_param: BarbicanPkcs11CryptoThalesEnabled}
               - barbican_api_update_rfs_server_with_mkek_and_hmac_keys:
                   start_order: 1
                   image: *barbican_api_image
@@ -604,9 +572,8 @@ outputs:
                   environment:
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                   command: "/usr/bin/bootstrap_host_exec barbican_api /opt/nfast/bin/rfs-sync --commit"
-              - {}
             - if:
-              - thales_hsm_enabled
+              - {get_param: BarbicanPkcs11CryptoThalesEnabled}
               - barbican_api_get_mkek_and_hmac_keys_from_rfs:
                   start_order: 2
                   image: *barbican_api_image
@@ -617,7 +584,6 @@ outputs:
                   environment:
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
                   command: "/opt/nfast/bin/rfs-sync --update"
-              - {}
             - barbican_api_db_sync:
                 start_order: 3
                 image: *barbican_api_image
@@ -653,7 +619,7 @@ outputs:
                     - "db sync_secret_stores --verbose"
                     - "'"
             - if:
-              - pkcs11_rewrap_pkeks
+              - {get_param: BarbicanPkcs11CryptoRewrapKeys}
               - barbican_api_rewrap_pkeks:
                   start_order: 4
                   image: *barbican_api_image
@@ -672,7 +638,6 @@ outputs:
                         - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
                         - "hsm rewrap_pkek"
                         - "'"
-              - {}
             - barbican_api:
                 # NOTE(alee): Barbican should start after keystone processes
                 start_order: 5
@@ -690,35 +655,23 @@ outputs:
                     -
                       - /var/lib/kolla/config_files/barbican_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/barbican:/var/lib/kolla/config_files/src:ro
-                    -
-                      if:
-                        - internal_tls_enabled
-                        -
-                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                    - if:
+                        - {get_param: EnableInternalTLS}
+                        - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
                           - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                        - null
-                    -
-                      if:
-                        - thales_hsm_enabled
-                        -
-                          - /lib64/libnsl.so.1:/lib64/libnsl.so.1
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+                        - - /lib64/libnsl.so.1:/lib64/libnsl.so.1
                           - /opt/nfast:/opt/nfast
-                        - null
-                    -
-                      if:
-                        - atos_hsm_enabled
-                        -
-                          - /etc/proteccio:/etc/proteccio
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+                        - - /etc/proteccio:/etc/proteccio
                           - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
-                        - null
-                    -
-                      if:
-                        - lunasa_hsm_enabled
-                        -
-                          - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+                        - - /etc/Chrystoki.conf:/etc/Chrystoki.conf
                           - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
                           - /usr/safenet/lunaclient:/usr/safenet/lunaclient
-                        - null
                 environment: &kolla_env
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - barbican_keystone_listener:
@@ -749,31 +702,21 @@ outputs:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
                     - {get_attr: [BarbicanApiLogging, volumes]}
-                    -
-                      - /var/lib/kolla/config_files/barbican_worker.json:/var/lib/kolla/config_files/config.json:ro
+                    - - /var/lib/kolla/config_files/barbican_worker.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/barbican:/var/lib/kolla/config_files/src:ro
-                    -
-                      if:
-                        - thales_hsm_enabled
-                        -
-                          - /lib64/libnsl.so.1:/lib64/libnsl.so.1
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+                        - - /lib64/libnsl.so.1:/lib64/libnsl.so.1
                           - /opt/nfast:/opt/nfast
-                        - null
-                    -
-                      if:
-                        - atos_hsm_enabled
-                        -
-                          - /etc/proteccio:/etc/proteccio
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+                        - - /etc/proteccio:/etc/proteccio
                           - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
-                        - null
-                    -
-                      if:
-                        - lunasa_hsm_enabled
-                        -
-                          - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                    - if:
+                        - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+                        - - /etc/Chrystoki.conf:/etc/Chrystoki.conf
                           - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
                           - /usr/safenet/lunaclient:/usr/safenet/lunaclient
-                        - null
                 environment: *kolla_env
       host_prep_tasks:
         list_concat:
@@ -785,9 +728,8 @@ outputs:
                 state: yes
       scale_tasks:
         if:
-        - lunasa_hsm_enabled
-        -
-          - name: Remove HSM clients
+        - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+        - - name: Remove HSM clients
             when: step|int == 1
             tags: down
             block:
@@ -801,7 +743,6 @@ outputs:
                     - {get_param: LunasaVars}
                     - lunasa_client_pin: {get_param: BarbicanPkcs11CryptoLogin}
                     - client_name: "{{ fqdn_canonical }}"
-        - null
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       external_upgrade_tasks:
