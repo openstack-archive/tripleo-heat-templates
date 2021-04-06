@@ -54,11 +54,7 @@ parameters:
     type: string
     hidden: true
 
-conditions:
-    ceilometer_enable_gnocchi: {equals: [{get_param: CeilometerEnableGnocchi}, True]}
-
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -131,34 +127,30 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ceilometer_agent_central.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/ceilometer_agent_central.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ceilometer:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/ceilometer:/var/log/ceilometer:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_5:
-          map_merge:
-            - if:
-              - ceilometer_enable_gnocchi
-              - ceilometer_gnocchi_upgrade:
-                  start_order: 99
-                  image: *ceilometer_agent_central_image
-                  net: host
-                  detach: false
-                  privileged: false
-                  user: root
-                  volumes:
-                    list_concat:
-                      - {get_attr: [ContainersCommon, volumes]}
-                      -
-                        - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
-                        - /var/log/containers/ceilometer:/var/log/ceilometer:z
-                  command:
-                    - '/usr/bin/bootstrap_host_exec'
-                    - 'ceilometer_agent_central'
-                    - "su ceilometer -s /bin/bash -c 'for n in {1..10}; do /usr/bin/ceilometer-upgrade && exit 0 || sleep 30; done; exit 1'"
-              - {}
+          if:
+            - {get_param: CeilometerEnableGnocchi}
+            - ceilometer_gnocchi_upgrade:
+                start_order: 99
+                image: *ceilometer_agent_central_image
+                net: host
+                detach: false
+                privileged: false
+                user: root
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
+                      - /var/log/containers/ceilometer:/var/log/ceilometer:z
+                command:
+                  - '/usr/bin/bootstrap_host_exec'
+                  - 'ceilometer_agent_central'
+                  - "su ceilometer -s /bin/bash -c 'for n in {1..10}; do /usr/bin/ceilometer-upgrade && exit 0 || sleep 30; done; exit 1'"
       host_prep_tasks:
         - name: create persistent directories
           file:
