@@ -1,3 +1,11 @@
+{% set _service_nets = {} %}
+{% for network in networks if network.enabled|default(true) %}
+{%   if network.service_net_map_replace is defined %}
+{%     set _ = _service_nets.update({network.service_net_map_replace:network.name_lower}) %}
+{%   else %}
+{%     set _ = _service_nets.update({network.name_lower:network.name_lower}) %}
+{%   endif %}
+{% endfor %}
 resource_registry:
 
   OS::TripleO::SoftwareDeployment: config-download-structured.yaml
@@ -336,6 +344,10 @@ resource_registry:
 
   OS::TripleO::Services::BootParams: deployment/kernel/kernel-boot-params-baremetal-ansible.yaml
 
+parameter_merge_strategies:
+  ServiceNetMap: merge
+  VipSubnetMap: merge
+
 parameter_defaults:
   NeutronMechanismDrivers: ovn
   ContainerCli: podman
@@ -346,3 +358,95 @@ parameter_defaults:
   # Parameters generated for {{role.name}} Role
   {{role.name}}Services: {{role.ServicesDefault|default([])}}
 {% endfor %}
+
+  ServiceNetMap:
+    ApacheNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NeutronTenantNetwork: {{ _service_nets.get('tenant', 'ctlplane') }}
+    AodhApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    BarbicanApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    GnocchiApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    MongodbNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    CinderApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    CinderIscsiNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    GlanceApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    GlanceApiEdgeNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    IronicApiNetwork: ctlplane
+    IronicNetwork: ctlplane
+    IronicInspectorNetwork: ctlplane
+    KeystoneAdminApiNetwork: ctlplane # allows undercloud to config endpoints
+    KeystonePublicApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    ManilaApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NeutronApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    OctaviaApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    HeatApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    HeatApiCfnNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    HeatApiCloudwatchNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NovaApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    PlacementNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NovaMetadataNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NovaLibvirtNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    NovajoinNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    SwiftStorageNetwork: {{ _service_nets.get('storage_mgmt', 'ctlplane') }}
+    SwiftProxyNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    HorizonNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    MemcachedNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    OsloMessagingRpcNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    OsloMessagingNotifyNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    RabbitmqNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    RabbitmqManagementNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    QdrNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    RedisNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    # Guest VMs use GaneshaNetwork and cannot reach ctlplane network,
+    # so default to external when storage_nfs is not available.
+    GaneshaNetwork: {{ _service_nets.get('storage_nfs', _service_nets.get('external', 'ctlplane')) }}
+    MysqlNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    SnmpdNetwork: ctlplane
+    CephClusterNetwork: {{ _service_nets.get('storage_mgmt', 'ctlplane') }}
+    CephDashboardNetwork: {{ _service_nets.get('storage_dashboard', 'ctlplane') }}
+    CephGrafanaNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    CephMonNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    CephRgwNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    PublicNetwork: {{ _service_nets.get('external', 'ctlplane') }}
+    InternalApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    OpendaylightApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    OvnDbsNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    DockerRegistryNetwork: ctlplane
+    PacemakerNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    PacemakerRemoteNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    DesignateApiNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    DesignateMdnsNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    DesignateBindNetwork: {{ _service_nets.get('external', 'ctlplane') }}
+    BINDNetwork: {{ _service_nets.get('external', 'ctlplane') }}
+    EtcdNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    # HaproxyNetwork currently only controls the haproxy.stats network binding
+    HaproxyNetwork: ctlplane
+    UnboundNetwork: {{ _service_nets.get('external', 'ctlplane') }}
+    # We special-case the default ResolveNetwork and MetricsQdrNetwork for the Ceph roles
+    # for backwards compatibility, all other roles default to internal_api
+  {%- for role in roles %}
+  {%- if 'ceph' in role.tags|default([]) %}
+  {%- if 'Storage' in role.networks %}
+    {{role.name}}HostnameResolveNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+    {{role.name}}MetricsQdrNetwork: {{ _service_nets.get('storage', 'ctlplane') }}
+  {%- else %}
+    {{role.name}}HostnameResolveNetwork: ctlplane
+    {{role.name}}MetricsQdrNetwork: ctlplane
+  {%- endif %}
+  {%- else %}
+  {%- if 'InternalApi' in role.networks %}
+    {{role.name}}HostnameResolveNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+    {{role.name}}MetricsQdrNetwork: {{ _service_nets.get('internal_api', 'ctlplane') }}
+  {%- else %}
+    {{role.name}}HostnameResolveNetwork: ctlplane
+    {{role.name}}MetricsQdrNetwork: ctlplane
+  {%- endif %}
+  {%- endif %}
+  {%- endfor %}
+
+  VipSubnetMap:
+    ctlplane: ctlplane-subnet
+{%- for network in networks if network.vip|default(false) %}
+    {{network.name}}: {{network.name_lower}}_subnet
+{%- endfor %}
+    redis: {{ _service_nets.get('internal_api', 'ctlplane') }}_subnet
+    ovn_dbs: {{ _service_nets.get('internal_api', 'ctlplane') }}_subnet
