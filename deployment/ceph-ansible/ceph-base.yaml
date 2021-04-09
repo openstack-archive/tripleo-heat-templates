@@ -357,8 +357,6 @@ parameter_groups:
   - CephOsdPercentageMin
 
 conditions:
-  dashboard_is_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
-  msgr_secure_mode: {equals: [{get_param: CephMsgrSecureMode}, true]}
   custom_registry_host:
     yaql:
       data: {get_param: ContainerCephDaemonImage}
@@ -394,8 +392,6 @@ conditions:
     equals:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
       - 6
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  ceph_ansible_client_disabled: {equals: [{get_param: CephAnsibleSkipClient}, true]}
 
 resources:
   ContainerImageUrlParts:
@@ -423,17 +419,6 @@ resources:
           yaql:
             expression: $.data.rightSplit(':', 1)[1]
             data: {get_param: ContainerCephDaemonImage}
-
-  MsgrSecureModeOverrides:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          global:
-            ms_cluster_mode: secure
-            ms_service_mode: secure
-            ms_client_mode: secure
 
   DefaultCephConfigOverrides:
     type: OS::Heat::Value
@@ -488,34 +473,6 @@ resources:
                 - false
           extra_pools: {get_param: CephPools}
           pg_num: {get_param: CephPoolDefaultPgNum}
-
-  CephManilaPoolVars:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          data: {get_param: ManilaCephFSDataPoolName}
-          metadata: {get_param: ManilaCephFSMetadataPoolName}
-          data_pg_num: {get_param: CephPoolDefaultPgNum}
-          metadata_pg_num: {get_param: CephPoolDefaultPgNum}
-
-  CephKeyVars:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          openstack_client:
-            name: {get_param: CephClientUserName}
-            key: {get_param: CephClientKey}
-          manila:
-            name: {get_param: ManilaCephFSCephFSAuthId}
-            key: {get_param: CephManilaClientKey}
-          radosgw:
-            name: {get_param: CephRgwClientName}
-            key: {get_param: CephRgwKey}
-          extra_keys: {get_param: CephExtraKeys}
 
   CephBaseAnsibleVars:
     type: OS::Heat::Value
@@ -619,16 +576,31 @@ outputs:
             - name: set tripleo-ceph-prepare facts
               set_fact:
                 ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
-                manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
-                ceph_keys: {get_attr: [CephKeyVars, value, vars]}
+                manila_pools:
+                  data: {get_param: ManilaCephFSDataPoolName}
+                  metadata: {get_param: ManilaCephFSMetadataPoolName}
+                  data_pg_num: {get_param: CephPoolDefaultPgNum}
+                  metadata_pg_num: {get_param: CephPoolDefaultPgNum}
+                ceph_keys:
+                  openstack_client:
+                    name: {get_param: CephClientUserName}
+                    key: {get_param: CephClientKey}
+                  manila:
+                    name: {get_param: ManilaCephFSCephFSAuthId}
+                    key: {get_param: CephManilaClientKey}
+                  radosgw:
+                    name: {get_param: CephRgwClientName}
+                    key: {get_param: CephRgwKey}
+                  extra_keys: {get_param: CephExtraKeys}
                 ceph_default_overrides:
                   if:
-                  - msgr_secure_mode
-                  - yaql:
-                      expression: ($.data.default).mergeWith($.data.secure)
-                      data:
-                        default: {get_attr: [DefaultCephConfigOverrides, value, vars]}
-                        secure: {get_attr: [MsgrSecureModeOverrides, value, vars]}
+                  - {get_param: CephMsgrSecureMode}
+                  - map_merge:
+                      - {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                      - global:
+                          ms_cluster_mode: secure
+                          ms_service_mode: secure
+                          ms_client_mode: secure
                   - {get_attr: [DefaultCephConfigOverrides, value, vars]}
                 ceph_config_overrides: {get_param: CephConfigOverrides}
             - name: set ceph-ansible facts
@@ -636,17 +608,15 @@ outputs:
                 blacklisted_hostnames: {get_param: DeploymentServerBlacklist}
                 ceph_ansible_group_vars_all:
                   if:
-                  - dashboard_is_enabled
+                  - {get_param: CephEnableDashboard}
                   - map_merge:
                     - if:
-                      - internal_tls_enabled
-                      -
-                        dashboard_tls_external: true
+                      - {get_param: EnableInternalTLS}
+                      - dashboard_tls_external: true
                         dashboard_grafana_api_no_ssl_verify: true
-                      - {}
                     - {get_attr: [CephBaseAnsibleVars, value, vars]}
                     - dashboard_admin_password: {get_param: CephDashboardAdminPassword}
-                    - grafana_admin_password: {get_param: CephGrafanaAdminPassword}
+                      grafana_admin_password: {get_param: CephGrafanaAdminPassword}
                   - {get_attr: [CephBaseAnsibleVars, value, vars]}
                 ceph_ansible_extra_vars:
                   map_merge:
@@ -679,22 +649,20 @@ outputs:
           block:
             - name: set ceph-ansible facts
               set_fact:
-                map_merge:
-                  - if:
-                    - ceph_ansible_client_disabled
-                    -
-                      ceph_ansible_skip_tags:
-                        list_join:
-                          - ','
-                          - - get_param: CephAnsibleSkipTags
-                          - - 'ceph_client'
-                    - ceph_ansible_skip_tags: {get_param: CephAnsibleSkipTags}
-                  - ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
-                  - ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
-                  - ceph_ansible_environment_variables:
-                      yaql:
-                        data: {get_param: CephAnsibleEnvironmentVariables}
-                        expression: $.data.items().select($.join('='))
+                ceph_ansible_skip_tags:
+                  if:
+                    - {get_param: CephAnsibleSkipClient}
+                    - list_join:
+                        - ','
+                        - - get_param: CephAnsibleSkipTags
+                          - 'ceph_client'
+                    - {get_param: CephAnsibleSkipTags}
+                ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
+                ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
+                ceph_ansible_environment_variables:
+                  yaql:
+                    data: {get_param: CephAnsibleEnvironmentVariables}
+                    expression: $.data.items().select($.join('='))
             - name: Refresh ceph-ansible group_vars variables
               include_role:
                 name: tripleo_ceph_work_dir

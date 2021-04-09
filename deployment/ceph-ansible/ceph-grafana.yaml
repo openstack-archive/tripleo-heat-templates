@@ -72,8 +72,8 @@ parameters:
                  certificate for this service
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  key_size_override_unset: {equals: [{get_param: GrafanaCertificateKeySize}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: GrafanaCertificateKeySize}, '']}
 
 resources:
   CephBase:
@@ -135,16 +135,11 @@ outputs:
                 set_fact:
                   ceph_ansible_group_vars_grafana:
                     if:
-                    - internal_tls_enabled
-                    - yaql:
-                        data:
-                          default:
-                            map_merge:
-                            - {get_attr: [CephGrafanaAnsibleVars, value, vars]}
-                          certmap:
-                            grafana_crt: '/etc/pki/tls/certs/ceph_grafana.crt'
-                            grafana_key: '/etc/pki/tls/private/ceph_grafana.key'
-                        expression: $.data.default.mergeWith($.data.certmap)
+                    - {get_param: EnableInternalTLS}
+                    - map_merge:
+                        - {get_attr: [CephGrafanaAnsibleVars, value, vars]}
+                        - grafana_crt: '/etc/pki/tls/certs/ceph_grafana.crt'
+                          grafana_key: '/etc/pki/tls/private/ceph_grafana.key'
                     - {get_attr: [CephGrafanaAnsibleVars, value, vars]}
               - name: generate ceph-ansible grafana-server group vars
                 copy:
@@ -154,12 +149,10 @@ outputs:
       external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
       metadata_settings:
         if:
-        - internal_tls_enabled
-        -
-          - service: ceph_grafana
+        - {get_param: EnableInternalTLS}
+        - - service: ceph_grafana
             network: {get_param: [ServiceNetMap, CephGrafanaNetwork]}
             type: node
-        - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -190,7 +183,7 @@ outputs:
                       fi
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: GrafanaCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa

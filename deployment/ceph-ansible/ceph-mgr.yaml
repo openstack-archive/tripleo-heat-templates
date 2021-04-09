@@ -58,14 +58,12 @@ parameters:
                  certificate for this service
 
 conditions:
-  dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
   internal_tls_enabled:
     and:
-      - dashboard_enabled
-      - equals:
-          - get_param: EnableInternalTLS
-          - true
-  key_size_override_unset: {equals: [{get_param: CephCertificateKeySize}, '']}
+      - {get_param: CephEnableDashboard}
+      - {get_param: EnableInternalTLS}
+  key_size_override_set:
+    not: {equals: [{get_param: CephCertificateKeySize}, '']}
 
 resources:
   CephBase:
@@ -108,9 +106,8 @@ outputs:
             list_concat:
               - - '6800-7300'
               - if:
-                - dashboard_enabled
+                - {get_param: CephEnableDashboard}
                 - - {get_param: CephDashboardPort}
-                - []
       upgrade_tasks: []
       puppet_config:
         config_image: ''
@@ -132,11 +129,10 @@ outputs:
                   ceph_ansible_group_vars_mgrs:
                     if:
                     - internal_tls_enabled
-                    -
-                      map_merge:
+                    - map_merge:
                       - {get_attr: [CephMgrAnsibleVars, value, vars]}
                       - dashboard_crt: /etc/pki/tls/certs/ceph_dashboard.crt
-                      - dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
+                        dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
                     - {get_attr: [CephMgrAnsibleVars, value, vars]}
               - name: generate ceph-ansible group vars mgrs
                 copy:
@@ -147,16 +143,13 @@ outputs:
       metadata_settings:
         if:
         - internal_tls_enabled
-        -
-          - service: ceph_dashboard
+        - - service: ceph_dashboard
             network: {get_param: [ServiceNetMap, CephDashboardNetwork]}
             type: node
-        - null
       deploy_steps_tasks:
         if:
           - internal_tls_enabled
-          -
-            - name: Certificate generation
+          - - name: Certificate generation
               when: step|int == 1
               block:
                 - include_role:
@@ -183,8 +176,7 @@ outputs:
                           fi
                         key_size:
                           if:
-                            - key_size_override_unset
-                            - {get_param: CertificateKeySize}
+                            - key_size_override_set
                             - {get_param: CephCertificateKeySize}
+                            - {get_param: CertificateKeySize}
                         ca: ipa
-          - null
