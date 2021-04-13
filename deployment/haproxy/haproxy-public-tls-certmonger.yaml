@@ -48,10 +48,24 @@ parameters:
     default: ''
     description: Override the private key size used when creating the
                  certificate for this service
+  CertmongerCA:
+    type: string
+    default: ''
+    description: CA to use for certmonger
+  HAProxyCertificateDNSNames:
+    type: comma_delimited_list
+    default: []
+    description: Override the default HAProxy Certificate DNS Names
+  HAProxyCertificatePrincipal:
+    type: string
+    default: ''
+    description: Override the default HAProxy Certificate Principal
 
 conditions:
 
   key_size_override_unset: {equals: [{get_param: HAProxyCertificateKeySize}, '']}
+  principal_override_set: {not: {equals: [{get_param: HAProxyCertificatePrincipal}, '']}}
+  dnsnames_override_set: {not: {equals: [{get_param: HAProxyCertificateDNSNames}, []]}}
 
 outputs:
   role_data:
@@ -70,6 +84,8 @@ outputs:
       deploy_steps_tasks:
         - name: Certificate generation
           when: step|int == 1
+          vars:
+            certmonger_ca: {get_param: CertmongerCA}
           block:
             - name: make sure certmonger is installed
               package:
@@ -102,26 +118,39 @@ outputs:
               retries: 5
               delay: 1
               until: result.rc == 0
+              when: certmonger_ca != 'IPA' and (ipa_realm is not defined)
             - include_role:
                 name: linux-system-roles.certificate
               vars:
                 certificate_requests:
                   - name: haproxy-external-cert
                     dns:
-                      str_replace:
-                        template: "{{cloud_names.cloud_name_NETWORK}}"
-                        params:
-                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                      if:
+                        - dnsnames_override_set
+                        - {get_param: HAProxyCertificateDNSNames}
+                        - str_replace:
+                            template: "{{cloud_names.cloud_name_NETWORK}}"
+                            params:
+                              NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
                     ip:
-                      str_replace:
-                        template: "{{[cloud_names.cloud_name_NETWORK]|ipaddr}}"
-                        params:
-                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                      if:
+                        - dnsnames_override_set
+                        - str_replace:
+                            template: "{{DNSNAMES|ipaddr}}"
+                            params:
+                              DNSNAMES: {get_param: HAProxyCertificateDNSNames}
+                        - str_replace:
+                            template: "{{[cloud_names.cloud_name_NETWORK]|ipaddr}}"
+                            params:
+                              NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
                     principal:
-                      str_replace:
-                        template: "haproxy/{{cloud_names.cloud_name_NETWORK}}@{{idm_realm|default('UNDERCLOUD')}}"
-                        params:
-                          NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
+                      if:
+                        - principal_override_set
+                        - {get_param: HAProxyCertificatePrincipal}
+                        - str_replace:
+                            template: "haproxy/{{cloud_names.cloud_name_NETWORK}}@{{idm_realm|default('UNDERCLOUD')}}"
+                            params:
+                              NETWORK: {get_param: [ServiceNetMap, PublicNetwork]}
                     run_after:
                       str_replace:
                         template: |
@@ -163,4 +192,4 @@ outputs:
                         - key_size_override_unset
                         - {get_param: CertificateKeySize}
                         - {get_param: HAProxyCertificateKeySize}
-                    ca: "{{idm_realm|default|ternary('ipa','self-sign')}}"
+                    ca: "{{ (certmonger_ca == 'IPA' or idm_realm is defined) | ternary('ipa', 'self-sign') }}"
