@@ -87,24 +87,6 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate_rndc_key: {get_param: DesignateRndcKey}
-            tripleo::profile::base::designate::rndc_host:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            tripleo::profile::base::designate::rndc_allowed_addresses:
-              get_param:
-                - ServiceData
-                - net_cidr_map
-                - {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            designate::backend::bind9::rndc_host:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
           -
             if:
             - designate_workers_zero
@@ -117,12 +99,13 @@ outputs:
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
-        puppet_tags: designate_config,dns_config
+        puppet_tags: designate_config
         step_config:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
               - "include tripleo::profile::base::designate::worker"
+              - "include tripleo::profile::base::designate::backend"
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/designate_worker.json:
@@ -136,6 +119,13 @@ outputs:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
+      deploy_steps_tasks:
+          - name: generate rndc key configuration files
+            when: step|int == 4
+            import_role:
+                name: designate_rndc_config
+            vars:
+                designate_rndc_key: {get_param: DesignateRndcKey}
       docker_config:
         step_4:
           designate_worker:

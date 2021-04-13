@@ -25,9 +25,6 @@ parameters:
                  via parameter_defaults in the resource registry.  This
                  mapping overrides those in ServiceNetMapDefaults.
     type: json
-  DefaultPasswords:
-    default: {}
-    type: json
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -79,56 +76,12 @@ outputs:
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate_rndc_key: {get_param: DesignateRndcKey}
-            dns::vardir: /var/named-persistent
-            dns::recursion: 'no'
-            # Because we generate the key locally and don't want the puppet
-            # module to do it, we set its path to /dev/null.  This means we need
-            # to explicitly include /etc/rndc.key though since the default config
-            # will just include /dev/null.
-            dns::rndckeypath: /dev/null
-            dns::additional_directives:
-              - include "/etc/rndc.key";
-            dns::additional_options:
-              listen-on:
-                str_replace:
-                  template:
-                    "{ %{hiera('$NETWORK')}; }"
-                  params:
-                    $NETWORK: {get_param: [ServiceNetMap, BINDNetwork]}
-            tripleo::profile::base::designate::rndc_host:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            tripleo::profile::base::designate::rndc_allowed_addresses:
-              get_param:
-                - ServiceData
-                - net_cidr_map
-                - {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            designate::backend::bind9::rndc_host:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-      # BEGIN DOCKER SETTINGS
-      # TODO(beagles): puppet-desginate is doing some configuration in
-      # dns::options_path so it seems like we need to run this puppet here for
-      # the time being at least. I don't think there is a path from heat
-      # var->hiera->puppet->named configuration at the moment though.
+          - designate::backend::bind9::configure_bind: false
       puppet_config:
         config_volume: designate
-        puppet_tags: designate_config,dns_config
-        step_config:
-          list_join:
-            - "\n"
-            - - {get_attr: [DesignateBase, role_data, step_config]}
-              - include ::designate::backend::bind9
+        puppet_tags: designate_config
+        step_config:  {get_attr: [DesignateBase, role_data, step_config]}
         config_image: {get_param: ContainerDesignateConfigImage}
-        volumes:
-          - /var/named-persistent:/var/named-persistent:z
       kolla_config:
         /var/lib/kolla/config_files/designate_backend_bind9.json:
           command: /usr/sbin/named -u named -c /etc/named.conf -f -g
@@ -151,6 +104,24 @@ outputs:
             - path: /etc/rndc.key
               owner: root:named
               perm: '0640'
+      deploy_steps_tasks:
+          - name: generate rndc key configuration files
+            when: step|int == 4
+            import_role:
+                name: designate_rndc_config
+            vars:
+                designate_rndc_key: {get_param: DesignateRndcKey}
+                designate_rndc_key_file_path: /var/lib/config-data/ansible-generated/designate/etc/
+          - name: generate bind configuration
+            when: step|int == 4
+            import_role:
+                name: designate_bind_config
+            vars:
+                rndc_allowed_addresses:
+                    get_param:
+                      - ServiceData
+                      - net_cidr_map
+                      - {get_param: [ServiceNetMap, DesignateApiNetwork]}
       docker_config:
         step_4:
           designate_backend_bind9:
@@ -164,7 +135,7 @@ outputs:
                 -
                   - /run:/run
                   - /var/lib/kolla/config_files/designate_backend_bind9.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/ansible-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
                   - /var/named-persistent:/var/named-persistent:z
             environment:
