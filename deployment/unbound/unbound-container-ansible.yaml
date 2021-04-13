@@ -52,6 +52,21 @@ parameters:
     description: When true, Unbound will block certain queries that could
                  have security implications to the Unbound service.
     type: boolean
+  UnboundDesignateIntegration:
+    default: true
+    description: When true, Unbound will be configured to listen on an
+                 unique IP so it can co-exist with bind on same host. Set
+                 to false to run unbound independently of designate
+    type: boolean
+
+
+conditions:
+
+  public_net_is_ctlplane:
+    equals:
+      - {get_param: [ServiceData, net_vip_map, {get_param: [ServiceNetMap, UnboundNetwork]}]}
+      - {get_param: [ServiceData, net_vip_map, ctlplane]}
+
 
 resources:
 
@@ -119,9 +134,36 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/unbound, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/config-data/ansible-generated/unbound, 'setype': container_file_t, 'mode': '0750' }
+      external_deploy_tasks:
+        - name: Handle a bind and unbound collocated on the same host
+          when:
+            - step|int == 1
+          block:
+            - name: Create a neutron port for a new address
+              os_port:
+                state: present
+                network:
+                  if:
+                    - public_net_is_ctlplane
+                    - 'ctlplane'
+                    - { get_param: [ServiceNetMap, PublicNetwork] }
+                no_security_groups: True
+                name: "unbound-designate-{{ item }}-integration-port"
+              register: _unbound_designate_ports
+              with_items:
+                - "{{ groups.unbound }}"
+
+            - name: Set the unbound host ip fact
+              set_fact:
+                tripleo_unbound_listen_interfaces: "[ '{{ item.port.fixed_ips[0].ip_address }}' ]"
+              delegate_to: "{{ item.item }}"
+              delegate_facts: true
+              with_items:
+                - "{{ _unbound_designate_ports.results }}"
+
       deploy_steps_tasks:
         - name: Configure Unbound
-          when: step|int == 0
+          when: step|int == 1
           import_role:
             name: tripleo_unbound
           vars:
@@ -132,3 +174,5 @@ outputs:
             tripleo_unbound_allowed_cidrs: {get_param: UnboundAllowedCIDRs}
             tripleo_unbound_log_queries: {get_param: UnboundLogQueries}
             tripleo_unbound_security_harden: {get_param: UnboundSecurityHarden}
+            tripleo_unbound_designate_integration: {get_param: UnboundDesignateIntegration}
+            tripleo_unbound_bind_network: {if: ["public_net_is_ctlplane", "ctlplane", {get_param: [ServiceNetMap, UnboundNetwork]}]}
