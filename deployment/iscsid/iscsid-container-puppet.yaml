@@ -33,6 +33,12 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  DockerInsecureRegistryAddress:
+    description: Optional. The IP Address and Port of an insecure docker
+                 namespace that will be configured in /etc/sysconfig/docker.
+                 The value can be multiple addresses separated by commas.
+    type: comma_delimited_list
+    default: []
   DefaultPasswords:
     default: {}
     type: json
@@ -64,6 +70,9 @@ parameters:
     type: comma_delimited_list
     tags:
       - role_specific
+
+conditions:
+  insecure_registry_is_empty: {equals : [{get_param: DockerInsecureRegistryAddress}, []]}
 
 resources:
 
@@ -171,4 +180,63 @@ outputs:
           when:
             - iscsi_service_enabled_result is changed
             - iscsi_service_enabled_result.rc == 0
-      upgrade_tasks: []
+      upgrade_tasks:
+        - name: Switch iscsid to hybrid state
+          vars:
+            iscsid_image: {get_param: ContainerIscsidImage}
+          tags:
+            - never
+            - nova_hybrid_state
+          when: step|int == 0
+          block:
+            - name: Check if we need to create iscsid paunch config
+              stat:
+                path: /var/lib/tripleo-config/docker-container-hybrid_iscsid.json
+              register: hybrid_iscsid
+            - name: Implement the hybrid state (only if the compute is still Queens)
+              when: not hybrid_iscsid.stat.exists
+              block:
+                - name: Update the iscsid paunch image in config
+                  shell: |
+                    set -o pipefail
+                    jq '.iscsid.image = "{{ iscsid_image }}" | {"iscsid": .iscsid }' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_3.json >\
+                    /var/lib/tripleo-config/docker-container-hybrid_iscsid.json
+                # In case UC is registry we need to be able to resolve it
+                - name: Make sure the Undercloud hostname is included in /etc/hosts
+                  when:
+                    - undercloud_hosts_entries is defined
+                  lineinfile:
+                    dest: /etc/hosts
+                    line: "{{ undercloud_hosts_entries | join('') }}"
+                    state: present
+                - name: Set container_registry_insecure_registries fact.
+                  set_fact:
+                    container_registry_insecure_registries:
+                      if:
+                        - insecure_registry_is_empty
+                        - []
+                        - {get_param: DockerInsecureRegistryAddress}
+                - name: Set container_registry_insecure registries
+                  when: container_registry_insecure_registries != []
+                  ini_file:
+                    path: /etc/containers/registries.conf
+                    section: registries.insecure
+                    option: registries
+                    value: "{{ container_registry_insecure_registries }}"
+                  register: ini_read_result
+                - name: Restart docker
+                  when:
+                    - container_registry_insecure_registries != []
+                    - ini_read_result is changed
+                  service:
+                    name: docker
+                    state: restarted
+                - name: Remove iscsid container before applying new paunch config
+                  docker_container:
+                    name: iscsid
+                    state: absent
+                # Finally apply the paunch config to start the new iscsid
+                - name: Apply paunch config for iscsid
+                  shell: |
+                    paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_iscsid.json --config-id hybrid_iscsid
