@@ -87,6 +87,23 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  CinderRbdMultiConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring multiple RBD backends. The
+      hash key is the backend name, and the value is a dictionary of parameter
+      values unique to that backend. The following parameters are required,
+      and must match the corresponding value defined in CephExternalMultiConfig.
+        CephClusterName (must match the CephExternalMultiConfig entry's 'cluster')
+        CephClusterFSID (must match the CephExternalMultiConfig entry's 'fsid')
+      The following parameters are optional, and override the corresponding
+      parameter's default value.
+        CephClientUserName
+        CinderRbdPoolName
+        CinderRbdExtraPools
+        CinderRbdAvailabilityZone
+        CinderRbdFlattenVolumeFromSnapshot
 
 conditions:
   cvol_active_active_tls_enabled:
@@ -158,21 +175,35 @@ outputs:
   cinder_common_kolla_permissions:
     description: Common kolla permissions for cinder-volume and cinder-backup services
     value:
-      - path: /var/log/cinder
-        owner: cinder:cinder
-        recurse: true
-      - path:
-          str_replace:
-            template: /etc/ceph/CLUSTER.client.USER.keyring
-            params:
-              CLUSTER: {get_param: CephClusterName}
-              USER: {get_param: CephClientUserName}
-        owner: cinder:cinder
-        perm: '0600'
-      - path: /etc/pki/tls/certs/etcd.crt
-        owner: cinder:cinder
-      - path: /etc/pki/tls/private/etcd.key
-        owner: cinder:cinder
+      list_concat:
+        -
+          - path: /var/log/cinder
+            owner: cinder:cinder
+            recurse: true
+          - path:
+              str_replace:
+                template: /etc/ceph/CLUSTER.client.USER.keyring
+                params:
+                  CLUSTER: {get_param: CephClusterName}
+                  USER: {get_param: CephClientUserName}
+            owner: cinder:cinder
+            perm: '0600'
+          - path: /etc/pki/tls/certs/etcd.crt
+            owner: cinder:cinder
+          - path: /etc/pki/tls/private/etcd.key
+            owner: cinder:cinder
+        - repeat:
+            template:
+              path: /etc/ceph/<%keyring%>
+              owner: cinder:cinder
+              perm: '0600'
+            for_each:
+              <%keyring%>:
+                yaql:
+                  expression: let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                  data:
+                    default_user: {get_param: CephClientUserName}
+                    multiconfig: {get_param: CinderRbdMultiConfig}
 
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)

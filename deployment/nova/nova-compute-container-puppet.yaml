@@ -59,6 +59,23 @@ parameters:
     default: "/var/lib/tripleo-config/ceph"
     description: |
       The path where the Ceph Cluster config files are stored on the host.
+  CinderRbdMultiConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring multiple RBD backends. The
+      hash key is the backend name, and the value is a dictionary of parameter
+      values unique to that backend. The following parameters are required,
+      and must match the corresponding value defined in CephExternalMultiConfig.
+        CephClusterName (must match the CephExternalMultiConfig entry's 'cluster')
+        CephClusterFSID (must match the CephExternalMultiConfig entry's 'fsid')
+      The following parameters are optional, and override the corresponding
+      parameter's default value.
+        CephClientUserName
+        CinderRbdPoolName
+        CinderRbdExtraPools
+        CinderRbdAvailabilityZone
+        CinderRbdFlattenVolumeFromSnapshot
   NovaComputeOptVolumes:
     default: []
     description: list of optional volumes to be mounted
@@ -1269,6 +1286,18 @@ outputs:
                         data:
                           user: {get_param: CephClientUserName}
                           multistore: {get_param: GlanceMultistoreConfig}
+              - repeat:
+                  template:
+                    path: /etc/ceph/<%keyring%>
+                    owner: nova:nova
+                    perm: '0600'
+                  for_each:
+                    <%keyring%>:
+                      yaql:
+                        expression: let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                        data:
+                          default_user: {get_param: CephClientUserName}
+                          multiconfig: {get_param: CinderRbdMultiConfig}
       container_config_scripts:
         map_merge:
           - {get_attr: [ContainersCommon, container_config_scripts]}

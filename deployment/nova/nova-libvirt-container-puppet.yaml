@@ -84,6 +84,23 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  CinderRbdMultiConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring multiple RBD backends. The
+      hash key is the backend name, and the value is a dictionary of parameter
+      values unique to that backend. The following parameters are required,
+      and must match the corresponding value defined in CephExternalMultiConfig.
+        CephClusterName (must match the CephExternalMultiConfig entry's 'cluster')
+        CephClusterFSID (must match the CephExternalMultiConfig entry's 'fsid')
+      The following parameters are optional, and override the corresponding
+      parameter's default value.
+        CephClientUserName
+        CinderRbdPoolName
+        CinderRbdExtraPools
+        CinderRbdAvailabilityZone
+        CinderRbdFlattenVolumeFromSnapshot
   UseTLSTransportForVnc:
     type: boolean
     default: true
@@ -505,6 +522,18 @@ outputs:
                         USER: {get_param: CephClientUserName}
                   owner: nova:nova
                   perm: '0600'
+              - repeat:
+                  template:
+                    path: /etc/ceph/<%keyring%>
+                    owner: nova:nova
+                    perm: '0600'
+                  for_each:
+                    <%keyring%>:
+                      yaql:
+                        expression: let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                        data:
+                          default_user: {get_param: CephClientUserName}
+                          multiconfig: {get_param: CinderRbdMultiConfig}
         /var/lib/kolla/config_files/nova_virtlogd.json:
           command: /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
           config_files:
@@ -530,6 +559,9 @@ outputs:
                     - use_tls_for_live_migration
                     - '--listen'
                     - ''
+        nova_libvirt_init_secret.sh:
+          mode: "0755"
+          content: { get_file: ../../container_config_scripts/nova_libvirt_init_secret.sh }
       docker_config:
         step_3:
           nova_virtlogd:
@@ -671,18 +703,36 @@ outputs:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
                     -
-                      - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova:ro
+                      - /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova:/etc/nova
                       - /etc/libvirt:/etc/libvirt
                       - /run/libvirt:/run/libvirt:shared
                       - /var/lib/libvirt:/var/lib/libvirt:shared
+                      - /var/lib/container-config-scripts/nova_libvirt_init_secret.sh:/nova_libvirt_init_secret.sh:ro
+                      -
+                        str_replace:
+                          template: HOST_CEPH:/etc/ceph:ro
+                          params:
+                            HOST_CEPH: {get_param: CephConfigPath}
                 command:
-                  - /bin/bash
-                  - -c
-                  - str_replace:
-                      template: /usr/bin/virsh secret-define --file /etc/nova/secret.xml && /usr/bin/virsh secret-set-value --secret 'SECRET_UUID' --base64 'SECRET_KEY'
-                      params:
-                        SECRET_UUID: {get_param: CephClusterFSID}
-                        SECRET_KEY: {get_param: CephClientKey}
+                  list_join:
+                    - ' '
+                    - - str_replace:
+                          template:
+                            "/nova_libvirt_init_secret.sh CLUSTER:USER"
+                          params:
+                            CLUSTER: {get_param: CephClusterName}
+                            USER: {get_param: CephClientUserName}
+                    - repeat:
+                        template:
+                          <%ceph_info%>
+                        for_each:
+                          <%ceph_info%>:
+                            yaql:
+                              expression:
+                                let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}:{1}".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                              data:
+                                default_user: {get_param: CephClientUserName}
+                                multiconfig: {get_param: CinderRbdMultiConfig}
             - {}
       deploy_steps_tasks:
         list_concat:
