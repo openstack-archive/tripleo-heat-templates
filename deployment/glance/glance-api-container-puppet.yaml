@@ -298,62 +298,45 @@ parameters:
     type: string
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  glance_sparse_upload_enabled: {equals : [{get_param: GlanceSparseUploadEnabled}, true]}
   cinder_backend_enabled:
     or:
     - equals:
       - get_param: GlanceBackend
       - cinder
-    - equals:
-      - yaql:
-          expression: $.data.values().any($.get("GlanceBackend", "") = "cinder")
-          data: {get_param: GlanceMultistoreConfig}
-      - true
+    - yaql:
+        expression: $.data.values().any($.get("GlanceBackend", "") = "cinder")
+        data: {get_param: GlanceMultistoreConfig}
   cinder_multipathd_enabled:
     and:
     - cinder_backend_enabled
-    - equals:
-      - get_param: MultipathdEnable
-      - true
+    - get_param: MultipathdEnable
   rbd_backend_enabled:
     or:
     - equals:
       - get_param: GlanceBackend
       - rbd
-    - equals:
-      - yaql:
-          expression: $.data.values().any($.get("GlanceBackend", "") = "rbd")
-          data: {get_param: GlanceMultistoreConfig}
-      - true
+    - yaql:
+        expression: $.data.values().any($.get("GlanceBackend", "") = "rbd")
+        data: {get_param: GlanceMultistoreConfig}
   force_image_conversion_plugin:
     or:
       - and:
         - rbd_backend_enabled
         - equals: [{get_param: GlanceImageImportPlugins}, ['no_op']]
-        - equals: [{get_param: NovaEnableRbdBackend}, true]
-      - glance_sparse_upload_enabled
-
-  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
-  glance_workers_unset: {equals : [{get_param: GlanceWorkers}, '']}
-  glance_netapp_nfs_enabled: {equals : [{get_param: GlanceNetappNfsEnabled}, true]}
-  glance_cache_enabled: {equals : [{get_param: GlanceCacheEnabled}, true]}
+        - {get_param: NovaEnableRbdBackend}
+      - {get_param: GlanceSparseUploadEnabled}
+  glance_workers_set:
+    not: {equals : [{get_param: GlanceWorkers}, '']}
   glance_multiple_locations:
     or:
-    - {equals : [{get_param: GlanceShowMultipleLocations}, true]}
-    - glance_netapp_nfs_enabled
+    - {get_param: GlanceShowMultipleLocations}
+    - {get_param: GlanceNetappNfsEnabled}
     - and:
       # Keep this for compat, but ignore NovaEnableRbdBackend if it's a role param
       - rbd_backend_enabled
-      - equals:
-        - get_param: NovaEnableRbdBackend
-        - true
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
-
+      - get_param: NovaEnableRbdBackend
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -407,16 +390,14 @@ outputs:
                 path: /glance
                 query:
                   if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: glance
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
+                    - {get_param: EnableSQLAlchemyCollectd}
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
+                      plugin: collectd
+                      collectd_program_name: glance
+                      collectd_host: localhost
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
 
             glance::api::bind_port: {get_param: [EndpointMap, GlanceInternal, port]}
             glance::api::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
@@ -438,7 +419,7 @@ outputs:
             glance::api::authtoken::interface: 'internal'
             glance::api::pipeline:
               if:
-              - glance_cache_enabled
+              - {get_param: GlanceCacheEnabled}
               - 'keystone+cachemanagement'
               - 'keystone'
             glance::api::show_image_direct_url: true
@@ -481,7 +462,7 @@ outputs:
             # proxy in front.
             glance::api::bind_host:
               if:
-              - use_tls_proxy
+              - {get_param: EnableInternalTLS}
               - "%{hiera('localhost_address')}"
               - str_replace:
                   template:
@@ -511,45 +492,33 @@ outputs:
             tripleo::profile::base::glance::api::multistore_config: {get_param: GlanceMultistoreConfig}
             tripleo::profile::base::glance::backend::rbd::glance_rbd_ceph_conf_path: {get_param: CephConfigPath}
             glance::notify::rabbitmq::notification_driver: {get_param: NotificationDriver}
-          -
-            if:
-            - glance_workers_unset
-            - {}
+          - if:
+            - glance_workers_set
             - glance::api::workers: {get_param: GlanceWorkers}
-          -
-            if:
+          - if:
             - cinder_backend_enabled
             - glance::backend::cinder::cinder_store_auth_address: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
               glance::backend::cinder::cinder_store_project_name: 'service'
               glance::backend::cinder::cinder_store_user_name: 'glance'
               glance::backend::cinder::cinder_store_password: {get_param: GlancePassword}
               tripleo::profile::base::glance::backend::cinder::cinder_mount_point_base: {get_param: GlanceCinderMountPointBase}
-            - {}
-          -
-            if:
+          - if:
             - cinder_multipathd_enabled
             - glance::backend::cinder::cinder_use_multipath: true
-            - {}
-          -
-            if:
-            - glance_cache_enabled
+          - if:
+            - {get_param: GlanceCacheEnabled}
             - tripleo::profile::base::glance::api::glance_enable_cache: true
               glance::api::image_cache_dir: {get_param: GlanceImageCacheDir}
               glance::api::image_cache_max_size: {get_param: GlanceImageCacheMaxSize}
               glance::api::image_cache_stall_time: {get_param: GlanceImageCacheStallTime}
               glance::api::cache_prefetcher_interval: {get_param: GlanceImagePrefetcherInterval}
-            - {}
-          -
-            if:
-            - glance_netapp_nfs_enabled
+          - if:
+            - {get_param: GlanceNetappNfsEnabled}
             - tripleo::profile::base::glance::netapp::netapp_share: {get_param: NetappShareLocation}
               glance::api::filesystem_store_metadata_file: '/etc/glance/glance-metadata-file.json'
               glance::api::filesystem_store_file_perm: '0644'
-            - {}
-          -
-            if:
-            - {equals: [{get_param: GlanceDiskFormats}, []]}
-            - {}
+          - if:
+            - not: {equals: [{get_param: GlanceDiskFormats}, []]}
             - glance::api::disk_formats: {get_param: GlanceDiskFormats}
       service_config_settings:
         mysql:
@@ -572,9 +541,8 @@ outputs:
             - "\n"
             - - include tripleo::profile::base::glance::api
               - if:
-                - glance_netapp_nfs_enabled
+                - {get_param: GlanceNetappNfsEnabled}
                 - include tripleo::profile::base::glance::netapp
-                - ''
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: ContainerGlanceApiConfigImage}
       kolla_config:
@@ -591,8 +559,7 @@ outputs:
               preserve_properties: true
           permissions:
             list_concat:
-              -
-                - path: /var/lib/glance
+              - - path: /var/lib/glance
                   owner: glance:glance
                   recurse: true
                 - path:
@@ -648,8 +615,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [GlanceLogging, volumes]}
                 - {get_param: GlanceApiOptVolumes}
-                -
-                  - /var/lib/kolla/config_files/glance_api.json:/var/lib/kolla/config_files/config.json
+                - - /var/lib/kolla/config_files/glance_api.json:/var/lib/kolla/config_files/config.json
                   - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
                   - list_join:
                     - ':'
@@ -657,57 +623,51 @@ outputs:
                     - - '/var/lib/kolla/config_files/src-ceph'
                     - - 'ro'
                   - /var/lib/glance:/var/lib/glance:slave
-                -
-                  if:
+                - if:
                     - cinder_backend_enabled
                     - - /dev:/dev
                       - /etc/iscsi:/etc/iscsi
                       - /var/lib/iscsi:/var/lib/iscsi:z
-                    - []
-                -
-                  if:
+                - if:
                     - cinder_multipathd_enabled
                     - - /etc/multipath:/etc/multipath:z
                       - /etc/multipath.conf:/etc/multipath.conf:ro
-                    - []
             environment:
               KOLLA_BOOTSTRAP: true
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
             command: "/usr/bin/bootstrap_host_exec glance_api su glance -s /bin/bash -c '/usr/local/bin/kolla_start'"
         step_4:
-          map_merge:
-            - glance_api:
-                start_order: 2
+          glance_api:
+            start_order: 2
+            image: *glance_api_image
+            net: host
+            privileged: {if: [cinder_backend_enabled, true, false]}
+            restart: always
+            healthcheck:
+            test: /openstack/healthcheck
+            volumes: *glance_volumes
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          glance_api_tls_proxy:
+            if:
+              - {get_param: EnableInternalTLS}
+              - start_order: 3
                 image: *glance_api_image
                 net: host
-                privileged: {if: [cinder_backend_enabled, true, false]}
+                user: root
                 restart: always
-                healthcheck:
-                  test: /openstack/healthcheck
-                volumes: *glance_volumes
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [GlanceLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/glance_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
+                      - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-            - if:
-                - internal_tls_enabled
-                - glance_api_tls_proxy:
-                    start_order: 3
-                    image: *glance_api_image
-                    net: host
-                    user: root
-                    restart: always
-                    volumes:
-                      list_concat:
-                        - {get_attr: [ContainersCommon, volumes]}
-                        - {get_attr: [GlanceLogging, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/glance_api_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
-                          - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
-                          - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    environment:
-                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                - {}
       host_prep_tasks:
         list_concat:
         - {get_attr: [GlanceLogging, host_prep_tasks]}
