@@ -48,12 +48,10 @@ parameters:
                  certificate for this service
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  key_size_override_unset: {equals: [{get_param: RedisCertificateKeySize}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: RedisCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -94,12 +92,11 @@ outputs:
                   $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
             tripleo::profile::base::database::redis::tls_proxy_port: 6379
           - if:
-            - internal_tls_enabled
+            - {get_param: EnableInternalTLS}
             - tripleo::redis::service_certificate: '/etc/pki/tls/certs/redis.crt'
               redis_certificate_specs:
                 service_certificate: '/etc/pki/tls/certs/redis.crt'
                 service_key: '/etc/pki/tls/private/redis.key'
-            - {}
       service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -164,7 +161,7 @@ outputs:
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - if:
-                - internal_tls_enabled
+                - {get_param: EnableInternalTLS}
                 - redis_tls_proxy:
                     start_order: 2
                     image: *redis_image
@@ -183,18 +180,15 @@ outputs:
                           - /etc/pki/tls/private/redis.key:/etc/pki/tls/private/redis.key:ro
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                - {}
       metadata_settings:
         if:
-          - internal_tls_enabled
-          -
-            - service: redis
+          - {get_param: EnableInternalTLS}
+          - - service: redis
               network: {get_param: [ServiceNetMap, RedisNetwork]}
               type: vip
             - service: redis
               network: {get_param: [ServiceNetMap, RedisNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -235,9 +229,9 @@ outputs:
                       {{container_cli}} exec pkill -o -HUP stunnel
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: RedisCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         - name: create fcontext entry for redis data
@@ -298,7 +292,6 @@ outputs:
                     list_concat:
                       - - redis
                       - - if:
-                            - internal_tls_enabled
+                            - {get_param: EnableInternalTLS}
                             - - redis_tls_proxy
-                            - null
                 tripleo_delegate_to: "{{ groups['redis'] | default([]) }}"

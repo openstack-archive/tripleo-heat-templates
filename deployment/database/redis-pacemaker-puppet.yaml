@@ -82,17 +82,12 @@ parameter_groups:
   - RedisIPv6
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
-  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
-  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
   is_ipv6:
     equals:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
       - 6
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -124,12 +119,12 @@ outputs:
             redis::managed_by_cluster_manager: true
             tripleo::profile::pacemaker::database::redis_bundle::redis_docker_image: &redis_image_pcmklatest
               if:
-                - common_tag_full
+                - {get_param: ClusterFullTag}
                 - "cluster.common.tag/redis:pcmklatest"
                 - yaql:
                     data:
                       if:
-                        - common_tag_enabled
+                        - {get_param: ClusterCommonTag}
                         - yaql:
                             data: {get_param: ContainerRedisImage}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
@@ -166,7 +161,7 @@ outputs:
                   $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
             tripleo::profile::pacemaker::database::redis::tls_proxy_port: 6379
           - if:
-            - internal_tls_enabled
+            - {get_param: EnableInternalTLS}
             - redis::extra_config_file: "/etc/redis-tls.conf"
               tripleo::profile::pacemaker::database::redis_bundle::extra_config_file: "/etc/redis-tls.conf"
               tripleo::profile::pacemaker::database::redis_bundle::tls_tunnel_base_port: 6660
@@ -175,7 +170,6 @@ outputs:
                 - is_ipv6
                 - '::1'
                 - '127.0.0.1'
-            - {}
       service_config_settings: {get_attr: [RedisBase, role_data, service_config_settings]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -242,7 +236,7 @@ outputs:
       docker_config:
         step_1:
           if:
-            - internal_tls_enabled
+            - {get_param: EnableInternalTLS}
             - redis_tls_proxy:
                 start_order: 0
                 image: {get_param: ContainerRedisImage}
@@ -260,7 +254,6 @@ outputs:
                       - /var/lib/container-config-scripts/wait-port-and-run.sh:/wait-port-and-run.sh:ro
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-            - {}
       metadata_settings:
         get_attr: [RedisBase, role_data, metadata_settings]
       host_prep_tasks:

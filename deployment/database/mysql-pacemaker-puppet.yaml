@@ -86,7 +86,6 @@ parameters:
       - allowed_values: ['docker', 'podman']
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -100,11 +99,7 @@ resources:
       RoleParameters: {get_param: RoleParameters}
 
 conditions:
-  puppet_debug_enabled: {get_param: ConfigDebug}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
-  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
-  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
 
 outputs:
   role_data:
@@ -146,12 +141,12 @@ outputs:
               get_param: InternalTLSCAFile
             tripleo::profile::pacemaker::database::mysql_bundle::mysql_docker_image: &mysql_image_pcmklatest
               if:
-                - common_tag_full
+                - {get_param: ClusterFullTag}
                 - "cluster.common.tag/mariadb:pcmklatest"
                 - yaql:
                     data:
                       if:
-                        - common_tag_enabled
+                        - {get_param: ClusterCommonTag}
                         - yaql:
                             data: {get_param: ContainerMysqlImage}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
@@ -165,13 +160,10 @@ outputs:
                   "%{hiera('fqdn_$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-          -
-            if:
-            - internal_tls_enabled
-            -
-              tripleo::profile::pacemaker::database::mysql_bundle::ca_file:
-                get_param: InternalTLSCAFile
-            - {}
+            tripleo::profile::pacemaker::database::mysql_bundle::ca_file:
+              if:
+                - {get_param: EnableInternalTLS}
+                - {get_param: InternalTLSCAFile}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: mysql
@@ -276,9 +268,8 @@ outputs:
                   - 'file,file_line,concat,augeas,galera_ready,mysql_database,mysql_grant,mysql_user'
                   - 'include tripleo::profile::pacemaker::database::mysql_bundle'
                 - if:
-                  - puppet_debug_enabled
+                  - {get_param: ConfigDebug}
                   - - '--debug'
-                  - - ''
             image: {get_param: ContainerMysqlImage}
             volumes:
               list_concat:
@@ -288,7 +279,6 @@ outputs:
                 - if:
                   - docker_enabled
                   - - /etc/corosync/corosync.conf:/etc/corosync/corosync.conf:ro
-                  - null
             environment:
               # NOTE: this should force this container to re-run on each
               # update (scale-out, etc.)

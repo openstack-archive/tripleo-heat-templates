@@ -86,14 +86,13 @@ parameter_groups:
   - MysqlIPv6
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   is_ipv6:
     equals:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}
       - 6
-  innodb_buffer_pool_size: {not: {equals: [{get_param: MysqlInnodbBufferPoolSize}, '']}}
-  key_size_override_unset: {equals: [{get_param: MysqlCertificateKeySize}, '']}
+  innodb_buffer_pool_set: {not: {equals: [{get_param: MysqlInnodbBufferPoolSize}, '']}}
+  key_size_override_set:
+    not: {equals: [{get_param: MysqlCertificateKeySize}, '']}
 
 outputs:
   container_config_scripts:
@@ -107,72 +106,65 @@ outputs:
     value:
       service_name: mysql
       config_settings:
-        map_merge:
-          -
-            # The Galera package should work in cluster and
-            # non-cluster modes based on the config file.
-            # We set the package name here explicitly so
-            # that it matches what we pre-install
-            # in tripleo-puppet-elements.
-            mysql::server::package_name: 'mariadb-galera-server'
-            mysql::server::manage_config_file: true
-            mysql_ipv6: {if: [is_ipv6, true, false]}
-            mysql_max_connections: {get_param: MysqlMaxConnections}
-            mysql::server::root_password: {get_param: MysqlRootPassword}
-            mysql_clustercheck_password: {get_param: MysqlClustercheckPassword}
-            enable_galera: {get_param: EnableGalera}
-            mysql_auth_ed25519: {get_param: EnableMysqlAuthEd25519}
-            # NOTE: bind IP is found in hiera replacing the network name with the
-            # local node IP for the given network; replacement examples
-            # (eg. for internal_api):
-            # internal_api -> IP
-            # internal_api_uri -> [IP]
-            # internal_api_subnet - > IP/CIDR
-            mysql_bind_host:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-            tripleo::profile::base::database::mysql::bind_address:
-              str_replace:
-                template:
-                  "%{hiera('fqdn_$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-            tripleo::profile::base::database::mysql::client_bind_address:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
-            tripleo::profile::base::database::mysql::generate_dropin_file_limit:
-              {get_param: MysqlIncreaseFileLimit}
-          - if:
-            - internal_tls_enabled
-            -
-              tripleo::profile::base::database::mysql::certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/mysql.crt'
-                service_key: '/etc/pki/tls/private/mysql.key'
-            - {}
-          -
-            if:
-            - innodb_buffer_pool_size
-            - innodb_buffer_pool_size: {get_param: MysqlInnodbBufferPoolSize}
-            - {}
+        # The Galera package should work in cluster and
+        # non-cluster modes based on the config file.
+        # We set the package name here explicitly so
+        # that it matches what we pre-install
+        # in tripleo-puppet-elements.
+        mysql::server::package_name: 'mariadb-galera-server'
+        mysql::server::manage_config_file: true
+        mysql_ipv6: {if: [is_ipv6, true, false]}
+        mysql_max_connections: {get_param: MysqlMaxConnections}
+        mysql::server::root_password: {get_param: MysqlRootPassword}
+        mysql_clustercheck_password: {get_param: MysqlClustercheckPassword}
+        enable_galera: {get_param: EnableGalera}
+        mysql_auth_ed25519: {get_param: EnableMysqlAuthEd25519}
+        # NOTE: bind IP is found in hiera replacing the network name with the
+        # local node IP for the given network; replacement examples
+        # (eg. for internal_api):
+        # internal_api -> IP
+        # internal_api_uri -> [IP]
+        # internal_api_subnet - > IP/CIDR
+        mysql_bind_host:
+          str_replace:
+            template:
+              "%{hiera('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+        tripleo::profile::base::database::mysql::bind_address:
+          str_replace:
+            template:
+              "%{hiera('fqdn_$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+        tripleo::profile::base::database::mysql::client_bind_address:
+          str_replace:
+            template:
+              "%{hiera('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
+        tripleo::profile::base::database::mysql::generate_dropin_file_limit:
+          {get_param: MysqlIncreaseFileLimit}
+        tripleo::profile::base::database::mysql::certificate_specs:
+          if:
+            - {get_param: EnableInternalTLS}
+            - service_certificate: '/etc/pki/tls/certs/mysql.crt'
+              service_key: '/etc/pki/tls/private/mysql.key'
+        innodb_buffer_pool_size:
+          if:
+            - innodb_buffer_pool_set
+            - {get_param: MysqlInnodbBufferPoolSize}
       step_config: |
         include tripleo::profile::base::database::mysql
       metadata_settings:
         if:
-          - internal_tls_enabled
-          -
-            - service: mysql
+          - {get_param: EnableInternalTLS}
+          - - service: mysql
               network: {get_param: [ServiceNetMap, MysqlNetwork]}
               type: vip
             - service: mysql
               network: {get_param: [ServiceNetMap, MysqlNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -200,7 +192,7 @@ outputs:
                           $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: MysqlCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
