@@ -82,9 +82,10 @@ parameter_groups:
 conditions:
   internal_tls_enabled:
     and:
-      - {equals: [{get_param: EnableInternalTLS}, true]}
-      - {equals: [{get_param: EnableEtcdInternalTLS}, true]}
-  key_size_override_unset: {equals: [{get_param: EtcdCertificateKeySize}, '']}
+      - {get_param: EnableInternalTLS}
+      - {get_param: EnableEtcdInternalTLS}
+  key_size_override_set:
+    not: {equals: [{get_param: EtcdCertificateKeySize}, '']}
 
 resources:
   ContainersCommon:
@@ -103,8 +104,7 @@ outputs:
       monitoring_subscription: {get_param: MonitoringSubscriptionEtcd}
       config_settings:
         map_merge:
-        -
-          etcd::etcd_name:
+        - etcd::etcd_name:
             str_replace:
               template:
                 "%{hiera('fqdn_$NETWORK')}"
@@ -122,18 +122,15 @@ outputs:
           etcd::initial_cluster_token: {get_param: EtcdInitialClusterToken}
           etcd::manage_package: false
           etcd::manage_service: false
-        -
-          if:
+        - if:
           - internal_tls_enabled
-          -
-            tripleo::profile::base::etcd::certificate_specs:
+          - tripleo::profile::base::etcd::certificate_specs:
               service_certificate: '/etc/pki/tls/certs/etcd.crt'
               service_key: '/etc/pki/tls/private/etcd.key'
             etcd::trusted_ca_file: {get_param: InternalTLSCAFile}
             etcd::peer_trusted_ca_file: {get_param: InternalTLSCAFile}
-          -
             # Ensure etcd and cinder-volume aren't configured to use TLS
-            tripleo::profile::base::etcd::enable_internal_tls: false
+          - tripleo::profile::base::etcd::enable_internal_tls: false
             tripleo::profile::base::cinder::volume::enable_internal_tls: false
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -177,17 +174,13 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/etcd:/var/lib/etcd
+                - - /var/lib/etcd:/var/lib/etcd
                   - /var/lib/kolla/config_files/etcd.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/etcd/:/var/lib/kolla/config_files/src:ro
-                -
-                  if:
+                - if:
                     - internal_tls_enabled
-                    -
-                      - /etc/pki/tls/certs/etcd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/etcd.crt:ro
+                    - - /etc/pki/tls/certs/etcd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/etcd.crt:ro
                       - /etc/pki/tls/private/etcd.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/etcd.key:ro
-                    - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       container_puppet_tasks:
@@ -204,8 +197,7 @@ outputs:
       deploy_steps_tasks:
         if:
           - internal_tls_enabled
-          -
-            - name: Certificate generation
+          - - name: Certificate generation
               when: step|int == 1
               block:
                 - include_role:
@@ -247,11 +239,10 @@ outputs:
                           done
                         key_size:
                           if:
-                            - key_size_override_unset
-                            - {get_param: CertificateKeySize}
+                            - key_size_override_set
                             - {get_param: EtcdCertificateKeySize}
+                            - {get_param: CertificateKeySize}
                         ca: ipa
-          - null
       host_prep_tasks:
           - name: create /var/lib/etcd
             file:
@@ -261,19 +252,15 @@ outputs:
       external_deploy_tasks:
         if:
           - internal_tls_enabled
-          -
-            - name: check if ipa server has required permissions
+          - - name: check if ipa server has required permissions
               when: step|int == 1
               import_role:
                 name: tls_everywhere
                 tasks_from: ipa-server-check
-          - null
       upgrade_tasks: []
       metadata_settings:
         if:
           - internal_tls_enabled
-          -
-            - service: etcd
+          - - service: etcd
               network: {get_param: [ServiceNetMap, EtcdNetwork]}
               type: node
-          - null
