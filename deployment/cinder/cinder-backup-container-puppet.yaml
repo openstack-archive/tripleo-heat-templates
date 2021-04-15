@@ -56,6 +56,16 @@ parameters:
     type: string
     constraints:
     - allowed_values: ['swift', 'ceph', 'nfs', 'gcs', 's3']
+  CinderBackupRbdClusterName:
+    type: string
+    default: ''
+    description: The Ceph cluster where backups are to be stored. If no value
+                 is specified then the CephClusterName value is used.
+  CinderBackupRbdClientUserName:
+    default: ''
+    type: string
+    description: The Ceph client name used by the backup service. If no value
+                 is specified then the CephClientUserName value is used.
   CinderBackupRbdPoolName:
     default: backups
     type: string
@@ -135,14 +145,25 @@ outputs:
           - get_attr: [CinderBase, role_data, config_settings]
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 'ceph']}
-            - cinder::backup::ceph::backup_ceph_user: {get_param: CephClientUserName}
+            - cinder::backup::ceph::backup_ceph_user:
+                str_replace:
+                  template: USERNAME
+                  params:
+                    USERNAME:
+                      if:
+                        - {equals: [{get_param: CinderBackupRbdClientUserName}, '']}
+                        - {get_param: CephClientUserName}
+                        - {get_param: CinderBackupRbdClientUserName}
               cinder::backup::ceph::backup_ceph_pool: {get_param: CinderBackupRbdPoolName}
               cinder::backup::ceph::backup_ceph_conf:
-                list_join:
-                - ''
-                - - '/etc/ceph/'
-                  - {get_param: CephClusterName}
-                  - '.conf'
+                str_replace:
+                  template: /etc/ceph/CLUSTER.conf
+                  params:
+                    CLUSTER:
+                      if:
+                        - {equals: [{get_param: CinderBackupRbdClusterName}, '']}
+                        - {get_param: CephClusterName}
+                        - {get_param: CinderBackupRbdClusterName}
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 'swift']}
             - cinder::backup::swift::backup_swift_container: volumebackups
