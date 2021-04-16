@@ -65,6 +65,15 @@ parameters:
     default: 15
     description: The maximum number of concurrent cinder backup/restore
                  operations (0 means unlimited).
+  CinderBackupCompressionAlgorithm:
+    default: zlib
+    description: The compression algorithm used by Cinder Backup backends that
+                 are based on Cinder's "chunked" backup driver. This includes
+                 the swift, nfs, gcs and s3 backends. The ceph backend does not
+                 support the feature.
+    type: string
+    constraints:
+    - allowed_values: ['none', 'zlib', 'bzip2', 'zstd']
   CinderBackupRbdClusterName:
     type: string
     default: ''
@@ -178,23 +187,31 @@ outputs:
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 'swift']}
             - cinder::backup::swift::backup_swift_container: volumebackups
+              cinder::backup::swift::backup_compression_algorithm: {get_param: CinderBackupCompressionAlgorithm}
               cinder::backup::swift::swift_catalog_info: 'object-store:swift:internalURL'
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 'nfs']}
             - cinder::backup::nfs::backup_share: {get_param: CinderBackupNfsShare}
               cinder::backup::nfs::backup_mount_options: {get_param: CinderBackupNfsMountOptions}
+              cinder::backup::nfs::backup_compression_algorithm: {get_param: CinderBackupCompressionAlgorithm}
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 'gcs']}
             - tripleo::profile::base::cinder::backup::gcs::credentials: {get_param: CinderBackupGcsCredentials}
               cinder::backup::google::backup_gcs_project_id: {get_param: CinderBackupGcsProjectId}
               cinder::backup::google::backup_gcs_bucket: {get_param: CinderBackupGcsBucket}
               cinder::backup::google::backup_gcs_bucket_location: {get_param: CinderBackupGcsBucketLocation}
+              # cinder::backup::google does not support configuring the compression
+              # algorithm, so use cinder::config::cinder_config
+              cinder::config::cinder_config:
+                DEFAULT/backup_compression_algorithm:
+                  value: {get_param: CinderBackupCompressionAlgorithm}
           - if:
             - {equals: [{get_param: CinderBackupBackend}, 's3']}
             - cinder::backup::s3::backup_s3_endpoint_url: {get_param: CinderBackupS3EndpointUrl}
               cinder::backup::s3::backup_s3_store_access_key: {get_param: CinderBackupS3AccessKey}
               cinder::backup::s3::backup_s3_store_secret_key: {get_param: CinderBackupS3SecretKey}
               cinder::backup::s3::backup_s3_store_bucket: {get_param: CinderBackupS3Bucket}
+              cinder::backup::s3::backup_compression_algorithm: {get_param: CinderBackupCompressionAlgorithm}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_cinder_backup:
