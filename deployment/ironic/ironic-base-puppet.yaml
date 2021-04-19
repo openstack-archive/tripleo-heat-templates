@@ -57,9 +57,10 @@ parameters:
       - allowed_values: [ '', 'oslo', 'json-rpc']
 
 conditions:
-  default_rsc_unset: {equals : [{get_param: IronicDefaultResourceClass}, '']}
-  rpc_transport_unset: {equals : [{get_param: IronicRpcTransport}, '']}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
+  default_rsc_set:
+    not: {equals : [{get_param: IronicDefaultResourceClass}, '']}
+  rpc_transport_set:
+    not: {equals : [{get_param: IronicRpcTransport}, '']}
 
 outputs:
   role_data:
@@ -67,42 +68,35 @@ outputs:
     value:
       service_name: ironic_base
       config_settings:
-        map_merge:
-        -
-          ironic::database_connection:
-            make_url:
-              scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
-              username: ironic
-              password: {get_param: IronicPassword}
-              host: {get_param: [EndpointMap, MysqlInternal, host]}
-              path: /ironic
-              query:
-                if:
-                  - enable_sqlalchemy_collectd
-                  -
-                      read_default_file: /etc/my.cnf.d/tripleo.cnf
-                      read_default_group: tripleo
-                      plugin: collectd
-                      collectd_program_name: ironic
-                      collectd_host: localhost
-                  -
-                      read_default_file: /etc/my.cnf.d/tripleo.cnf
-                      read_default_group: tripleo
-
-          ironic::logging::debug:
-            if:
+        ironic::database_connection:
+          make_url:
+            scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+            username: ironic
+            password: {get_param: IronicPassword}
+            host: {get_param: [EndpointMap, MysqlInternal, host]}
+            path: /ironic
+            query:
+              if:
+                - {get_param: EnableSQLAlchemyCollectd}
+                - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+                  plugin: collectd
+                  collectd_program_name: ironic
+                  collectd_host: localhost
+                - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+        ironic::logging::debug:
+          if:
             - {get_param: IronicDebug}
             - True
             - {get_param: Debug}
-        -
+        ironic::default_resource_class:
           if:
-          - default_rsc_unset
-          - {}
-          - ironic::default_resource_class: {get_param: IronicDefaultResourceClass}
-        -
+          - default_rsc_set
+          - {get_param: IronicDefaultResourceClass}
+        ironic::rpc_transport:
           if:
-          - rpc_transport_unset
-          - {}
-          - ironic::rpc_transport: {get_param: IronicRpcTransport}
+          - rpc_transport_set
+          - {get_param: IronicRpcTransport}
       step_config: |
         include tripleo::profile::base::ironic

@@ -193,19 +193,16 @@ parameter_groups:
   - IronicInspectorUseSwift
 
 conditions:
-  enable_ipxe: {equals : [{get_param: IronicInspectorIPXEEnabled}, true]}
   use_swift:
     or:
-      - equals: [{get_param: IronicInspectorUseSwift}, true]
+      - {get_param: IronicInspectorUseSwift}
       - equals: [{get_param: IronicInspectorStorageBackend}, 'swift']
-  enable_node_discovery: {equals : [{get_param: IronicInspectorEnableNodeDiscovery}, true]}
-  ironic_inspection_subnets_not_set: {equals : [{get_param: IronicInspectorSubnets}, {}]}
+  ironic_inspection_subnets_set:
+    not: {equals : [{get_param: IronicInspectorSubnets}, {}]}
   enable_architecture_ppc64le: {contains: ['ppc64le', {get_param: AdditionalArchitectures}]}
   ipa_images: {not: {equals: [{get_param: IPAImageURLs}, []]}}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -276,9 +273,9 @@ outputs:
                    $NETWORK: {get_param: [ServiceNetMap, IronicInspectorNetwork]}
             tripleo::profile::base::ironic_inspector::inspection_subnets:
               if:
-              - ironic_inspection_subnets_not_set
-              - [{ip_range: {get_param: IronicInspectorIpRange}}]
+              - ironic_inspection_subnets_set
               - get_param: IronicInspectorSubnets
+              - [{ip_range: {get_param: IronicInspectorIpRange}}]
             ironic::inspector::dnsmasq_interface: {get_param: IronicInspectorInterface}
             ironic::inspector::dnsmasq_dhcp_hostsdir: /var/lib/ironic-inspector/dhcp-hostsdir
             ironic::inspector::pxe_filter::dnsmasq::purge_dhcp_hostsdir: false
@@ -323,48 +320,41 @@ outputs:
                 path: /ironic-inspector
                 query:
                   if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: ironic_inspector
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
+                    - {get_param: EnableSQLAlchemyCollectd}
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
+                      plugin: collectd
+                      collectd_program_name: ironic_inspector
+                      collectd_host: localhost
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
 
-          -
-            if:
-            - enable_architecture_ppc64le
-            - ironic::inspector::enable_ppc64le: true
-            - {}
-          -
-            if:
-            - enable_ipxe
-            - ironic::inspector::pxe_transfer_protocol: 'http'
-            - {}
-          -
-            if:
-            - use_swift
-            - ironic::inspector::store_data: 'swift'
-              ironic::inspector::swift::username: 'ironic'
-              ironic::inspector::swift::password: {get_param: IronicPassword}
-              ironic::inspector::swift::project_name: 'service'
-              ironic::inspector::swift::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-              ironic::inspector::swift::user_domain_name: 'Default'
-              ironic::inspector::swift::project_domain_name: 'Default'
-              ironic::inspector::swift::region_name: {get_param: KeystoneRegion}
-            - ironic::inspector::store_data: {get_param: IronicInspectorStorageBackend}
-          -
-            if:
-            - enable_node_discovery
-            - ironic::inspector::node_not_found_hook: 'enroll'
-              ironic::inspector::discovery_default_driver: {get_param: IronicInspectorDiscoveryDefaultDriver}
-            - {}
-          # Match what we do for Ironic containers
+            ironic::inspector::enable_ppc64le:
+              if:
+                - enable_architecture_ppc64le
+                - true
+            ironic::inspector::pxe_transfer_protocol:
+              if:
+                - {get_param: IronicInspectorIPXEEnabled}
+                - 'http'
+          - if:
+              - use_swift
+              - ironic::inspector::store_data: 'swift'
+                ironic::inspector::swift::username: 'ironic'
+                ironic::inspector::swift::password: {get_param: IronicPassword}
+                ironic::inspector::swift::project_name: 'service'
+                ironic::inspector::swift::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+                ironic::inspector::swift::user_domain_name: 'Default'
+                ironic::inspector::swift::project_domain_name: 'Default'
+                ironic::inspector::swift::region_name: {get_param: KeystoneRegion}
+              - ironic::inspector::store_data: {get_param: IronicInspectorStorageBackend}
+          - if:
+              - {get_param: IronicInspectorEnableNodeDiscovery}
+              - ironic::inspector::node_not_found_hook: 'enroll'
+                ironic::inspector::discovery_default_driver: {get_param: IronicInspectorDiscoveryDefaultDriver}
+                # Match what we do for Ironic containers
           - ironic::inspector::tftp_root: /var/lib/ironic/tftpboot
-          - ironic::inspector::http_root: /var/lib/ironic/httpboot
+            ironic::inspector::http_root: /var/lib/ironic/httpboot
       service_config_settings:
         mysql:
           ironic::inspector::db::mysql::password: {get_param: IronicPassword}

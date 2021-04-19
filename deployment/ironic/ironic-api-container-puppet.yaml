@@ -66,11 +66,10 @@ parameters:
     default: false
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  cors_allowed_origin_unset: {equals : [{get_param: IronicCorsAllowedOrigin}, '']}
+  cors_allowed_origin_set:
+    not: {equals : [{get_param: IronicCorsAllowedOrigin}, '']}
 
 resources:
-
   ApacheServiceBase:
     type: ../../deployment/apache/apache-baremetal-puppet.yaml
     properties:
@@ -125,12 +124,11 @@ outputs:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
           - get_attr: [ApacheServiceBase, role_data, config_settings]
-          -
-            if:
-            - cors_allowed_origin_unset
-            - {}
-            - ironic::cors::allowed_origin: {get_param: IronicCorsAllowedOrigin}
-          - ironic::api::authtoken::password: {get_param: IronicPassword}
+          - ironic::cors::allowed_origin:
+              if:
+                - cors_allowed_origin_set
+                - {get_param: IronicCorsAllowedOrigin}
+            ironic::api::authtoken::password: {get_param: IronicPassword}
             ironic::api::authtoken::project_name: 'service'
             ironic::api::authtoken::user_domain_name: 'Default'
             ironic::api::authtoken::project_domain_name: 'Default'
@@ -260,19 +258,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ironic_api.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/ironic_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic_api:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/ironic:/var/log/ironic:z
                   - /var/log/containers/httpd/ironic-api:/var/log/httpd:z
                 - if:
-                    - internal_tls_enabled
+                    - {get_param: EnableInternalTLS}
                     - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                    - []
-                - if:
-                    - internal_tls_enabled
-                    - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    - []
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
