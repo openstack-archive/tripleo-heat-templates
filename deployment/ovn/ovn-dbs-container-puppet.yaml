@@ -4,6 +4,9 @@ description: >
   OpenStack containerized Ovn DBs service
 
 parameters:
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
   ContainerOvnNbDbImage:
     description: image
     type: string
@@ -44,6 +47,27 @@ parameters:
     description: Port of the OVN Southbound DB server
     type: number
     default: 6642
+  OVNDBsVirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the virtual IP used by OVN DBs. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+  ServiceVips:
+    default: {}
+    type: json
+
+conditions:
+  ovn_dbs_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: OVNDBsVirtualFixedIPs
+        - []
+  ovn_dbs_service_vip_set:
+    not:
+      equals:
+        - get_param: [ServiceVips, ovn_dbs]
+        - ''
 
 resources:
 
@@ -202,4 +226,23 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/openvswitch, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/openvswitch/ovn, 'setype': container_file_t }
+      external_deploy_tasks:
+        - when:
+            - step|int == 0
+          name: ovn_external_deploy_init
+          block:
+            - name: create ovn_dbs virtual ip
+              tripleo_service_vip:
+                playbook_dir: "{{ playbook_dir }}"
+                stack_name: {get_param: RootStackName}
+                service_name: ovn_dbs
+                network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                fixed_ips:
+                  if:
+                    - ovn_dbs_virtual_fixed_ip_set
+                    - {get_param: OVNDBsVirtualFixedIPs}
+                    - if:
+                        - ovn_dbs_service_vip_set
+                        - [{ip_address: {get_param: [ServiceVips, ovn_dbs]}}]
+                        - [{subnet: {get_param: [ServiceData, vip_subnet_map, ovn_dbs]}}]
       upgrade_tasks: []

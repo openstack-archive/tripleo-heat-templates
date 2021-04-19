@@ -4,6 +4,9 @@ description: >
   OpenStack Redis service configured with Puppet
 
 parameters:
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
   RedisPassword:
     description: The password for the redis service account.
     type: string
@@ -42,6 +45,15 @@ parameters:
     default: false
     description: Enable IPv6 in Redis
     type: boolean
+  RedisVirtualFixedIPs:
+    default: []
+    description: >
+        Control the IP allocation for the virtual IP used by Redis. E.g.
+        [{'ip_address':'1.2.3.4'}]
+    type: json
+  ServiceVips:
+    default: {}
+    type: json
 
 parameter_groups:
 - label: deprecated
@@ -58,6 +70,16 @@ conditions:
     equals:
       - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, RedisNetwork]}]}
       - 6
+  redis_virtual_fixed_ip_set:
+    not:
+      equals:
+        - get_param: RedisVirtualFixedIPs
+        - []
+  redis_service_vip_set:
+    not:
+      equals:
+        - get_param: [ServiceVips, redis]
+        - ''
 
 outputs:
   role_data:
@@ -105,3 +127,22 @@ outputs:
               params:
                 $NETWORK: {get_param: [ServiceNetMap, RedisNetwork]}
         redis::ulimit: {get_param: RedisFDLimit}
+      external_deploy_tasks:
+        - when:
+            - step|int == 0
+          name: redis_external_deploy_init
+          block:
+            - name: create redis virtual ip
+              tripleo_service_vip:
+                playbook_dir: "{{ playbook_dir }}"
+                stack_name: {get_param: RootStackName}
+                service_name: redis
+                network: {get_param: [ServiceNetMap, RedisNetwork]}
+                fixed_ips:
+                  if:
+                    - redis_virtual_fixed_ip_set
+                    - {get_param: RedisVirtualFixedIPs}
+                    - if:
+                        - redis_service_vip_set
+                        - [{ip_address: {get_param: [ServiceVips, redis]}}]
+                        - [{subnet: {get_param: [ServiceData, vip_subnet_map, redis]}}]
