@@ -255,14 +255,15 @@ parameters:
     type: string
 
 conditions:
-  default_deploy_interface_unset: {equals : [{get_param: IronicDefaultDeployInterface}, '']}
-  default_inspect_interface_unset: {equals : [{get_param: IronicDefaultInspectInterface}, '']}
+  default_deploy_interface_set:
+    not: {equals : [{get_param: IronicDefaultDeployInterface}, '']}
+  default_inspect_interface_set:
+    not: {equals : [{get_param: IronicDefaultInspectInterface}, '']}
   service_debug:
     or:
       - {get_param: IronicDebug}
       - {get_param: Debug}
   enable_architecture_ppc64le: {contains: ['ppc64le', {get_param: AdditionalArchitectures}]}
-  configure_swift_temp_url: {equals: [{get_param: IronicConfigureSwiftTempUrlKey}, true]}
   ironic_conductor_group:
     or:
       - not: {equals: [{get_param: IronicConductorGroup}, '']}
@@ -324,24 +325,18 @@ outputs:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
           - get_attr: [RoleParametersValue, value]
-          -
-            if:
-            - default_deploy_interface_unset
-            - {}
+          - if:
+            - default_deploy_interface_set
             - ironic::drivers::interfaces::default_deploy_interface: {get_param: IronicDefaultDeployInterface}
-          -
-            if:
-            - default_inspect_interface_unset
-            - {}
+          - if:
+            - default_inspect_interface_set
             - ironic::drivers::interfaces::default_inspect_interface: {get_param: IronicDefaultInspectInterface}
-          -
-            if:
+          - if:
             - enable_architecture_ppc64le
             - ironic::pxe::enable_ppc64le: true
               ironic::conductor::power_state_change_timeout: 60
               ironic::drivers::ipmi::command_retry_timeout: 120
               ironic::drivers::ipmi::min_command_interval: 15
-            - {}
           - ironic::conductor::cleaning_disk_erase: {get_param: IronicCleaningDiskErase}
             ironic::conductor::default_boot_option: {get_param: IronicDefaultBootOption}
             ironic::conductor::automated_clean: {get_param: IronicAutomatedClean}
@@ -541,44 +536,40 @@ outputs:
 
       docker_config:
         step_4:
-          map_merge:
-            - if:
-              - configure_swift_temp_url
-              - create_swift_temp_url_key:
-                  start_order: 70
-                  image: &ironic_conductor_image {get_param: ContainerIronicConductorImage}
-                  net: host
-                  detach: false
-                  volumes:
-                    list_concat:
-                      - {get_attr: [ContainersCommon, volumes]}
-                      -
-                        - /var/lib/config-data/puppet-generated/ironic/etc/ironic:/etc/ironic:ro
-                        - /var/lib/container-config-scripts/create_swift_temp_url_key.sh:/create_swift_temp_url_key.sh:ro
-                  user: root
-                  command: "/usr/bin/bootstrap_host_exec ironic_conductor /create_swift_temp_url_key.sh"
-              - {}
-            - ironic_conductor:
-                start_order: 80
-                image: *ironic_conductor_image
+          create_swift_temp_url_key:
+            if:
+              - {get_param: IronicConfigureSwiftTempUrlKey}
+              - start_order: 70
+                image: &ironic_conductor_image {get_param: ContainerIronicConductorImage}
                 net: host
-                privileged: true
-                restart: always
-                healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
+                detach: false
                 volumes:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
-                    -
-                      - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
-                      - /var/lib/config-data/puppet-generated/ironic:/var/lib/kolla/config_files/src:ro
-                      - /lib/modules:/lib/modules:ro
-                      - /sys:/sys
-                      - /dev:/dev
-                      - /run:/run #shared?
-                      - /var/lib/ironic:/var/lib/ironic:z
-                      - /var/log/containers/ironic:/var/log/ironic:z
-                environment:
-                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                    - - /var/lib/config-data/puppet-generated/ironic/etc/ironic:/etc/ironic:ro
+                      - /var/lib/container-config-scripts/create_swift_temp_url_key.sh:/create_swift_temp_url_key.sh:ro
+                user: root
+                command: "/usr/bin/bootstrap_host_exec ironic_conductor /create_swift_temp_url_key.sh"
+          ironic_conductor:
+              start_order: 80
+              image: *ironic_conductor_image
+              net: host
+              privileged: true
+              restart: always
+              healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
+              volumes:
+                list_concat:
+                  - {get_attr: [ContainersCommon, volumes]}
+                  - - /var/lib/kolla/config_files/ironic_conductor.json:/var/lib/kolla/config_files/config.json:ro
+                    - /var/lib/config-data/puppet-generated/ironic:/var/lib/kolla/config_files/src:ro
+                    - /lib/modules:/lib/modules:ro
+                    - /sys:/sys
+                    - /dev:/dev
+                    - /run:/run #shared?
+                    - /var/lib/ironic:/var/lib/ironic:z
+                    - /var/log/containers/ironic:/var/log/ironic:z
+              environment:
+                KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         - name: load iscsi_tcp module
           import_role:
