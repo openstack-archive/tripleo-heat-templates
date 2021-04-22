@@ -247,6 +247,38 @@ outputs:
                 name: virt_sandbox_use_netlink
                 persistent: yes
                 state: yes
+      deploy_steps_tasks:
+        - name: Clean up when switching cinder-backup from pcmk to active-active
+          when:
+            - step|int == 1
+          become: true
+          block:
+            - name: Check if cinder-backup is running under pacemaker
+              command: "pcs status"
+              register: cinder_backup_pcs_status
+              check_mode: false
+              failed_when: false
+              changed_when: false
+
+            - when:
+              - '"cinder-backup" in cinder_backup_pcs_status.stdout'
+              block:
+                - name: Remove the openstack-cinder-backup pcs resource
+                  pacemaker_resource:
+                    resource: openstack-cinder-backup
+                    state: delete
+                  run_once: true
+
+                - name: Identify the cinder-backup pcmklatest container image
+                  shell: "{{container_cli}} images | awk '$1 ~ \"cinder-backup\" && $2 == \"pcmklatest\" {print $1\":\"$2}'"
+                  register: cinder_backup_pcmklatest_image
+                  check_mode: false
+                  changed_when: false
+
+                - name: Remove the cinder-backup pcmklatest container image
+                  command: "{{container_cli}} rmi {{cinder_backup_pcmklatest_image.stdout}}"
+                  when:
+                    - cinder_backup_pcmklatest_image.stdout|length > 0
       external_upgrade_tasks:
         - when:
             - step|int == 1
