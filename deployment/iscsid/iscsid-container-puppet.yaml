@@ -181,20 +181,34 @@ outputs:
             - iscsi_service_enabled_result is changed
             - iscsi_service_enabled_result.rc == 0
       upgrade_tasks:
+        # nova_hybrid_state
+        - name: Gather missing facts
+          setup:
+            gather_subset: "distribution"
+          when: >-
+            ansible_facts['distribution'] is not defined or
+            ansible_facts['distribution_major_version'] is not defined
+          tags:
+            - never
+            - nova_hybrid_state
         - name: Switch iscsid to hybrid state
           vars:
             iscsid_image: {get_param: ContainerIscsidImage}
           tags:
             - never
             - nova_hybrid_state
-          when: step|int == 0
+          when:
+            - step|int == 0
+            - ansible_facts['distribution'] == 'RedHat'
+            - ansible_facts['distribution_major_version'] is version('7', '==')
           block:
-            - name: Check if we need to create iscsid paunch config
-              stat:
-                path: /var/lib/tripleo-config/docker-container-hybrid_iscsid.json
+            - name: Check if iscsid is running with proper image
+              shell: |
+                docker ps | grep "{{iscsid_image}}"
+              failed_when: false
               register: hybrid_iscsid
             - name: Implement the hybrid state (only if the compute is still Queens)
-              when: not hybrid_iscsid.stat.exists
+              when: hybrid_iscsid.rc != 0
               block:
                 - name: Update the iscsid paunch image in config
                   shell: |
@@ -225,13 +239,24 @@ outputs:
                     option: registries
                     value: "{{ container_registry_insecure_registries }}"
                   register: ini_read_result
-                - name: Restart docker
+                - name: Restart docker and apply the paunch config
                   when:
                     - container_registry_insecure_registries != []
                     - ini_read_result is changed
-                  service:
-                    name: docker
-                    state: restarted
+                  shell: |
+                    set -o pipefail
+                    # Get list of running containers
+                    RUNNING="$( docker ps --format '{{ '{{' }}.Names{{ '}}' }}' )"
+                    # Restart docker
+                    systemctl restart docker
+                    # Compare running containers now vs before
+                    TO_STOP="$(grep -v -f <(echo "${RUNNING}")  <(docker ps --format '{{ '{{' }}.Names{{ '}}' }}'))"
+                    # Check if we need to stop anything and stop it
+                    if [ -n "${TO_STOP}" ]; then
+                      echo "${TO_STOP}" | xargs -r docker stop
+                    fi
+                  args:
+                    executable: /usr/bin/bash
                 - name: Remove iscsid container before applying new paunch config
                   docker_container:
                     name: iscsid

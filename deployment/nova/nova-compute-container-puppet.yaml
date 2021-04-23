@@ -1278,20 +1278,34 @@ outputs:
                 - ksmtuned.service
       external_post_deploy_tasks: {get_attr: [NovaComputeCommon, nova_compute_common_deploy_steps_tasks]}
       upgrade_tasks:
+        # nova_hybrid_state
+        - name: Gather missing facts
+          setup:
+            gather_subset: "distribution"
+          when: >-
+            ansible_facts['distribution'] is not defined or
+            ansible_facts['distribution_major_version'] is not defined
+          tags:
+            - never
+            - nova_hybrid_state
         - name: Switch compute to hybrid state
           vars:
             nova_compute_image: {get_param: ContainerNovaComputeImage}
           tags:
             - never
             - nova_hybrid_state
-          when: step|int == 0
+          when:
+            - step|int == 0
+            - ansible_facts['distribution'] == 'RedHat'
+            - ansible_facts['distribution_major_version'] is version('7', '==')
           block:
-            - name: Check if we need to create nova_compute paunch config
-              stat:
-                path: /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
+            - name: Check if nova_compute is running with proper image
+              shell: |
+                docker ps | grep "{{nova_compute_image}}"
+              failed_when: false
               register: hybrid_nova_compute
             - name: Implement the hybrid state (only if the compute is still Queens)
-              when: not hybrid_nova_compute.stat.exists
+              when: hybrid_nova_compute.rc != 0
               block:
                 - name: Update the nova_compute paunch image in config
                   shell: |

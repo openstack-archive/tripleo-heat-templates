@@ -247,20 +247,34 @@ outputs:
       metadata_settings:
         get_attr: [NeutronBase, role_data, metadata_settings]
       upgrade_tasks:
+        # nova_hybrid_state
+        - name: Gather missing facts
+          setup:
+            gather_subset: "distribution"
+          when: >-
+            ansible_facts['distribution'] is not defined or
+            ansible_facts['distribution_major_version'] is not defined
+          tags:
+            - never
+            - nova_hybrid_state
         - name: Switch sriov-agent to hybrid state
           vars:
             neutron_sriov_image: {get_param: ContainerNeutronSriovImage}
           tags:
             - never
             - nova_hybrid_state
-          when: step|int == 0
+          when:
+            - step|int == 0
+            - ansible_facts['distribution'] == 'RedHat'
+            - ansible_facts['distribution_major_version'] is version('7', '==')
           block:
-            - name: Check if we need to create neutron_sriov paunch config
-              stat:
-                path: /var/lib/tripleo-config/docker-container-hybrid_neutron_sriov.json
+            - name: Check if neutron_sriov is running with proper image
+              shell: |
+                docker ps | grep "{{neutron_sriov_image}}"
+              failed_when: false
               register: hybrid_neutron_sriov
             - name: Implement the hybrid state for neutron_sriov_agent
-              when: not hybrid_neutron_sriov.stat.exists
+              when: hybrid_neutron_sriov != 0
               block:
                 - name: Update the neutron_sriov_agent paunch image in config
                   shell: |
