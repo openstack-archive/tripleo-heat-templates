@@ -101,6 +101,10 @@ parameters:
     default: ''
     description: Override the private key size used when creating the
                  certificate for this service
+  RabbitmqEnableManagementAccess:
+    type: boolean
+    default: false
+    description: Allow access to RabbitMQ management plugin over network
 
 parameter_groups:
 - label: deprecated
@@ -134,10 +138,14 @@ outputs:
       firewall_rules:
         '109 rabbitmq':
           dport:
-            - 4369
-            - 5672
-            - 25672
-            - 25673-25683
+            list_concat:
+              - - 4369
+                - 5672
+                - 25672
+                - 25673-25683
+              - if:
+                - {get_param: RabbitmqEnableManagementAccess}
+                - - 15672
       monitoring_subscription: {get_param: MonitoringSubscriptionRabbitmq}
       # RabbitMQ plugins initialization occurs on every node
       config_settings:
@@ -213,7 +221,16 @@ outputs:
           - rabbitmq::admin_enable: false
             rabbitmq::management_enable: true
             rabbitmq::use_config_file_for_plugins: true
-            rabbitmq::management_ip_address: 127.0.0.1
+            rabbitmq::management_ip_address:
+              if:
+                - {get_param: RabbitmqEnableManagementAccess}
+                - str_replace:
+                    template:
+                      "%{hiera('$NETWORK')}"
+                    params:
+                      $NETWORK: {get_param: [ServiceNetMap, RabbitmqManagementNetwork]}
+                - 127.0.0.1
+            rabbitmq::management_port: 15672
             rabbitmq::config_management_variables:
               rates_mode: none
           - if:
