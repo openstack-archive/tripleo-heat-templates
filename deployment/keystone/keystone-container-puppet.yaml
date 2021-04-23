@@ -181,6 +181,56 @@ parameters:
     type: comma_delimited_list
     default: 'noop'
     description: Driver or drivers to handle sending notifications.
+  KeystoneEnableDBPurge:
+    default: true
+    description: |
+      Whether to create cron job for purging soft deleted rows in Keystone database.
+    type: boolean
+  KeystoneCronTrustFlushEnsure:
+    type: string
+    description: >
+      Cron to purge expired or soft-deleted trusts - Ensure
+    default: 'present'
+  KeystoneCronTrustFlushMinute:
+    type: comma_delimited_list
+    description: >
+      Cron to purge expired or soft-deleted trusts - Minute
+    default: '1'
+  KeystoneCronTrustFlushHour:
+    type: comma_delimited_list
+    description: >
+      Cron to purge expired or soft-deleted trusts - Hour
+    default: '*'
+  KeystoneCronTrustFlushMonthday:
+    type: comma_delimited_list
+    description: >
+      Cron to purge expired or soft-deleted trusts - Month Day
+    default: '*'
+  KeystoneCronTrustFlushMonth:
+    type: comma_delimited_list
+    description: >
+      Cron to purge expired or soft-deleted trusts - Month
+    default: '*'
+  KeystoneCronTrustFlushWeekday:
+    type: comma_delimited_list
+    description: >
+      Cron to purge expired or soft-deleted trusts - Week Day
+    default: '*'
+  KeystoneCronTrustFlushMaxDelay:
+    type: number
+    description: >
+      Cron to purge expired or soft-deleted trusts - Max Delay
+    default: 0
+  KeystoneCronTrustFlushDestination:
+    type: string
+    description: >
+      Cron to purge expired or soft-deleted trusts - Log destination
+    default: '/var/log/keystone/keystone-trustflush.log'
+  KeystoneCronTrustFlushUser:
+    type: string
+    description: >
+      Cron to purge expired or soft-deleted trusts - User
+    default: 'keystone'
   KeystoneChangePasswordUponFirstUse:
     type: string
     default: ''
@@ -437,6 +487,16 @@ outputs:
             keystone::notification_driver: {get_param: NotificationDriver}
             keystone::notification_format: {get_param: KeystoneNotificationFormat}
             tripleo::profile::base::keystone::extra_notification_topics: {get_param: KeystoneNotificationTopics}
+            keystone_enable_db_purge: {get_param: KeystoneEnableDBPurge}
+            keystone::cron::trust_flush::ensure: {get_param: KeystoneCronTrustFlushEnsure}
+            keystone::cron::trust_flush::minute: {get_param: KeystoneCronTrustFlushMinute}
+            keystone::cron::trust_flush::hour: {get_param: KeystoneCronTrustFlushHour}
+            keystone::cron::trust_flush::monthday: {get_param: KeystoneCronTrustFlushMonthday}
+            keystone::cron::trust_flush::month: {get_param: KeystoneCronTrustFlushMonth}
+            keystone::cron::trust_flush::weekday: {get_param: KeystoneCronTrustFlushWeekday}
+            keystone::cron::trust_flush::maxdelay: {get_param: KeystoneCronTrustFlushMaxDelay}
+            keystone::cron::trust_flush::destination: {get_param: KeystoneCronTrustFlushDestination}
+            keystone::cron::trust_flush::user: {get_param: KeystoneCronTrustFlushUser}
             keystone::rabbit_heartbeat_timeout_threshold: 60
             keystone::service_name: 'httpd'
             keystone::enable_ssl: {get_param: EnableInternalTLS}
@@ -638,6 +698,15 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/keystone_cron.json:
+          # FIXME(dprince): this is unused ATM because Kolla hardcodes the
+          # args for the keystone container to -DFOREGROUND
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
@@ -700,6 +769,25 @@ outputs:
               OS_BOOTSTRAP_PUBLIC_URL: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
               OS_BOOTSTRAP_INTERNAL_URL: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
               OS_BOOTSTRAP_REGION_ID: {get_param: KeystoneRegion}
+          keystone_cron:
+            start_order: 4
+            image: *keystone_image
+            user: root
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: '/usr/share/openstack-tripleo-common/healthcheck/cron keystone'
+            command: ['/bin/bash', '-c', '/usr/local/bin/kolla_set_configs && /usr/sbin/crond -n']
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                -
+                  - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone/:/var/lib/kolla/config_files/src:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_4:
           # There are cases where we need to refresh keystone after the resource provisioning,
           # such as the case of using LDAP backends for domains. So we trigger a graceful
