@@ -65,14 +65,12 @@ parameters:
                  certificate for this service
 
 conditions:
-  dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
   internal_tls_enabled:
     and:
-      - dashboard_enabled
-      - equals:
-          - get_param: EnableInternalTLS
-          - true
-  key_size_override_unset: {equals: [{get_param: CephCertificateKeySize}, '']}
+      - {get_param: CephEnableDashboard}
+      - {get_param: EnableInternalTLS}
+  key_size_override_set:
+    not: {equals: [{get_param: CephCertificateKeySize}, '']}
 
 resources:
   CephBase:
@@ -112,9 +110,8 @@ outputs:
             list_concat:
               - - '6800-7300'
               - if:
-                - dashboard_enabled
+                - {get_param: CephEnableDashboard}
                 - - {get_param: CephDashboardPort}
-                - []
       upgrade_tasks: []
       puppet_config:
         config_image: ''
@@ -133,26 +130,21 @@ outputs:
                 set_fact:
                   ceph_dashboard_vars:
                     if:
-                    - dashboard_enabled
-                    - map_merge:
+                      - {get_param: CephEnableDashboard}
                       - if:
                         - internal_tls_enabled
-                        -
-                          map_merge:
-                          - {get_attr: [CephMgrAnsibleVars, value, vars]}
-                          - tripleo_cephadm_dashboard_crt: /etc/pki/tls/certs/ceph_dashboard.crt
-                          - tripleo_cephadm_dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
-                          - tripleo_cephadm_dashboard_grafana_api_no_ssl_verify: true
+                        - map_merge:
+                            - {get_attr: [CephMgrAnsibleVars, value, vars]}
+                            - tripleo_cephadm_dashboard_crt: /etc/pki/tls/certs/ceph_dashboard.crt
+                            - tripleo_cephadm_dashboard_key: /etc/pki/tls/private/ceph_dashboard.key
+                            - tripleo_cephadm_dashboard_grafana_api_no_ssl_verify: true
                         - {get_attr: [CephMgrAnsibleVars, value, vars]}
-                    - {}
       metadata_settings:
         if:
         - internal_tls_enabled
-        -
-          - service: ceph_dashboard
+        - - service: ceph_dashboard
             network: {get_param: [ServiceNetMap, CephDashboardNetwork]}
             type: node
-        - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -183,7 +175,7 @@ outputs:
                       fi
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: CephCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
