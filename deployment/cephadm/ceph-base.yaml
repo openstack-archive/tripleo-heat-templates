@@ -383,18 +383,10 @@ parameter_groups:
   - CephOsdPercentageMin
 
 conditions:
-  msgr_secure_mode: {equals: [{get_param: CephMsgrSecureMode}, true]}
   custom_registry_host:
     yaql:
       data: {get_param: ContainerCephDaemonImage}
       expression: $.data.split('/')[0].matches('(\.|:)')
-  perform_upgrade:
-    equals: [{get_param: StackUpdateType}, 'UPGRADE']
-  ceph_ansible_skip_tags_set:
-    not:
-      equals:
-        - {get_param: CephAnsibleSkipTags}
-        - ''
   ceph_authenticated_registry:
       and:
       - not:
@@ -415,11 +407,6 @@ conditions:
                 expression: let(location => $.data.rightSplit(':', 1)[0]) -> regex('(?:https?://)?(.*?)/(.*)').split($location)[1]
                 data: {get_param: ContainerCephDaemonImage}
             expression: let(c => $.data.cred) -> $c.get($.data.ns, {}).values().last(default => "").isEmpty()
-  is_ipv6:
-    equals:
-      - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, CephMonNetwork]}]}
-      - 6
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
 
 resources:
   ContainerImageUrlParts:
@@ -448,98 +435,15 @@ resources:
             expression: $.data.rightSplit(':', 1)[1]
             data: {get_param: ContainerCephDaemonImage}
 
-  MsgrSecureModeOverrides:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          global:
-            ms_cluster_mode: secure
-            ms_service_mode: secure
-            ms_client_mode: secure
-
   DefaultCephConfigOverrides:
     type: OS::Heat::Value
     properties:
       type: json
       value:
         vars:
-          global:
-            osd_pool_default_size: {get_param: CephPoolDefaultSize}
-            osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
-            osd_pool_default_pgp_num: {get_param: CephPoolDefaultPgNum}
-
-  CephBasePoolVars:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          gnocchi_pool:
-            name: {get_param: GnocchiRbdPoolName}
-            enabled:
-              if:
-                - equals:
-                    - {get_param: GnocchiBackend}
-                    - 'rbd'
-                - true
-                - false
-          nova_pool:
-            name: {get_param: NovaRbdPoolName}
-            enabled: {get_param: NovaEnableRbdBackend}
-          glance_pool:
-            name: {get_param: GlanceRbdPoolName}
-            enabled:
-              if:
-                - equals:
-                    - {get_param: GlanceBackend}
-                    - 'rbd'
-                - true
-                - false
-          cinder_pool:
-            name: {get_param: CinderRbdPoolName}
-            enabled: {get_param: CinderEnableRbdBackend}
-            cinder_extra_pools: {get_param: CinderRbdExtraPools}
-          cinder_backup_pool:
-            name: {get_param: CinderBackupRbdPoolName}
-            enabled:
-              if:
-                - equals:
-                    - {get_param: CinderBackupBackend}
-                    - 'ceph'
-                - true
-                - false
-          extra_pools: {get_param: CephPools}
-          pg_num: {get_param: CephPoolDefaultPgNum}
-
-  CephManilaPoolVars:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          data: {get_param: ManilaCephFSDataPoolName}
-          metadata: {get_param: ManilaCephFSMetadataPoolName}
-          data_pg_num: {get_param: CephPoolDefaultPgNum}
-          metadata_pg_num: {get_param: CephPoolDefaultPgNum}
-
-  CephKeyVars:
-    type: OS::Heat::Value
-    properties:
-      type: json
-      value:
-        vars:
-          openstack_client:
-            name: {get_param: CephClientUserName}
-            key: {get_param: CephClientKey}
-          manila:
-            name: {get_param: ManilaCephFSCephFSAuthId}
-            key: {get_param: CephManilaClientKey}
-          radosgw:
-            name: {get_param: CephRgwClientName}
-            key: {get_param: CephRgwKey}
-          extra_keys: {get_param: CephExtraKeys}
+          osd_pool_default_size: {get_param: CephPoolDefaultSize}
+          osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
+          osd_pool_default_pgp_num: {get_param: CephPoolDefaultPgNum}
 
   CephAdmVars:
     type: OS::Heat::Value
@@ -606,26 +510,75 @@ outputs:
                 name: tripleo_run_cephadm
                 tasks_from: prepare.yml
               vars:
-                ceph_pools: {get_attr: [CephBasePoolVars, value, vars]}
-                manila_pools: {get_attr: [CephManilaPoolVars, value, vars]}
-                ceph_keys: {get_attr: [CephKeyVars, value, vars]}
+                ceph_pools:
+                  gnocchi_pool:
+                    name: {get_param: GnocchiRbdPoolName}
+                    enabled:
+                      if:
+                        - equals:
+                            - {get_param: GnocchiBackend}
+                            - 'rbd'
+                        - true
+                        - false
+                  nova_pool:
+                    name: {get_param: NovaRbdPoolName}
+                    enabled: {get_param: NovaEnableRbdBackend}
+                  glance_pool:
+                    name: {get_param: GlanceRbdPoolName}
+                    enabled:
+                      if:
+                        - equals:
+                            - {get_param: GlanceBackend}
+                            - 'rbd'
+                        - true
+                        - false
+                  cinder_pool:
+                    name: {get_param: CinderRbdPoolName}
+                    enabled: {get_param: CinderEnableRbdBackend}
+                    cinder_extra_pools: {get_param: CinderRbdExtraPools}
+                  cinder_backup_pool:
+                    name: {get_param: CinderBackupRbdPoolName}
+                    enabled:
+                      if:
+                        - equals:
+                            - {get_param: CinderBackupBackend}
+                            - 'ceph'
+                        - true
+                        - false
+                  extra_pools: {get_param: CephPools}
+                  pg_num: {get_param: CephPoolDefaultPgNum}
+                manila_pools:
+                  data: {get_param: ManilaCephFSDataPoolName}
+                  metadata: {get_param: ManilaCephFSMetadataPoolName}
+                  data_pg_num: {get_param: CephPoolDefaultPgNum}
+                  metadata_pg_num: {get_param: CephPoolDefaultPgNum}
+                ceph_keys:
+                  openstack_client:
+                    name: {get_param: CephClientUserName}
+                    key: {get_param: CephClientKey}
+                  manila:
+                    name: {get_param: ManilaCephFSCephFSAuthId}
+                    key: {get_param: CephManilaClientKey}
+                  radosgw:
+                    name: {get_param: CephRgwClientName}
+                    key: {get_param: CephRgwKey}
+                  extra_keys: {get_param: CephExtraKeys}
                 ceph_config_overrides: {get_param: CephConfigOverrides}
                 tripleo_run_cephadm_spec_path: {get_param: CephSpecPath}
                 tripleo_cephadm_dynamic_spec: {get_param: CephDynamicSpec}
                 ceph_spec_fqdn: {get_param: CephSpecFqdn}
                 ceph_osd_spec: {get_param: CephOsdSpec}
                 ceph_default_overrides:
-                  if:
-                    - msgr_secure_mode
-                    - yaql:
-                        expression: ($.data.default).mergeWith($.data.secure)
-                        data:
-                          default: {get_attr: [DefaultCephConfigOverrides, value, vars]}
-                          secure: {get_attr: [MsgrSecureModeOverrides, value, vars]}
-                    - {get_attr: [DefaultCephConfigOverrides, value, vars]}
-                cephadm_extra_vars:  # cephadm execution
-                  map_merge:
-                    - {get_attr: [CephAdmVars, value, vars]}
+                  global:
+                    if:
+                      - {get_param: CephMsgrSecureMode}
+                      - map_merge:
+                          - {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                          - ms_cluster_mode: secure
+                            ms_service_mode: secure
+                            ms_client_mode: secure
+                      - {get_attr: [DefaultCephConfigOverrides, value, vars]}
+                cephadm_extra_vars: {get_attr: [CephAdmVars, value, vars]}
                 ceph_admin_extra_vars:  # user creation
                   tripleo_admin_generate_key: false
                   distribute_private_key: true
