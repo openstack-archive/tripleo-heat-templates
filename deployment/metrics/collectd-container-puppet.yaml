@@ -392,12 +392,12 @@ parameters:
 conditions:
   amqp_connection:
     equals: [{get_param: CollectdConnectionType}, 'amqp1']
-  amqp_default_connection:
-    equals: [{get_param: CollectdAmqpHost}, nil]
-  amqp_default_interval:
-    equals: [{get_param: CollectdAmqpInterval}, -666]
-  amqp_default_send_queue_limit:
-    equals: [{get_param: CollectdAmqpSendQueueLimit}, -1]
+  amqp_connection_set:
+    not: {equals: [{get_param: CollectdAmqpHost}, nil]}
+  amqp_interval_set:
+    not: {equals: [{get_param: CollectdAmqpInterval}, -666]}
+  amqp_send_queue_limit_set:
+    not: {equals: [{get_param: CollectdAmqpSendQueueLimit}, -1]}
   collectd_connection:
     equals: [{get_param: CollectdConnectionType}, 'network']
   gnocchi_connection:
@@ -408,11 +408,6 @@ conditions:
     and:
       - equals: [{get_param: CollectdGnocchiServer}, nil]
       - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
-  enable_sensubility:
-    equals: [{get_param: CollectdEnableSensubility}, true]
-  enable_stf:
-    equals: [{get_param: EnableSTF}, true]
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
   sensubility_needs_sudo:
     not:
       equals: [{get_param: CollectdSensubilityExecSudoRule}, '']
@@ -432,7 +427,7 @@ outputs:
         map_merge:
           - tripleo::profile::base::metrics::collectd::enable_file_logging: true
             collectd::plugin::logfile::log_file: /var/log/collectd/collectd.log
-          - collectd::manage_repo: false
+            collectd::manage_repo: false
             collectd::purge: true
             collectd::recurse: true
             collectd::purge_config: true
@@ -468,12 +463,10 @@ outputs:
                 - 'perf'
             collectd::plugin::virt::hostname_format: "hostname"
             tripleo.collectd.plugins.collectd:
-              yaql:
-                data:
-                  default_plugins: {get_param: CollectdDefaultPlugins}
-                  stf_plugins:
-                    if:
-                    - enable_stf
+              list_concat_unique:
+                - {get_param: CollectdDefaultPlugins}
+                - if:
+                    - {get_param: EnableSTF}
                     - - cpu
                       - df
                       - load
@@ -481,11 +474,7 @@ outputs:
                       - intel_rdt
                       - ipmi
                       - procevent
-                    - []
-                  extra_plugins: {get_param: CollectdExtraPlugins}
-                expression: >
-                  ($.data.default_plugins + $.data.stf_plugins + $.data.extra_plugins)
-                  .flatten().distinct()
+                - {get_param: CollectdExtraPlugins}
           - if: # Collectd connected to QDR
             - amqp_connection
             - map_merge:
@@ -497,18 +486,24 @@ outputs:
                   get_param: CollectdAmqpInstances
                 tripleo::profile::base::metrics::collectd::amqp_retry_delay:
                   get_param: CollectdAmqpRetryDelay
+                tripleo::profile::base::metrics::collectd::amqp_interval:
+                  if:
+                    - amqp_interval_set
+                    - {get_param: CollectdAmqpInterval}
+                tripleo::profile::base::metrics::collectd::amqp_default_send_queue_limit:
+                  if:
+                    - amqp_send_queue_limit_set
+                    - {get_param: CollectdAmqpSendQueueLimit}
               - if:
-                - amqp_default_interval
-                - {}
-                - tripleo::profile::base::metrics::collectd::amqp_interval:
-                    get_param: CollectdAmqpInterval
-              - if:
-                - amqp_default_send_queue_limit
-                - {}
-                - tripleo::profile::base::metrics::collectd::amqp_default_send_queue_limit:
-                    get_param: CollectdAmqpSendQueueLimit
-              - if:
-                - amqp_default_connection
+                - amqp_connection_set
+                - tripleo::profile::base::metrics::collectd::amqp_host:
+                    get_param: CollectdAmqpHost
+                  tripleo::profile::base::metrics::collectd::amqp_port:
+                    get_param: CollectdAmqpPort
+                  tripleo::profile::base::metrics::collectd::amqp_user:
+                    get_param: CollectdAmqpUser
+                  tripleo::profile::base::metrics::collectd::amqp_password:
+                    get_param: CollectdAmqpPassword
                 - tripleo::profile::base::metrics::collectd::amqp_host:
                     str_replace:
                       template:
@@ -527,15 +522,6 @@ outputs:
                     get_param: MetricsQdrUsername
                   tripleo::profile::base::metrics::collectd::amqp_password:
                     get_param: MetricsQdrPassword
-                - tripleo::profile::base::metrics::collectd::amqp_host:
-                    get_param: CollectdAmqpHost
-                  tripleo::profile::base::metrics::collectd::amqp_port:
-                    get_param: CollectdAmqpPort
-                  tripleo::profile::base::metrics::collectd::amqp_user:
-                    get_param: CollectdAmqpUser
-                  tripleo::profile::base::metrics::collectd::amqp_password:
-                    get_param: CollectdAmqpPassword
-            - {}
           - if: # Collectd connected to external collectd instance
             - collectd_connection
             - tripleo::profile::base::metrics::collectd::collectd_server:
@@ -548,17 +534,14 @@ outputs:
                 get_param: CollectdPassword
               tripleo::profile::base::metrics::collectd::collectd_securitylevel:
                 get_param: CollectdSecurityLevel
-            - {}
           - if:
-            - enable_sqlalchemy_collectd
-            - map_merge:
-              - tripleo::profile::base::metrics::collectd::enable_sqlalchemy_collectd:
+            - {get_param: EnableSQLAlchemyCollectd} 
+            - tripleo::profile::base::metrics::collectd::enable_sqlalchemy_collectd:
                   true
-              - tripleo::profile::base::metrics::collectd::sqlalchemy_collectd_bind_host:
+              tripleo::profile::base::metrics::collectd::sqlalchemy_collectd_bind_host:
                   get_param: CollectdSQLAlchemyBindHost
-              - tripleo::profile::base::metrics::collectd::sqlalchemy_collectd_log_messages:
+              tripleo::profile::base::metrics::collectd::sqlalchemy_collectd_log_messages:
                   get_param: CollectdSQLAlchemyLogMessages
-            - {}
           - if: # Collectd connected directly to Gnocchi DB
             - gnocchi_connection
             - map_merge:
@@ -618,15 +601,13 @@ outputs:
                       get_param: CollectdGnocchiKeystoneInterface
                     tripleo::profile::base::metrics::collectd::gnocchi_keystone_endpoint:
                       get_param: CollectdGnocchiKeystoneEndpoint
-            - {}
           - if: # Collectd should run collectd-sensubility via collectd-exec
-            - enable_sensubility
+            - {get_param: CollectdEnableSensubility}
             - map_merge:
               - if:
                 - sensubility_needs_sudo
                 - tripleo::profile::base::metrics::collectd::sensubility::exec_sudo_rule:
                     get_param: CollectdSensubilityExecSudoRule
-                - {}
               - tripleo::profile::base::metrics::collectd::enable_sensubility:
                   get_param: CollectdEnableSensubility
                 tripleo::profile::base::metrics::collectd::sensubility::connection:
@@ -679,12 +660,10 @@ outputs:
                   get_param: CollectdSensubilityTransport
                 tripleo::profile::base::metrics::collectd::sensubility::amqp_port:
                   get_param: CollectdAmqpPort
-            - {}
           - if:
-            - enable_libpodstats
+            - {get_param: CollectdEnableLibpodstats}
             - tripleo::profile::base::metrics::collectd::enable_libpodstats:
                 get_param: CollectdEnableLibpodstats
-            - {}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
