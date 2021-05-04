@@ -153,16 +153,12 @@ parameters:
                  certificate for this service
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  listener_ssl_enabled: {equals: [{get_param: MetricsQdrUseSSL}, true]}
-  enable_stf: {equals: [{get_param: EnableSTF}, true]}
-  key_size_override_unset: {equals: [{get_param: QdrCertificateKeySize}, '']}
-
+  key_size_override_set:
+    not: {equals: [{get_param: QdrCertificateKeySize}, '']}
 
 resources:
   ContainersCommon:
     type: ../containers-common.yaml
-
 
 outputs:
   role_data:
@@ -210,11 +206,7 @@ outputs:
             tripleo::profile::base::metrics::qdr::addresses: {get_param: MetricsQdrAddresses}
             tripleo::profile::base::metrics::qdr::autolink_addresses: {get_param: MetricsQdrAutoLinks}
             # ssl support
-            tripleo::profile::base::metrics::qdr::listener_require_ssl:
-              if:
-                - listener_ssl_enabled
-                - true
-                - false
+            tripleo::profile::base::metrics::qdr::listener_require_ssl: {get_param: MetricsQdrUseSSL}
             tripleo::profile::base::metrics::qdr::listener_require_encrypt: {get_param: MetricsQdrUseEncryption}
             tripleo::profile::base::metrics::qdr::listener_sasl_mech: {get_param: MetricsQdrSaslMechanisms}
             tripleo::profile::base::metrics::qdr::listener_ssl_cert_db: {get_param: MetricsQdrSslCertDb}
@@ -226,27 +218,24 @@ outputs:
             qdr::log_enable: 'info+'
             qdr::log_output: '/var/log/qdrouterd/metrics_qdr.log'
             qdr::listener_auth_peer: {get_param: MetricsQdrAuthenticateClient}
-          - if:
-            - internal_tls_enabled
-            -
-              tripleo::profile::base::metrics::qdr::ssl_profiles:
-                list_concat:
+            tripleo::profile::base::metrics::qdr::ssl_profiles:
+              if:
+                - {get_param: EnableInternalTLS}
+                - list_concat:
                   - get_param: MetricsQdrSSLProfiles
                   - - name: 'tlsProfile'
                       certFile: '/etc/pki/tls/certs/metrics_qdr.crt'
                       keyFile: '/etc/pki/tls/private/metrics_qdr.key'
                       caCertFile: {get_param: InternalTLSCAFile}
-            - tripleo::profile::base::metrics::qdr::ssl_profiles: {get_param: MetricsQdrSSLProfiles}
+                - {get_param: MetricsQdrSSLProfiles}
           - if:
-            - enable_stf
+            - {get_param: EnableSTF}
             - tripleo::profile::base::metrics::qdr::interior_mesh_nodes: ''
               tripleo::profile::base::metrics::qdr::router_mode: edge
-            - null
       metadata_settings:
         if:
-          - internal_tls_enabled
-          -
-            - service: metrics_qdr
+          - {get_param: EnableInternalTLS}
+          - - service: metrics_qdr
               network:
                 get_param:
                   - ServiceNetMap
@@ -255,7 +244,6 @@ outputs:
                       params:
                         ROLENAME: {get_param: RoleName}
               type: node
-          - null
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: metrics_qdr
@@ -315,10 +303,9 @@ outputs:
                   - /var/lib/metrics_qdr:/var/lib/qdrouterd:z
                   - /var/log/containers/metrics_qdr:/var/log/qdrouterd:z
                 - if:
-                  - internal_tls_enabled
+                  - {get_param: EnableInternalTLS}
                   - - /etc/pki/tls/certs/metrics_qdr.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/metrics_qdr.crt:ro
                     - /etc/pki/tls/private/metrics_qdr.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/metrics_qdr.key:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
@@ -369,9 +356,9 @@ outputs:
                       {{container_cli}} restart "$container_name"
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: QdrCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         - name: create persistent logs directory
