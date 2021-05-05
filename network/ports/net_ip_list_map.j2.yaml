@@ -23,7 +23,7 @@ parameters:
     default: []
     type: comma_delimited_list
   NetworkHostnameMap:
-    default: []
+    default: {}
     type: json
   NovaAdditionalCell:
     default: false
@@ -32,6 +32,8 @@ parameters:
 
 conditions:
   is_cell: {equals: [{get_param: NovaAdditionalCell}, true]}
+  network_hostname_map_set:
+    not: {equals: [{get_param: NetworkHostnameMap}, {}]}
 
 resources:
    # This adds the extra "services" on for keystone
@@ -118,33 +120,34 @@ outputs:
     description: >
       Map of enabled services to a list of hostnames where they're running
     value:
-      map_replace:
-        - yaql:
-            # This filters any entries where the value hasn't been substituted for
-            # a list, e.g it's still $service_network.  This happens when there is
-            # no network defined for the service in the ServiceNetMap, which is OK
-            # as not all services have to be bound to a network, so we filter them
-            expression: dict($.data.map.items().where(not $[1].endsWith("_network")))
-            data:
-              map:
-                map_replace:
-                  - map_merge:
-                      if:
-                        - is_cell
-                        -
-                          repeat:
-                            template:
-                              SERVICE_cell_node_names: SERVICE_network
-                            for_each:
-                              SERVICE: {get_attr: [EnabledServicesValue, value]}
-                        -
-                          repeat:
-                            template:
-                              SERVICE_node_names: SERVICE_network
-                            for_each:
-                              SERVICE: {get_attr: [EnabledServicesValue, value]}
-                  - values: {get_param: ServiceNetMap}
-        - values: {get_param: NetworkHostnameMap}
+      if:
+        - network_hostname_map_set
+        - map_replace:
+            - yaql:
+                # This filters any entries where the value hasn't been substituted for
+                # a list, e.g it's still $service_network.  This happens when there is
+                # no network defined for the service in the ServiceNetMap, which is OK
+                # as not all services have to be bound to a network, so we filter them
+                expression: dict($.data.map.items().where(not $[1].endsWith("_network")))
+                data:
+                  map:
+                    map_replace:
+                      - map_merge:
+                          if:
+                            - is_cell
+                            - repeat:
+                                template:
+                                  SERVICE_cell_node_names: SERVICE_network
+                                for_each:
+                                  SERVICE: {get_attr: [EnabledServicesValue, value]}
+                            - repeat:
+                                template:
+                                  SERVICE_node_names: SERVICE_network
+                                for_each:
+                                  SERVICE: {get_attr: [EnabledServicesValue, value]}
+                      - values: {get_param: ServiceNetMap}
+            - values: {get_param: NetworkHostnameMap}
+        - {}
   short_service_hostnames:
     description: >
       Map of enabled services to a list of hostnames where they're running regardless of the network
