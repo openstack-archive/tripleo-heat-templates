@@ -97,7 +97,8 @@ parameters:
                  br-int | grep "Check pkt length action"'.
 
 conditions:
-  neutron_dvr_unset: {equals : [{get_param: NeutronEnableDVR}, '']}
+  neutron_dvr_set:
+    not: {equals : [{get_param: NeutronEnableDVR}, '']}
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   vhostuser_dir_set:
     or:
@@ -105,7 +106,6 @@ conditions:
     - {not: {equals: [{get_param: [RoleParameters, NeutronVhostuserSocketDir]}, ""]}}
 
 resources:
-
   NeutronMl2Base:
     type: ./neutron-plugin-ml2.yaml
     properties:
@@ -133,23 +133,19 @@ outputs:
             neutron::plugins::ml2::max_header_size: {get_param: NeutronGeneveMaxHeaderSize}
             neutron::plugins::ml2::ovn::dns_servers: {get_param: OVNDnsServers}
             neutron::plugins::ml2::ovn::ovn_emit_need_to_frag: {get_param: OVNEmitNeedToFrag}
+            neutron::plugins::ml2::ovn::dvr_enabled:
+              if:
+                - neutron_dvr_set
+                - true
           - if:
-              - internal_tls_enabled
-              -
-                neutron::plugins::ml2::ovn::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
+              - {get_param: EnableInternalTLS}
+              - neutron::plugins::ml2::ovn::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
                 neutron::plugins::ml2::ovn::ovn_sb_certificate: '/etc/pki/tls/certs/ovn_neutron_client.crt'
                 neutron::plugins::ml2::ovn::ovn_sb_private_key: '/etc/pki/tls/private/ovn_neutron_client.key'
                 neutron::plugins::ml2::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
                 neutron::plugins::ml2::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/ovn_neutron_client.crt'
                 neutron::plugins::ml2::ovn::ovn_nb_private_key: '/etc/pki/tls/private/ovn_neutron_client.key'
-              - {}
-          -
-            if:
-              - neutron_dvr_unset
-              - neutron::plugins::ml2::ovn::dvr_enabled: true
-              - neutron::plugins::ml2::ovn::dvr_enabled: {get_param: NeutronEnableDVR}
-          -
-            if:
+          - if:
               - vhostuser_dir_set
               - map_replace:
                 - map_replace:
@@ -157,8 +153,6 @@ outputs:
                   - values: {get_param: RoleParameters}
                 - values:
                     NeutronVhostuserSocketDir: {get_param: NeutronVhostuserSocketDir}
-              - {}
-
       step_config: |
         include tripleo::profile::base::neutron::plugins::ml2
       metadata_settings:

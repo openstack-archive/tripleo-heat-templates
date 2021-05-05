@@ -191,20 +191,24 @@ parameter_groups:
   - NeutronL3HA
 
 conditions:
-  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
-  neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
-  neutron_rpc_workers_unset: {equals : [{get_param: NeutronRpcWorkers}, '']}
-  neutron_ovs_int_br_unset: {equals : [{get_param: NeutronOvsIntegrationBridge}, '']}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  neutron_dvr_unset: {equals : [{get_param: NeutronEnableDVR}, '']}
-  is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
-  az_unset: {equals: [{get_param: NeutronDefaultAvailabilityZones}, '']}
-  ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, internal_tls_enabled]}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
-  key_size_override_unset: {equals: [{get_param: NeutronCertificateKeySize}, '']}
+  neutron_workers_set:
+    not: {equals : [{get_param: NeutronWorkers}, '']}
+  neutron_rpc_workers_set:
+    not: {equals : [{get_param: NeutronRpcWorkers}, '']}
+  neutron_ovs_int_br_set:
+    not: {equals : [{get_param: NeutronOvsIntegrationBridge}, '']}
+  neutron_dvr_set:
+    not: {equals : [{get_param: NeutronEnableDVR}, '']}
+  az_set:
+    not: {equals: [{get_param: NeutronDefaultAvailabilityZones}, '']}
+  ovn_and_tls:
+    and:
+      - contains: ['ovn', {get_param: NeutronMechanismDrivers}]
+      - {get_param: EnableInternalTLS}
+  key_size_override_set:
+    not: {equals: [{get_param: NeutronCertificateKeySize}, '']}
 
 resources:
-
   TLSProxyBase:
     type: OS::TripleO::Services::TLSProxyBase
     properties:
@@ -271,17 +275,14 @@ outputs:
                 path: /ovs_neutron
                 query:
                   if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: ovs_neutron
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-
+                    - {get_param: EnableSQLAlchemyCollectd}
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
+                      plugin: collectd
+                      collectd_program_name: ovs_neutron
+                      collectd_host: localhost
+                    - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                      read_default_group: tripleo
             neutron::policy::policies: {get_param: NeutronApiPolicies}
             neutron::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             neutron::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
@@ -335,7 +336,7 @@ outputs:
             # proxy in front.
             neutron::bind_host:
               if:
-              - use_tls_proxy
+              - {get_param: EnableInternalTLS}
               - "%{hiera('localhost_address')}"
               - str_replace:
                   template:
@@ -343,55 +344,40 @@ outputs:
                   params:
                     $NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
             tripleo::profile::base::neutron::server::l3_ha_override: {get_param: NeutronL3HA}
-          -
-            if:
-            - neutron_dvr_unset
-            - {}
+          - if:
+            - neutron_dvr_set
             - neutron::server::router_distributed: {get_param: NeutronEnableDVR}
               neutron::server::enable_dvr: {get_param: NeutronEnableDVR}
-          -
-            if:
-            - neutron_workers_unset
-            - {}
+          - if:
+            - neutron_workers_set
             - neutron::server::api_workers: {get_param: NeutronWorkers}
-          -
-            if:
-            - neutron_rpc_workers_unset
-            -
-              if:
-              - neutron_workers_unset
-              - {}
-              - neutron::server::rpc_workers: {get_param: NeutronWorkers}
+          - if:
+            - neutron_rpc_workers_set
             - neutron::server::rpc_workers: {get_param: NeutronRpcWorkers}
-          -
-            if:
-            - neutron_ovs_int_br_unset
-            - {}
+            - if:
+              - neutron_workers_set
+              - neutron::server::rpc_workers: {get_param: NeutronWorkers}
+          - if:
+            - neutron_ovs_int_br_set
             - neutron::server::ovs_integration_bridge: {get_param: NeutronOvsIntegrationBridge}
-          -
-            if:
-            - az_unset
-            - {}
-            -
-              neutron::server::dhcp_load_type: {get_param: NeutronDhcpLoadType}
+          - if:
+            - az_set
+            - neutron::server::dhcp_load_type: {get_param: NeutronDhcpLoadType}
               neutron::server::network_scheduler_driver:
                 {get_param: NeutronNetworkSchedulerDriver}
               neutron::server::router_scheduler_driver:
                 {get_param: NeutronRouterSchedulerDriver}
               neutron::server::default_availability_zones:
                 {get_param: NeutronDefaultAvailabilityZones}
-          -
-            if:
+          - if:
             - ovn_and_tls
-            -
-              tripleo::profile::base::neutron::plugins::ml2::ovn::protocol: 'ssl'
+            - tripleo::profile::base::neutron::plugins::ml2::ovn::protocol: 'ssl'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_private_key: '/etc/pki/tls/private/neutron_ovn.key'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/neutron_ovn.crt'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_private_key: '/etc/pki/tls/private/neutron_ovn.key'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_certificate: '/etc/pki/tls/certs/neutron_ovn.crt'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
-            - {}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_neutron_api:
@@ -499,21 +485,18 @@ outputs:
                     - {get_attr: [ContainersCommon, volumes]}
                     - {get_attr: [NeutronLogging, volumes]}
                     - {get_param: NeutronApiOptVolumes}
-                    -
-                      - /var/lib/kolla/config_files/neutron_api.json:/var/lib/kolla/config_files/config.json:ro
+                    - - /var/lib/kolla/config_files/neutron_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/neutron:/var/lib/kolla/config_files/src:ro
                     - if:
                       - ovn_and_tls
-                      -
-                        - /etc/pki/tls/certs/neutron_ovn.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/neutron_ovn.crt:ro
+                      - - /etc/pki/tls/certs/neutron_ovn.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/neutron_ovn.crt:ro
                         - /etc/pki/tls/private/neutron_ovn.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/neutron_ovn.key:ro
-                      - null
                 environment:
                   map_merge:
                     - {get_param: NeutronApiOptEnvVars}
                     - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - if:
-                - internal_tls_enabled
+                - {get_param: EnableInternalTLS}
                 - neutron_server_tls_proxy:
                     image: *neutron_api_image
                     net: host
@@ -523,14 +506,12 @@ outputs:
                       list_concat:
                         - {get_attr: [ContainersCommon, volumes]}
                         - {get_attr: [NeutronLogging, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/neutron_server_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                        - - /var/lib/kolla/config_files/neutron_server_tls_proxy.json:/var/lib/kolla/config_files/config.json:ro
                           - /var/lib/config-data/puppet-generated/neutron:/var/lib/kolla/config_files/src:ro
                           - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
                           - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                - {}
       host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
       metadata_settings:
         list_concat:
@@ -540,12 +521,10 @@ outputs:
           - - service: neutron_ovn
               network: {get_param: [ServiceNetMap, NeutronApiNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         if:
           - ovn_and_tls
-          -
-            - name: Certificate generation
+          - - name: Certificate generation
               when: step|int == 1
               block:
                 - include_role:
@@ -565,11 +544,10 @@ outputs:
                               $NETWORK: {get_param: [ServiceNetMap, NeutronApiNetwork]}
                         key_size:
                           if:
-                            - key_size_override_unset
-                            - {get_param: CertificateKeySize}
+                            - key_size_override_set
                             - {get_param: NeutronCertificateKeySize}
+                            - {get_param: CertificateKeySize}
                         ca: ipa
-          - null
       external_upgrade_tasks:
         - when:
             - step|int == 1

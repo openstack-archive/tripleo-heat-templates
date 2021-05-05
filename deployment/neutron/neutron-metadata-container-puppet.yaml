@@ -73,12 +73,12 @@ parameters:
     default: false
 
 conditions:
-  neutron_workers_unset: {equals : [{get_param: NeutronWorkers}, '']}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  is_neutron_shared_metadata_notempty: {not: {equals: [{get_param: NeutronMetadataProxySharedSecret}, '']}}
+  neutron_workers_set:
+    not: {equals : [{get_param: NeutronWorkers}, '']}
+  neutron_shared_metadata_set:
+    not: {equals: [{get_param: NeutronMetadataProxySharedSecret}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -122,19 +122,17 @@ outputs:
                   $NETWORK: {get_param: [ServiceNetMap, NovaMetadataNetwork]}
             neutron::agents::metadata::metadata_protocol:
               if:
-              - internal_tls_enabled
+              - {get_param: EnableInternalTLS}
               - 'https'
               - 'http'
-          -
-            if:
-            - neutron_workers_unset
-            - {}
-            - neutron::agents::metadata::metadata_workers: {get_param: NeutronWorkers}
-          -
-            if:
-            - is_neutron_shared_metadata_notempty
-            - neutron::agents::metadata::shared_secret: {get_param: NeutronMetadataProxySharedSecret}
-            - {}
+            neutron::agents::metadata::metadata_workers:
+              if:
+              - neutron_workers_set
+              - {get_param: NeutronWorkers}
+            neutron::agents::metadata::shared_secret:
+              if:
+              - neutron_shared_metadata_set
+              - {get_param: NeutronMetadataProxySharedSecret}
       service_config_settings:
         map_merge:
           - get_attr: [NeutronBase, role_data, service_config_settings]
@@ -180,8 +178,7 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NeutronLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/neutron_metadata_agent.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/neutron_metadata_agent.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/neutron:/var/lib/kolla/config_files/src:ro
                   - /lib/modules:/lib/modules:ro
                   - /var/lib/neutron:/var/lib/neutron:shared,z
