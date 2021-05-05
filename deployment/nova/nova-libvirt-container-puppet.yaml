@@ -281,6 +281,22 @@ parameters:
     default: "/var/lib/tripleo-config/ceph"
     description: |
       The path where the Ceph Cluster config files are stored on the host.
+  NovaEnableVirtlogdContainerWrapper:
+    description: Generate a virtlogd wrapper script so that virtlogd launches
+                 in a separate container and won't get restarted e.g. on minor
+                 updates.
+    type: boolean
+    default: true
+  VirtlogdWrapperDebug:
+    type: boolean
+    default: false
+    description: Controls debugging for the wrapper scripts.
+  DeployIdentifier:
+    default: ''
+    type: string
+    description: >
+      Setting this to a unique value will re-run any deployment tasks which
+      perform configuration on a Heat stack-update.
 
 conditions:
 
@@ -362,6 +378,9 @@ conditions:
   key_size_qemu_client_override_unset: {equals: [{get_param: QemuClientCertificateKeySize}, '']}
   key_size_qemu_server_override_unset: {equals: [{get_param: QemuServerCertificateKeySize}, '']}
 
+  virtlogd_wrapper_enabled: {equals: [{get_param: NovaEnableVirtlogdContainerWrapper}, true]}
+  service_debug_unset: {equals : [{get_param: VirtlogdWrapperDebug}, false]}
+
 resources:
   RoleParametersValue:
     type: OS::Heat::Value
@@ -415,6 +434,15 @@ outputs:
           - get_attr: [NovaLibvirtLogging, config_settings]
           # we include ::nova::compute::libvirt::services in nova/libvirt profile
           - nova::compute::libvirt::manage_libvirt_services: false
+            tripleo::profile::base::nova::virtlogd_wrapper::enable_wrapper: {get_param: NovaEnableVirtlogdContainerWrapper}
+            # don't think this is a good place as /var/lib/nova can also be shared storage
+            tripleo::profile::base::nova::virtlogd_wrapper::virtlogd_process_wrapper: '/var/lib/container-config-scripts/virtlogd_wrapper'
+            tripleo::profile::base::nova::virtlogd_wrapper::virtlogd_image: {get_param: ContainerNovaLibvirtImage}
+            tripleo::profile::base::nova::virtlogd_wrapper::debug:
+              if:
+                - service_debug_unset
+                - {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
+                - {get_param: VirtlogdWrapperDebug}
           # we manage migration in nova common puppet profile
             nova::compute::libvirt::migration_support: false
             nova::compute::rbd::libvirt_images_rbd_ceph_conf:
@@ -543,7 +571,13 @@ outputs:
                           default_user: {get_param: CephClientUserName}
                           multiconfig: {get_param: CinderRbdMultiConfig}
         /var/lib/kolla/config_files/nova_virtlogd.json:
-          command: /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
+          # IF virtlogd_wrapper_enabled run the wrapper script
+          # if not use current command
+          command:
+            if:
+              - virtlogd_wrapper_enabled
+              - /usr/local/bin/virtlogd_wrapper
+              - /usr/sbin/virtlogd --config /etc/libvirt/virtlogd.conf
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -571,134 +605,172 @@ outputs:
           mode: "0755"
           content: { get_file: ../../container_config_scripts/nova_libvirt_init_secret.sh }
       docker_config:
-        step_3:
-          nova_virtlogd:
-            start_order: 0
-            image: {get_param: ContainerNovaLibvirtImage}
-            ulimit: {get_param: ContainerNovaLibvirtUlimit}
-            net: host
-            pid: host
-            security_opt: label=disable
-            privileged: true
-            restart: always
-            healthcheck:
-              test: '/openstack/healthcheck virtlogd'
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaLibvirtLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/nova_virtlogd.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
-                  - /lib/modules:/lib/modules:ro
-                  - /dev:/dev
-                  - /run:/run
-                  - /sys/fs/cgroup:/sys/fs/cgroup
-                  - /run/libvirt:/run/libvirt:shared
-                  - /var/lib/libvirt:/var/lib/libvirt
-                  - /etc/libvirt/qemu:/etc/libvirt/qemu:ro
-                  - /var/log/libvirt/qemu:/var/log/libvirt/qemu
-                  - /var/lib/nova:/var/lib/nova:shared
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-          nova_libvirt:
+        step_2:
+          create_virtlogd_wrapper:
             start_order: 1
-            image: {get_param: ContainerNovaLibvirtImage}
-            ulimit: {get_param: ContainerNovaLibvirtUlimit}
+            detach: false
             net: host
             pid: host
-            pids_limit: {get_param: ContainerNovaLibvirtPidsLimit}
-            privileged: true
-            security_opt:
-              - label=level:s0
-              - label=type:spc_t
-              - label=filetype:container_share_t
-            restart: always
-            depends_on:
-              - tripleo_nova_virtlogd.service
-            healthcheck:
-              test: '/openstack/healthcheck libvirtd'
+            user: root
+            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
+              list_concat:
+                -
+                  - '/container_puppet_apply.sh'
+                  - '4'
+                  - 'file'
+                  - 'include ::tripleo::profile::base::nova::virtlogd_wrapper'
+            image: {get_param: ContainerNovaLibvirtImage}
             volumes:
               list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaLibvirtLogging, volumes]}
-                - {get_attr: [RoleParametersValue, value, nova_libvirt_opt_volumes]}
+                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
                 -
-                  - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
-                  - /var/lib/kolla/config_files/nova_libvirt.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
-                  - /var/lib/container-config-scripts/nova_libvirt_launcher.sh:/nova_libvirt_launcher.sh:ro
-                  - list_join:
-                    - ':'
-                    - - {get_param: CephConfigPath}
-                    - - '/var/lib/kolla/config_files/src-ceph'
-                    - - 'ro'
-                  - /lib/modules:/lib/modules:ro
-                  - /dev:/dev
-                  - /run:/run
-                  - /sys/fs/cgroup:/sys/fs/cgroup
-                  - /etc/libvirt:/etc/libvirt
-                  - /run/libvirt:/run/libvirt:shared
-                  - /var/lib/libvirt:/var/lib/libvirt:shared
-                  - /var/cache/libvirt:/var/cache/libvirt:shared
-                  - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
-                  - /var/lib/vhost_sockets:/var/lib/vhost_sockets
-                  - /var/lib/nova:/var/lib/nova:shared
-                  - /sys/fs/selinux:/sys/fs/selinux
-                  - /etc/selinux/config:/etc/selinux/config:ro
-                -
-                  if:
-                    - use_tls_for_live_migration
-                    -
-                      - /etc/pki/libvirt:/etc/pki/libvirt/:ro
-                      - /etc/pki/libvirt-nbd:/etc/pki/libvirt-nbd:ro
-                      - str_replace:
-                          template: "CACERT:/etc/pki/CA/cacert.pem:ro"
-                          params:
-                            CACERT:
-                              if:
-                                - libvirt_specific_ca_unset
-                                - get_param: InternalTLSCAFile
-                                - get_param: LibvirtCACert
-                      - str_replace:
-                          template: "CACERT:/etc/pki/qemu/ca-cert.pem:ro"
-                          params:
-                            CACERT:
-                              if:
-                                - libvirt_nbd_specific_ca_unset
-                                - get_param: InternalTLSNbdCAFile
-                                - get_param: LibvirtNbdCACert
-                      - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/server-cert.pem:ro
-                      - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/server-key.pem:ro
-                      - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/client-cert.pem:ro
-                      - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/client-key.pem:ro
-                    - null
-                -
-                  if:
-                    - use_tls_for_vnc
-                    -
-                      - /etc/pki/libvirt-vnc/server-cert.pem:/etc/pki/libvirt-vnc/server-cert.pem:ro
-                      - /etc/pki/libvirt-vnc/server-key.pem:/etc/pki/libvirt-vnc/server-key.pem:ro
-                      - str_replace:
-                          template: "CACERT:/etc/pki/libvirt-vnc/ca-cert.pem:ro"
-                          params:
-                            CACERT:
-                              if:
-                                - libvirt_vnc_specific_ca_unset
-                                - get_param: InternalTLSVncCAFile
-                                - get_param: LibvirtVncCACert
-                    - null
-                -
-                  if:
-                    - memory_backing_dir_set
-                    -
-                      - str_replace:
-                          template: "MEMORY_BACKING_DIR:MEMORY_BACKING_DIR"
-                          params:
-                            MEMORY_BACKING_DIR: {get_attr: [RoleParametersValue, value, memory_backing_dir]}
-                    - null
+                  - /var/lib/container-config-scripts:/var/lib/container-config-scripts:shared,z
             environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+              # NOTE: this should force this container to re-run on each
+              # update (scale-out, etc.)
+              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+        step_3:
+          map_merge:
+            - if:
+                - virtlogd_wrapper_enabled
+                - nova_virtlogd_wrapper: &virtlog_container_config
+                    start_order: 0
+                    image: {get_param: ContainerNovaLibvirtImage}
+                    ulimit: {get_param: ContainerNovaLibvirtUlimit}
+                    net: host
+                    pid: host
+                    security_opt: label=disable
+                    privileged: true
+                    restart: always
+                    healthcheck:
+                      test: '/openstack/healthcheck virtlogd'
+                    volumes:
+                      list_concat:
+                        - {get_attr: [ContainersCommon, volumes]}
+                        - {get_attr: [NovaLibvirtLogging, volumes]}
+                        -
+                          - /var/lib/kolla/config_files/nova_virtlogd.json:/var/lib/kolla/config_files/config.json:ro
+                          - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
+                          - /lib/modules:/lib/modules:ro
+                          - /dev:/dev
+                          - /run:/run
+                          - /sys/fs/cgroup:/sys/fs/cgroup
+                          - /run/libvirt:/run/libvirt:shared
+                          - /var/lib/libvirt:/var/lib/libvirt
+                          - /etc/libvirt/qemu:/etc/libvirt/qemu:ro
+                          - /var/log/libvirt/qemu:/var/log/libvirt/qemu
+                          - /var/lib/nova:/var/lib/nova:shared
+                        -
+                          if:
+                            - virtlogd_wrapper_enabled
+                            -
+                              - /var/lib/container-config-scripts/virtlogd_wrapper:/usr/local/bin/virtlogd_wrapper:ro
+                            - null
+                    environment:
+                      KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                - nova_virtlogd: *virtlog_container_config
+            - nova_libvirt:
+                start_order: 1
+                image: {get_param: ContainerNovaLibvirtImage}
+                ulimit: {get_param: ContainerNovaLibvirtUlimit}
+                net: host
+                pid: host
+                pids_limit: {get_param: ContainerNovaLibvirtPidsLimit}
+                privileged: true
+                security_opt:
+                  - label=level:s0
+                  - label=type:spc_t
+                  - label=filetype:container_share_t
+                restart: always
+                depends_on:
+                  -
+                    if:
+                      - virtlogd_wrapper_enabled
+                      - tripleo_nova_virtlogd_wrapper.service
+                      - tripleo_nova_virtlogd.service
+                healthcheck:
+                  test: '/openstack/healthcheck libvirtd'
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [NovaLibvirtLogging, volumes]}
+                    - {get_attr: [RoleParametersValue, value, nova_libvirt_opt_volumes]}
+                    -
+                      - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+                      - /var/lib/kolla/config_files/nova_libvirt.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
+                      - /var/lib/container-config-scripts/nova_libvirt_launcher.sh:/nova_libvirt_launcher.sh:ro
+                      - list_join:
+                        - ':'
+                        - - {get_param: CephConfigPath}
+                        - - '/var/lib/kolla/config_files/src-ceph'
+                        - - 'ro'
+                      - /lib/modules:/lib/modules:ro
+                      - /dev:/dev
+                      - /run:/run
+                      - /sys/fs/cgroup:/sys/fs/cgroup
+                      - /etc/libvirt:/etc/libvirt
+                      - /run/libvirt:/run/libvirt:shared
+                      - /var/lib/libvirt:/var/lib/libvirt:shared
+                      - /var/cache/libvirt:/var/cache/libvirt:shared
+                      - /var/log/libvirt/qemu:/var/log/libvirt/qemu:ro
+                      - /var/lib/vhost_sockets:/var/lib/vhost_sockets
+                      - /var/lib/nova:/var/lib/nova:shared
+                      - /sys/fs/selinux:/sys/fs/selinux
+                      - /etc/selinux/config:/etc/selinux/config:ro
+                    -
+                      if:
+                        - use_tls_for_live_migration
+                        -
+                          - /etc/pki/libvirt:/etc/pki/libvirt/:ro
+                          - /etc/pki/libvirt-nbd:/etc/pki/libvirt-nbd:ro
+                          - str_replace:
+                              template: "CACERT:/etc/pki/CA/cacert.pem:ro"
+                              params:
+                                CACERT:
+                                  if:
+                                    - libvirt_specific_ca_unset
+                                    - get_param: InternalTLSCAFile
+                                    - get_param: LibvirtCACert
+                          - str_replace:
+                              template: "CACERT:/etc/pki/qemu/ca-cert.pem:ro"
+                              params:
+                                CACERT:
+                                  if:
+                                    - libvirt_nbd_specific_ca_unset
+                                    - get_param: InternalTLSNbdCAFile
+                                    - get_param: LibvirtNbdCACert
+                          - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/server-cert.pem:ro
+                          - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/server-key.pem:ro
+                          - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/client-cert.pem:ro
+                          - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/client-key.pem:ro
+                        - null
+                    -
+                      if:
+                        - use_tls_for_vnc
+                        -
+                          - /etc/pki/libvirt-vnc/server-cert.pem:/etc/pki/libvirt-vnc/server-cert.pem:ro
+                          - /etc/pki/libvirt-vnc/server-key.pem:/etc/pki/libvirt-vnc/server-key.pem:ro
+                          - str_replace:
+                              template: "CACERT:/etc/pki/libvirt-vnc/ca-cert.pem:ro"
+                              params:
+                                CACERT:
+                                  if:
+                                    - libvirt_vnc_specific_ca_unset
+                                    - get_param: InternalTLSVncCAFile
+                                    - get_param: LibvirtVncCACert
+                        - null
+                    -
+                      if:
+                        - memory_backing_dir_set
+                        -
+                          - str_replace:
+                              template: "MEMORY_BACKING_DIR:MEMORY_BACKING_DIR"
+                              params:
+                                MEMORY_BACKING_DIR: {get_attr: [RoleParametersValue, value, memory_backing_dir]}
+                        - null
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_4:
           if:
             - need_libvirt_secret
