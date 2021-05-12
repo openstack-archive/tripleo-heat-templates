@@ -426,7 +426,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/nova_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &nova_api_db_sync
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
@@ -442,10 +442,43 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &nova_api_permissions
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
+        /var/lib/kolla/config_files/nova_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
+          config_files: *nova_api_db_sync
+          permissions: *nova_api_permissions
+        /var/lib/kolla/config_files/nova_api_map_cell0.json:
+          command:
+            str_replace:
+              template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
+              params:
+                CELL0DB:
+                  list_join:
+                  - ''
+                  - - '{scheme}'
+                    - '://'
+                    - '{username}'
+                    - ':'
+                    - '{password}'
+                    - '@'
+                    -
+                      if:
+                        - mysql_ipv6_use_ip_address
+                        - '[{hostname}]'
+                        - '{hostname}'
+                    - '/'
+                    - 'nova_cell0'
+                    - '?'
+                    - '{query}'
+          config_files: *nova_api_db_sync
+          permissions: *nova_api_permissions
+        /var/lib/kolla/config_files/nova_api_ensure_default_cell.json:
+          command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
+          config_files: *nova_api_db_sync
+          permissions: *nova_api_permissions
         /var/lib/kolla/config_files/nova_api_cron.json:
           command: /usr/sbin/crond -n
           config_files:
@@ -453,10 +486,12 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
-            - path: /var/log/nova
-              owner: nova:nova
-              recurse: true
+          permissions: *nova_api_permissions
+        /var/lib/kolla/config_files/nova_wait_for_api_service.json:
+          command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_api_service.py'"
+          config_files: *nova_api_db_sync
+          permissions: *nova_api_permissions
+
       container_config_scripts:
         map_merge:
           - {get_attr: [ContainersCommon, container_config_scripts]}
@@ -521,15 +556,14 @@ outputs:
             net: host
             detach: false
             user: root
-            volumes: &nova_api_bootstrap_volumes
+            volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NovaApiLogging, volumes]}
-                -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
+                - - /var/lib/kolla/config_files/nova_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
           nova_api_map_cell0:
             start_order: 1 # Runs before nova-conductor dbsync
@@ -537,29 +571,14 @@ outputs:
             net: host
             detach: false
             user: root
-            volumes: *nova_api_bootstrap_volumes
-            command:
-              str_replace:
-                template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
-                params:
-                  CELL0DB:
-                    list_join:
-                    - ''
-                    - - '{scheme}'
-                      - '://'
-                      - '{username}'
-                      - ':'
-                      - '{password}'
-                      - '@'
-                      -
-                        if:
-                          - mysql_ipv6_use_ip_address
-                          - '[{hostname}]'
-                          - '{hostname}'
-                      - '/'
-                      - 'nova_cell0'
-                      - '?'
-                      - '{query}'
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaApiLogging, volumes]}
+                - - /var/lib/kolla/config_files/nova_api_map_cell0.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           nova_api_ensure_default_cell:
             start_order: 2 # Runs before nova-conductor dbsync
             image: *nova_api_image
@@ -567,12 +586,14 @@ outputs:
             detach: false
             volumes:
               list_concat:
-                - *nova_api_bootstrap_volumes
-                -
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [NovaApiLogging, volumes]}
+                - - /var/lib/kolla/config_files/nova_api_ensure_default_cell.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
                   - /var/lib/container-config-scripts/nova_api_ensure_default_cell.sh:/nova_api_ensure_default_cell.sh:ro
             user: root
-            command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_4:
           nova_api:
             start_order: 2
@@ -610,18 +631,17 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
-                  - /var/log/containers/nova:/var/log/nova
+                - {get_attr: [NovaApiLogging, volumes]}
+                - - /var/lib/kolla/config_files/nova_wait_for_api_service.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
                   - /var/lib/container-config-scripts/:/container-config-scripts/:z
-            command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_api_service.py'"
             environment:
               __OS_DEBUG:
                 yaql:
                   expression: str($.data.debug)
                   data:
                     debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           nova_api_cron:
             start_order: 4
             image: *nova_api_image

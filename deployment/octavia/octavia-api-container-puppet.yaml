@@ -239,7 +239,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/octavia_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &octavia_api_config_files
             list_concat:
               -
                 - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
@@ -258,7 +258,7 @@ outputs:
                   merge: true
                   preserve_properties: true
               - {get_attr: [OctaviaProviderConfig, role_data, kolla_config_files]}
-          permissions:
+          permissions: &octavia_api_permissions
             list_concat:
               -
                 - path: /var/log/octavia
@@ -282,6 +282,10 @@ outputs:
             - path: /run/octavia
               owner: octavia:octavia
               recurse: true
+        /var/lib/kolla/config_files/octavia_driver_agent_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec octavia_api su octavia -s /bin/bash -c '/usr/bin/octavia-db-manage upgrade head'"
+          config_files: *octavia_api_config_files
+          permissions: *octavia_api_permissions
       container_puppet_tasks:
         step_5:
           config_volume: octavia
@@ -324,12 +328,13 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/config-data/octavia/etc/octavia/:/etc/octavia/:ro
-                  - /var/lib/config-data/octavia/etc/my.cnf.d/:/etc/my.cnf.d/:ro
+                  - /var/lib/kolla/config_files/octavia_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/octavia:/var/log/octavia:z
-                  - /var/log/containers/httpd/octavia-api:/var/log/httpd:z
-            command: "/usr/bin/bootstrap_host_exec octavia_api su octavia -s /bin/bash -c '/usr/bin/octavia-db-manage upgrade head'"
+                  - /run/octavia:/run/octavia:shared,z
+                - {get_attr: [OctaviaProviderConfig, role_data, volumes]}
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           map_merge:

@@ -101,11 +101,14 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/ceilometer_agent_central.json:
           command: /usr/bin/ceilometer-polling --polling-namespaces central --logfile /var/log/ceilometer/central.log
-          config_files:
+          config_files: &ceilometer_agent_config_files
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/ceilometer_agent_gnocchi_upgrade.json:
+          command: "/usr/bin/bootstrap_host_exec ceilometer_agent_central su ceilometer -s /bin/bash -c 'for n in {1..10}; do /usr/bin/ceilometer-upgrade && exit 0 || sleep 30; done; exit 1'"
+          config_files: *ceilometer_agent_config_files
       docker_config:
         step_3:
           ceilometer_init_log:
@@ -145,12 +148,11 @@ outputs:
                 volumes:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
-                    - - /var/lib/config-data/ceilometer/etc/ceilometer/:/etc/ceilometer/:ro
+                    - - /var/lib/kolla/config_files/ceilometer_agent_gnocchi_upgrade.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/ceilometer:/var/lib/kolla/config_files/src:ro
                       - /var/log/containers/ceilometer:/var/log/ceilometer:z
-                command:
-                  - '/usr/bin/bootstrap_host_exec'
-                  - 'ceilometer_agent_central'
-                  - "su ceilometer -s /bin/bash -c 'for n in {1..10}; do /usr/bin/ceilometer-upgrade && exit 0 || sleep 30; done; exit 1'"
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent directories
           file:

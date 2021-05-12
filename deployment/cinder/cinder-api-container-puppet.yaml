@@ -226,7 +226,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/cinder_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &cinder_api_config_files
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
@@ -247,7 +247,7 @@ outputs:
               merge: true
               preserve_properties: true
               optional: true
-          permissions:
+          permissions: &cinder_api_permissions
             - path: /var/log/cinder
               owner: cinder:cinder
               recurse: true
@@ -255,6 +255,10 @@ outputs:
               owner: cinder:cinder
             - path: /etc/pki/tls/private/etcd.key
               owner: cinder:cinder
+        /var/lib/kolla/config_files/cinder_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec cinder_api su cinder -s /bin/bash -c 'cinder-manage db sync --bump-versions'"
+          config_files: *cinder_api_config_files
+          permissions: *cinder_api_permissions
         /var/lib/kolla/config_files/cinder_api_cron.json:
           command: /usr/sbin/crond -n
           config_files:
@@ -287,16 +291,15 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/config-data/cinder/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+                - - /var/lib/kolla/config_files/cinder_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/cinder:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/cinder:/var/log/cinder:z
-                  - /var/log/containers/httpd/cinder-api:/var/log/httpd:z
-            command:
-              - '/usr/bin/bootstrap_host_exec'
-              - 'cinder_api'
-              - "su cinder -s /bin/bash -c 'cinder-manage db sync --bump-versions'"
+                - if:
+                    - {get_param: EnableInternalTLS}
+                    - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           cinder_api:
@@ -311,9 +314,10 @@ outputs:
               test: /openstack/healthcheck
             volumes:
               list_concat:
-                - {get_attr: [CinderCommon, cinder_common_volumes]}
+                - {get_attr: [ContainersCommon, volumes]}
                 - - /var/lib/kolla/config_files/cinder_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/log/containers/httpd/cinder-api:/var/log/httpd:z
+                  - /var/lib/config-data/puppet-generated/cinder:/var/lib/kolla/config_files/src:ro
+                  - /var/log/containers/cinder:/var/log/cinder:z
                 - if:
                     - {get_param: EnableInternalTLS}
                     - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
@@ -348,7 +352,7 @@ outputs:
           step_config: 'include tripleo::profile::base::cinder::api'
           config_image: *cinder_api_image
           volumes:
-            - /var/lib/config-data/cinder/etc/cinder/:/etc/cinder/:ro
+            - /var/lib/config-data/puppet-generated/cinder/etc/cinder/:/etc/cinder/:ro
 
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
