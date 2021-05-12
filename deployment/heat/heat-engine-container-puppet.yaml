@@ -225,15 +225,19 @@ outputs:
             - ' '
             - - /usr/bin/heat-engine --config-file /usr/share/heat/heat-dist.conf --config-file /etc/heat/heat.conf
               - get_attr: [HeatEngineLogging, cmd_extra_args]
-          config_files:
+          config_files: &heat_engine_config_files
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &heat_engine_permissions
             - path: /var/log/heat
               owner: heat:heat
               recurse: true
+        /var/lib/kolla/config_files/heat_engine_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec heat_engine su heat -s /bin/bash -c 'heat-manage db_sync'"
+          config_files: *heat_engine_config_files
+          permissions: *heat_engine_permissions
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
@@ -249,12 +253,15 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [HeatEngineLogging, volumes]}
+                - {get_param: HeatEngineOptVolumes}
                 -
-                  - /var/lib/config-data/heat/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/heat/etc/heat/:/etc/heat/:ro
-            command: "/usr/bin/bootstrap_host_exec heat_engine su heat -s /bin/bash -c 'heat-manage db_sync'"
+                  - /var/lib/kolla/config_files/heat_engine_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/heat:/var/lib/kolla/config_files/src:ro
             environment:
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+              map_merge:
+                - {get_param: HeatEngineOptEnvVars}
+                - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           heat_engine:
             image: *heat_engine_image

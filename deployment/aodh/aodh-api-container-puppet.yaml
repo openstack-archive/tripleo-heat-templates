@@ -209,7 +209,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/aodh_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &aodh_api_config_files
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
@@ -222,10 +222,14 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &aodh_api_permissions
             - path: /var/log/aodh
               owner: aodh:aodh
               recurse: true
+        /var/lib/kolla/config_files/aodh_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec aodh_api su aodh -s /bin/bash -c /usr/bin/aodh-dbsync"
+          config_files: *aodh_api_config_files
+          permissions: *aodh_api_permissions
         /var/lib/kolla/config_files/aodh_api_cron.json:
           command: /usr/sbin/crond -n
           config_files:
@@ -258,12 +262,16 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                - - /var/lib/config-data/aodh/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/aodh/etc/aodh/:/etc/aodh/:ro
+                - - /var/lib/kolla/config_files/aodh_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/aodh:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/aodh:/var/log/aodh
                   - /var/log/containers/httpd/aodh-api:/var/log/httpd
-            command: "/usr/bin/bootstrap_host_exec aodh_api su aodh -s /bin/bash -c /usr/bin/aodh-dbsync"
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                    - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           aodh_api:
@@ -284,6 +292,7 @@ outputs:
                   - {get_param: EnableInternalTLS}
                   - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
                     - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           aodh_api_cron:
