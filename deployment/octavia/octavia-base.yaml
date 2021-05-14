@@ -208,11 +208,14 @@ parameters:
     type: boolean
 
 conditions:
-  octavia_ca_cert_unset: {equals: [{get_param: OctaviaCaCert}, '']}
-  octavia_ca_key_unset: {equals: [{get_param: OctaviaCaKey}, '']}
-  octavia_client_cert_unset: {equals: [{get_param: OctaviaClientCert}, '']}
-  octavia_topology_unset: {equals : [{get_param: OctaviaLoadBalancerTopology}, ""]}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
+  octavia_ca_cert_set:
+    not: {equals: [{get_param: OctaviaCaCert}, '']}
+  octavia_ca_key_set:
+    not: {equals: [{get_param: OctaviaCaKey}, '']}
+  octavia_client_cert_set:
+    not: {equals: [{get_param: OctaviaClientCert}, '']}
+  octavia_topology_set:
+    not: {equals : [{get_param: OctaviaLoadBalancerTopology}, '']}
 
 outputs:
   role_data:
@@ -220,88 +223,80 @@ outputs:
     value:
       service_name: octavia_base
       config_settings:
-        map_merge:
-          - octavia::logging::debug:
+        octavia::logging::debug:
+          if:
+          - {get_param: OctaviaDebug}
+          - true
+          - {get_param: Debug}
+        octavia::purge_config: {get_param: EnableConfigPurge}
+        octavia::notification_driver: {get_param: NotificationDriver}
+        octavia::db::database_connection:
+          make_url:
+            scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+            username: {get_param: OctaviaUserName}
+            password: {get_param: OctaviaPassword}
+            host: {get_param: [EndpointMap, MysqlInternal, host]}
+            path: /octavia
+            query:
               if:
-              - {get_param: OctaviaDebug}
-              - true
-              - {get_param: Debug}
-            octavia::purge_config: {get_param: EnableConfigPurge}
-            octavia::notification_driver: {get_param: NotificationDriver}
-            octavia::db::database_connection:
-              make_url:
-                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
-                username: {get_param: OctaviaUserName}
-                password: {get_param: OctaviaPassword}
-                host: {get_param: [EndpointMap, MysqlInternal, host]}
-                path: /octavia
-                query:
-                  if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: octavia
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-
-            octavia::service_auth::auth_url: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
-            octavia::service_auth::auth_type: 'password'
-            octavia::service_auth::username: {get_param: OctaviaUserName}
-            octavia::service_auth::password: {get_param: OctaviaPassword}
-            octavia::service_auth::project_name: {get_param: OctaviaProjectName}
-            octavia::service_auth::project_domain_name: 'Default'
-            octavia::service_auth::user_domain_name: 'Default'
-            octavia::service_auth::region_name: {get_param: KeystoneRegion}
-            octavia::certificates::ca_certificate: {get_param: OctaviaCaCertFile}
-            octavia::certificates::ca_private_key: {get_param: OctaviaCaKeyFile}
-            octavia::certificates::client_cert: {get_param: OctaviaClientCertFile}
-            octavia::certificates::server_certs_key_passphrase: {get_param: OctaviaServerCertsKeyPassphrase}
-            octavia::certificates::ca_private_key_passphrase: {get_param: OctaviaCaKeyPassphrase}
-            octavia::controller::amp_boot_network_list: {get_param: OctaviaAmphoraNetworkList}
-            octavia::controller::amp_flavor_id: {get_param: OctaviaFlavorId}
-            octavia::controller::amp_image_tag: {get_param: OctaviaAmphoraImageTag}
-            octavia::controller::amp_ssh_key_name: {get_param: OctaviaAmphoraSshKeyName}
-            octavia::controller::enable_ssh_access: true
-            octavia::controller::timeout_client_data: {get_param: OctaviaTimeoutClientData}
-            octavia::controller::timeout_member_connect: {get_param: OctaviaTimeoutMemberConnect}
-            octavia::controller::timeout_member_data: {get_param: OctaviaTimeoutMemberData}
-            octavia::controller::timeout_tcp_inspect: {get_param: OctaviaTimeoutTcpInspect}
-            octavia::controller::connection_max_retries: {get_param: OctaviaConnectionMaxRetries}
-            octavia::controller::connection_logging: {get_param: OctaviaConnectionLogging}
-            octavia::controller::build_active_retries: {get_param: OctaviaBuildActiveRetries}
-            octavia::controller::port_detach_timeout: {get_param: OctaviaPortDetachTimeout}
-            octavia::controller::admin_log_targets: {get_param: OctaviaAdminLogTargets}
-            octavia::controller::administrative_log_facility: {get_param: OctaviaAdminLogFacility}
-            octavia::controller::forward_all_logs: {get_param: OctaviaForwardAllLogs}
-            octavia::controller::tenant_log_targets: {get_param: OctaviaTenantLogTargets}
-            octavia::controller::user_log_facility: {get_param: OctaviaTenantLogFacility}
-            octavia::controller::user_log_format: {get_param: OctaviaUserLogFormat}
-            octavia::controller::disable_local_log_storage: {get_param: OctaviaDisableLocalLogStorage}
-            octavia::nova::enable_anti_affinity: {get_param: OctaviaAntiAffinity}
-          -
-            if:
-            - octavia_topology_unset
-            - {}
-            - octavia::controller::loadbalancer_topology: {get_param: OctaviaLoadBalancerTopology}
-          -
-            if:
-            - octavia_ca_cert_unset
-            - {}
-            - octavia::certificates::ca_certificate_data: {get_param: OctaviaCaCert}
-          -
-            if:
-            - octavia_ca_key_unset
-            - {}
-            - octavia::certificates::ca_private_key_data: {get_param: OctaviaCaKey}
-          -
-            if:
-            - octavia_client_cert_unset
-            - {}
-            - octavia::certificates::client_cert_data: {get_param: OctaviaClientCert}
+                - {get_param: EnableSQLAlchemyCollectd}
+                - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+                  plugin: collectd
+                  collectd_program_name: octavia
+                  collectd_host: localhost
+                - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                  read_default_group: tripleo
+        octavia::service_auth::auth_url: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
+        octavia::service_auth::auth_type: 'password'
+        octavia::service_auth::username: {get_param: OctaviaUserName}
+        octavia::service_auth::password: {get_param: OctaviaPassword}
+        octavia::service_auth::project_name: {get_param: OctaviaProjectName}
+        octavia::service_auth::project_domain_name: 'Default'
+        octavia::service_auth::user_domain_name: 'Default'
+        octavia::service_auth::region_name: {get_param: KeystoneRegion}
+        octavia::certificates::ca_certificate: {get_param: OctaviaCaCertFile}
+        octavia::certificates::ca_private_key: {get_param: OctaviaCaKeyFile}
+        octavia::certificates::client_cert: {get_param: OctaviaClientCertFile}
+        octavia::certificates::server_certs_key_passphrase: {get_param: OctaviaServerCertsKeyPassphrase}
+        octavia::certificates::ca_private_key_passphrase: {get_param: OctaviaCaKeyPassphrase}
+        octavia::controller::amp_boot_network_list: {get_param: OctaviaAmphoraNetworkList}
+        octavia::controller::amp_flavor_id: {get_param: OctaviaFlavorId}
+        octavia::controller::amp_image_tag: {get_param: OctaviaAmphoraImageTag}
+        octavia::controller::amp_ssh_key_name: {get_param: OctaviaAmphoraSshKeyName}
+        octavia::controller::enable_ssh_access: true
+        octavia::controller::timeout_client_data: {get_param: OctaviaTimeoutClientData}
+        octavia::controller::timeout_member_connect: {get_param: OctaviaTimeoutMemberConnect}
+        octavia::controller::timeout_member_data: {get_param: OctaviaTimeoutMemberData}
+        octavia::controller::timeout_tcp_inspect: {get_param: OctaviaTimeoutTcpInspect}
+        octavia::controller::connection_max_retries: {get_param: OctaviaConnectionMaxRetries}
+        octavia::controller::connection_logging: {get_param: OctaviaConnectionLogging}
+        octavia::controller::build_active_retries: {get_param: OctaviaBuildActiveRetries}
+        octavia::controller::port_detach_timeout: {get_param: OctaviaPortDetachTimeout}
+        octavia::controller::admin_log_targets: {get_param: OctaviaAdminLogTargets}
+        octavia::controller::administrative_log_facility: {get_param: OctaviaAdminLogFacility}
+        octavia::controller::forward_all_logs: {get_param: OctaviaForwardAllLogs}
+        octavia::controller::tenant_log_targets: {get_param: OctaviaTenantLogTargets}
+        octavia::controller::user_log_facility: {get_param: OctaviaTenantLogFacility}
+        octavia::controller::user_log_format: {get_param: OctaviaUserLogFormat}
+        octavia::controller::disable_local_log_storage: {get_param: OctaviaDisableLocalLogStorage}
+        octavia::nova::enable_anti_affinity: {get_param: OctaviaAntiAffinity}
+        octavia::controller::loadbalancer_topology:
+          if:
+            - octavia_topology_set
+            - {get_param: OctaviaLoadBalancerTopology}
+        octavia::certificates::ca_certificate_data:
+          if:
+            - octavia_ca_cert_set
+            - {get_param: OctaviaCaCert}
+        octavia::certificates::ca_private_key_data:
+          if:
+            - octavia_ca_key_set
+            - {get_param: OctaviaCaKey}
+        octavia::certificates::client_cert_data:
+          if:
+            - octavia_client_cert_set
+            - {get_param: OctaviaClientCert}
       update_tasks: &ensure_start_up_files
         - name: make sure that post-deploy.conf exists before restarting containers on update or upgrade
           when: step|int == 5

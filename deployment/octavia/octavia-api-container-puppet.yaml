@@ -88,14 +88,7 @@ parameters:
     description:  Set to false if the driver agent needs to be disabled for some reason.
     type: boolean
 
-conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
-  enable_driver_agent: {equals: [{get_param: OctaviaEnableDriverAgent}, true]}
-
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -203,12 +196,9 @@ outputs:
                 - list_concat:
                   - - 'amphora: The Octavia Amphora driver.'
                     - 'octavia: Deprecated alias of the Octavia Amphora driver.'
-                  -
-                    if:
-                      - enable_driver_agent
+                  - if:
+                      - {get_param: OctaviaEnableDriverAgent}
                       - {get_attr: [OctaviaProviderConfig, role_data, provider_driver_labels]}
-                      - []
-
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_octavia_api:
@@ -345,25 +335,20 @@ outputs:
                 volumes:
                   list_concat:
                     - {get_attr: [ContainersCommon, volumes]}
-                    -
-                      - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
+                    - - /var/lib/kolla/config_files/octavia_api.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
                       - /var/log/containers/octavia:/var/log/octavia:z
                       - /run/octavia:/run/octavia:shared,z
                       - /var/log/containers/httpd/octavia-api:/var/log/httpd:z
                     - if:
-                        - internal_tls_enabled
+                        - {get_param: EnableInternalTLS}
                         - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                        - []
-                    - if:
-                        - internal_tls_enabled
-                        - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                        - []
+                          - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                     - {get_attr: [OctaviaProviderConfig, role_data, volumes]}
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - if:
-                - enable_driver_agent
+                - {get_param: OctaviaEnableDriverAgent}
                 - octavia_driver_agent:
                     start_order: 2
                     image: *octavia_api_image
@@ -373,15 +358,12 @@ outputs:
                     volumes:
                       list_concat:
                         - {get_attr: [ContainersCommon, volumes]}
-                        -
-                          - /var/lib/kolla/config_files/octavia_driver_agent.json:/var/lib/kolla/config_files/config.json:ro
+                        - - /var/lib/kolla/config_files/octavia_driver_agent.json:/var/lib/kolla/config_files/config.json:ro
                           - /var/lib/config-data/puppet-generated/octavia:/var/lib/kolla/config_files/src:ro
                           - /var/log/containers/octavia:/var/log/octavia:z
                           - /run/octavia:/run/octavia:shared,z
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                - {}
-
       host_prep_tasks:
         - name: create persistent directories
           file:

@@ -54,12 +54,12 @@ parameters:
                  certificate for this service
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   is_ovn_in_neutron_mechanism_driver: {contains: ['ovn', {get_param: NeutronMechanismDrivers}]}
-  ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, internal_tls_enabled]}
-  octavia_provider_ovn_protocol_unset: {equals: [{get_param: OctaviaOvnProviderProtocol}, '']}
-  key_size_override_unset: {equals: [{get_param: OctaviaCertificateKeySize}, '']}
+  ovn_and_tls: {and: [is_ovn_in_neutron_mechanism_driver, {get_param: EnableInternalTLS}]}
+  octavia_provider_ovn_protocol_set:
+    not: {equals: [{get_param: OctaviaOvnProviderProtocol}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: OctaviaCertificateKeySize}, '']}
 
 outputs:
   role_data:
@@ -67,26 +67,23 @@ outputs:
     value:
       config_settings:
         map_merge:
-            -
-              if:
-                - octavia_provider_ovn_protocol_unset
-                - if:
-                  - internal_tls_enabled
+          - if:
+              - octavia_provider_ovn_protocol_set
+              - tripleo::profile::base::octavia::provider::ovn::protocol: {get_param: OctaviaOvnProviderProtocol}
+              - if:
+                  - {get_param: EnableInternalTLS}
                   - tripleo::profile::base::octavia::provider::ovn::protocol: 'ssl'
                   - tripleo::profile::base::octavia::provider::ovn::protocol: 'tcp'
-                - tripleo::profile::base::octavia::provider::ovn::protocol: {get_param: OctaviaOvnProviderProtocol}
-            - if:
+          - if:
               - ovn_and_tls
               - tripleo::profile::base::octavia::provider::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
                 tripleo::profile::base::octavia::provider::ovn::ovn_nb_certificate: '/etc/pki/tls/certs/ovn_octavia.crt'
                 tripleo::profile::base::octavia::provider::ovn::ovn_nb_private_key: '/etc/pki/tls/private/ovn_octavia.key'
-              - {}
       puppet_tags: octavia_ovn_provider_config
       provider_driver_labels:
         if:
           - is_ovn_in_neutron_mechanism_driver
           - ['ovn: Octavia OVN driver.']
-          - []
       step_config:
           if:
             - is_ovn_in_neutron_mechanism_driver
@@ -98,39 +95,31 @@ outputs:
           - - service: ovn_octavia
               network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
               type: node
-          - null
       volumes:
          if:
            - ovn_and_tls
-           -
-             - /etc/pki/tls/certs/ovn_octavia.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_octavia.crt:ro
+           - - /etc/pki/tls/certs/ovn_octavia.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_octavia.crt:ro
              - /etc/pki/tls/private/ovn_octavia.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/ovn_octavia.key:ro
-           - []
       kolla_permissions:
         if:
           - ovn_and_tls
-          -
-            - path: /etc/pki/tls/certs/ovn_octavia.crt
+          - - path: /etc/pki/tls/certs/ovn_octavia.crt
               owner: octavia:octavia
               perm: '0644'
             - path: /etc/pki/tls/private/ovn_octavia.key
               owner: octavia:octavia
               perm: '0640'
-          - []
       kolla_config_files:
         if:
           - ovn_and_tls
-          -
-            - source: "/var/lib/kolla/config_files/src-tls/*"
+          - - source: "/var/lib/kolla/config_files/src-tls/*"
               dest: "/"
               merge: true
               preserve_properties: true
-          - []
       deploy_steps_tasks:
         if:
           - ovn_and_tls
-          -
-            - name: Certificate generation
+          - - name: Certificate generation
               when: step|int == 1
               block:
                 - include_role:
@@ -150,8 +139,7 @@ outputs:
                               $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                         key_size:
                           if:
-                            - key_size_override_unset
-                            - {get_param: CertificateKeySize}
+                            - key_size_override_set
                             - {get_param: OctaviaCertificateKeySize}
+                            - {get_param: CertificateKeySize}
                         ca: ipa
-          - null
