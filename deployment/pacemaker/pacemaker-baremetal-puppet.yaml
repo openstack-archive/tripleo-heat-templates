@@ -129,8 +129,10 @@ parameter_groups:
   - CorosyncIPv6
 
 conditions:
-  pcmk_tls_priorities_empty: {equals: [{get_param: PacemakerTLSPriorities}, '']}
-  pcmk_bundle_op_timeout_empty: {equals: [{get_param: PacemakerBundleOperationTimeout}, '']}
+  pcmk_tls_priorities_set:
+    not: {equals: [{get_param: PacemakerTLSPriorities}, '']}
+  pcmk_bundle_op_timeout_set:
+    not: {equals: [{get_param: PacemakerBundleOperationTimeout}, '']}
   podman_enabled: {equals: [{get_param: ContainerCli}, 'podman']}
   is_ipv6:
     equals:
@@ -154,47 +156,43 @@ outputs:
            proto: 'udp'
            dport: 5405
       config_settings:
-        map_merge:
-        - pacemaker::corosync::cluster_name: 'tripleo_cluster'
-          pacemaker::corosync::manage_fw: false
-          pacemaker::resource_defaults::defaults:
-            resource-stickiness: { value: INFINITY }
-          corosync_token_timeout: 10000
-          pacemaker::corosync::settle_tries: {get_param: CorosyncSettleTries}
-          pacemaker::resource::bundle::deep_compare: true
-          pacemaker::resource::ip::deep_compare: true
-          pacemaker::resource::ocf::deep_compare: true
-          corosync_ipv6: {if: [is_ipv6, true, false]}
-          tripleo::fencing::config: {get_param: FencingConfig}
-          tripleo::fencing::deep_compare: true
-          enable_fencing: {get_param: EnableFencing}
-          hacluster_pwd: {get_param: PcsdPassword}
-          tripleo::profile::base::pacemaker::remote_authkey: {get_param: PacemakerRemoteAuthkey}
-          tripleo::profile::base::pacemaker::pcsd_bind_addr:
-            str_replace:
-              template:
-                "%{hiera('$NETWORK')}"
-              params:
-                $NETWORK: {get_param: [ServiceNetMap, PacemakerNetwork]}
-        -
+        pacemaker::corosync::cluster_name: 'tripleo_cluster'
+        pacemaker::corosync::manage_fw: false
+        pacemaker::resource_defaults::defaults:
+          resource-stickiness: { value: INFINITY }
+        corosync_token_timeout: 10000
+        pacemaker::corosync::settle_tries: {get_param: CorosyncSettleTries}
+        pacemaker::resource::bundle::deep_compare: true
+        pacemaker::resource::ip::deep_compare: true
+        pacemaker::resource::ocf::deep_compare: true
+        corosync_ipv6: {if: [is_ipv6, true, false]}
+        tripleo::fencing::config: {get_param: FencingConfig}
+        tripleo::fencing::deep_compare: true
+        enable_fencing: {get_param: EnableFencing}
+        hacluster_pwd: {get_param: PcsdPassword}
+        tripleo::profile::base::pacemaker::remote_authkey: {get_param: PacemakerRemoteAuthkey}
+        tripleo::profile::base::pacemaker::pcsd_bind_addr:
+          str_replace:
+            template:
+              "%{hiera('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, PacemakerNetwork]}
+        tripleo::pacemaker::tls_priorities:
           if:
-          - pcmk_tls_priorities_empty
-          - {}
-          - tripleo::pacemaker::tls_priorities: {get_param: PacemakerTLSPriorities}
-        -
+            - pcmk_tls_priorities_set
+            - {get_param: PacemakerTLSPriorities}
+        tripleo::profile::base::pacemaker::resource_op_defaults:
           if:
-          -  and:
-             - pcmk_bundle_op_timeout_empty
-             - not: podman_enabled
-          - {}
-          - tripleo::profile::base::pacemaker::resource_op_defaults:
-              bundle:
+            - and:
+                - pcmk_bundle_op_timeout_set
+                - podman_enabled
+            - bundle:
                 name: timeout
                 value:
                   if:
-                  - pcmk_bundle_op_timeout_empty
-                  - '120s'
-                  - {get_param: PacemakerBundleOperationTimeout}
+                    - pcmk_bundle_op_timeout_set
+                    - {get_param: PacemakerBundleOperationTimeout}
+                    - '120s'
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_pacemaker:
