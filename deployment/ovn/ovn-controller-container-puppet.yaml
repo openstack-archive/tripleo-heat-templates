@@ -139,13 +139,10 @@ parameters:
       - role_specific
 
 conditions:
-  force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  key_size_override_unset: {equals: [{get_param: ContainerOvnCertificateKeySize}, '']}
-  enable_vlan_transparency: {equals: [{get_param: EnableVLANTransparency}, true]}
+  key_size_override_set:
+    not: {equals: [{get_param: ContainerOvnCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -225,21 +222,15 @@ outputs:
             ovn::controller::hostname: "%{hiera('fqdn_canonical')}"
             ovn::controller::ovn_remote_probe_interval: {get_param: OVNRemoteProbeInterval}
             ovn::controller::ovn_openflow_probe_interval: {get_param: OVNOpenflowProbeInterval}
-          - if:
-              - force_config_drive
-              - nova::compute::force_config_drive: true
-              - {}
-          -
-            if:
-            - internal_tls_enabled
-            -
-              tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
-            - {}
-          -
-            if:
-            - enable_vlan_transparency
-            - vswitch::ovs::vlan_limit: 0
-            - {}
+            nova::compute::force_config_drive: {get_param: OVNMetadataEnabled}
+            tripleo::profile::base::neutron::agents::ovn::protocol:
+              if:
+                - {get_param: EnableInternalTLS}
+                - 'ssl'
+            vswitch::ovs::vlan_limit:
+              if:
+                - {get_param: EnableVLANTransparency} 
+                - 0
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -265,12 +256,11 @@ outputs:
               - ' '
               - - /usr/bin/ovn-controller --pidfile --log-file unix:/run/openvswitch/db.sock
                 - if:
-                  - internal_tls_enabled
+                  - {get_param: EnableInternalTLS}
                   - list_join:
                     - ' '
                     - - -p /etc/pki/tls/private/ovn_controller.key -c /etc/pki/tls/certs/ovn_controller.crt -C
                       - {get_param: InternalTLSCAFile}
-                  - ''
           permissions:
             - path: /var/log/openvswitch
               owner: root:root
@@ -280,11 +270,10 @@ outputs:
               recurse: true
       metadata_settings:
         if:
-          - internal_tls_enabled
+          - {get_param: EnableInternalTLS}
           - - service: ovn_controller
               network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
               type: node
-          - null
       docker_config:
         step_4:
           configure_cms_options:
@@ -323,8 +312,7 @@ outputs:
                           port: {get_param: OVNSouthboundServerPort}
             volumes:
               list_concat:
-                -
-                  - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
                   - /lib/modules:/lib/modules:ro
                   # TODO(numans): This is temporary. Mount /run/openvswitch once
                   # openvswitch systemd script is fixed to not delete /run/openvswitch
@@ -334,16 +322,14 @@ outputs:
                   - /var/log/containers/openvswitch:/var/log/openvswitch:z
                   - /var/log/containers/openvswitch:/var/log/ovn:z
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - list_join:
+                  - {get_param: EnableInternalTLS}
+                  - - list_join:
                       - ':'
                       - - {get_param: InternalTLSCAFile}
                         - {get_param: InternalTLSCAFile}
                         - 'ro'
                     - /etc/pki/tls/certs/ovn_controller.crt:/etc/pki/tls/certs/ovn_controller.crt
                     - /etc/pki/tls/private/ovn_controller.key:/etc/pki/tls/private/ovn_controller.key
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
@@ -369,9 +355,9 @@ outputs:
                           $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: ContainerOvnCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         - name: create persistent directories

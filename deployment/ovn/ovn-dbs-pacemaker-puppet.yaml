@@ -113,16 +113,10 @@ parameters:
     default: 10
 
 conditions:
-  puppet_debug_enabled: {get_param: ConfigDebug}
-  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  common_tag_enabled: {equals: [{get_param: ClusterCommonTag}, true]}
-  common_tag_full: {equals: [{get_param: ClusterFullTag}, true]}
-  use_external_load_balancer: {equals: [{get_param: EnableLoadBalancer}, false]}
-  key_size_override_unset: {equals: [{get_param: OvnDBSCertificateKeySize}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: OvnDBSCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -155,43 +149,41 @@ outputs:
           - get_attr: [OVNDbsBase, role_data, config_settings]
           - tripleo::profile::pacemaker::ovn_dbs_bundle::ovn_dbs_docker_image: &ovn_dbs_image_pcmklatest
               if:
-                - common_tag_full
+                - {get_param: ClusterFullTag}
                 - "cluster.common.tag/ovn-northd:pcmklatest"
                 - yaql:
                     data:
                       if:
-                        - common_tag_enabled
+                        - {get_param: ClusterCommonTag}
                         - yaql:
                             data: {get_param: ContainerOvnDbsImage}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
                         - {get_param: ContainerOvnDbsImage}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::nb_db_port: {get_param: OVNNorthboundServerPort}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::container_backend: {get_param: ContainerCli}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::dbs_timeout: {get_param: OVNDBSPacemakerTimeout}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::replication_probe_interval: {get_param: OVNDBSReplicationInterval}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::force_ocf: true
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::monitor_interval_slave: {get_param: OVNDBSPacemakerMonitorIntervalSlave}
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::monitor_interval_master: {get_param: OVNDBSPacemakerMonitorIntervalMaster}
-          - tripleo::haproxy::ovn_dbs_manage_lb:
+            tripleo::profile::pacemaker::ovn_dbs_bundle::nb_db_port: {get_param: OVNNorthboundServerPort}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::container_backend: {get_param: ContainerCli}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::dbs_timeout: {get_param: OVNDBSPacemakerTimeout}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::replication_probe_interval: {get_param: OVNDBSReplicationInterval}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::force_ocf: true
+            tripleo::profile::pacemaker::ovn_dbs_bundle::monitor_interval_slave: {get_param: OVNDBSPacemakerMonitorIntervalSlave}
+            tripleo::profile::pacemaker::ovn_dbs_bundle::monitor_interval_master: {get_param: OVNDBSPacemakerMonitorIntervalMaster}
+            tripleo::haproxy::ovn_dbs_manage_lb:
               if:
-                - use_external_load_balancer
+                - not: {get_param: EnableLoadBalancer}
                 - true
                 - false
-          - tripleo::profile::pacemaker::ovn_dbs_bundle::listen_on_master_ip_only:
+            tripleo::profile::pacemaker::ovn_dbs_bundle::listen_on_master_ip_only:
               if:
-                - use_external_load_balancer
-                - 'no'
+                - {get_param: EnableLoadBalancer}
                 - 'yes'
+                - 'no'
           - if:
-            - internal_tls_enabled
-            -
-              tripleo::profile::pacemaker::ovn_dbs_bundle::ca_file:
+            - {get_param: EnableInternalTLS}
+            - tripleo::profile::pacemaker::ovn_dbs_bundle::ca_file:
                 get_param: InternalTLSCAFile
               tripleo::profile::base::neutron::agents::ovn::protocol: 'ssl'
               tripleo::profile::pacemaker::ovn_dbs_bundle::enable_internal_tls: true
-            - {}
       service_config_settings: {}
       kolla_config:
         /var/lib/kolla/config_files/ovn_dbs.json:
@@ -209,14 +201,13 @@ outputs:
       container_config_scripts: {get_attr: [ContainersCommon, container_config_scripts]}
       metadata_settings:
         if:
-          - internal_tls_enabled
+          - {get_param: EnableInternalTLS}
           - - service: ovn_dbs
               network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
               type: vip
             - service: ovn_dbs
               network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
               type: node
-          - null
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -273,9 +264,9 @@ outputs:
                           $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: OvnDBSCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       update_tasks:
         - name: Tear-down non-HA ovn-dbs containers
