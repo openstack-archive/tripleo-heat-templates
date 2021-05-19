@@ -1,0 +1,171 @@
+heat_template_version: rocky
+
+description: >
+  Time services such as timemaster with deployment using ansible, this YAML file
+  creates the interface between the HOT template
+  and the ansible roles that actually installs
+  and configure chronyd and timemaster.
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  DefaultPasswords:
+    default: {}
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  NtpServer:
+    default: ['0.pool.ntp.org', '1.pool.ntp.org', '2.pool.ntp.org', '3.pool.ntp.org']
+    description: NTP servers list. Defaulted to a set of pool.ntp.org servers
+                 in order to have a sane default for Pacemaker deployments when
+                 not configuring this parameter by default.
+    type: comma_delimited_list
+  NtpPool:
+    default: []
+    description: NTP pool list.  Defaults to [], so only NtpServer is used by
+                 default.
+    type: comma_delimited_list
+  ChronyGlobalServerOptions:
+    default: ''
+    description: Default server options for the configured NTP servers in
+                 chrony.conf. If this is specified, NtpIburstEnable, MaxPoll,
+                 and MinPoll are ignored.
+    type: string
+  ChronyGlobalPoolOptions:
+    default: ''
+    description: Default pool options for the configured NTP pools in
+                 chrony.conf. If this is specified, NtpIburstEnable, MaxPoll,
+                 and MinPoll are ignored.
+    type: string
+  NtpIburstEnable:
+    default: true
+    description: Specifies whether to enable the iburst option for every NTP
+                 peer. If iburst is enabled, when the ntp server is unreachable
+                 ntp will send a burst of eight packages instead of one. This
+                 is designed to speed up the initial syncrhonization.
+    type: boolean
+  MaxPoll:
+    description: Specify maximum poll interval of upstream servers for NTP
+                 messages, in seconds to the power of two.
+                 The maximum poll interval defaults to 10 (1,024 s).
+                 Allowed values are 4 to 17.
+    type: number
+    default: 10
+    constraints:
+      - range: { min: 4, max: 17 }
+  MinPoll:
+    description: Specify minimum poll interval of upstream servers for NTP
+                 messages, in seconds to the power of two.
+                 The minimum poll interval defaults to 6 (64 s).
+                 Allowed values are 4 to 17.
+    type: number
+    default: 6
+    constraints:
+      - range: { min: 4, max: 17 }
+  EnablePackageInstall:
+    default: 'false'
+    description: Set to true to enable package installation at deploy time
+    type: boolean
+  ChronyAclRules:
+    default: ['deny all']
+    description: Access Control List of NTP clients.  By default no clients
+                 are permitted.
+    type: comma_delimited_list
+  PTPInterfaces:
+    default: ''
+    description: Interfaces to be added to PTP domain
+    type: comma_delimited_list
+    tags:
+      - role_specific
+  PTPMessageTransport:
+    default: ''
+    description: PTP transport mechanism, possible values UDPv4,L2
+    type: string
+    tags:
+      - role_specific
+
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - tripleo_ptp_interfaces: PTPInterfaces
+              tripleo_ptp_transport: PTPMessageTransport
+            - values: {get_param: [RoleParameters]}
+          - values:
+              PTPInterfaces: {get_param: PTPInterfaces}
+              PTPMessageTransport: {get_param: PTPMessageTransport}
+
+conditions:
+  chrony_global_server_settings_is_empty: {equals: [{get_param: ChronyGlobalServerOptions}, '']}
+  chrony_global_pool_settings_is_empty: {equals: [{get_param: ChronyGlobalPoolOptions}, '']}
+  ntp_iburst: {equals: [{get_param: NtpIburstEnable}, true]}
+
+outputs:
+  role_data:
+    description: Configure and starts timemaster service.
+    value:
+      host_prep_tasks:
+        - name: Configure and Run Timemaster
+          include_role:
+            name: tripleo_timemaster
+
+      ansible_group_vars:
+        chrony_role_action: all
+        chrony_ntp_servers: {get_param: NtpServer}
+        chrony_ntp_pools: {get_param: NtpPool}
+        tripleo_timemaster_role_action: all
+        chrony_global_server_settings:
+          if:
+          - chrony_global_server_settings_is_empty
+          - str_replace:
+              template: IBURST minpoll MINPOLL maxpoll MAXPOLL
+              params:
+                IBURST:
+                  if:
+                  - ntp_iburst
+                  - iburst
+                  - ''
+                MINPOLL: { get_param: MinPoll }
+                MAXPOLL: { get_param: MaxPoll }
+          - {get_param: ChronyGlobalServerOptions}
+        chrony_global_pool_settings:
+          if:
+          - chrony_global_pool_settings_is_empty
+          - str_replace:
+              template: IBURST minpoll MINPOLL maxpoll MAXPOLL
+              params:
+                IBURST:
+                  if:
+                  - ntp_iburst
+                  - iburst
+                  - ''
+                MINPOLL: { get_param: MinPoll }
+                MAXPOLL: { get_param: MaxPoll }
+          - {get_param: ChronyGlobalPoolOptions}
+        chrony_manage_package: {get_param: EnablePackageInstall}
+        chrony_acl_rules: {get_param: ChronyAclRules}
+        ptp_interfaces: {get_attr: [RoleParametersValue, value, tripleo_ptp_interfaces]}
+        ptp_transport: {get_attr: [RoleParametersValue, value, tripleo_ptp_transport]}
