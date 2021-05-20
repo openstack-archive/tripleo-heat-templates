@@ -1,15 +1,20 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate MiniDNS service
+  OpenStack containerized Designate Worker service
 
 parameters:
-  ContainerDesignateMDNSImage:
+  ContainerDesignateWorkerImage:
     description: image
     type: string
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+  DesignateWorkerLoggingSource:
+    type: json
+    default:
+      tag: openstack.designate.worker
+      file: /var/log/containers/designate/designate-worker.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -25,11 +30,6 @@ parameters:
                  via parameter_defaults in the resource registry. Use
                  parameter_merge_strategies to merge it with the defaults.
     type: json
-  EnableSQLAlchemyCollectd:
-    type: boolean
-    description: >
-        Set to true to enable the SQLAlchemy-collectd server plugin
-    default: false
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -38,29 +38,25 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  MonitoringSubscriptionDesignateMiniDNS:
-    default: 'overcloud-designate-mdns'
+  MonitoringSubscriptionDesignateWorker:
+    default: 'overcloud-designate-worker'
     type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
     type: number
-  DesignatePassword:
-    description: The password for the Designate's database account.
+  DesignateRndcKey:
+    description: The rndc key secret for communication with BIND.
     type: string
     hidden: true
 
 conditions:
   designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
-  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
-
-  MySQLClient:
-    type: ../../database/mysql-client.yaml
+    type: ../containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -73,58 +69,33 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate MDNS role.
+    description: Role data for the Designate Worker role.
     value:
-      service_name: designate_mdns
+      service_name: designate_worker
       firewall_rules:
-        '142 designate_mdns udp':
+        '140 designate_worker udp':
           proto: 'udp'
           dport:
-            - 5354
-        '143 designate_mdns tcp':
+            - 53
+            - 953
+        '141 designate_worker tcp':
           proto: 'tcp'
           dport:
-            - 5354
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateMiniDNS}
+            - 53
+            - 953
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateWorker}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate::db::database_connection:
-              make_url:
-                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
-                username: designate
-                password: {get_param: DesignatePassword}
-                host: {get_param: [EndpointMap, MysqlInternal, host]}
-                path: /designate
-                query:
-                  if:
-                    - enable_sqlalchemy_collectd
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
-                        plugin: collectd
-                        collectd_program_name: designate_mdns
-                        collectd_host: localhost
-                    -
-                        read_default_file: /etc/my.cnf.d/tripleo.cnf
-                        read_default_group: tripleo
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::mdns::workers: {get_param: DesignateWorkers}
-          - designate::mdns::listen:
-            - '0.0.0.0:5354'
-            - '[::]:5354'
+            - designate::worker::workers: {get_param: DesignateWorkers}
       service_config_settings:
-        mysql:
-          designate::db::mysql::password: {get_param: DesignatePassword}
-          designate::db::mysql::user: designate
-          designate::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
-          designate::db::mysql::dbname: designate
-          designate::db::mysql::allowed_hosts:
-            - '%'
-            - "%{hiera('mysql_bind_host')}"
+        rsyslog:
+          tripleo_logging_sources_designate_worker:
+            - {get_param: DesignateWorkerLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -133,12 +104,12 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - "include tripleo::profile::base::designate::mdns"
-              - {get_attr: [MySQLClient, role_data, step_config]}
+              - "include tripleo::profile::base::designate::worker"
+              - "include tripleo::profile::base::designate::backend"
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_mdns.json:
-          command: /usr/bin/designate-mdns --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/mdns.log
+        /var/lib/kolla/config_files/designate_worker.json:
+          command: /usr/bin/designate-worker --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/worker.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -148,10 +119,17 @@ outputs:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
+      deploy_steps_tasks:
+          - name: generate rndc key configuration files
+            when: step|int == 4
+            import_role:
+                name: designate_rndc_config
+            vars:
+                designate_rndc_key: {get_param: DesignateRndcKey}
       docker_config:
         step_4:
-          designate_mdns:
-            image: &designate_mdns_image {get_param: ContainerDesignateMDNSImage}
+          designate_worker:
+            image: &designate_worker_image {get_param: ContainerDesignateWorkerImage}
             net: host
             privileged: false
             restart: always
@@ -162,7 +140,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_mdns.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_worker.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
@@ -173,7 +151,6 @@ outputs:
             path: "{{ item.path }}"
             state: directory
             setype: "{{ item.setype }}"
-            mode: "{{ item.mode|default(omit) }}"
+            mode: "{{ item.mode }}"
           with_items:
-            - { 'path': /var/log/designate, 'setype': container_file_t }
             - { 'path': /var/log/containers/designate, 'setype': container_file_t, 'mode': '0750' }

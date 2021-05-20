@@ -1,20 +1,15 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate Worker service
+  OpenStack containerized bind9 for designate
 
 parameters:
-  ContainerDesignateWorkerImage:
+  ContainerDesignateBackendBIND9Image:
     description: image
     type: string
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateWorkerLoggingSource:
-    type: json
-    default:
-      tag: openstack.designate.worker
-      file: /var/log/containers/designate/designate-worker.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -38,25 +33,19 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  MonitoringSubscriptionDesignateWorker:
-    default: 'overcloud-designate-worker'
+  MonitoringSubscriptionDesignateBind:
+    default: 'overcloud-designate-bind'
     type: string
-  DesignateWorkers:
-    default: 0
-    description: Number of workers for Designate services.
-    type: number
   DesignateRndcKey:
     description: The rndc key secret for communication with BIND.
     type: string
     hidden: true
 
-conditions:
-  designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
 
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -69,9 +58,9 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate Worker role.
+    description: Role data for the Designate Bind instance.
     value:
-      service_name: designate_worker
+      service_name: designate_bind
       firewall_rules:
         '140 designate_worker udp':
           proto: 'udp'
@@ -83,42 +72,38 @@ outputs:
           dport:
             - 53
             - 953
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateWorker}
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateBind}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          -
-            if:
-            - designate_workers_zero
-            - {}
-            - designate::worker::workers: {get_param: DesignateWorkers}
-      service_config_settings:
-        rsyslog:
-          tripleo_logging_sources_designate_worker:
-            - {get_param: DesignateWorkerLoggingSource}
-      # BEGIN DOCKER SETTINGS
+          - designate::backend::bind9::configure_bind: false
       puppet_config:
         config_volume: designate
         puppet_tags: designate_config
-        step_config:
-          list_join:
-            - "\n"
-            - - {get_attr: [DesignateBase, role_data, step_config]}
-              - "include tripleo::profile::base::designate::worker"
-              - "include tripleo::profile::base::designate::backend"
+        step_config:  {get_attr: [DesignateBase, role_data, step_config]}
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_worker.json:
-          command: /usr/bin/designate-worker --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/worker.log
+        /var/lib/kolla/config_files/designate_backend_bind9.json:
+          command: /usr/sbin/named -u named -c /etc/named.conf -f -g
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/named/*"
+              dest: "/var/named-persistent/"
               merge: true
               preserve_properties: true
           permissions:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
+            - path: /var/named-persistent
+              owner: root:named
+              perm: '0770'
+            - path: /etc/rndc.key
+              owner: root:named
+              perm: '0640'
       deploy_steps_tasks:
           - name: generate rndc key configuration files
             when: step|int == 4
@@ -126,31 +111,39 @@ outputs:
                 name: designate_rndc_config
             vars:
                 designate_rndc_key: {get_param: DesignateRndcKey}
+                designate_rndc_key_file_path: /var/lib/config-data/ansible-generated/designate/etc/
+          - name: generate bind configuration
+            when: step|int == 4
+            import_role:
+                name: designate_bind_config
+            vars:
+                rndc_allowed_addresses:
+                    get_param:
+                      - ServiceData
+                      - net_cidr_map
+                      - {get_param: [ServiceNetMap, DesignateApiNetwork]}
       docker_config:
         step_4:
-          designate_worker:
-            image: &designate_worker_image {get_param: ContainerDesignateWorkerImage}
+          designate_backend_bind9:
+            image: {get_param: ContainerDesignateBackendBIND9Image}
             net: host
-            privileged: false
+            privileged: true
             restart: always
-            healthcheck:
-              test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_worker.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/kolla/config_files/designate_backend_bind9.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ansible-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
+                  - /var/named-persistent:/var/named-persistent:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
-        - name: create persistent directories
+        - name: create persistent named directory
           file:
-            path: "{{ item.path }}"
+            path: /var/named-persistent
             state: directory
-            setype: "{{ item.setype }}"
-            mode: "{{ item.mode }}"
-          with_items:
-            - { 'path': /var/log/containers/designate, 'setype': container_file_t, 'mode': '0750' }
+            setype: container_file_t
+            mode: '0750'

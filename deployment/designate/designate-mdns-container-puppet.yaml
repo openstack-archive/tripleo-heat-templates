@@ -1,10 +1,10 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate API service
+  OpenStack containerized Designate MiniDNS service
 
 parameters:
-  ContainerDesignateApiImage:
+  ContainerDesignateMDNSImage:
     description: image
     type: string
   ContainerDesignateConfigImage:
@@ -25,6 +25,11 @@ parameters:
                  via parameter_defaults in the resource registry. Use
                  parameter_merge_strategies to merge it with the defaults.
     type: json
+  EnableSQLAlchemyCollectd:
+    type: boolean
+    description: >
+        Set to true to enable the SQLAlchemy-collectd server plugin
+    default: false
   RoleName:
     default: ''
     description: Role name on which the service is applied
@@ -33,6 +38,9 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  MonitoringSubscriptionDesignateMiniDNS:
+    default: 'overcloud-designate-mdns'
+    type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
@@ -41,30 +49,18 @@ parameters:
     description: The password for the Designate's database account.
     type: string
     hidden: true
-  KeystoneRegion:
-    type: string
-    default: 'regionOne'
-    description: Keystone region for endpoint
-  MonitoringSubscriptionDesignateApi:
-    default: 'overcloud-designate-api'
-    type: string
-  NeutronPassword:
-    description: The password for the neutron service and db account, used by neutron agents.
-    type: string
-    hidden: true
-  MemcacheUseAdvancedPool:
-    type: boolean
-    description: |
-      Use the advanced (eventlet safe) memcached client pool.
-    default: true
 
 conditions:
   designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
+  enable_sqlalchemy_collectd: {equals : [{get_param: EnableSQLAlchemyCollectd}, true]}
 
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../containers-common.yaml
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -77,64 +73,72 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate API role.
+    description: Role data for the Designate MDNS role.
     value:
-      service_name: designate_api
+      service_name: designate_mdns
       firewall_rules:
-        '139 designate api':
+        '142 designate_mdns udp':
+          proto: 'udp'
           dport:
-            - 9001
-            - 13001
-      keystone_resources:
-        designate:
-          endpoints:
-            public: {get_param: [EndpointMap, DesignatePublic, uri_no_suffix]}
-            internal: {get_param: [EndpointMap, DesignateInternal, uri_no_suffix]}
-            admin: {get_param: [EndpointMap, DesignateAdmin, uri_no_suffix]}
-          users:
-            designate:
-              password: {get_param: DesignatePassword}
-          region: {get_param: KeystoneRegion}
-          service: 'dns'
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateApi}
+            - 5354
+        '143 designate_mdns tcp':
+          proto: 'tcp'
+          dport:
+            - 5354
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateMiniDNS}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate::keystone::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri] }
-            designate::keystone::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-            designate::keystone::authtoken::project_name: 'service'
-            designate::keystone::authtoken::password: {get_param: DesignatePassword}
-            designate::keystone::authtoken::region_name: {get_param: KeystoneRegion}
-            designate::keystone::authtoken::interface: 'internal'
-            designate::keystone::authtoken::memcache_use_advanced_pool: {get_param: MemcacheUseAdvancedPool}
-            tripleo::profile::base::designate::api::listen_ip:
-              str_replace:
-                template:
-                  "%{hiera('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            tripleo::profile::base::designate::api::listen_port: 9001
+          - designate::db::database_connection:
+              make_url:
+                scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                username: designate
+                password: {get_param: DesignatePassword}
+                host: {get_param: [EndpointMap, MysqlInternal, host]}
+                path: /designate
+                query:
+                  if:
+                    - enable_sqlalchemy_collectd
+                    -
+                        read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
+                        plugin: collectd
+                        collectd_program_name: designate_mdns
+                        collectd_host: localhost
+                    -
+                        read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::api::workers: {get_param: DesignateWorkers}
+            - designate::mdns::workers: {get_param: DesignateWorkers}
+          - designate::mdns::listen:
+            - '0.0.0.0:5354'
+            - '[::]:5354'
       service_config_settings:
-        neutron_api:
-          neutron::designate::password: {get_param: NeutronPassword}
-          neutron::designate::url: {get_param: [EndpointMap, DesignateInternal, uri]}
-          neutron::designate::auth_url: {get_param: [EndpointMap, KeystoneV3Internal, uri]}
-          neutron::designate::project_name: 'service'
+        mysql:
+          designate::db::mysql::password: {get_param: DesignatePassword}
+          designate::db::mysql::user: designate
+          designate::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
+          designate::db::mysql::dbname: designate
+          designate::db::mysql::allowed_hosts:
+            - '%'
+            - "%{hiera('mysql_bind_host')}"
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
         puppet_tags: designate_config
-        step_config: |
-          include tripleo::profile::base::designate::api
+        step_config:
+          list_join:
+            - "\n"
+            - - {get_attr: [DesignateBase, role_data, step_config]}
+              - "include tripleo::profile::base::designate::mdns"
+              - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_api.json:
-          command: /usr/bin/designate-api --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/api.log
+        /var/lib/kolla/config_files/designate_mdns.json:
+          command: /usr/bin/designate-mdns --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/mdns.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -146,17 +150,19 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          designate_api:
-            start_order: 15
-            image: &designate_api_image {get_param: ContainerDesignateApiImage}
+          designate_mdns:
+            image: &designate_mdns_image {get_param: ContainerDesignateMDNSImage}
             net: host
             privileged: false
             restart: always
+            healthcheck:
+              test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/kolla/config_files/designate_api.json:/var/lib/kolla/config_files/config.json:ro
+                  - /run:/run
+                  - /var/lib/kolla/config_files/designate_mdns.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
@@ -167,6 +173,7 @@ outputs:
             path: "{{ item.path }}"
             state: directory
             setype: "{{ item.setype }}"
-            mode: "{{ item.mode }}"
+            mode: "{{ item.mode|default(omit) }}"
           with_items:
+            - { 'path': /var/log/designate, 'setype': container_file_t }
             - { 'path': /var/log/containers/designate, 'setype': container_file_t, 'mode': '0750' }

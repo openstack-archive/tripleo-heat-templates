@@ -1,20 +1,15 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate Producer service
+  OpenStack containerized Designate Sink service
 
 parameters:
-  ContainerDesignateProducerImage:
+  ContainerDesignateSinkImage:
     description: image
     type: string
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateProducerLoggingSource:
-    type: json
-    default:
-      tag: openstack.designate.producer
-      file: /var/log/containers/designate/designate-producer.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -38,17 +33,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  MonitoringSubscriptionDesignateProducer:
-    default: 'overcloud-designate-producer'
+  MonitoringSubscriptionDesignateSink:
+    default: 'overcloud-designate-sink'
     type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
     type: number
-  RedisPassword:
-    description: The password for the redis service account.
-    type: string
-    hidden: true
 
 conditions:
   designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
@@ -56,7 +47,7 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -69,23 +60,19 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate Producer role.
+    description: Role data for the Designate Sink role.
     value:
-      service_name: designate_producer
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateProducer}
+      service_name: designate_sink
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateSink}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate_redis_password: {get_param: RedisPassword}
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::producer::workers: {get_param: DesignateWorkers}
-      service_config_settings:
-        rsyslog:
-          tripleo_logging_sources_designate_producer:
-            - {get_param: DesignateProducerLoggingSource}
+            - designate::sink::workers: {get_param: DesignateWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -94,11 +81,11 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - "include tripleo::profile::base::designate::producer"
+              - "include tripleo::profile::base::designate::sink"
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_producer.json:
-          command: /usr/bin/designate-producer --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/producer.log
+        /var/lib/kolla/config_files/designate_sink.json:
+          command: /usr/bin/designate-sink --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/sink.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -110,8 +97,8 @@ outputs:
               recurse: true
       docker_config:
         step_4:
-          designate_producer:
-            image: &designate_producer_image {get_param: ContainerDesignateProducerImage}
+          designate_sink:
+            image: &designate_sink_image {get_param: ContainerDesignateSinkImage}
             net: host
             privileged: false
             restart: always
@@ -122,7 +109,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_producer.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_sink.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
