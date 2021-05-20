@@ -1,20 +1,15 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate Worker service
+  OpenStack containerized Designate Sink service
 
 parameters:
-  ContainerDesignateWorkerImage:
+  ContainerDesignateSinkImage:
     description: image
     type: string
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateWorkerLoggingSource:
-    type: json
-    default:
-      tag: openstack.designate.worker
-      file: /var/log/containers/designate/designate-worker.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -38,17 +33,13 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  MonitoringSubscriptionDesignateWorker:
-    default: 'overcloud-designate-worker'
+  MonitoringSubscriptionDesignateSink:
+    default: 'overcloud-designate-sink'
     type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
     type: number
-  DesignateRndcKey:
-    description: The rndc key secret for communication with BIND.
-    type: string
-    hidden: true
 
 conditions:
   designate_workers_zero: {equals : [{get_param: DesignateWorkers}, 0]}
@@ -56,7 +47,7 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -69,21 +60,10 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate Worker role.
+    description: Role data for the Designate Sink role.
     value:
-      service_name: designate_worker
-      firewall_rules:
-        '140 designate_worker udp':
-          proto: 'udp'
-          dport:
-            - 53
-            - 953
-        '141 designate_worker tcp':
-          proto: 'tcp'
-          dport:
-            - 53
-            - 953
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateWorker}
+      service_name: designate_sink
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateSink}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
@@ -91,11 +71,8 @@ outputs:
             if:
             - designate_workers_zero
             - {}
-            - designate::worker::workers: {get_param: DesignateWorkers}
-      service_config_settings:
-        rsyslog:
-          tripleo_logging_sources_designate_worker:
-            - {get_param: DesignateWorkerLoggingSource}
+            - designate::sink::workers: {get_param: DesignateWorkers}
+      service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -104,12 +81,11 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - "include tripleo::profile::base::designate::worker"
-              - "include tripleo::profile::base::designate::backend"
+              - "include tripleo::profile::base::designate::sink"
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_worker.json:
-          command: /usr/bin/designate-worker --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/worker.log
+        /var/lib/kolla/config_files/designate_sink.json:
+          command: /usr/bin/designate-sink --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/sink.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -119,17 +95,10 @@ outputs:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
-      deploy_steps_tasks:
-          - name: generate rndc key configuration files
-            when: step|int == 4
-            import_role:
-                name: designate_rndc_config
-            vars:
-                designate_rndc_key: {get_param: DesignateRndcKey}
       docker_config:
         step_4:
-          designate_worker:
-            image: &designate_worker_image {get_param: ContainerDesignateWorkerImage}
+          designate_sink:
+            image: &designate_sink_image {get_param: ContainerDesignateSinkImage}
             net: host
             privileged: false
             restart: always
@@ -140,7 +109,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_worker.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_sink.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
