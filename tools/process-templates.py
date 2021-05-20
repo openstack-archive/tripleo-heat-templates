@@ -160,7 +160,7 @@ def process_templates(template_path, role_data_path, output_dir,
 
     # Set internal network index key for each network, network resources
     # are created with a tag tripleo_net_idx
-    for idx, net in enumerate(network_data):
+    for idx, _ in enumerate(network_data):
         network_data[idx].update({'idx': idx})
 
     j2_excludes = {}
