@@ -75,11 +75,10 @@ parameters:
                  certificate for this service
 
 conditions:
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  key_size_override_unset: {equals: [{get_param: RabbitmqMessageCertificateKeySize}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: RabbitmqMessageCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -144,16 +143,13 @@ outputs:
             rabbitmq::management_ip_address: 127.0.0.1
             rabbitmq::config_management_variables:
               rates_mode: none
-          -
-            if:
-            - internal_tls_enabled
-            -
-              tripleo::rabbitmq::service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
-              tripleo::certmonger::rabbitmq::postsave_cmd: "true" # TODO: restart the rabbitmq container here
-              tripleo::profile::base::rabbitmq::certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
-                service_key: '/etc/pki/tls/private/rabbitmq.key'
-            - {}
+          - if:
+              - {get_param: EnableInternalTLS}
+              - tripleo::rabbitmq::service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+                tripleo::certmonger::rabbitmq::postsave_cmd: "true" # TODO: restart the rabbitmq container here
+                tripleo::profile::base::rabbitmq::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+                  service_key: '/etc/pki/tls/private/rabbitmq.key'
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: rabbitmq
@@ -208,17 +204,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/rabbitmq:/var/lib/kolla/config_files/src:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq:z
                   - /var/log/containers/rabbitmq:/var/log/rabbitmq:z
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
                     - /etc/pki/tls/private/rabbitmq.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/rabbitmq.key:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               KOLLA_BOOTSTRAP: true
@@ -238,17 +231,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/rabbitmq:/var/lib/kolla/config_files/src:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq:z
                   - /var/log/containers/rabbitmq:/var/log/rabbitmq:z
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
                     - /etc/pki/tls/private/rabbitmq.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/rabbitmq.key:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       container_puppet_tasks:
@@ -263,12 +253,10 @@ outputs:
             - /var/lib/rabbitmq:/var/lib/rabbitmq:z
       metadata_settings:
         if:
-          - internal_tls_enabled
-          -
-            - service: rabbitmq
+          - {get_param: EnableInternalTLS}
+          - - service: rabbitmq
               network: {get_param: [ServiceNetMap, OsloMessagingNotifyNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -317,9 +305,9 @@ outputs:
                       {{container_cli}} exec "$container_name" rabbitmqctl eval "ssl:clear_pem_cache()."
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: RabbitmqMessageCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         - name: create fcontext for rabbitmq data

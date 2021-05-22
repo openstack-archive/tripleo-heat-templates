@@ -117,16 +117,14 @@ parameter_groups:
   - RabbitIPv6
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   is_ipv6:
     equals:
      - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, RabbitmqNetwork]}]}
      - 6
-  key_size_override_unset: {equals: [{get_param: RabbitmqCertificateKeySize}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: RabbitmqCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -209,16 +207,7 @@ outputs:
             # puppet-tripleo
             tripleo::profile::base::rabbitmq::enable_internal_tls: {get_param: EnableInternalTLS}
             rabbitmq::collect_statistics_interval: 30000
-          -
-            if:
-            - internal_tls_enabled
-            -
-              tripleo::rabbitmq::service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
-              tripleo::profile::base::rabbitmq::certificate_specs:
-                service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
-                service_key: '/etc/pki/tls/private/rabbitmq.key'
-            - {}
-          - rabbitmq::admin_enable: false
+            rabbitmq::admin_enable: false
             rabbitmq::management_enable: true
             rabbitmq::use_config_file_for_plugins: true
             rabbitmq::management_ip_address:
@@ -233,11 +222,17 @@ outputs:
             rabbitmq::management_port: 15672
             rabbitmq::config_management_variables:
               rates_mode: none
+            tripleo::certmonger::rabbitmq::postsave_cmd:
+              if:
+                - {get_param: EnableInternalTLS}
+                - true
           - if:
-            - internal_tls_enabled
-            - tripleo::certmonger::rabbitmq::postsave_cmd: "true" # TODO: restart the rabbitmq container here
-            - {}
-      # BEGIN DOCKER SETTINGS
+              - {get_param: EnableInternalTLS}
+              - tripleo::rabbitmq::service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+                tripleo::profile::base::rabbitmq::certificate_specs:
+                  service_certificate: '/etc/pki/tls/certs/rabbitmq.crt'
+                  service_key: '/etc/pki/tls/private/rabbitmq.key'
+     # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: rabbitmq
         step_config:
@@ -291,17 +286,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/rabbitmq:/var/lib/kolla/config_files/src:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq
                   - /var/log/containers/rabbitmq:/var/log/rabbitmq
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
                     - /etc/pki/tls/private/rabbitmq.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/rabbitmq.key:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               KOLLA_BOOTSTRAP: true
@@ -321,17 +313,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/rabbitmq.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/rabbitmq:/var/lib/kolla/config_files/src:ro
                   - /var/lib/rabbitmq:/var/lib/rabbitmq:z
                   - /var/log/containers/rabbitmq:/var/log/rabbitmq:z
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/rabbitmq.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/rabbitmq.crt:ro
                     - /etc/pki/tls/private/rabbitmq.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/rabbitmq.key:ro
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       container_puppet_tasks:
@@ -346,12 +335,10 @@ outputs:
             - /var/lib/rabbitmq:/var/lib/rabbitmq
       metadata_settings:
         if:
-          - internal_tls_enabled
-          -
-            - service: rabbitmq
+          - {get_param: EnableInternalTLS}
+          - - service: rabbitmq
               network: {get_param: [ServiceNetMap, RabbitmqNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -400,9 +387,9 @@ outputs:
                       {{container_cli}} exec "$container_name" rabbitmqctl eval "ssl:clear_pem_cache()."
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: RabbitmqCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         - name: creat fcontext entry for rabbitmq data
@@ -421,7 +408,7 @@ outputs:
             - { 'path': /var/lib/rabbitmq, 'setype': container_file_t }
       # TODO: Removal of package
       upgrade_tasks: []
-      update_tasks:
+      update_tasks: []
         # TODO: Are we sure we want to support this.  Rolling update
         # without pacemaker may fail.  Do we test this ?  In any case,
         # this is under tripleo_container_manage control so the latest image should be
