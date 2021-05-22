@@ -125,14 +125,12 @@ parameters:
                  certificate for this service
 
 conditions:
-  haproxy_wrapper_enabled: {equals: [{get_param: OVNEnableHaproxyDockerWrapper}, true]}
-  docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-  neutron_metadata_workers_unset: {equals : [{get_param: NeutronMetadataWorkers}, '']}
-  key_size_override_unset: {equals: [{get_param: OvnMetadataCertificateKeySize}, '']}
+  neutron_metadata_workers_set:
+    not: {equals : [{get_param: NeutronMetadataWorkers}, '']}
+  key_size_override_set:
+    not: {equals: [{get_param: OvnMetadataCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -178,28 +176,25 @@ outputs:
             ovn::southbound::port: {get_param: OVNSouthboundServerPort}
             neutron::agents::ovn_metadata::ovn_remote_probe_interval: {get_param: OVNRemoteProbeInterval}
             neutron::agents::ovn_metadata::debug:
-                if:
+              if:
                 - {get_param: OvnMetadataAgentDebug}
                 - true
                 - {get_param: Debug}
             neutron::agents::ovn_metadata::metadata_protocol:
               if:
-              - internal_tls_enabled
-              - 'https'
-              - 'http'
-          -
-            if:
-            - neutron_metadata_workers_unset
-            - {}
-            - neutron::agents::ovn_metadata::metadata_workers: {get_param: NeutronMetadataWorkers}
+                - {get_param: EnableInternalTLS}
+                - 'https'
+                - 'http'
+            neutron::agents::ovn_metadata::metadata_workers:
+              if:
+                - neutron_metadata_workers_set
+                - {get_param: NeutronMetadataWorkers}
           - if:
-            - internal_tls_enabled
+            - {get_param: EnableInternalTLS}
             - tripleo::profile::base::neutron::ovn_metadata::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
               tripleo::profile::base::neutron::ovn_metadata::protocol: 'ssl'
               tripleo::profile::base::neutron::ovn_metadata::ovn_sb_certificate: '/etc/pki/tls/certs/ovn_metadata.crt'
               tripleo::profile::base::neutron::ovn_metadata::ovn_sb_private_key: '/etc/pki/tls/private/ovn_metadata.key'
-            - {}
-
       puppet_config:
         puppet_tags: neutron_config,ovn_metadata_agent_config
         config_volume: neutron
@@ -247,8 +242,7 @@ outputs:
             user: root
             command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
               list_concat:
-                -
-                  - '/container_puppet_apply.sh'
+                - - '/container_puppet_apply.sh'
                   - '4'
                   - 'file'
                   - 'include ::tripleo::profile::base::neutron::ovn_metadata_agent_wrappers'
@@ -256,8 +250,7 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                -
-                  - /run/openvswitch:/run/openvswitch:shared,z
+                - - /run/openvswitch:/run/openvswitch:shared,z
                   - /var/lib/neutron:/var/lib/neutron:shared,z
         step_4:
           setup_ovs_manager:
@@ -293,41 +286,30 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NeutronLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ovn_metadata_agent.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/ovn_metadata_agent.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/neutron:/var/lib/kolla/config_files/src:ro
                   - /lib/modules:/lib/modules:ro
                   - /run/openvswitch:/run/openvswitch:shared,z
                   - /var/lib/neutron:/var/lib/neutron:shared,z
                   - /run/netns:/run/netns:shared
                   - /var/lib/neutron/kill_scripts:/etc/neutron/kill_scripts:shared,z
-                -
-                  if:
-                    - docker_enabled
-                    - - /var/lib/openstack:/var/lib/openstack
-                    - null
-                -
-                  if:
-                    - haproxy_wrapper_enabled
-                    - - /var/lib/neutron/ovn_metadata_haproxy_wrapper:/usr/local/bin/haproxy:ro
-                    - null
                 - if:
-                  - internal_tls_enabled
-                  -
-                    - /etc/pki/tls/certs/ovn_metadata.crt:/etc/pki/tls/certs/ovn_metadata.crt
+                    - {get_param: OVNEnableHaproxyDockerWrapper}
+                    - - /var/lib/neutron/ovn_metadata_haproxy_wrapper:/usr/local/bin/haproxy:ro
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/ovn_metadata.crt:/etc/pki/tls/certs/ovn_metadata.crt
                     - /etc/pki/tls/private/ovn_metadata.key:/etc/pki/tls/private/ovn_metadata.key
-                  - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       metadata_settings:
         list_concat:
           - {get_attr: [NeutronBase, role_data, metadata_settings]}
           - if:
-            - internal_tls_enabled
+            - {get_param: EnableInternalTLS}
             - - service: ovn_metadata
                 network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                 type: node
-            - null
       deploy_steps_tasks:
         - name: Certificate generation
           when:
@@ -351,9 +333,9 @@ outputs:
                           $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                     key_size:
                       if:
-                        - key_size_override_unset
-                        - {get_param: CertificateKeySize}
+                        - key_size_override_set
                         - {get_param: OvnMetadataCertificateKeySize}
+                        - {get_param: CertificateKeySize}
                     ca: ipa
       host_prep_tasks:
         list_concat:
