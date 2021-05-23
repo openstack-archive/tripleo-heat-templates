@@ -35,6 +35,12 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  ClustercheckListener:
+    default: 'socat'
+    description:  How to expose the clustercheck service over TCP
+    type: string
+    constraints:
+    - allowed_values: ['socat', 'xinetd']
 
 resources:
   ContainersCommon:
@@ -49,6 +55,9 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+conditions:
+  socat_listener: {equals: [{get_param: ClustercheckListener}, 'socat']}
+
 outputs:
   role_data:
     description: Containerized service clustercheck using composable services.
@@ -60,8 +69,9 @@ outputs:
           - tripleo::profile::pacemaker::clustercheck::bind_address:
               str_replace:
                 template:
-                  "%{hiera('fqdn_$NETWORK')}"
+                  "%{hiera('$FQDN$NETWORK')}"
                 params:
+                  $FQDN: {if: ["socat_listener", "", "fqdn_"]}
                   $NETWORK: {get_param: [ServiceNetMap, MysqlNetwork]}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
@@ -71,7 +81,12 @@ outputs:
         config_image: {get_param: ContainerClustercheckConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/clustercheck.json:
-          command: /usr/sbin/xinetd -dontfork
+          command:
+            if:
+            - socat_listener
+            # Note: we can't quotes multiple parameters in kolla command, hence the workaround
+            - bash -c $* -- eval source /etc/sysconfig/clustercheck; exec socat "$TRIPLEO_SOCAT_BIND" exec:/usr/bin/clustercheck,nofork
+            - /usr/sbin/xinetd -dontfork
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
