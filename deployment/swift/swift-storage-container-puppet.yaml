@@ -109,23 +109,22 @@ parameter_groups:
 
 conditions:
   single_replica_mode: {equals: [{get_param: SwiftReplicas}, 1]}
-  swift_container_sharder_enabled: {equals : [{get_param: SwiftContainerSharderEnabled}, true]}
   swift_mount_check:
     or:
-    - equals:
-      - get_param: SwiftMountCheck
-      - true
+    - {get_param: SwiftMountCheck}
     - not:
         equals:
         - get_param: SwiftRawDisks
         - {}
-  account_workers_zero: {equals : [{get_param: SwiftAccountWorkers}, '0']}
-  container_workers_zero: {equals : [{get_param: SwiftContainerWorkers}, '0']}
-  object_workers_zero: {equals : [{get_param: SwiftObjectWorkers}, '0']}
+  account_workers_set:
+    not: {equals : [{get_param: SwiftAccountWorkers}, '0']}
+  container_workers_set:
+    not: {equals : [{get_param: SwiftContainerWorkers}, '0']}
+  object_workers_set:
+    not: {equals : [{get_param: SwiftObjectWorkers}, '0']}
   use_node_data_lookup: {equals : [{get_param: SwiftUseNodeDataLookup}, true]}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -174,12 +173,11 @@ outputs:
               - healthcheck
               - recon
               - account-server
-          -
-            if:
-            - use_node_data_lookup
-            - {}
-            - swift::storage::disks::args: {get_param: SwiftRawDisks}
-          - swift::storage::all::storage_local_net_ip:
+            swift::storage::disks::args:
+              if:
+                - {get_param: SwiftUseNodeDataLookup}
+                - {get_param: SwiftRawDisks}
+            swift::storage::all::storage_local_net_ip:
               str_replace:
                  template:
                    "%{hiera('$NETWORK')}"
@@ -187,21 +185,18 @@ outputs:
                    $NETWORK: {get_param: [ServiceNetMap, SwiftStorageNetwork]}
             rsync::server::pid_file: 'UNSET'
             swift::objectexpirer::cache_tls_enabled: {get_param: MemcachedTLS}
-          -
-            if:
-            - account_workers_zero
-            - {}
-            - swift::storage::all::account_server_workers: {get_param: SwiftAccountWorkers}
-          -
-            if:
-            - container_workers_zero
-            - {}
-            - swift::storage::all::container_server_workers: {get_param: SwiftContainerWorkers}
-          -
-            if:
-            - object_workers_zero
-            - {}
-            - swift::storage::all::object_server_workers: {get_param: SwiftObjectWorkers}
+            swift::storage::all::account_server_workers:
+              if:
+                - account_workers_set
+                - {get_param: SwiftAccountWorkers}
+            swift::storage::all::container_server_workers:
+              if:
+                - container_workers_set
+                - {get_param: SwiftContainerWorkers}
+            swift::storage::all::object_server_workers:
+              if:
+                - object_workers_set
+                - {get_param: SwiftObjectWorkers}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -343,10 +338,8 @@ outputs:
         step_4:
           map_merge:
             - if:
-              - single_replica_mode
-              - {}
-              -
-                swift_account_auditor:
+              - not: single_replica_mode
+              - swift_account_auditor:
                   image: *swift_account_image
                   net: host
                   user: swift
@@ -591,9 +584,8 @@ outputs:
                       # /var/cache/swift not needed in this container
                 environment: *kolla_env
             - if:
-              - swift_container_sharder_enabled
-              -
-                swift_container_sharder:
+              - {get_param: SwiftContainerSharderEnabled}
+              - swift_container_sharder:
                   image: *swift_container_image
                   net: host
                   user: swift
@@ -601,14 +593,12 @@ outputs:
                   volumes:
                     list_concat:
                       - {get_attr: [ContainersCommon, volumes]}
-                      -
-                        - /var/lib/kolla/config_files/swift_container_sharder.json:/var/lib/kolla/config_files/config.json:ro
+                      - - /var/lib/kolla/config_files/swift_container_sharder.json:/var/lib/kolla/config_files/config.json:ro
                         - /var/lib/config-data/puppet-generated/swift:/var/lib/kolla/config_files/src:ro
                         - /srv/node:/srv/node
                         - /dev:/dev
                         - /var/cache/swift:/var/cache/swift
                         - /var/log/containers/swift:/var/log/swift:z
-              - {}
 
       host_prep_tasks:
         # NOTE: we can't set fcontext for swift locations since they are
