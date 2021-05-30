@@ -158,6 +158,11 @@ def process_templates(template_path, role_data_path, output_dir,
         if network_data is None:
             network_data = []
 
+    # Set internal network index key for each network, network resources
+    # are created with a tag tripleo_net_idx
+    for idx, net in enumerate(network_data):
+        network_data[idx].update({'idx': idx})
+
     j2_excludes = {}
     j2_excludes_path = os.path.join(template_path, 'j2_excludes.yaml')
     if os.path.exists(j2_excludes_path):
