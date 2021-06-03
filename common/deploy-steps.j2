@@ -1,18 +1,11 @@
 # certain initialization steps (run in a container) will occur
 # on the role marked as primary controller or the first role listed
-{%- if enabled_roles is not defined or enabled_roles == [] -%}
-  # On upgrade certain roles can be disabled for operator driven upgrades
-  # See major_upgrade_steps.j2.yaml and post-upgrade.j2.yaml
-  {%- set enabled_roles = roles -%}
-{%- endif -%}
-{%- set primary_role = [enabled_roles[0]] -%}
-{%- for role in enabled_roles -%}
-  {%- if 'primary' in role.tags and 'controller' in role.tags -%}
-    {%- set _ = primary_role.pop() -%}
-    {%- set _ = primary_role.append(role) -%}
+{%- set primary_role_name = roles[0].name -%}
+{%- for role in roles if ('primary' in role.tags and 'controller' in role.tags) -%}
+  {%- if loop.first -%}
+    {%- set primary_role_name = role.name -%}
   {%- endif -%}
 {%- endfor -%}
-{%- set primary_role_name = primary_role[0].name -%}
 # primary role is: {{primary_role_name}}
 {% set deploy_steps_max = 6 -%}
 {% set update_steps_max = 6 -%}
@@ -109,7 +102,7 @@ parameters:
     type: string
     constraints:
       - allowed_values: [ 'enforcing', 'permissive', 'disabled' ]
-{% for role in enabled_roles %}
+{% for role in roles %}
   {{role.name}}Count:
     description: Number of {{role.name}} nodes to deploy
     type: number
@@ -249,7 +242,7 @@ parameter_groups:
   - EnablePaunch
 
 conditions:
-{% for role in enabled_roles %}
+{% for role in roles %}
   {{role.name}}NonZero:
      not:
        equals:
@@ -265,7 +258,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - if:
               - {{role.name}}NonZero
               - get_param: [role_data, {{role.name}}, pre_deploy_step_tasks]
@@ -278,7 +271,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - if:
               - {{role.name}}NonZero
               - get_param: [role_data, {{role.name}}, external_deploy_tasks]
@@ -291,7 +284,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - if:
               - {{role.name}}NonZero
               - get_param: [role_data, {{role.name}}, external_post_deploy_tasks]
@@ -304,7 +297,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - get_param: [role_data, {{role.name}}, scale_tasks]
         {%- endfor %}
 
@@ -314,7 +307,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - if:
               - {{role.name}}NonZero
               - get_param: [role_data, {{role.name}}, external_update_tasks]
@@ -327,7 +320,7 @@ resources:
       type: comma_delimited_list
       value:
         list_concat_unique:
-        {%- for role in enabled_roles %}
+        {%- for role in roles %}
           - if:
               - {{role.name}}NonZero
               - get_param: [role_data, {{role.name}}, external_upgrade_tasks]
@@ -346,8 +339,8 @@ resources:
           expression: switch($.data = {} => "no_bootstrap_server", $.data != {} => $.data.items().orderBy($[0]).first()[1])
           data: {get_param: [servers, {{primary_role_name}}]}
 
-  # BEGIN CONFIG STEPS, only on enabled_roles
-{%- for role in enabled_roles %}
+  # BEGIN CONFIG STEPS, only on roles
+{%- for role in roles %}
   # Note, this should be the last step to execute configuration changes.
   # Ensure that all {{role.name}}ExtraConfigPost steps are executed
   # after all the previous deployment steps.
@@ -365,7 +358,7 @@ resources:
     condition: {{role.name}}NonZero
     type: OS::TripleO::Tasks::{{role.name}}PostConfig
     depends_on:
-  {%- for dep in enabled_roles %}
+  {%- for dep in roles %}
       - {{dep.name}}ExtraConfigPost
   {%- endfor %}
     properties:
