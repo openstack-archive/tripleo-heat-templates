@@ -14,7 +14,10 @@
 import json
 import openstack
 import os
+from pathlib import Path
+import shutil
 import subprocess
+import yaml
 
 CONF = json.loads(os.environ['config'])
 
@@ -77,6 +80,52 @@ def _configure_nova(sdk):
     print('INFO: Undercloud Post - Nova configuration completed successfully.')
 
 
+def create_update_clouds_yaml():
+    """Disable nova quotas"""
+    clouds_yaml_dir = '/etc/openstack'
+    clouds_yaml = os.path.join(clouds_yaml_dir, 'clouds.yaml')
+    cloud_name = CONF.get('cloud_name', 'undercloud')
+    Path(clouds_yaml_dir).mkdir(parents=True, exist_ok=True)
+
+    usr_clouds_yaml_dir = os.path.join(CONF['home_dir'], '.config/openstack')
+    usr_clouds_yaml = os.path.join(usr_clouds_yaml_dir, 'clouds.yaml')
+    Path(usr_clouds_yaml_dir).mkdir(parents=True, exist_ok=True)
+
+    data = {}
+    if os.path.exists(clouds_yaml):
+        with open(clouds_yaml, 'r') as fs:
+            data = yaml.safe_load(fs)
+
+    if 'clouds' not in data:
+        data['clouds'] = {}
+
+    data['clouds'][cloud_name] = {}
+    config = {}
+    config['auth_type'] = 'http_basic'
+    config['auth'] = {}
+    config['auth']['username'] = 'admin'
+    config['auth']['password'] = CONF.get('admin_password', 'admin')
+    config['baremetal_endpoint_override'] = CONF.get(
+        'endpoints', {}).get('baremetal', 'https://192.168.24.2:13385/')
+    config['network_endpoint_override'] = CONF.get(
+            'endpoints', {}).get('network', 'https://192.168.24.2:13696/')
+    config['baremetal_introspection_endpoint_override'] = CONF.get(
+            'endpoints', {}).get(
+                'baremetal_introspection', 'https://192.168.24.2:13696/')
+    config['baremetal_api_version'] = '1'
+    config['network_api_version'] = '2'
+
+    data['clouds'][cloud_name] = config
+    with open(clouds_yaml, 'w') as fs:
+        fs.write(yaml.dump(data, default_flow_style=False))
+
+    shutil.copyfile(clouds_yaml, usr_clouds_yaml)
+
+    stat_info = os.stat(CONF['home_dir'])
+    os.chown(usr_clouds_yaml_dir, stat_info.st_uid, stat_info.st_gid)
+    os.chown(usr_clouds_yaml, stat_info.st_uid, stat_info.st_gid)
+
+
 def _create_default_keypair(sdk):
     """Set up a default keypair."""
     ssh_dir = os.path.join(CONF['home_dir'], '.ssh')
@@ -87,6 +136,11 @@ def _create_default_keypair(sdk):
             sdk.compute.create_keypair(name='default',
                                        public_key=pub_key_file.read())
 
+
+keystone_enabled = 'true' in _run_command(
+    ['hiera', 'keystone_enabled']).lower()
+if not keystone_enabled:
+    create_update_clouds_yaml()
 
 nova_api_enabled = 'true' in _run_command(
     ['hiera', 'nova_api_enabled']).lower()

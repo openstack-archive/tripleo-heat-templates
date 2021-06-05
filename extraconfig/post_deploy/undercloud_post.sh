@@ -3,6 +3,7 @@ set -eux
 
 HOMEDIR="$homedir"
 CLOUD_NAME="$cloud_name"
+
 USERNAME=`ls -ld $HOMEDIR | awk {'print $3'}`
 GROUPNAME=`ls -ld $HOMEDIR | awk {'print $4'}`
 
