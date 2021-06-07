@@ -226,7 +226,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/manila_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &manila_api_config_files
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
@@ -239,10 +239,14 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &manila_api_permissions
             - path: /var/log/manila
               owner: manila:manila
               recurse: true
+        /var/lib/kolla/config_files/manila_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec manila_api su manila -s /bin/bash -c '/usr/bin/manila-manage db sync'"
+          config_files: *manila_api_config_files
+          permissions: *manila_api_permissions
         /var/lib/kolla/config_files/manila_api_cron.json:
           command: /usr/sbin/crond -n
           config_files:
@@ -273,11 +277,11 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                - - /var/lib/config-data/manila/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/manila/etc/manila/:/etc/manila/:ro
+                - - /var/lib/kolla/config_files/manila_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/manila:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/manila:/var/log/manila:z
-                  - /var/log/containers/httpd/manila-api:/var/log/httpd:z
-            command: "/usr/bin/bootstrap_host_exec manila_api su manila -s /bin/bash -c '/usr/bin/manila-manage db sync'"
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_4:
           manila_api:
             image: *manila_api_image
