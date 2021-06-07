@@ -57,6 +57,15 @@ parameters:
                  unique IP so it can co-exist with bind on same host. Set
                  to false to run unbound independently of designate
     type: boolean
+  UnboundListenIPs:
+    default: []
+    description: A list of IPs to add to the externally accessible interface
+                 (e.g. interface on the external network or the VIP interface
+                 in standalone). If provided, the number of IPs must match the
+                 number of deployed Unbound instances. If left empty,
+                 the deployment will create additonal IPs using the external
+                 network.
+    type: comma_delimited_list
 
 
 conditions:
@@ -132,9 +141,29 @@ outputs:
             - { 'path': /var/log/containers/unbound, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/config-data/ansible-generated/unbound, 'setype': container_file_t, 'mode': '0750' }
       external_deploy_tasks:
+        - name: Get list of provided listen ips
+          when:
+            - step|int == 1
+          set_fact:
+            unbound_listen_ips: { get_param: UnboundListenIPs }
+        - name: Distribute configured unbound listen IPs across nodes
+          when:
+            - step|int == 1
+            - unbound_listen_ips|length > 0
+          block:
+            - name: Set the unbound host ip fact
+              set_fact:
+                tripleo_unbound_listen_interfaces: "[ '{{ item.0 }}' ]"
+              delegate_to: "{{ item.1 }}"
+              delegate_facts: true
+              with_together:
+                - "{{ unbound_listen_ips }}"
+                - "{{ groups.unbound }}"
+
         - name: Handle a bind and unbound collocated on the same host
           when:
             - step|int == 1
+            - unbound_listen_ips|length == 0
           block:
             - name: Create a neutron port for a new address
               os_port:
