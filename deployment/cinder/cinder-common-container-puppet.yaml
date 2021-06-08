@@ -87,23 +87,34 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
-  CinderRbdMultiConfig:
+  CephExternalMultiConfig:
     type: json
-    default: {}
+    hidden: true
     description: |
-      Dictionary of settings when configuring multiple RBD backends. The
-      hash key is the backend name, and the value is a dictionary of parameter
-      values unique to that backend. The following parameters are required,
-      and must match the corresponding value defined in CephExternalMultiConfig.
-        CephClusterName (must match the CephExternalMultiConfig entry's 'cluster')
-        CephClusterFSID (must match the CephExternalMultiConfig entry's 'fsid')
-      The following parameters are optional, and override the corresponding
-      parameter's default value.
-        CephClientUserName
-        CinderRbdPoolName
-        CinderRbdExtraPools
-        CinderRbdAvailabilityZone
-        CinderRbdFlattenVolumeFromSnapshot
+      List of maps describing extra overrides which will be applied when configuring
+      extra external Ceph clusters. If this list is non-empty, ceph-ansible will run
+      an extra count(list) times using the same parameters as the first run except
+      each parameter within each map will override the defaults. If the following
+      were used, the second run would configure the overcloud to also use the ceph2
+      cluster with all the previous parameters except /etc/ceph/ceph2.conf would have
+      a mon_host entry containing the value of external_cluster_mon_ips below, and
+      not the default CephExternalMonHost. Subsequent ceph-ansible runs are restricted
+      to just ceph clients. CephExternalMultiConfig may not be used to deploy additional
+      internal Ceph clusters within one Heat stack. The map for each list should contain
+      not tripleo-heat-template parameters but ceph-ansible parameters.
+        - cluster: 'ceph2'
+          fsid: 'e2cba068-5f14-4b0f-b047-acf375c0004a'
+          external_cluster_mon_ips: '172.18.0.5,172.18.0.6,172.18.0.7'
+          keys:
+            - name: "client.openstack"
+              caps:
+                mgr: "allow *"
+                mon: "profile rbd"
+                osd: "osd: profile rbd pool=volumes, profile rbd pool=backups, profile rbd pool=vms, profile rbd pool=images"
+              key: "AQCwmeRcAAAAABAA6SQU/bGqFjlfLro5KxrB1Q=="
+              mode: "0600"
+          dashboard_enabled: false
+    default: []
 
 conditions:
   cvol_active_active_tls_enabled:
@@ -194,16 +205,15 @@ outputs:
             owner: cinder:cinder
         - repeat:
             template:
-              path: /etc/ceph/<%keyring%>
+              path: /etc/ceph/<%cluster%>.client.*.keyring
               owner: cinder:cinder
               perm: '0600'
             for_each:
-              <%keyring%>:
+              <%cluster%>:
                 yaql:
-                  expression: let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                  expression: $.data.multiconfig.select($.cluster)
                   data:
-                    default_user: {get_param: CephClientUserName}
-                    multiconfig: {get_param: CinderRbdMultiConfig}
+                    multiconfig: {get_param: CephExternalMultiConfig}
 
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)
