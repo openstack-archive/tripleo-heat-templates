@@ -344,6 +344,75 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/barbican_api_db_sync.json:
+          command:
+            # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
+            # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
+            # final single quote that's part of the list_join.
+            list_join:
+            - ' '
+            - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+              - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+              - "db upgrade"
+              - "'"
+          config_files: &barbican_api_create_config_files
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+        /var/lib/kolla/config_files/barbican_api_create_mkek.json:
+          command:
+            list_join:
+              - ' '
+              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                - "hsm check_mkek --label"
+                - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
+                - "|| /usr/bin/barbican-manage"
+                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                - "hsm gen_mkek --label"
+                - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
+                - "'"
+          config_files: *barbican_api_create_config_files
+        /var/lib/kolla/config_files/barbican_api_create_hmac.json:
+          command:
+            list_join:
+              - ' '
+              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                - "hsm check_hmac --label"
+                - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
+                - "|| /usr/bin/barbican-manage hsm gen_hmac --label"
+                - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
+                - "'"
+          config_files: *barbican_api_create_config_files
+        /var/lib/kolla/config_files/barbican_api_update_rfs_server.json:
+          command: "/usr/bin/bootstrap_host_exec barbican_api /opt/nfast/bin/rfs-sync --commit"
+          config_files: *barbican_api_create_config_files
+        /var/lib/kolla/config_files/barbican_api_get_from_rfs.json:
+          command: "/opt/nfast/bin/rfs-sync --update"
+          config_files: *barbican_api_create_config_files
+        /var/lib/kolla/config_files/barbican_api_secret_store_sync.json:
+          command:
+            # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
+            # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
+            # final single quote that's part of the list_join.
+            list_join:
+            - ' '
+            - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+              - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+              - "db sync_secret_stores --verbose"
+              - "'"
+          config_files: *barbican_api_create_config_files
+        /var/lib/kolla/config_files/barbican_api_rewrap_pkeks.json:
+          command:
+            list_join:
+              - ' '
+              - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
+                - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
+                - "hsm rewrap_pkek"
+                - "'"
+          config_files: *barbican_api_create_config_files
       external_deploy_tasks:
         if:
         - {get_param: BarbicanPkcs11CryptoThalesEnabled}
@@ -515,41 +584,31 @@ outputs:
                   net: host
                   detach: false
                   user: root
-                  volumes: &barbican_api_volumes
+                  volumes:
                     list_concat:
-                      - {get_attr: [ContainersCommon, volumes]}
-                      - {get_attr: [BarbicanApiLogging, volumes]}
-                      - - /var/lib/config-data/barbican/etc/barbican/:/etc/barbican/:ro
-                        - /var/lib/config-data/barbican/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                      - if:
-                          - {get_param: BarbicanPkcs11CryptoThalesEnabled}
-                          - - /lib64/libnsl.so.1:/lib64/libnsl.so.1
-                            - /opt/nfast:/opt/nfast
-                      - if:
-                          - {get_param: BarbicanPkcs11CryptoATOSEnabled}
-                          - - /etc/proteccio:/etc/proteccio
-                            - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
-                      - if:
-                          - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
-                          - - /etc/Chrystoki.conf:/etc/Chrystoki.conf
-                            - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
-                            - /usr/safenet/lunaclient:/usr/safenet/lunaclient
+                      - list_concat: &barbican_api_common_volumes
+                          - {get_attr: [ContainersCommon, volumes]}
+                          - {get_attr: [BarbicanApiLogging, volumes]}
+                          - - /var/lib/config-data/puppet-generated/barbican:/var/lib/kolla/config_files/src:ro
+                          - if:
+                              - {get_param: BarbicanPkcs11CryptoThalesEnabled}
+                              - - /lib64/libnsl.so.1:/lib64/libnsl.so.1
+                                - /opt/nfast:/opt/nfast
+                          - if:
+                              - {get_param: BarbicanPkcs11CryptoATOSEnabled}
+                              - - /etc/proteccio:/etc/proteccio
+                                - /usr/lib64/libnethsm.so:/usr/lib64/libnethsm.so
+                          - if:
+                              - {get_param: BarbicanPkcs11CryptoLunasaEnabled}
+                              - - /etc/Chrystoki.conf:/etc/Chrystoki.conf
+                                - /usr/lib/libCryptoki2_64.so:/usr/lib/libCryptoki2_64.so
+                                - /usr/safenet/lunaclient:/usr/safenet/lunaclient
+                      - - /var/lib/kolla/config_files/barbican_api_create_mkek.json:/var/lib/kolla/config_files/config.json:ro
                   environment:
+                    KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                     # NOTE: this should force this container to re-run on each
                     # update (scale-out, etc.)
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                  command:
-                    list_join:
-                      - ' '
-                      - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm check_mkek --label"
-                        - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
-                        - "|| /usr/bin/barbican-manage"
-                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm gen_mkek --label"
-                        - {get_param: [BarbicanPkcs11CryptoMKEKLabel]}
-                        - "'"
             - if:
               - {get_param: BarbicanPkcs11CryptoEnabled}
               - barbican_api_create_hmac:
@@ -558,21 +617,15 @@ outputs:
                   net: host
                   detach: false
                   user: root
-                  volumes: *barbican_api_volumes
+                  volumes:
+                    list_concat:
+                      - list_concat: *barbican_api_common_volumes
+                      - - /var/lib/kolla/config_files/barbican_api_create_hmac.json:/var/lib/kolla/config_files/config.json:ro
                   environment:
+                    KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                     # NOTE: this should force this container to re-run on each
                     # update (scale-out, etc.)
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                  command:
-                    list_join:
-                      - ' '
-                      - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm check_hmac --label"
-                        - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
-                        - "|| /usr/bin/barbican-manage hsm gen_hmac --label"
-                        - {get_param: [BarbicanPkcs11CryptoHMACLabel]}
-                        - "'"
               - {}
             - if:
               - {get_param: BarbicanPkcs11CryptoThalesEnabled}
@@ -582,10 +635,15 @@ outputs:
                   net: host
                   detach: false
                   user: root
-                  volumes: *barbican_api_volumes
+                  volumes:
+                    list_concat:
+                      - list_concat: *barbican_api_common_volumes
+                      - - /var/lib/kolla/config_files/barbican_api_update_rfs_server.json:/var/lib/kolla/config_files/config.json:ro
                   environment:
+                    KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                    # NOTE: this should force this container to re-run on each
+                    # update (scale-out, etc.)
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                  command: "/usr/bin/bootstrap_host_exec barbican_api /opt/nfast/bin/rfs-sync --commit"
             - if:
               - {get_param: BarbicanPkcs11CryptoThalesEnabled}
               - barbican_api_get_mkek_and_hmac_keys_from_rfs:
@@ -594,44 +652,39 @@ outputs:
                   net: host
                   detach: false
                   user: root
-                  volumes: *barbican_api_volumes
+                  volumes:
+                    list_concat:
+                      - list_concat: *barbican_api_common_volumes
+                      - - /var/lib/kolla/config_files/barbican_api_get_from_rfs.json:/var/lib/kolla/config_files/config.json:ro
                   environment:
+                    KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                    # NOTE: this should force this container to re-run on each
+                    # update (scale-out, etc.)
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                  command: "/opt/nfast/bin/rfs-sync --update"
             - barbican_api_db_sync:
                 start_order: 3
                 image: *barbican_api_image
                 net: host
                 detach: false
                 user: root
-                volumes: *barbican_api_volumes
-                command:
-                  # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
-                  # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
-                  # final single quote that's part of the list_join.
-                  list_join:
-                  - ' '
-                  - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                    - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                    - "db upgrade"
-                    - "'"
+                volumes:
+                  list_concat:
+                    - list_concat: *barbican_api_common_volumes
+                    - - /var/lib/kolla/config_files/barbican_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - barbican_api_secret_store_sync:
                 start_order: 4
                 image: *barbican_api_image
                 net: host
                 detach: false
                 user: root
-                volumes: *barbican_api_volumes
-                command:
-                  # NOTE(jaosorior): When providing extra arguments, we need to make sure that they're part
-                  # of the bash -c invocation, so we include them in the quoted db sync command. Hence the
-                  # final single quote that's part of the list_join.
-                  list_join:
-                  - ' '
-                  - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                    - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                    - "db sync_secret_stores --verbose"
-                    - "'"
+                volumes:
+                  list_concat:
+                    - list_concat: *barbican_api_common_volumes
+                    - - /var/lib/kolla/config_files/barbican_api_secret_store_sync.json:/var/lib/kolla/config_files/config.json:ro
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
             - if:
               - {get_param: BarbicanPkcs11CryptoRewrapKeys}
               - barbican_api_rewrap_pkeks:
@@ -640,18 +693,15 @@ outputs:
                   net: host
                   detach: false
                   user: root
-                  volumes: *barbican_api_volumes
+                  volumes:
+                    list_concat:
+                      - list_concat: *barbican_api_common_volumes
+                      - - /var/lib/kolla/config_files/barbican_api_rewrap_pkeks.json:/var/lib/kolla/config_files/config.json:ro
                   environment:
+                    KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                     # NOTE: this should force this container to re-run on each
                     # update (scale-out, etc.)
                     TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-                  command:
-                    list_join:
-                      - ' '
-                      - - "/usr/bin/bootstrap_host_exec barbican_api su barbican -s /bin/bash -c '/usr/bin/barbican-manage"
-                        - {get_attr: [BarbicanApiLogging, cmd_extra_args]}
-                        - "hsm rewrap_pkek"
-                        - "'"
             - barbican_api:
                 # NOTE(alee): Barbican should start after keystone processes
                 start_order: 5
