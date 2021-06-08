@@ -73,6 +73,18 @@ parameters:
                  API network is using TLS.
     type: boolean
     default: false
+  CephClientUserName:
+    default: openstack
+    type: string
+  CephClusterName:
+    type: string
+    default: ceph
+    description: The Ceph cluster name.
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9]+"
+      description: >
+        The Ceph cluster name must be at least 1 character and contain only
+        letters and numbers.
 
 conditions:
 
@@ -122,6 +134,46 @@ outputs:
               - /etc/pki/tls/certs/etcd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/etcd.crt:ro
               - /etc/pki/tls/private/etcd.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/etcd.key:ro
             - []
+
+  cinder_common_kolla_config_files:
+    description: Common kolla config_files for cinder-volume and cinder-backup services
+    value:
+      - source: "/var/lib/kolla/config_files/src/*"
+        dest: "/"
+        merge: true
+        preserve_properties: true
+      - source: "/var/lib/kolla/config_files/src-ceph/"
+        dest: "/etc/ceph/"
+        merge: true
+        preserve_properties: true
+      - source: "/var/lib/kolla/config_files/src-iscsid/*"
+        dest: "/etc/iscsi/"
+        merge: true
+        preserve_properties: true
+      - source: "/var/lib/kolla/config_files/src-tls/*"
+        dest: "/"
+        merge: true
+        preserve_properties: true
+        optional: true
+
+  cinder_common_kolla_permissions:
+    description: Common kolla permissions for cinder-volume and cinder-backup services
+    value:
+      - path: /var/log/cinder
+        owner: cinder:cinder
+        recurse: true
+      - path:
+          str_replace:
+            template: /etc/ceph/CLUSTER.client.USER.keyring
+            params:
+              CLUSTER: {get_param: CephClusterName}
+              USER: {get_param: CephClientUserName}
+        owner: cinder:cinder
+        perm: '0600'
+      - path: /etc/pki/tls/certs/etcd.crt
+        owner: cinder:cinder
+      - path: /etc/pki/tls/private/etcd.key
+        owner: cinder:cinder
 
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)
