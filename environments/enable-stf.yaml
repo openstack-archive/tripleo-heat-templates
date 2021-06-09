@@ -1,35 +1,74 @@
-# This heat environment can be used to enable STF client side
-resource_registry:
-  OS::TripleO::Services::Collectd: ../deployment/metrics/collectd-container-puppet.yaml
-  OS::TripleO::Services::MetricsQdr: ../deployment/metrics/qdr-container-puppet.yaml
-  OS::TripleO::Services::Redis: ../deployment/database/redis-pacemaker-puppet.yaml
-  OS::TripleO::Services::CeilometerAgentCentral: ../deployment/ceilometer/ceilometer-agent-central-container-puppet.yaml
-  OS::TripleO::Services::CeilometerAgentNotification: ../deployment/ceilometer/ceilometer-agent-notification-container-puppet.yaml
-  OS::TripleO::Services::ComputeCeilometerAgent: ../deployment/ceilometer/ceilometer-agent-compute-container-puppet.yaml
+# Enable data collection that is compatible with the STF data model.
+# Enablement of the collectors and transport are done with separate enviroment files.
+# Recommended:
+# - environments/metrics/ceilometer-qdr-write.yaml
+# - environments/metrics/collectd-qdr-write.yaml
+# - environments/metrics/qdr-edge-only.yaml
 
 parameter_defaults:
-  NotificationDriver: 'messagingv2'
-  CeilometerQdrPublishEvents: true
-  CeilometerQdrPublishMetrics: true
-  EnableSTF: true
-  CollectdConnectionType: amqp1
-  CollectdAmqpInterval: 5
-  CollectdDefaultPollingInterval: 5
-  CollectdAmqpSendQueueLimit: 40
+    # only send to STF, not other publishers
+    EventPipelinePublishers: []
+    PipelinePublishers: []
 
-  CollectdAmqpInstances:
-    notify:
-      notify: true
-      format: JSON
-      presettle: false
-    telemetry:
-      format: JSON
-      presettle: false
-  MetricsQdrAddresses:
-    - prefix: collectd
-      distribution: multicast
-  MetricsQdrSSLProfiles:
-    - name: sslProfile
+    # manage the polling and pipeline configuration files for Ceilometer agents
+    ManagePolling: true
+    ManagePipeline: true
+
+    # required to set valid parameter due to typo in ceilometer-write-qdr.yaml
+    CeilometerQdrPublishMetrics: true
+
+    # enable collection of API status
+    CollectdEnableSensubility: true
+    CollectdSensubilityTransport: amqp1
+    CollectdSensubilityResultsChannel: sensubility/metrics
+
+    # enable collection of containerized service metrics
+    CollectdEnableLibpodstats: true
+
+    # set collectd overrides for higher telemetry resolution and extra plugins
+    # to load
+    CollectdConnectionType: amqp1
+    CollectdAmqpInterval: 5
+    CollectdDefaultPollingInterval: 5
+    CollectdAmqpSendQueueLimit: 50
+    CollectdExtraPlugins:
+    - vmem
+
+    ExtraConfig:
+        ceilometer::agent::polling::polling_interval: 30
+        ceilometer::agent::polling::polling_meters:
+        - cpu
+        - disk.*
+        - ip.*
+        - image.*
+        - memory
+        - memory.*
+        - network.*
+        - perf.*
+        - port
+        - port.*
+        - switch
+        - switch.*
+        - storage.*
+        - volume.*
+
+        # receive extra information about virtual memory
+        collectd::plugin::vmem::verbose: true
+
+        # provide name and uuid in addition to hostname for better correlation
+        # to ceilometer data
+        collectd::plugin::virt::hostname_format: "name uuid hostname"
+
+        # provide the human-friendly name of the virtual instance
+        collectd::plugin::virt::plugin_instance_format: metadata
+
+        # set memcached collectd plugin to report its metrics by hostname
+        # rather than host IP, ensuring metrics in the dashboard remain uniform
+        collectd::plugin::memcached::instances:
+          local:
+            host: "%{hiera('fqdn_canonical')}"
+            port: 11211
+
 # The snippet below should be added to a separate yaml file, edited, and
 # passed in at deploy time.
   #MetricsQdrConnectors:
