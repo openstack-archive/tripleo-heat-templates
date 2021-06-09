@@ -82,7 +82,7 @@ else
 	    # already running elsewhere.
             echo "$(date -u): ${BUNDLE_NAME} is currently not running on '${HOST}'," \
                  "cleaning up its state to restart it if necessary"
-            /sbin/pcs resource cleanup $BUNDLE_NAME --node "${HOST}"
+            /sbin/pcs resource cleanup $BUNDLE_NAME node="${HOST}"
 	fi
 
 	# Wait until the resource is in the expected target state
