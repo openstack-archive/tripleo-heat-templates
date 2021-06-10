@@ -21,6 +21,7 @@ import logging
 import os
 import subprocess
 import tarfile
+import tempfile
 import time
 import yaml
 
@@ -161,25 +162,43 @@ def _log_and_raise(msg):
     raise Exception(msg)
 
 
-def _get_role_data_file(stack):
+def _get_role_data_file(heat, stack, fd, temp_file_path):
     """Get the role data file for a stack
 
+    :param heat: Heat client
+    :type heat: heatclient.client.Client
     :param stack: Stack name to query for passwords
     :type stack: str
+    :fd: File descriptor
+    :type fd: int
+    :temp_file_path: Path to role data temp file
+    :type temp_file_path: str
     :return: Path to the role data file
     :rtype:: str
     """
-    if not os.path.isfile(ROLE_DATA_MAP_FILE):
-        _log_and_raise("Overcloud stack role data mapping file: {} was not "
-                       "found.".format(ROLE_DATA_MAP_FILE))
+    try:
+        _stack = heat.get_stack(stack)
+        stack_outputs = {i['output_key']: i['output_value']
+                         for i in _stack.outputs}
+        roles_data = stack_outputs[
+            'TripleoHeatTemplatesJinja2RenderingDataSources']['roles_data']
 
-    with open(ROLE_DATA_MAP_FILE, 'r') as f:
-        data = yaml.safe_load(f.read())
+        with os.fdopen(fd, 'w') as tmp:
+            tmp.write(yaml.safe_dump(roles_data))
 
-    roles_data_file = data.get(stack)
-    if not roles_data_file or not os.path.isfile(roles_data_file):
-        _log_and_raise("Roles data file: {} for stack {} not found."
-                       .format(roles_data_file, stack))
+        roles_data_file = temp_file_path
+    except KeyError:
+        if not os.path.isfile(ROLE_DATA_MAP_FILE):
+            _log_and_raise("Overcloud stack role data mapping file: {} was "
+                           "not found.".format(ROLE_DATA_MAP_FILE))
+
+        with open(ROLE_DATA_MAP_FILE, 'r') as f:
+            data = yaml.safe_load(f.read())
+
+        roles_data_file = data.get(stack)
+        if not roles_data_file or not os.path.isfile(roles_data_file):
+            _log_and_raise("Roles data file: {} for stack {} not found."
+                           .format(roles_data_file, stack))
 
     return roles_data_file
 
@@ -278,10 +297,12 @@ def export_network_virtual_ips(stack, stack_dir):
     os.chmod(vip_data_path, 0o600)
 
 
-def export_provisioned_nodes(stack, stack_dir):
+def export_provisioned_nodes(heat, stack, stack_dir):
     """Export provisioned nodes from an existing stack and write baremetal
     deployment definition file.
 
+    :param cloud: Heat client
+    :type cloud: heatclient.client.Client
     :param stack: Stack name to query for networks
     :type stack: str
     :param stack_dir: Directory to save the generated data file
@@ -290,16 +311,20 @@ def export_provisioned_nodes(stack, stack_dir):
     :return: None
     :rtype: None
     """
-    roles_data_file = _get_role_data_file(stack)
-    bm_deployment_path = os.path.join(
-        stack_dir, "tripleo-{}-baremetal-deployment.yaml".format(stack))
-    LOG.info("Exporting provisioned nodes from stack %s to %s"
-             % (stack, bm_deployment_path))
-    subprocess.check_call(['openstack', 'overcloud', 'node', 'extract',
-                           'provisioned', '--stack', stack, '--roles-file',
-                           roles_data_file, '--output', bm_deployment_path,
-                           '--yes'])
-    os.chmod(bm_deployment_path, 0o600)
+    fd, temp_file_path = tempfile.mkstemp()
+    try:
+        roles_data_file = _get_role_data_file(heat, stack, fd, temp_file_path)
+        bm_deployment_path = os.path.join(
+            stack_dir, "tripleo-{}-baremetal-deployment.yaml".format(stack))
+        LOG.info("Exporting provisioned nodes from stack %s to %s"
+                 % (stack, bm_deployment_path))
+        subprocess.check_call(['openstack', 'overcloud', 'node', 'extract',
+                               'provisioned', '--stack', stack, '--roles-file',
+                               roles_data_file, '--output',
+                               bm_deployment_path, '--yes'])
+        os.chmod(bm_deployment_path, 0o600)
+    finally:
+        os.remove(temp_file_path)
 
 
 def main():
@@ -347,7 +372,7 @@ def main():
         stack_dir = os.path.join(working_dir, stack)
         export_networks(stack, stack_dir)
         export_network_virtual_ips(stack, stack_dir)
-        export_provisioned_nodes(stack, stack_dir)
+        export_provisioned_nodes(heat, stack, stack_dir)
 
     if database_exists():
         backup_dir = os.path.join(
