@@ -31,6 +31,8 @@ from tripleo_common.utils import plan as plan_utils
 
 
 LOG = logging.getLogger('undercloud')
+ROLE_DATA_MAP_FILE = ('/var/lib/tripleo-config/'
+                      'overcloud-stack-role-data-file-map.yaml')
 
 
 def parse_args():
@@ -133,6 +135,55 @@ def _get_ctlplane_ip():
         ['sudo', 'hiera', 'ctlplane']))
 
 
+def _make_stack_dirs(stacks, working_dir):
+    """Create stack directory if it does not already exist
+
+    :stacks: List of overcloud stack names
+    :type stacks: list
+    :working_dir: Path to working directly
+    :type working_dir: str
+    :return: None
+    """
+    for stack in stacks:
+        stack_dir = os.path.join(working_dir, stack)
+        if not os.path.exists(stack_dir):
+            os.makedirs(stack_dir)
+
+
+def _log_and_raise(msg):
+    """Log error message and raise Exception
+
+    :msg: Message string that will be logged, and added in Exception
+    :type msg: str
+    :return: None
+    """
+    LOG.error(msg)
+    raise Exception(msg)
+
+
+def _get_role_data_file(stack):
+    """Get the role data file for a stack
+
+    :param stack: Stack name to query for passwords
+    :type stack: str
+    :return: Path to the role data file
+    :rtype:: str
+    """
+    if not os.path.isfile(ROLE_DATA_MAP_FILE):
+        _log_and_raise("Overcloud stack role data mapping file: {} was not "
+                       "found.".format(ROLE_DATA_MAP_FILE))
+
+    with open(ROLE_DATA_MAP_FILE, 'r') as f:
+        data = yaml.safe_load(f.read())
+
+    roles_data_file = data.get(stack)
+    if not roles_data_file or not os.path.isfile(roles_data_file):
+        _log_and_raise("Roles data file: {} for stack {} not found."
+                       .format(roles_data_file, stack))
+
+    return roles_data_file
+
+
 def drop_db():
     """Drop the heat database and heat users
 
@@ -184,6 +235,73 @@ def export_passwords(heat, stack, stack_dir):
     os.chmod(passwords_path, 0o600)
 
 
+def export_networks(stack, stack_dir):
+    """Export networks from an existing stack and write network data file.
+
+    :param stack: Stack name to query for networks
+    :type stack: str
+    :param stack_dir: Directory to save the generated network data file
+        containing the stack network definitions.
+    :type stack_dir: str
+    :return: None
+    :rtype: None
+    """
+    network_data_path = os.path.join(
+        stack_dir, "tripleo-{}-network-data.yaml".format(stack))
+    LOG.info("Exporting network from stack %s to %s"
+             % (stack, network_data_path))
+    subprocess.check_call(['openstack', 'overcloud', 'network', 'extract',
+                           '--stack', stack, '--output', network_data_path,
+                           '--yes'])
+    os.chmod(network_data_path, 0o600)
+
+
+def export_network_virtual_ips(stack, stack_dir):
+    """Export network virtual IPs from an existing stack and write network
+    vip data file.
+
+    :param stack: Stack name to query for networks
+    :type stack: str
+    :param stack_dir: Directory to save the generated data file
+        containing the stack virtual IP definitions.
+    :type stack_dir: str
+    :return: None
+    :rtype: None
+    """
+    vip_data_path = os.path.join(
+        stack_dir, "tripleo-{}-virtual-ips.yaml".format(stack))
+    LOG.info("Exporting network virtual IPs from stack %s to %s"
+             % (stack, vip_data_path))
+    subprocess.check_call(['openstack', 'overcloud', 'network', 'vip',
+                           'extract', '--stack', stack, '--output',
+                           vip_data_path, '--yes'])
+    os.chmod(vip_data_path, 0o600)
+
+
+def export_provisioned_nodes(stack, stack_dir):
+    """Export provisioned nodes from an existing stack and write baremetal
+    deployment definition file.
+
+    :param stack: Stack name to query for networks
+    :type stack: str
+    :param stack_dir: Directory to save the generated data file
+        containing the stack baremetal deployment definitions.
+    :type stack_dir: str
+    :return: None
+    :rtype: None
+    """
+    roles_data_file = _get_role_data_file(stack)
+    bm_deployment_path = os.path.join(
+        stack_dir, "tripleo-{}-baremetal-deployment.yaml".format(stack))
+    LOG.info("Exporting provisioned nodes from stack %s to %s"
+             % (stack, bm_deployment_path))
+    subprocess.check_call(['openstack', 'overcloud', 'node', 'extract',
+                           'provisioned', '--stack', stack, '--roles-file',
+                           roles_data_file, '--output', bm_deployment_path,
+                           '--yes'])
+    os.chmod(bm_deployment_path, 0o600)
+
+
 def main():
     logging.basicConfig()
     LOG.setLevel(logging.INFO)
@@ -222,6 +340,15 @@ def main():
                     "existing stack data.")
         stacks = []
 
+    # Make stack directories in the working directory if they don't not exist
+    _make_stack_dirs(stacks, working_dir)
+
+    for stack in stacks:
+        stack_dir = os.path.join(working_dir, stack)
+        export_networks(stack, stack_dir)
+        export_network_virtual_ips(stack, stack_dir)
+        export_provisioned_nodes(stack, stack_dir)
+
     if database_exists():
         backup_dir = os.path.join(
             working_dir,
@@ -233,8 +360,6 @@ def main():
 
     for stack in stacks:
         stack_dir = os.path.join(working_dir, stack)
-        if not os.path.exists(stack_dir):
-            os.makedirs(stack_dir)
         if db_tar_path:
             # Symlink to the existing db backup
             os.symlink(db_tar_path,
