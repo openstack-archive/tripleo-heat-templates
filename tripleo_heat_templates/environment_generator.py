@@ -198,6 +198,10 @@ def _generate_environment(input_env, output_path, parent_env=None):
             env_file.write(u'resource_registry:\n')
         for res, value in sorted(env.get('resource_registry', {}).items()):
             env_file.write(u'  %s: %s\n' % (res, value))
+        if env.get('parameter_merge_strategies'):
+            env_file.write(u'parameter_merge_strategies:\n')
+        for res, value in sorted(env.get('parameter_merge_strategies', {}).items()):
+            env_file.write(u'  %s: %s\n' % (res, value))
         print('Wrote sample environment "%s"' % target_file)
 
     for e in env.get('children', []):

@@ -41,15 +41,6 @@ current_heat_template_version = valid_heat_template_versions[-1]
 required_params = ['EndpointMap', 'ServiceNetMap', 'RoleName',
                    'RoleParameters', 'ServiceData']
 
-# NOTE(bnemec): The duplication in this list is intentional.  For the
-# transition to generated environments we have two copies of these files,
-# so they need to be listed twice.  Once the deprecated version can be removed
-# the duplicate entries can be as well.
-envs_containing_endpoint_map = ['no-tls-endpoints-public-ip.yaml',
-                                'tls-endpoints-public-dns.yaml',
-                                'tls-endpoints-public-ip.yaml',
-                                'tls-everywhere-endpoints-dns.yaml']
-ENDPOINT_MAP_FILE = 'endpoint_map.yaml'
 OPTIONAL_SECTIONS = ['ansible_group_vars',
                      'cellv2_discovery',
                      'firewall_rules',
@@ -305,29 +296,6 @@ def to_camel_case(string):
                                                     s in string.split('_')))
 
 
-def get_base_endpoint_map(filename):
-    try:
-        with open(filename, 'r') as f:
-            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
-        return tpl['parameters']['EndpointMap']['default']
-    except Exception:
-        print(traceback.format_exc())
-    return None
-
-
-def get_endpoint_map_from_env(filename):
-    try:
-        with open(filename, 'r') as f:
-            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
-        return {
-            'file': filename,
-            'map': tpl['parameter_defaults']['EndpointMap']
-        }
-    except Exception:
-        print(traceback.format_exc())
-    return None
-
-
 def compare_parameters(old_impl_path, new_impl_path):
     old_impl_params = []
     new_impl_params = []
@@ -352,10 +320,6 @@ def compare_ceph_parameters(path):
               (new_path, old_path, missing))
         return 1
     return 0
-
-
-def validate_endpoint_map(base_map, env_map):
-    return sorted(base_map.keys()) == sorted(env_map.keys())
 
 
 def validate_role_name(filename):
@@ -1414,12 +1378,6 @@ for base_path in path_args:
                     if failed:
                         failed_files.append(file_path)
                     exit_val |= failed
-                    if f == ENDPOINT_MAP_FILE:
-                        base_endpoint_map = get_base_endpoint_map(file_path)
-                    if f in envs_containing_endpoint_map:
-                        env_endpoint_map = get_endpoint_map_from_env(file_path)
-                        if env_endpoint_map:
-                            env_endpoint_maps.append(env_endpoint_map)
     elif os.path.isfile(base_path) and base_path.endswith('.yaml'):
         failed = validate(base_path, param_map)
         if failed:
@@ -1428,30 +1386,6 @@ for base_path in path_args:
     else:
         print('Unexpected argument %s' % base_path)
         exit_usage()
-
-if base_endpoint_map and \
-        len(env_endpoint_maps) == len(envs_containing_endpoint_map):
-    for env_endpoint_map in env_endpoint_maps:
-        matches = validate_endpoint_map(base_endpoint_map,
-                                        env_endpoint_map['map'])
-        if not matches:
-            print("ERROR: %s needs to be updated to match changes in base "
-                  "endpoint map" % env_endpoint_map['file'])
-            failed_files.append(env_endpoint_map['file'])
-            exit_val |= 1
-        elif args.quiet < 1:
-            print("%s matches base endpoint map" % env_endpoint_map['file'])
-else:
-    print("ERROR: Did not find expected number of environments containing the "
-          "EndpointMap parameter.  If you meant to add or remove one of these "
-          "environments then you also need to update this tool.")
-    if not base_endpoint_map:
-        failed_files.append(ENDPOINT_MAP_FILE)
-    if len(env_endpoint_maps) != len(envs_containing_endpoint_map):
-        matched_files = set(os.path.basename(matched_env_file['file'])
-                            for matched_env_file in env_endpoint_maps)
-        failed_files.extend(set(envs_containing_endpoint_map) - matched_files)
-    exit_val |= 1
 
 # Validate that duplicate parameters defined in multiple files all have the
 # same definition.
