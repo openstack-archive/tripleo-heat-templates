@@ -84,6 +84,13 @@ parameters:
       Command or script snippet to run on all overcloud nodes to
       initialize the Leapp process. E.g. a repository switch.
     default: ''
+  LeappUnloadKernelDrivers:
+    type: comma_delimited_list
+    default: ['floppy', 'pata_acpi']
+    description: |
+      List of modules to unload from the system due to being incompatible
+      with the next RHEL version. If not being unloaded Leapp will
+      inhibit the upgrade.
   LeappInitCommand:
     type: string
     description: |
@@ -134,6 +141,7 @@ resources:
               upgrade_leapp_command_options: UpgradeLeappCommandOptions
               upgrade_leapp_to_remove: UpgradeLeappToRemove
               upgrade_leapp_to_install: UpgradeLeappToInstall
+              upgrade_leapp_modules_to_unload: LeappUnloadKernelDrivers
               upgrade_init_command: UpgradeInitCommand
             - values: {get_param: [RoleParameters]}
           - values:
@@ -141,6 +149,7 @@ resources:
               UpgradeLeappCommandOptions: {get_param: UpgradeLeappCommandOptions}
               UpgradeLeappToRemove: {get_param: UpgradeLeappToRemove}
               UpgradeLeappToInstall: {get_param: UpgradeLeappToInstall}
+              LeappUnloadKernelDrivers: {get_param: LeappUnloadKernelDrivers}
               UpgradeInitCommand: {get_param: UpgradeInitCommand}
 
 outputs:
@@ -367,6 +376,13 @@ outputs:
             - name: unmount and remove nfs nova entry
               mount: path=/var/lib/nova/instances state=absent
               ignore_errors: true
+            - name: disable unsupported kernel drivers in RHEL8 before upgrade via Leapp
+              vars:
+                modules_to_unload: { get_attr: [RoleParametersValue, value, 'upgrade_leapp_modules_to_unload']}
+              modprobe:
+                name: "{{ item }}"
+                state: absent
+              loop: "{{ modules_to_unload }}"
             - name: set leapp options
               shell: >
                 leapp answer --section remove_pam_pkcs11_module_check.confirm=True --add
