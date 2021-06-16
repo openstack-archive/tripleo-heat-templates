@@ -148,8 +148,6 @@ def to_normal_yaml(filename):
     return out_str
 
 
-# FIXME: Some of this duplicates code from build_endpoint_map.py, we should
-# refactor to share the common code
 class TemplateDumper(yaml.SafeDumper):
     def represent_ordered_dict(self, data):
         return self.represent_dict(data.items())
