@@ -85,6 +85,34 @@ parameters:
       description: >
         The Ceph cluster name must be at least 1 character and contain only
         letters and numbers.
+  CephExternalMultiConfig:
+    type: json
+    hidden: true
+    description: |
+      List of maps describing extra overrides which will be applied when configuring
+      extra external Ceph clusters. If this list is non-empty, ceph-ansible will run
+      an extra count(list) times using the same parameters as the first run except
+      each parameter within each map will override the defaults. If the following
+      were used, the second run would configure the overcloud to also use the ceph2
+      cluster with all the previous parameters except /etc/ceph/ceph2.conf would have
+      a mon_host entry containing the value of external_cluster_mon_ips below, and
+      not the default CephExternalMonHost. Subsequent ceph-ansible runs are restricted
+      to just ceph clients. CephExternalMultiConfig may not be used to deploy additional
+      internal Ceph clusters within one Heat stack. The map for each list should contain
+      not tripleo-heat-template parameters but ceph-ansible parameters.
+        - cluster: 'ceph2'
+          fsid: 'e2cba068-5f14-4b0f-b047-acf375c0004a'
+          external_cluster_mon_ips: '172.18.0.5,172.18.0.6,172.18.0.7'
+          keys:
+            - name: "client.openstack"
+              caps:
+                mgr: "allow *"
+                mon: "profile rbd"
+                osd: "osd: profile rbd pool=volumes, profile rbd pool=backups, profile rbd pool=vms, profile rbd pool=images"
+              key: "AQCwmeRcAAAAABAA6SQU/bGqFjlfLro5KxrB1Q=="
+              mode: "0600"
+          dashboard_enabled: false
+    default: []
 
 conditions:
 
@@ -159,21 +187,34 @@ outputs:
   cinder_common_kolla_permissions:
     description: Common kolla permissions for cinder-volume and cinder-backup services
     value:
-      - path: /var/log/cinder
-        owner: cinder:cinder
-        recurse: true
-      - path:
-          str_replace:
-            template: /etc/ceph/CLUSTER.client.USER.keyring
-            params:
-              CLUSTER: {get_param: CephClusterName}
-              USER: {get_param: CephClientUserName}
-        owner: cinder:cinder
-        perm: '0600'
-      - path: /etc/pki/tls/certs/etcd.crt
-        owner: cinder:cinder
-      - path: /etc/pki/tls/private/etcd.key
-        owner: cinder:cinder
+      list_concat:
+        -
+          - path: /var/log/cinder
+            owner: cinder:cinder
+            recurse: true
+          - path:
+              str_replace:
+                template: /etc/ceph/CLUSTER.client.USER.keyring
+                params:
+                  CLUSTER: {get_param: CephClusterName}
+                  USER: {get_param: CephClientUserName}
+            owner: cinder:cinder
+            perm: '0600'
+          - path: /etc/pki/tls/certs/etcd.crt
+            owner: cinder:cinder
+          - path: /etc/pki/tls/private/etcd.key
+            owner: cinder:cinder
+        - repeat:
+            template:
+              path: /etc/ceph/<%cluster%>.client.*.keyring
+              owner: cinder:cinder
+              perm: '0600'
+            for_each:
+              <%cluster%>:
+                yaql:
+                  expression: $.data.multiconfig.select($.cluster)
+                  data:
+                    multiconfig: {get_param: CephExternalMultiConfig}
 
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)
