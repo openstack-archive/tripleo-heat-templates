@@ -1,0 +1,308 @@
+heat_template_version: wallaby
+
+description: >
+  OpenStack containerized OVN DBs service in cluster mode
+
+parameters:
+  ContainerOvnNbDbImage:
+    description: image
+    type: string
+  ContainerOvnSbDbImage:
+    description: image
+    type: string
+  ContainerOvnNorthdImage:
+    description: image
+    type: string
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  OVNNorthboundServerPort:
+    description: Port of the OVN Northbound DB server
+    type: number
+    default: 6641
+  OVNSouthboundServerPort:
+    description: Port of the OVN Southbound DB server
+    type: number
+    default: 6642
+  OVNNorthboundClusterPort:
+    description: Cluster port of the OVN Northbound DB server
+    type: number
+    default: 6643
+  OVNSouthboundClusterPort:
+    description: Cluster port of the OVN Southbound DB server
+    type: number
+    default: 6644
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  OvnDBSCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+
+conditions:
+  key_size_override_unset: {equals: [{get_param: OvnDBSCertificateKeySize}, '']}
+
+resources:
+
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+outputs:
+  role_data:
+    description: Role data for the OVN multi-active cluster role.
+    value:
+      service_name: ovn_dbs
+      firewall_rules:
+        '121 OVN DB server and cluster ports':
+          proto: 'tcp'
+          dport:
+            - {get_param: OVNNorthboundServerPort}
+            - {get_param: OVNSouthboundServerPort}
+            - {get_param: OVNNorthboundClusterPort}
+            - {get_param: OVNSouthboundClusterPort}
+      kolla_config:
+        /var/lib/kolla/config_files/ovn_cluster_north_db_server.json:
+          command: bash -c $* -- eval source /etc/sysconfig/ovn_cluster; exec /usr/local/bin/start-nb-db-server ${OVN_NB_DB_OPTS}
+          config_files: &ovn_dbs_kolla_config_files
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
+          permissions: &ovn_dbs_kolla_permissions
+            - path: /var/log/openvswitch
+              owner: root:root
+              recurse: true
+            - path: /var/log/ovn
+              owner: root:root
+              recurse: true
+        /var/lib/kolla/config_files/ovn_cluster_south_db_server.json:
+          command: bash -c $* -- eval source /etc/sysconfig/ovn_cluster; exec /usr/local/bin/start-sb-db-server ${OVN_SB_DB_OPTS}
+          config_files: *ovn_dbs_kolla_config_files
+          permissions: *ovn_dbs_kolla_permissions
+        /var/lib/kolla/config_files/ovn_cluster_northd.json:
+          command: bash -c $* -- eval source /etc/sysconfig/ovn_cluster; exec /usr/bin/ovn-northd ${ovn_cluster_northd_OPTS}
+          config_files: *ovn_dbs_kolla_config_files
+          permissions: *ovn_dbs_kolla_permissions
+      docker_config:
+        step_0:
+          ovn_cluster_north_db_server:
+            start_order: 0
+            image: {get_param: ContainerOvnNbDbImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_cluster_north_db_server.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/var/lib/openvswitch:shared,z
+                  - /var/lib/openvswitch/ovn:/run/openvswitch:shared,z
+                  - /var/log/containers/openvswitch:/var/log/openvswitch:z
+                  - /var/lib/openvswitch/ovn:/var/lib/ovn:shared,z
+                  - /var/lib/openvswitch/ovn:/etc/openvswitch:shared,z
+                  - /var/lib/openvswitch/ovn:/etc/ovn:shared,z
+                  - /var/lib/openvswitch/ovn:/run/ovn:shared,z
+                  - /var/log/containers/openvswitch:/var/log/ovn:z
+                  - /var/lib/config-data/ansible-generated/ovn:/var/lib/kolla/config_files/src:ro
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  -
+                    - /etc/pki/tls/private/ovn_dbs.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/ovn_dbs.key:ro
+                    - /etc/pki/tls/certs/ovn_dbs.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_dbs.crt:ro
+                  - null
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          ovn_cluster_south_db_server:
+            start_order: 0
+            image: {get_param: ContainerOvnSbDbImage}
+            net: host
+            privileged: false
+            restart: always
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_cluster_south_db_server.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/var/lib/openvswitch:shared,z
+                  - /var/lib/openvswitch/ovn:/run/openvswitch:shared,z
+                  - /var/log/containers/openvswitch:/var/log/openvswitch:z
+                  - /var/lib/openvswitch/ovn:/var/lib/ovn:shared,z
+                  - /var/lib/openvswitch/ovn:/etc/openvswitch:shared,z
+                  - /var/lib/openvswitch/ovn:/etc/ovn:shared,z
+                  - /var/lib/openvswitch/ovn:/run/ovn:shared,z
+                  - /var/log/containers/openvswitch:/var/log/ovn:z
+                  - /var/lib/config-data/ansible-generated/ovn:/var/lib/kolla/config_files/src:ro
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  -
+                    - /etc/pki/tls/private/ovn_dbs.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/ovn_dbs.key:ro
+                    - /etc/pki/tls/certs/ovn_dbs.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_dbs.crt:ro
+                  - null
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          ovn_cluster_northd:
+            start_order: 2
+            image: {get_param: ContainerOvnNorthdImage}
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                -
+                  - /var/lib/kolla/config_files/ovn_cluster_northd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /lib/modules:/lib/modules:ro
+                  - /var/lib/openvswitch/ovn:/run/openvswitch:shared,z
+                  - /var/log/containers/openvswitch:/var/log/openvswitch:z
+                  - /var/lib/openvswitch/ovn:/run/ovn:shared,z
+                  - /var/log/containers/openvswitch:/var/log/ovn:z
+                  - /var/lib/config-data/ansible-generated/ovn:/var/lib/kolla/config_files/src:ro
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  -
+                    - /etc/pki/tls/private/ovn_dbs.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/ovn_dbs.key:ro
+                    - /etc/pki/tls/certs/ovn_dbs.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/ovn_dbs.crt:ro
+                  - null
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      global_config_settings:
+        ovn_db_clustered: true
+      metadata_settings:
+        if:
+          - {get_param: EnableInternalTLS}
+          - - service: ovn_dbs
+              network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+              type: node
+          - null
+      host_prep_tasks:
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode|default(omit) }}"
+          loop:
+            - { 'path': /var/log/containers/openvswitch, 'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/lib/openvswitch/ovn, 'setype': container_file_t }
+      deploy_steps_tasks:
+        - name: Prepare OVN cluster
+          when: step|int == 1
+          block:
+            - name: Certificate generation
+              when: enable_internal_tls | bool
+              block:
+                - include_role:
+                    name: linux-system-roles.certificate
+                  vars:
+                    certificate_requests:
+                      - name: ovn_dbs
+                        dns:
+                          str_replace:
+                            template: "{{fqdn_$NETWORK}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        principal:
+                          str_replace:
+                            template: "ovn_dbs/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                            params:
+                              $NETWORK: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                        key_size:
+                          if:
+                            - key_size_override_unset
+                            - {get_param: CertificateKeySize}
+                            - {get_param: OvnDBSCertificateKeySize}
+                        ca: ipa
+            - name: set is_ovn_dbs_bootstrap_node fact
+              set_fact: is_ovn_dbs_bootstrap_node={{ovn_dbs_short_bootstrap_node_name|lower == ansible_facts['hostname']|lower}}
+            - name: Configure OVN DBs and northd
+              include_role:
+                name: tripleo_ovn_cluster
+              vars:
+                tripleo_ovn_cluster_dbs_protocol: "{{ enable_internal_tls | ternary('ssl', 'tcp', 'tcp') }}"
+                tripleo_ovn_cluster_network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                tripleo_ovn_cluster_nb_db_port: {get_param: OVNNorthboundServerPort}
+                tripleo_ovn_cluster_sb_db_port: {get_param: OVNSouthboundServerPort}
+                tripleo_ovn_cluster_nb_local_port: {get_param: OVNNorthboundClusterPort}
+                tripleo_ovn_cluster_nb_remote_port: {get_param: OVNNorthboundClusterPort}
+                tripleo_ovn_cluster_sb_local_port: {get_param: OVNSouthboundClusterPort}
+                tripleo_ovn_cluster_sb_remote_port: {get_param: OVNSouthboundClusterPort}
+        - name: Start OVN DBs and northd containers (bootstrap node)
+          when:
+            - step|int == 3
+            - is_ovn_dbs_bootstrap_node | bool
+          block: &ovn_dbs_start_containers
+            - name: Start OVN container
+              include_role:
+                name: tripleo_container_manage
+              vars:
+                tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_0"
+                tripleo_container_manage_config_id: "{{ ovn_container }}"
+                tripleo_container_manage_config_patterns: "{{ ovn_container }}.json"
+                tripleo_container_manage_systemd_order: true
+              loop:
+                - ovn_cluster_north_db_server
+                - ovn_cluster_south_db_server
+                - ovn_cluster_northd
+              loop_control:
+                loop_var: ovn_container
+            - name: Set connection # FIXME workaround until RHBZ #1952038 is fixed
+              become: yes
+              shell: |
+                podman exec ovn_cluster_north_db_server bash -c "ovn-nbctl -p /etc/pki/tls/private/ovn_dbs.key -c /etc/pki/tls/certs/ovn_dbs.crt -C /etc/ipa/ca.crt set-connection pssl:{{ tripleo_ovn_cluster_nb_db_port }}"
+                podman exec ovn_cluster_south_db_server bash -c "ovn-sbctl -p /etc/pki/tls/private/ovn_dbs.key -c /etc/pki/tls/certs/ovn_dbs.crt -C /etc/ipa/ca.crt set-connection pssl:{{ tripleo_ovn_cluster_sb_db_port }}"
+              when:
+                - enable_internal_tls | bool
+                - is_ovn_dbs_bootstrap_node | bool
+              vars:
+                tripleo_ovn_cluster_network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+                tripleo_ovn_cluster_nb_db_port: {get_param: OVNNorthboundServerPort}
+                tripleo_ovn_cluster_sb_db_port: {get_param: OVNSouthboundServerPort}
+        - name: Start OVN DBs and northd containers (non-bootstrap nodes)
+          when:
+            - step|int == 4
+            - not is_ovn_dbs_bootstrap_node | bool
+          block: *ovn_dbs_start_containers
+      update_tasks: []
+      upgrade_tasks: []
