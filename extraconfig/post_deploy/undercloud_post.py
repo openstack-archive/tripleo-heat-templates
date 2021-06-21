@@ -16,12 +16,7 @@ import openstack
 import os
 import subprocess
 
-from mistralclient.api import client as mistralclient
-
-
 CONF = json.loads(os.environ['config'])
-WORKBOOK_PATH = '/usr/share/openstack-tripleo-common/workbooks'
-THT_DIR = '/usr/share/openstack-tripleo-heat-templates'
 
 
 def _run_command(args, env=None, name=None):
@@ -93,35 +88,11 @@ def _create_default_keypair(sdk):
                                        public_key=pub_key_file.read())
 
 
-def _configure_workbooks_and_workflows(mistral):
-    for workbook in [w for w in mistral.workbooks.list()
-                     if w.name.startswith('tripleo')]:
-        mistral.workbooks.delete(workbook.name)
-    managed_tag = 'tripleo-common-managed'
-    all_workflows = mistral.workflows.list()
-    workflows_delete = [w.name for w in all_workflows
-                        if managed_tag in w.tags]
-    # in order to delete workflows they should have no triggers associated
-    for trigger in [t for t in mistral.cron_triggers.list()
-                    if t.workflow_name in workflows_delete]:
-        mistral.cron_triggers.delete(trigger.name)
-    for workflow_name in workflows_delete:
-        mistral.workflows.delete(workflow_name)
-    for workbook in [f for f in os.listdir(WORKBOOK_PATH)
-                     if os.path.isfile(os.path.join(WORKBOOK_PATH, f))]:
-        mistral.workbooks.create(os.path.join(WORKBOOK_PATH, workbook))
-    print('INFO: Undercloud post - Mistral workbooks configured successfully.')
-
-
 nova_api_enabled = 'true' in _run_command(
     ['hiera', 'nova_api_enabled']).lower()
-mistral_api_enabled = 'true' in _run_command(
-    ['hiera', 'mistral_api_enabled']).lower()
 
 if not nova_api_enabled:
     print('WARNING: Undercloud Post - Nova API is disabled.')
-if not mistral_api_enabled:
-    print('WARNING: Undercloud Post - Mistral API is disabled.')
 
 sdk = openstack.connect(CONF['cloud_name'])
 
@@ -129,10 +100,6 @@ try:
     if nova_api_enabled:
         _configure_nova(sdk)
         _create_default_keypair(sdk)
-    if mistral_api_enabled:
-        mistral = mistralclient.client(mistral_url=sdk.workflow.get_endpoint(),
-                                       session=sdk.session)
-        _configure_workbooks_and_workflows(mistral)
 except Exception:
     print('ERROR: Undercloud Post - Failed.')
     raise
