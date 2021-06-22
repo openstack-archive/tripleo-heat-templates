@@ -354,9 +354,9 @@ def main():
         _heatclient = Client('1', endpoint=conn.endpoint_for('orchestration'),
                              token=conn.auth_token)
     except keystoneauth1.exceptions.catalog.EndpointNotFound:
-        LOG.warning("No Heat endpoint found, won't migrate any "
-                    "existing stack data.")
-        return
+        LOG.error("No Heat endpoint found, won't migrate any "
+                  "existing stack data.")
+        raise
 
     try:
         stacks = args.stack or [s.name for s in heat.stacks()]
