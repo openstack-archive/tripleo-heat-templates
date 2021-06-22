@@ -1167,12 +1167,12 @@ def validate(filename, param_map):
 
         if filename.startswith('./roles/ControllerStorageDashboard.yaml'):
             retval |= validate_controller_dashboard(filename, tpl)
-
-        if filename.startswith('./roles/ComputeOvsDpdk.yaml') or \
-                filename.startswith('./roles/ComputeSriov.yaml') or \
-                filename.startswith('./roles/ComputeOvsDpdkRT.yaml') or \
-                filename.startswith('./roles/ComputeSriovRT.yaml') or \
-                filename.startswith('./roles/ComputeHCIOvsDpdk.yaml'):
+        if filename in ['./roles/ComputeOvsDpdk.yaml',
+                        './roles/ComputeSriov.yaml',
+                        './roles/ComputeOvsDpdkRT.yaml',
+                        './roles/ComputeSriovRT.yaml',
+                        './roles/ComputeHCIOvsDpdk.yaml',
+                        './roles/ComputeVdpa.yaml']:
             exclude = [
                 'OS::TripleO::Services::OVNController',
                 'OS::TripleO::Services::ComputeNeutronOvsAgent',
