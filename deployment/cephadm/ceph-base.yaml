@@ -366,6 +366,15 @@ parameters:
     description: |
       If this parameter is true, then cephadm sets the debug related mgr
       config-key and produces a more verbose output.
+  DeployedCeph:
+    default: false
+    type: boolean
+    description: |
+      If the Ceph cluster has already been deployed but needs to be configured
+      so that the overcloud can use it (create cephx keys, pools, configure RGW
+      with haproxy, etc), then this parameter should be set to true. Set this
+      parameter to false to have cephadm deploy the ceph cluster during overcloud
+      deployment. DeployedCeph and CephDynamicSpec are mutually exclusive.
 
 parameter_groups:
 - label: deprecated
@@ -580,20 +589,34 @@ outputs:
                             ms_client_mode: secure
                       - {get_attr: [DefaultCephConfigOverrides, value, vars]}
                 cephadm_extra_vars: {get_attr: [CephAdmVars, value, vars]}
-            # This is supposed to run a playbook which is responsible to
-            # deploy Ceph using cephadm.
-            # The storage network is supposed to be available since we are
-            # at step 2
-            # TODO: (fpantano) Remove this section when --network-ports is
-            #       available and Ceph deployment can be moved **before**
-            #       the overcloud.
+                tripleo_cephadm_deployed_ceph: {get_param: DeployedCeph}
             - name: Prepare cephadm user and keys
               include_role:
                 name: tripleo_run_cephadm
                 tasks_from: enable_ceph_admin_user.yml
-              when: groups['ceph_mon'] | default([]) | length > 0 or
-                    groups['ceph_nfs'] | default([]) | length > 0
-            - name: Deploy the ceph cluster using cephadm
+              when: (not deployed_ceph and
+                      (groups['ceph_mon'] | default([]) | length > 0 or
+                       groups['ceph_nfs'] | default([]) | length > 0))
+                    or
+                    (deployed_ceph and
+                      ((groups['ceph_rgw'] | default([]) !=
+                        groups['ceph_mon'] | default([]) and
+                        groups['ceph_rgw'] | default([]) | length > 0)
+                       or
+                       (groups['ceph_mds'] | default([]) !=
+                        groups['ceph_mon'] | default([]) and
+                        groups['ceph_mds'] | default([]) | length > 0)
+                       or
+                       (groups['ceph_nfs'] | default([]) !=
+                        groups['ceph_mon'] | default([]) and
+                        groups['ceph_nfs'] | default([]) | length > 0)
+                       or
+                       (groups['ceph_rbdmirror'] | default([]) !=
+                        groups['ceph_mon'] | default([]) and
+                        groups['ceph_rbdmirror'] | default([]) | length > 0)))
+              vars:
+                deployed_ceph: {get_param: DeployedCeph}
+            - name: Deploy or configure the cephadm Ceph cluster
               include_role:
                 name: tripleo_run_cephadm
               when: groups['ceph_mon'] | default([]) | length > 0 or
