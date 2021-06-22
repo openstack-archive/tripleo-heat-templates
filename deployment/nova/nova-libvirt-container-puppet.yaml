@@ -118,29 +118,12 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
-  InternalTLSNbdCAFile:
-    default: '/etc/ipa/ca.crt'
-    type: string
-    description: Specifies the CA cert to use for NBD TLS.
-  InternalTLSVncCAFile:
-    default: '/etc/ipa/ca.crt'
-    type: string
-    description: Specifies the CA cert to use for VNC TLS.
-  InternalTLSQemuCAFile:
-    default: '/etc/ipa/ca.crt'
-    type: string
-    description: Specifies the CA cert to use for qemu.
   CertificateKeySize:
     type: string
     default: '2048'
     description: Specifies the private key size used when creating the
                  certificate.
   LibvirtCertificateKeySize:
-    type: string
-    default: ''
-    description: Override the private key size used when creating the
-                 certificate for this service
-  LibvirtVNCServerCertificateKeySize:
     type: string
     default: ''
     description: Override the private key size used when creating the
@@ -174,27 +157,7 @@ parameters:
                  This file will be symlinked to the default CA path,
                  which is /etc/pki/qemu/ca-cert.pem.
                  This parameter should be used if the default (which comes from
-                 the InternalTLSQemuCAFile parameter) is not desired. The current
-                 default reflects TripleO's default CA, which is FreeIPA.
-                 It will only be used if internal TLS is enabled.
-  LibvirtVncCACert:
-    type: string
-    default: ''
-    description: This specifies the CA certificate to use for VNC TLS.
-                 This file will be symlinked to the default CA path,
-                 which is /etc/pki/libvirt-vnc/ca-cert.pem.
-                 This parameter should be used if the default (which comes from
-                 the InternalTLSVncCAFile parameter) is not desired. The current
-                 default reflects TripleO's default CA, which is FreeIPA.
-                 It will only be used if internal TLS is enabled.
-  LibvirtNbdCACert:
-    type: string
-    default: ''
-    description: This specifies the CA certificate to use for NBD TLS.
-                 This file will be symlinked to the default CA path,
-                 which is /etc/pki/libvirt-nbd/ca-cert.pem.
-                 This parameter should be used if the default (which comes from
-                 the InternalTLSNbdCAFile parameter) is not desired. The current
+                 the InternalTLSCAFile parameter) is not desired. The current
                  default reflects TripleO's default CA, which is FreeIPA.
                  It will only be used if internal TLS is enabled.
   VhostuserSocketGroup:
@@ -340,14 +303,10 @@ conditions:
     and:
     - {get_param: EnableInternalTLS}
     - {get_param: UseTLSTransportForNbd}
-  libvirt_nbd_specific_ca_set:
-    not: {equals: [{get_param: LibvirtNbdCACert}, '']}
   qemu_specific_ca_set:
     not: {equals: [{get_param: QemuCACert}, '']}
   key_size_libvirt_override_set:
     not: {equals: [{get_param: LibvirtCertificateKeySize}, '']}
-  key_size_libvirtvnc_override_set:
-    not: {equals: [{get_param: LibvirtVNCServerCertificateKeySize}, '']}
   key_size_qemu_client_override_set:
     not: {equals: [{get_param: QemuClientCertificateKeySize}, '']}
   key_size_qemu_server_override_set:
@@ -500,11 +459,6 @@ outputs:
                   dest: "/"
                   merge: true
                   preserve_properties: true
-                - source: "/var/lib/kolla/config_files/src-tls/*"
-                  dest: "/"
-                  merge: true
-                  preserve_properties: true
-                  optional: true
                 - source: "/var/lib/kolla/config_files/src-ceph/"
                   dest: "/etc/ceph/"
                   merge: true
@@ -672,41 +626,10 @@ outputs:
                       - /sys/fs/selinux:/sys/fs/selinux
                       - /etc/selinux/config:/etc/selinux/config:ro
                     - if:
-                        - use_tls_for_live_migration
-                        - - /etc/pki/libvirt:/etc/pki/libvirt/:ro
-                          - /etc/pki/libvirt-nbd:/etc/pki/libvirt-nbd:ro
-                          - str_replace:
-                              template: "CACERT:/etc/pki/CA/cacert.pem:ro"
-                              params:
-                                CACERT:
-                                  if:
-                                    - libvirt_specific_ca_set
-                                    - get_param: LibvirtCACert
-                                    - get_param: InternalTLSCAFile
-                          - str_replace:
-                              template: "CACERT:/etc/pki/qemu/ca-cert.pem:ro"
-                              params:
-                                CACERT:
-                                  if:
-                                    - libvirt_nbd_specific_ca_set
-                                    - get_param: LibvirtNbdCACert
-                                    - get_param: InternalTLSNbdCAFile
-                          - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/server-cert.pem:ro
-                          - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/server-key.pem:ro
-                          - /etc/pki/qemu/server-cert.pem:/etc/pki/qemu/client-cert.pem:ro
-                          - /etc/pki/qemu/server-key.pem:/etc/pki/qemu/client-key.pem:ro
-                    - if:
-                        - use_tls_for_vnc
-                        - - /etc/pki/libvirt-vnc/server-cert.pem:/etc/pki/libvirt-vnc/server-cert.pem:ro
-                          - /etc/pki/libvirt-vnc/server-key.pem:/etc/pki/libvirt-vnc/server-key.pem:ro
-                          - str_replace:
-                              template: "CACERT:/etc/pki/libvirt-vnc/ca-cert.pem:ro"
-                              params:
-                                CACERT:
-                                  if:
-                                    - libvirt_vnc_specific_ca_set
-                                    - get_param: LibvirtVncCACert
-                                    - get_param: InternalTLSVncCAFile
+                      - {get_param: EnableInternalTLS}
+                      - - /etc/pki/CA/cacert.pem:/etc/pki/CA/cacert.pem:ro
+                        - /etc/pki/libvirt:/etc/pki/libvirt:ro
+                        - /etc/pki/qemu:/etc/pki/qemu:ro
                     - if:
                         - memory_backing_dir_set
                         - - str_replace:
@@ -777,7 +700,7 @@ outputs:
                 - not container_healthcheck_disabled
                 - step|int == 4
           - if:
-            - use_tls_for_live_migration
+            - {get_param: EnableInternalTLS}
             - - name: Certificate generation
                 when: step|int == 1
                 block:
@@ -792,7 +715,6 @@ outputs:
                       - '/etc/pki/libvirt'
                       - '/etc/pki/libvirt/private'
                       - '/etc/pki/qemu'
-                      - '/etc/pki/libvirt-nbd'
                   - include_role:
                       name: linux-system-roles.certificate
                     vars:
@@ -808,14 +730,25 @@ outputs:
                               template: "libvirt/{{fqdn_$NETWORK}}@{{idm_realm}}"
                               params:
                                 $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          run_after: |
-                            # Copy cert and key to libvirt dirs
-                            cp /etc/pki/tls/certs/libvirt-server-cert.crt /etc/pki/libvirt/servercert.pem
-                            cp /etc/pki/tls/private/libvirt-server-cert.key /etc/pki/libvirt/private/serverkey.pem
-                            systemctl reload libvirtd
+                          run_after:
+                            str_replace:
+                              template: |
+                                # Copy cert and key to libvirt dirs
+                                cp CACERT /etc/pki/CA/cacert.pem
+                                chown root:root /etc/pki/CA/cacert.pem
+                                chmod 644 /etc/pki/CA/cacert.pem
+                                cp /etc/pki/tls/certs/libvirt-server-cert.crt /etc/pki/libvirt/servercert.pem
+                                cp /etc/pki/tls/private/libvirt-server-cert.key /etc/pki/libvirt/private/serverkey.pem
+                                systemctl reload tripleo_nova_libvirt
+                              params:
+                                CACERT:
+                                  if:
+                                    - libvirt_specific_ca_set
+                                    - get_param: LibvirtCACert
+                                    - get_param: InternalTLSCAFile
                           key_size:
                             if:
-                              - key_size_libvirtvnc_override_set
+                              - key_size_libvirt_override_set
                               - {get_param: LibvirtCertificateKeySize}
                               - {get_param: CertificateKeySize}
                           ca: ipa
@@ -834,14 +767,53 @@ outputs:
                             # Copy cert and key to libvirt dirs
                             cp /etc/pki/tls/certs/libvirt-client-cert.crt /etc/pki/libvirt/clientcert.pem
                             cp /etc/pki/tls/private/libvirt-client-cert.key /etc/pki/libvirt/private/clientkey.pem
-                            systemctl reload libvirtd
+                            systemctl reload tripleo_nova_libvirt
                           key_size:
                             if:
-                              - key_size_libvirtvnc_override_set
+                              - key_size_libvirt_override_set
                               - {get_param: LibvirtCertificateKeySize}
                               - {get_param: CertificateKeySize}
                           ca: ipa
                         - name: qemu-server-cert
+                          owner: root
+                          group: qemu
+                          dns:
+                            str_replace:
+                              template: "{{fqdn_$NETWORK}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                          principal:
+                            str_replace:
+                              template: "qemu/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                          run_after:
+                            str_replace:
+                              template: |
+                                # Copy cert and key to qemu dir
+                                cp CACERT /etc/pki/qemu/ca-cert.pem
+                                chown root:root /etc/pki/qemu/ca-cert.pem
+                                chmod 644 /etc/pki/qemu/ca-cert.pem
+                                cp -a /etc/pki/tls/certs/qemu-server-cert.crt /etc/pki/qemu/server-cert.pem
+                                cp -a /etc/pki/tls/private/qemu-server-cert.key /etc/pki/qemu/server-key.pem
+                                chmod 0640 /etc/pki/qemu/server-cert.pem
+                                chmod 0640 /etc/pki/qemu/server-key.pem
+                                systemctl reload tripleo_nova_libvirt
+                              params:
+                                CACERT:
+                                  if:
+                                    - qemu_specific_ca_set
+                                    - get_param: QemuCACert
+                                    - get_param: InternalTLSCAFile
+                          key_size:
+                            if:
+                              - key_size_qemu_server_override_set
+                              - {get_param: QemuServerCertificateKeySize}
+                              - {get_param: CertificateKeySize}
+                          ca: ipa
+                        - name: qemu-client-cert
+                          owner: root
+                          group: qemu
                           dns:
                             str_replace:
                               template: "{{fqdn_$NETWORK}}"
@@ -854,77 +826,15 @@ outputs:
                                 $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                           run_after: |
                             # Copy cert and key to qemu dir
-                            cp /etc/pki/tls/certs/qemu-server-cert.crt /etc/pki/qemu/server-cert.pem
-                            cp /etc/pki/tls/private/qemu-server-cert.key /etc/pki/qemu/server-key.pem
-                            systemctl reload libvirtd
-                          key_size:
-                            if:
-                              - key_size_qemu_server_override_set
-                              - {get_param: QemuServerCertificateKeySize}
-                              - {get_param: CertificateKeySize}
-                          ca: ipa
-                        - name: qemu-nbd-client-cert
-                          dns:
-                            str_replace:
-                              template: "{{fqdn_$NETWORK}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          principal:
-                            str_replace:
-                              template: "qemu/{{fqdn_$NETWORK}}@{{idm_realm}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          run_after: |
-                            # Copy cert and key to libvirt-nbd dir
-                            cp /etc/pki/tls/certs/qemu-nbd-client-cert.crt /etc/pki/libvirt-nbd/client-cert.pem
-                            cp /etc/pki/tls/private/qemu-nbd-client-cert.key /etc/pki/libvirt-nbd/client-key.pem
-                            systemctl reload libvirtd
+                            cp -a /etc/pki/tls/certs/qemu-client-cert.crt /etc/pki/qemu/client-cert.pem
+                            cp -a /etc/pki/tls/private/qemu-client-cert.key /etc/pki/qemu/client-key.pem
+                            chmod 0640 /etc/pki/qemu/client-cert.pem
+                            chmod 0640 /etc/pki/qemu/client-key.pem
+                            systemctl reload tripleo_nova_libvirt
                           key_size:
                             if:
                               - key_size_qemu_client_override_set
                               - {get_param: QemuClientCertificateKeySize}
-                              - {get_param: CertificateKeySize}
-                          ca: ipa
-          - if:
-            - use_tls_for_vnc
-            - - name: Create dirs for certificates and keys
-                file:
-                  path: "{{ item }}"
-                  state: directory
-                  serole: object_r
-                  setype: cert_t
-                  seuser: system_u
-                with_items:
-                  - '/etc/pki/libvirt-vnc'
-              - name: Certificate generation
-                when: step|int == 1
-                block:
-                  - include_role:
-                      name: linux-system-roles.certificate
-                    vars:
-                      certificate_requests:
-                        - name: libvirt-vnc-server-cert
-                          dns:
-                            str_replace:
-                              template: "{{fqdn_$NETWORK}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          principal:
-                            str_replace:
-                              template: "libvirt-vnc/{{fqdn_$NETWORK}}@{{idm_realm}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          run_after: |
-                            # Copy cert and key to libvirt-vnc dir
-                            cp /etc/pki/tls/certs/libvirt-vnc-server-cert.crt /etc/pki/libvirt-vnc/server-cert.pem
-                            cp /etc/pki/tls/private/libvirt-vnc-server-cert.key /etc/pki/libvirt-vnc/server-key.pem
-                            chmod 0644 /etc/pki/libvirt-vnc/server-cert.pem
-                            chmod 0640 /etc/pki/libvirt-vnc/server-key.pem
-                            chgrp qemu /etc/pki/libvirt-vnc/server-key.pem
-                          key_size:
-                            if:
-                              - key_size_libvirtvnc_override_set
-                              - {get_param: LibvirtVNCServerCertificateKeySize}
                               - {get_param: CertificateKeySize}
                           ca: ipa
       host_prep_tasks:
@@ -999,16 +909,14 @@ outputs:
       metadata_settings:
         list_concat:
           - if:
-            - use_tls_for_live_migration
+            - {get_param: EnableInternalTLS}
             - - service: libvirt
                 network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 type: node
               - service: qemu
                 network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 type: node
-          - if:
-            - use_tls_for_vnc
-            - - service: libvirt-vnc
+              - service: libvirt-vnc
                 network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 type: node
       upgrade_tasks:
