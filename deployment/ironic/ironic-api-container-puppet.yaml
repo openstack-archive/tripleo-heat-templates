@@ -69,10 +69,22 @@ parameters:
     description: |
       Use the advanced (eventlet safe) memcached client pool.
     default: true
+  IronicAuthStrategy:
+    type: string
+    description: Auth strategy to use with ironic.
+    default: 'keystone'
+    constraints:
+      - allowed_values: ['keystone', 'http_basic', 'noauth']
+  AdminPassword: #supplied by tripleo-undercloud-passwords.yaml
+    type: string
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    hidden: True
 
 conditions:
   cors_allowed_origin_set:
     not: {equals : [{get_param: IronicCorsAllowedOrigin}, '']}
+  auth_strategy_http_basic:
+    equals: [{get_param: IronicAuthStrategy}, 'http_basic']
 
 resources:
   ApacheServiceBase:
@@ -160,6 +172,10 @@ outputs:
             ironic::api::public_endpoint: {get_param: [EndpointMap, IronicPublic, uri_no_suffix]}
             ironic::api::service_name: 'httpd'
             ironic::policy::policies: {get_param: IronicApiPolicies}
+            ironic::wsgi::apache::vhost_custom_fragment:
+              if:
+                - auth_strategy_http_basic
+                - 'WSGIPassAuthorization On'
             ironic::wsgi::apache::bind_host:
               str_replace:
                 template:
@@ -269,6 +285,9 @@ outputs:
                   - /var/log/containers/ironic:/var/log/ironic:z
                   - /var/log/containers/httpd/ironic-api:/var/log/httpd:z
                 - if:
+                  - auth_strategy_http_basic
+                  - - /etc/ironic_passwd:/etc/ironic/htpasswd:z
+                - if:
                     - {get_param: EnableInternalTLS}
                     - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
                       - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
@@ -284,6 +303,24 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/ironic, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/httpd/ironic-api, 'setype': container_file_t, 'mode': '0750' }
+        - name: create password file when auth_stragy is 'http_basic'
+          vars:
+            is_http_basic:
+              if:
+                - auth_strategy_http_basic
+                - true
+                - false
+          copy:
+            dest: /etc/ironic_passwd
+            content:
+              str_replace:
+                template: |
+                  admin:{{'$ADMIN_PASSWORD' | password_hash('bcrypt')}}
+                  ironic:{{'$IRONIC_PASSWORD' | password_hash('bcrypt')}}
+                params:
+                  $ADMIN_PASSWORD: {get_param: AdminPassword}
+                  $IRONIC_PASSWORD: {get_param: IronicPassword}
+          when: is_http_basic | bool
       deploy_steps_tasks:
         get_attr: [ApacheServiceBase, role_data, deploy_steps_tasks]
       external_upgrade_tasks:

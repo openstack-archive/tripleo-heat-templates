@@ -180,6 +180,16 @@ parameters:
                '10.10.10.0/24': 'physnet_a'
                '2001:db8::/64': 'physnet_b'
     type: json
+  IronicAuthStrategy:
+    type: string
+    description: Auth strategy to use with ironic.
+    default: 'keystone'
+    constraints:
+      - allowed_values: ['keystone', 'http_basic', 'noauth']
+  AdminPassword: #supplied by tripleo-undercloud-passwords.yaml
+    type: string
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    hidden: True
 
 parameter_groups:
 - label: deprecated
@@ -201,6 +211,12 @@ conditions:
     not: {equals : [{get_param: IronicInspectorSubnets}, {}]}
   enable_architecture_ppc64le: {contains: ['ppc64le', {get_param: AdditionalArchitectures}]}
   ipa_images: {not: {equals: [{get_param: IPAImageURLs}, []]}}
+  auth_strategy_non_default:
+    contains: [{get_param: IronicAuthStrategy}, ['noauth', 'http_basic']]
+  auth_strategy_http_basic:
+    equals: [{get_param: IronicAuthStrategy}, 'http_basic']
+  auth_strategy_noauth:
+    equals: [{get_param: IronicAuthStrategy}, 'noauth']
 
 resources:
   ContainersCommon:
@@ -277,6 +293,7 @@ outputs:
               - get_param: IronicInspectorSubnets
               - [{ip_range: {get_param: IronicInspectorIpRange}}]
             ironic::inspector::dnsmasq_interface: {get_param: IronicInspectorInterface}
+            ironic::inspector::auth_strategy: {get_param: IronicAuthStrategy}
             ironic::inspector::dnsmasq_dhcp_hostsdir: /var/lib/ironic-inspector/dhcp-hostsdir
             ironic::inspector::pxe_filter::dnsmasq::purge_dhcp_hostsdir: false
             ironic::inspector::pxe_filter::driver: dnsmasq
@@ -328,7 +345,6 @@ outputs:
                       collectd_host: localhost
                     - read_default_file: /etc/my.cnf.d/tripleo.cnf
                       read_default_group: tripleo
-
             ironic::inspector::enable_ppc64le:
               if:
                 - enable_architecture_ppc64le
@@ -337,6 +353,14 @@ outputs:
               if:
                 - {get_param: IronicInspectorIPXEEnabled}
                 - 'http'
+          - if:
+              - auth_strategy_non_default
+              - ironic::inspector::ironic::auth_type:
+                  if:
+                    - auth_strategy_noauth
+                    - 'none'
+                    - {get_param: IronicAuthStrategy}
+                ironic::inspector::ironic::endpoint_override: {get_param: [EndpointMap, IronicInternal, uri_no_suffix]}
           - if:
               - use_swift
               - ironic::inspector::store_data: 'swift'
@@ -487,12 +511,14 @@ outputs:
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
-                -
-                  - /var/lib/kolla/config_files/ironic_inspector.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/ironic_inspector.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic_inspector:/var/lib/kolla/config_files/src:ro
                   - /var/lib/ironic:/var/lib/ironic:shared,z
                   - /var/log/containers/ironic-inspector:/var/log/ironic-inspector:z
                   - /var/lib/ironic-inspector/dhcp-hostsdir:/var/lib/ironic-inspector/dhcp-hostsdir:shared,z
+                - if:
+                  - auth_strategy_http_basic
+                  - - /etc/ironic_inspector_passwd:/etc/ironic-inspector/htpasswd:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           ironic_inspector_dnsmasq:
@@ -529,6 +555,24 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/ironic-inspector, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/ironic-inspector/dhcp-hostsdir, 'setype': container_file_t }
+        - name: create password file when auth_stragy is 'http_basic'
+          vars:
+            is_http_basic:
+              if:
+                - auth_strategy_http_basic
+                - true
+                - false
+          copy:
+            dest: /etc/ironic_inspector_passwd
+            content:
+              str_replace:
+                template: |
+                  admin:{{'$ADMIN_PASSWORD' | password_hash('bcrypt')}}
+                  ironic-inspector:{{'$IRONIC_PASSWORD' | password_hash('bcrypt')}}
+                params:
+                  $ADMIN_PASSWORD: {get_param: AdminPassword}
+                  $IRONIC_PASSWORD: {get_param: IronicPassword}
+          when: is_http_basic | bool
         - name: create persistent ironic-inspector dnsmasq dhcp hostsdir
           file:
             path: /var/lib/ironic-inspector/dhcp-hostsdir
