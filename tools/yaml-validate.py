@@ -759,7 +759,8 @@ def validate_docker_service(filename, tpl):
                     return 1
 
         if 'puppet_config' in role_data and \
-                VALIDATE_DOCKER_PUPPET_CONFIG_OVERRIDE.get(filename, True):
+                VALIDATE_DOCKER_PUPPET_CONFIG_OVERRIDE.get(filename, True) and \
+                role_data.get('puppet_config', {}) != {}:
             if validate_docker_service_mysql_usage(filename, tpl):
                 print('ERROR: could not validate use of mysql service for %s.'
                       % filename)
