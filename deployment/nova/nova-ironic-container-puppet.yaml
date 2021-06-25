@@ -127,10 +127,18 @@ outputs:
               dest: "/etc/iscsi/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &nova_ironic_permissions
             - path: /var/log/nova
               owner: nova:nova
               recurse: true
+        /var/lib/kolla/config_files/nova_ironic_wait_for_compute.json:
+          command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_compute_service.py"
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions: *nova_ironic_permissions
       container_config_scripts:
         map_merge:
           - {get_attr: [ContainersCommon, container_config_scripts]}
@@ -178,7 +186,7 @@ outputs:
                     - /etc/multipath.conf:/etc/multipath.conf:ro
                   - []
             environment:
-             KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           nova_wait_for_compute_service:
             start_order: 101
             image: *nova_ironic_image
@@ -188,12 +196,13 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/config-data/nova/etc/my.cnf.d/:/etc/my.cnf.d/:ro
-                  - /var/lib/config-data/nova/etc/nova/:/etc/nova/:ro
+                  - /var/lib/kolla/config_files/nova_ironic_wait_for_compute.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/nova:/var/log/nova
                   - /var/lib/container-config-scripts/:/container-config-scripts/
             user: root
-            command: "/container-config-scripts/pyshim.sh /container-config-scripts/nova_wait_for_compute_service.py"
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent directories
           file:

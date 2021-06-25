@@ -213,7 +213,7 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/placement_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
-          config_files:
+          config_files: &placement_api_config_files
             - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
@@ -226,10 +226,18 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &placement_api_permissions
             - path: /var/log/placement
               owner: placement:placement
               recurse: true
+        /var/lib/kolla/config_files/placement_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/usr/bin/placement-manage db sync'"
+          config_files: *placement_api_config_files
+          permissions: *placement_api_permissions
+        /var/lib/kolla/config_files/placement_api_wait_for_service.json:
+          command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
+          config_files: *placement_api_config_files
+          permissions: *placement_api_permissions
       container_config_scripts:
         map_merge:
           - {get_attr: [ContainersCommon, container_config_scripts]}
@@ -250,11 +258,10 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [PlacementLogging, volumes]}
-                -
-                  - /var/lib/config-data/placement/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/placement/etc/placement/:/etc/placement/:ro
-            command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/usr/bin/placement-manage db sync'"
+                - - /var/lib/kolla/config_files/placement_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/placement:/var/lib/kolla/config_files/src:ro
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           placement_api:
@@ -293,17 +300,16 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [PlacementLogging, volumes]}
-                -
-                  - /var/lib/config-data/placement/etc/my.cnf.d/tripleo.cnf:/etc/my.cnf.d/tripleo.cnf:ro
-                  - /var/lib/config-data/placement/etc/placement/:/etc/placement/:ro
+                - - /var/lib/kolla/config_files/placement_api_wait_for_service.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/placement:/var/lib/kolla/config_files/src:ro
                   - /var/lib/container-config-scripts/:/container-config-scripts/:z
-            command: "/usr/bin/bootstrap_host_exec placement su placement -s /bin/bash -c '/container-config-scripts/pyshim.sh /container-config-scripts/placement_wait_for_service.py'"
             environment:
               __OS_DEBUG:
                 yaql:
                   expression: str($.data.debug)
                   data:
                     debug: {get_param: Debug}
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks: {get_attr: [PlacementLogging, host_prep_tasks]}
       deploy_steps_tasks:
         get_attr: [ApacheServiceBase, role_data, deploy_steps_tasks]

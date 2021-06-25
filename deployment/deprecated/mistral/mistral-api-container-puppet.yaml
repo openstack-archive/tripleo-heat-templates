@@ -166,15 +166,26 @@ outputs:
       kolla_config:
         /var/lib/kolla/config_files/mistral_api.json:
           command: /usr/bin/mistral-server --config-file=/etc/mistral/mistral.conf --log-file=/var/log/mistral/api.log --server=api
-          config_files:
+          config_files: &mistral_api_config_files
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
               preserve_properties: true
-          permissions:
+          permissions: &mistral_api_permissions
             - path: /var/log/mistral
               owner: mistral:mistral
               recurse: true
+        /var/lib/kolla/config_files/mistral_api_db_sync.json:
+          command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf --openstack_actions_mapping_path=/etc/mistral/mapping.json upgrade head'"
+          config_files: *mistral_api_config_files
+          permissions: *mistral_api_permissions
+        /var/lib/kolla/config_files/mistral_api_db_populate.json:
+          # NOTE: dprince this requires that we install openstack-tripleo-common into
+          # the Mistral API image so that we get tripleo* actions
+          command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf --openstack_actions_mapping_path=/etc/mistral/mapping.json populate'"
+          config_files: *mistral_api_config_files
+          permissions: *mistral_api_permissions
+
       docker_config:
         # db sync runs before permissions set by kolla_config
         step_2:
@@ -198,10 +209,11 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/config-data/mistral/etc/mistral/:/etc/mistral/:ro
+                  - /var/lib/kolla/config_files/mistral_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/mistral:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/mistral:/var/log/mistral:z
-            command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf --openstack_actions_mapping_path=/etc/mistral/mapping.json upgrade head'"
             environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           mistral_api:
@@ -233,11 +245,11 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
-                  - /var/lib/config-data/mistral/etc/mistral/:/etc/mistral/:ro
+                  - /var/lib/kolla/config_files/mistral_api_db_populate.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/mistral:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/mistral:/var/log/mistral:z
-            # NOTE: dprince this requires that we install openstack-tripleo-common into
-            # the Mistral API image so that we get tripleo* actions
-            command: "/usr/bin/bootstrap_host_exec mistral_api su mistral -s /bin/bash -c 'mistral-db-manage --config-file /etc/mistral/mistral.conf --openstack_actions_mapping_path=/etc/mistral/mapping.json populate'"
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         - name: create persistent directories
           file:
@@ -252,7 +264,7 @@ outputs:
           when: step|int == 3
           copy:
             content: {get_file: ./mapping.json}
-            dest: '/var/lib/config-data/mistral/etc/mistral/mapping.json'
+            dest: '/var/lib/config-data/puppet-generated/mistral/etc/mistral/mapping.json'
             setype: container_file_t
             force: yes
             mode: '0755'
