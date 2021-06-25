@@ -61,6 +61,16 @@ parameters:
       be managed by pacemaker. If these criteria are not met then the cluster
       name must be left blank.
     type: string
+  CinderImageConversionNfsShare:
+    default: ''
+    description: When set, the NFS share to be used for Cinder's image conversion
+                 directory.
+    type: string
+  CinderImageConversionNfsOptions:
+    default: '_netdev,bg,intr,context=system_u:object_r:container_file_t:s0'
+    description: NFS mount options when using an NFS share for Cinder's image
+                 conversion directory.
+    type: string
   EnableInternalTLS:
     type: boolean
     default: false
@@ -123,11 +133,24 @@ conditions:
       - {get_param: EnableInternalTLS}
       - {get_param: EnableEtcdInternalTLS}
 
+  cinder_nfs_conversion_dir_enabled:
+    not:
+      equals:
+        - {get_param: CinderImageConversionNfsShare}
+        - ''
+
 resources:
   ContainersCommon:
     type: ../containers-common.yaml
 
 outputs:
+  cinder_image_conversion_nfs_dir:
+    description: The directory where cinder does its image conversion when the
+                 directory is backed by an NFS share.
+    value: &cinder_image_conversion_nfs_dir
+      # Avoid SELinux conflicts by choosing a location outside /var/lib/cinder
+      /var/lib/cinder_image_conversion
+
   cinder_common_host_prep_tasks:
     description: Common host prep tasks for cinder-volume and cinder-backup services
     value: &cinder_common_host_prep_tasks
@@ -220,7 +243,26 @@ outputs:
     value:
       list_concat:
         - *cinder_common_host_prep_tasks
-        -
+        - - name: Support using an NFS share for cinder image conversion
+            vars:
+              image_conversion_nfs_enabled: {if: [cinder_nfs_conversion_dir_enabled, true, false]}
+            when:
+              - image_conversion_nfs_enabled|bool
+            block:
+              - name: Create cinder image conversion directory
+                file:
+                  path: *cinder_image_conversion_nfs_dir
+                  state: directory
+              - name: Mount cinder's image conversion NFS share
+                vars:
+                  image_conversion_nfs_share: {get_param: CinderImageConversionNfsShare}
+                  image_conversion_nfs_options: {get_param: CinderImageConversionNfsOptions}
+                mount:
+                  path: *cinder_image_conversion_nfs_dir
+                  state: mounted
+                  fstype: nfs4
+                  src: "{{ image_conversion_nfs_share }}"
+                  opts: "{{ image_conversion_nfs_options }}"
           - name: cinder_enable_iscsi_backend fact
             set_fact:
               cinder_enable_iscsi_backend: {get_param: CinderEnableIscsiBackend}
@@ -293,6 +335,14 @@ outputs:
                   enabled: yes
                   daemon_reload: yes
 
+  cinder_volume_config_settings:
+    description: Config settings for the cinder-volume container (HA or non-HA)
+    value:
+      if:
+        - cinder_nfs_conversion_dir_enabled
+        - cinder::image_conversion_dir: *cinder_image_conversion_nfs_dir
+        - {}
+
   cinder_volume_volumes:
     description: Volumes for the cinder-volume container (HA or non-HA)
     value:
@@ -319,6 +369,14 @@ outputs:
           - {get_param: MultipathdEnable}
           - - /etc/multipath:/etc/multipath:z
             - /etc/multipath.conf:/etc/multipath.conf:ro
+        - if:
+          - cinder_nfs_conversion_dir_enabled
+          - - str_replace:
+                # Use slave propagation so if the mount is delayed on the host
+                # it will also be updated within the cinder-volume container.
+                template: DIR:DIR:slave
+                params:
+                  DIR: *cinder_image_conversion_nfs_dir
 
   cinder_volume_environment:
     description: Docker environment for the cinder-volume container (HA or non-HA)
