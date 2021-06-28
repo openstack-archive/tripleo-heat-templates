@@ -1245,7 +1245,8 @@ def validate(filename, param_map):
         # definition instead.
         if (filename.startswith('./network_data_') and
                 not filename.endswith(('routed.yaml',
-                                       'undercloud.yaml'))):
+                                       'undercloud.yaml',
+                                       'default.yaml'))):
             result = validate_network_data_file(filename)
             retval |= result
         else:
