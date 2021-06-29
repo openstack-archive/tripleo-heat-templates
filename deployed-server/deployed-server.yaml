@@ -62,6 +62,11 @@ parameters:
     default: ctlplane-subnet
     description: The name of the undercloud Neutron control plane subnet
     type: string
+  NodePortMap:
+    description: >
+      A map of deployed port data
+    default: {}
+    type: json
 
 resources:
   deployed-server:
@@ -70,7 +75,7 @@ resources:
       name: {get_param: name}
       software_config_transport: {get_param: software_config_transport}
 
-  ControlPlanePort:
+  ControlPlanePortDeployedServerPortMap:
     type: OS::TripleO::DeployedServer::ControlPlanePort
     properties:
       network: ctlplane
@@ -87,18 +92,34 @@ resources:
             params:
               $STACK_NAME: {get_param: RootStackName}
 
+  ControlPlanePortNodePortMap:
+    type: OS::Heat::Value
+    properties:
+      value: {get_param: [NodePortMap, {get_param: name}, ctlplane]}
+
 outputs:
   OS::stack_id:
     value: {get_resource: deployed-server}
   networks:
     value:
-      ctlplane:
-        - {get_attr: [ControlPlanePort, fixed_ips, 0, ip_address]}
+      if:
+        - equals:
+          - {get_param: [NodePortMap]}
+          - {}
+        - ctlplane:
+          - {get_attr: [ControlPlanePortDeployedServerPortMap, fixed_ips, 0, ip_address]}
+        - ctlplane:
+          - {get_attr: [ControlPlanePortNodePortMap, value, ip_address]}
   addresses:
     value:
-      ctlplane:
-        - subnets: {get_attr: [ControlPlanePort, subnets]}
+      if:
+        - equals:
+          - {get_param: [NodePortMap]}
+          - {}
+        - ctlplane:
+          - {get_attr: [ControlPlanePortDeployedServerPortMap, fixed_ips, 0, ip_address]}
+        - ctlplane:
+          - subnets:
+            - cidr: {get_attr: [ControlPlanePortNodePortMap, value, ip_subnet]}
   name:
     value: {get_param: name}
-  os_collect_config:
-    value: {get_attr: [deployed-server, os_collect_config]}
