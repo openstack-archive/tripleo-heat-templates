@@ -383,12 +383,84 @@ outputs:
                 mode: 0755
                 content: {get_file: ../neutron/kill-script}
       upgrade_tasks:
-        - name: Switch ovn remote setting
+        - name: Gather missing facts
+          setup:
+            gather_subset: "distribution"
+          when: >-
+            ansible_facts['distribution'] is not defined or
+            ansible_facts['distribution_major_version'] is not defined
           tags:
             - never
             - nova_hybrid_state
-          when: step|int == 0
+        - name: Switch ovn remote setting
+          vars:
+            enable_internal_tls: {get_param: EnableInternalTLS}
+            internal_tls_ca: {get_param: InternalTLSCAFile}
+            ovn_cert_network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            ovn_cert_key_size:
+              if:
+                - key_size_override_unset
+                - {get_param: CertificateKeySize}
+                - {get_param: ContainerOvnCertificateKeySize}
+          tags:
+            - never
+            - nova_hybrid_state
+          when:
+            - step|int == 0
+            - ansible_facts['distribution'] == 'RedHat'
+            - ansible_facts['distribution_major_version'] is version('7', '==')
           block:
+            - name: SSL setup into semi hybrid state
+              when: enable_internal_tls|bool
+              block:
+                - name: Get certificate for ovn_metadata
+                  shell: |
+                    set -o pipefail
+                    /usr/bin/getcert list -i ovn_metadata || \
+                    /usr/bin/getcert request -I ovn_metadata \
+                    -f /etc/pki/tls/certs/ovn_metadata.crt \
+                    -c IPA \
+                    -N CN=$( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -K ovn_metadata/$( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -D $( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -g {{ovn_cert_key_size}} \
+                    -w -k /etc/pki/tls/private/ovn_metadata.key
+                - name: Get GID of container neutron user on host by checking neutron.conf
+                  stat: 
+                    path: /var/lib/config-data/puppet-generated/neutron/etc/neutron/neutron.conf
+                  register: stat_neutron_conf
+                - name: Copy the certificate temporarly for hybrid state into ovn metadata agent container neutron dir
+                  copy:
+                    src: /etc/pki/tls/certs/ovn_metadata.crt
+                    dest: /var/lib/config-data/puppet-generated/neutron/etc/neutron/ovn_metadata.crt
+                    mode: '0640'
+                    group: "{{ stat_neutron_conf.stat.gid }}"
+                    remote_src: yes
+                - name: Copy the key temporarly for hybrid state into ovn metadata agent container neutron dir
+                  copy:
+                    src: /etc/pki/tls/private/ovn_metadata.key
+                    dest: /var/lib/config-data/puppet-generated/neutron/etc/neutron/ovn_metadata.key
+                    mode: '0640'
+                    group: "{{ stat_neutron_conf.stat.gid }}"
+                    remote_src: yes
+                - name: Set ovn cert setting in networking-ovn-metadata-agent.ini
+                  ini_file:
+                    path: /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini
+                    section: ovn
+                    option: ovn_sb_certificate
+                    value: /etc/neutron/ovn_metadata.crt
+                - name: Set ovn cert key setting in networking-ovn-metadata-agent.ini
+                  ini_file:
+                    path: /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini
+                    section: ovn
+                    option: ovn_sb_private_key
+                    value: /etc/neutron/ovn_metadata.key
+                - name: Set ovn cacert setting in networking-ovn-metadata-agent.ini
+                  ini_file:
+                    path: /var/lib/config-data/puppet-generated/neutron/etc/neutron/plugins/networking-ovn/networking-ovn-metadata-agent.ini
+                    section: ovn
+                    option: ovn_sb_ca_cert
+                    value: "{{ internal_tls_ca }}"
             - name: Set fact - OVN SB connection string
               set_fact:
                 ovn_sb_conn_str: "{{ [enable_internal_tls | bool | ternary('ssl','tcp'), ovn_dbs_vip | ipwrap, service_configs['ovn::southbound::port']] | join(':') }}"
