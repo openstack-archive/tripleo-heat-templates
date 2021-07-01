@@ -1,20 +1,20 @@
 heat_template_version: wallaby
 
 description: >
-  OpenStack containerized Designate Producer service
+  OpenStack containerized Designate Worker service
 
 parameters:
-  ContainerDesignateProducerImage:
+  ContainerDesignateWorkerImage:
     description: image
     type: string
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
-  DesignateProducerLoggingSource:
+  DesignateWorkerLoggingSource:
     type: json
     default:
-      tag: openstack.designate.producer
-      file: /var/log/containers/designate/designate-producer.log
+      tag: openstack.designate.worker
+      file: /var/log/containers/designate/designate-worker.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -38,15 +38,15 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  MonitoringSubscriptionDesignateProducer:
-    default: 'overcloud-designate-producer'
+  MonitoringSubscriptionDesignateWorker:
+    default: 'overcloud-designate-worker'
     type: string
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
     type: number
-  RedisPassword:
-    description: The password for the redis service account.
+  DesignateRndcKey:
+    description: The rndc key secret for communication with BIND.
     type: string
     hidden: true
 
@@ -56,7 +56,7 @@ conditions:
 resources:
 
   ContainersCommon:
-    type: ../../containers-common.yaml
+    type: ../containers-common.yaml
 
   DesignateBase:
     type: ./designate-base.yaml
@@ -69,23 +69,33 @@ resources:
 
 outputs:
   role_data:
-    description: Role data for the Designate Producer role.
+    description: Role data for the Designate Worker role.
     value:
-      service_name: designate_producer
-      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateProducer}
+      service_name: designate_worker
+      firewall_rules:
+        '140 designate_worker udp':
+          proto: 'udp'
+          dport:
+            - 53
+            - 953
+        '141 designate_worker tcp':
+          proto: 'tcp'
+          dport:
+            - 53
+            - 953
+      monitoring_subscription: {get_param: MonitoringSubscriptionDesignateWorker}
       config_settings:
         map_merge:
           - get_attr: [DesignateBase, role_data, config_settings]
-          - designate_redis_password: {get_param: RedisPassword}
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::producer::workers: {get_param: DesignateWorkers}
+            - designate::worker::workers: {get_param: DesignateWorkers}
       service_config_settings:
         rsyslog:
-          tripleo_logging_sources_designate_producer:
-            - {get_param: DesignateProducerLoggingSource}
+          tripleo_logging_sources_designate_worker:
+            - {get_param: DesignateWorkerLoggingSource}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: designate
@@ -94,11 +104,12 @@ outputs:
           list_join:
             - "\n"
             - - {get_attr: [DesignateBase, role_data, step_config]}
-              - "include tripleo::profile::base::designate::producer"
+              - "include tripleo::profile::base::designate::worker"
+              - "include tripleo::profile::base::designate::backend"
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
-        /var/lib/kolla/config_files/designate_producer.json:
-          command: /usr/bin/designate-producer --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/producer.log
+        /var/lib/kolla/config_files/designate_worker.json:
+          command: /usr/bin/designate-worker --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/worker.log
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -108,10 +119,17 @@ outputs:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
+      deploy_steps_tasks:
+          - name: generate rndc key configuration files
+            when: step|int == 4
+            import_role:
+                name: designate_rndc_config
+            vars:
+                designate_rndc_key: {get_param: DesignateRndcKey}
       docker_config:
         step_4:
-          designate_producer:
-            image: &designate_producer_image {get_param: ContainerDesignateProducerImage}
+          designate_worker:
+            image: &designate_worker_image {get_param: ContainerDesignateWorkerImage}
             net: host
             privileged: false
             restart: always
@@ -122,7 +140,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /run:/run
-                  - /var/lib/kolla/config_files/designate_producer.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/kolla/config_files/designate_worker.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
             environment:
