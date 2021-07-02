@@ -253,6 +253,18 @@ parameters:
                  the host to ensure each step of the boot process can
                  successfully lease addresses.
     type: string
+  IronicAuthStrategy:
+    type: string
+    description: Auth strategy to use with ironic.
+    default: keystone
+    constraints:
+      - allowed_values: ['keystone', 'http_basic', 'noauth']
+  NeutronAuthStrategy:
+    type: string
+    description: Auth strategy to use with neutron.
+    default: keystone
+    constraints:
+      - allowed_values: ['keystone', 'noauth']
 
 parameter_groups:
 - label: deprecated
@@ -278,6 +290,12 @@ conditions:
     or:
       - not: {equals: [{get_param: IronicConductorGroup}, '']}
       - not: {equals: [{get_param: [RoleParameters, IronicConductorGroup]}, '']}
+  auth_strategy_non_default:
+    contains: [{get_param: IronicAuthStrategy}, ['noauth', 'http_basic']]
+  auth_strategy_noauth:
+    equals: [{get_param: IronicAuthStrategy}, 'noauth']
+  neutron_noauth:
+    equals: [{get_param: NeutronAuthStrategy}, 'noauth']
 
 resources:
   RoleParametersValue:
@@ -475,11 +493,23 @@ outputs:
           # to avoid hard linking errors we store these on the same
           # volume/device as the ironic master_path
           # https://github.com/docker/docker/issues/7457
-          - ironic::drivers::pxe::tftp_root: /var/lib/ironic/tftpboot
-          - ironic::drivers::pxe::tftp_master_path: /var/lib/ironic/tftpboot/master_images
-          - ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
-          - ironic::pxe::http_root: /var/lib/ironic/httpboot
-          - ironic::conductor::http_root: /var/lib/ironic/httpboot
+            ironic::drivers::pxe::tftp_root: /var/lib/ironic/tftpboot
+            ironic::drivers::pxe::tftp_master_path: /var/lib/ironic/tftpboot/master_images
+            ironic::pxe::tftp_root: /var/lib/ironic/tftpboot
+            ironic::pxe::http_root: /var/lib/ironic/httpboot
+            ironic::conductor::http_root: /var/lib/ironic/httpboot
+          - if:
+              - neutron_noauth
+              - ironic::neutron::endpoint_override: {get_param: [EndpointMap, NeutronInternal, uri_no_suffix]}
+                ironic::neutron::auth_type: 'none'
+          - if:
+              - auth_strategy_non_default
+              - ironic::service_catalog::auth_type:
+                  if:
+                    - auth_strategy_noauth
+                    - 'none'
+                    - {get_param: IronicAuthStrategy}
+                ironic::service_catalog::endpoint_override: {get_param: [EndpointMap, IronicInternal, uri_no_suffix]}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
