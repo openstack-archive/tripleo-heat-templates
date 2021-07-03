@@ -258,15 +258,6 @@ CONFIG_RESOURCE_TYPES = [
 
 WORKFLOW_TASKS_EXCLUSIONS = [
     './deployment/octavia/octavia-deployment-config.yaml',
-    './deployment/ceph-ansible/ceph-external.yaml',
-    './deployment/ceph-ansible/ceph-osd.yaml',
-    './deployment/ceph-ansible/ceph-rbdmirror.yaml',
-    './deployment/ceph-ansible/ceph-client.yaml',
-    './deployment/ceph-ansible/ceph-mds.yaml',
-    './deployment/ceph-ansible/ceph-rgw.yaml',
-    './deployment/ceph-ansible/ceph-base.yaml',
-    './deployment/ceph-ansible/ceph-mon.yaml',
-    './deployment/ceph-ansible/ceph-mgr.yaml',
 ]
 
 
@@ -308,18 +299,6 @@ def compare_parameters(old_impl_path, new_impl_path):
             tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
             new_impl_params.extend(tpl["parameters"].keys())
     return set(old_impl_params).difference(set(new_impl_params))
-
-
-def compare_ceph_parameters(path):
-    old_path = base_path + "/deployment/ceph-ansible/"
-    new_path = base_path + "/deployment/cephadm/"
-    missing = compare_parameters(old_path, new_path)
-    if missing:
-        print("ERROR: Some parameters are missing in Ceph implementation at"
-              "'%s' compared to that in '%s' and they are: %s" %
-              (new_path, old_path, missing))
-        return 1
-    return 0
 
 
 def validate_role_name(filename):
@@ -689,9 +668,7 @@ def validate_docker_service(filename, tpl):
 
         for section_name in REQUIRED_DOCKER_SECTIONS_OVERRIDES.get(filename, REQUIRED_DOCKER_SECTIONS):
             if section_name not in role_data:
-                # add an exception if both step_config is used in docker
-                # service, deployment/ceph-ansible/ceph-nfs.yaml uses
-                # additional step_config to add pacemaker resources
+                # add an exception if both step_config is used in docker service
                 if (section_name == 'docker_config' and
                         role_data.get('step_config', '')):
                     print('ERROR: %s appears to be a barematal-puppet service'
@@ -1359,7 +1336,6 @@ param_map = {}
 
 for base_path in path_args:
     if os.path.isdir(base_path):
-        exit_val |= compare_ceph_parameters(base_path)
         for subdir, dirs, files in os.walk(base_path):
             if '.tox' in dirs:
                 dirs.remove('.tox')
