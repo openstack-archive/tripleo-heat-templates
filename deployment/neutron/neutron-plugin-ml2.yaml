@@ -84,18 +84,18 @@ parameters:
         value in ML2 plugin. And overwrite values from global_physnet_mtu for
         selected network.
     type: comma_delimited_list
-  NeutronOvsVnicTypeBlacklist:
+  NeutronOvsVnicTypeProhibitlist:
     description: |
         Comma-separated list of VNIC types for which support in Neutron is
         administratively prohibited by the OVS mechanism driver.
     type: comma_delimited_list
-    default: ""
-  NeutronSriovVnicTypeBlacklist:
+    default: []
+  NeutronSriovVnicTypeProhibitlist:
     description: >
         Comma-separated list of VNIC types for which support in Neutron is
         administratively prohibited by the SR-IOV mechanism driver.
     type: comma_delimited_list
-    default: ""
+    default: []
   # DEPRECATED: the NeutronFirewallDriver option is deprecated and is currently
   # maintained for backwards compatibility. It has no any effect on the
   # deployment and will be removed in the W release.
@@ -104,6 +104,18 @@ parameters:
     description: Firewall driver for realizing neutron security group function
     type: string
     default: ''
+  NeutronOvsVnicTypeBlacklist:
+    description: |
+        Comma-separated list of VNIC types for which support in Neutron is
+        administratively prohibited by the OVS mechanism driver.
+    type: comma_delimited_list
+    default: []
+  NeutronSriovVnicTypeBlacklist:
+    description: >
+        Comma-separated list of VNIC types for which support in Neutron is
+        administratively prohibited by the SR-IOV mechanism driver.
+    type: comma_delimited_list
+    default: []
 
 parameter_groups:
 - label: deprecated
@@ -115,9 +127,13 @@ parameter_groups:
   parameters:
   - NeutronOverlayIPVersion
   - NeutronFirewallDriver
+  - NeutronOvsVnicTypeBlacklist
+  - NeutronSriovVnicTypeBlacklist
 
 conditions:
   physical_network_mtus_set: {not: {equals: [{get_param: NeutronML2PhysicalNetworkMtus}, []]}}
+  ovs_vnic_type_prohibit_list_set: {not: {equals: [{get_param: NeutronOvsVnicTypeProhibitlist}, []]}}
+  sriov_vnic_type_prohibit_list_set: {not: {equals: [{get_param: NeutronSriovVnicTypeProhibitlist}, []]}}
 
 resources:
   NeutronBase:
@@ -145,8 +161,16 @@ outputs:
             neutron::plugins::ml2::tunnel_id_ranges: {get_param: NeutronTunnelIdRanges}
             neutron::plugins::ml2::vni_ranges: {get_param: NeutronVniRanges}
             neutron::plugins::ml2::tenant_network_types: {get_param: NeutronNetworkType}
-            neutron::plugins::ml2::ovs_driver::vnic_type_blacklist: {get_param: NeutronOvsVnicTypeBlacklist}
-            neutron::plugins::ml2::sriov_driver::vnic_type_blacklist: {get_param: NeutronSriovVnicTypeBlacklist}
+            neutron::plugins::ml2::ovs_driver::vnic_type_prohibitlist:
+              if:
+                - ovs_vnic_type_prohibit_list_set
+                - {get_param: NeutronOvsVnicTypeProhibitlist}
+                - {get_param: NeutronOvsVnicTypeBlacklist}
+            neutron::plugins::ml2::sriov_driver::vnic_type_prohibitlist:
+              if:
+                - sriov_vnic_type_prohibit_list_set
+                - {get_param: NeutronSriovVnicTypeProhibitlist}
+                - {get_param: NeutronSriovVnicTypeBlacklist}
             neutron::plugins::ml2::overlay_ip_version:
               get_param:
                 - ServiceData
