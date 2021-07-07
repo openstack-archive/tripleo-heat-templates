@@ -120,8 +120,9 @@ parameters:
     description: >
         Set to true to enable the SQLAlchemy-collectd server plugin
     default: false
-  AdminToken:
-    description: The keystone auth secret and db password.
+  KeystonePassword:
+    description: The password for the nova service and db account
+    default: ''
     type: string
     hidden: true
   TokenExpiration:
@@ -361,6 +362,21 @@ parameters:
   RootStackName:
     description: The name of the stack/plan.
     type: string
+  AdminToken:
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    default: ''
+    type: string
+    hidden: true
+
+parameter_groups:
+- label: deprecated
+  description: |
+    The following parameters are deprecated and will be removed. They should not
+    be relied on for new deployments. If you have concerns regarding deprecated
+    parameters, please contact the TripleO development team on IRC or the
+    OpenStack mailing list.
+  parameters:
+  - AdminToken
 
 resources:
   ContainersCommon:
@@ -412,6 +428,7 @@ conditions:
   password_regex_description_set: {not: {equals: [{get_param: KeystonePasswordRegexDescription}, '']}}
   unique_last_password_count_set: {not: {equals: [{get_param: KeystoneUniqueLastPasswordCount}, '']}}
   cors_allowed_origin_set: {not: {equals : [{get_param: KeystoneCorsAllowedOrigin}, '']}}
+  admin_token_set: {not: {equals: [{get_param: AdminToken}, '']}}
 
 outputs:
   role_data:
@@ -435,7 +452,11 @@ outputs:
               make_url:
                 scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
                 username: keystone
-                password: {get_param: AdminToken}
+                password:
+                  if:
+                    - admin_token_set
+                    - {get_param: AdminToken}
+                    - {get_param: KeystonePassword}
                 host: {get_param: [EndpointMap, MysqlInternal, host]}
                 path: /keystone
                 query:
@@ -598,7 +619,11 @@ outputs:
         rsyslog:
           tripleo_logging_sources_keystone: {get_param: KeystoneLoggingSource}
         mysql:
-          keystone::db::mysql::password: {get_param: AdminToken}
+          keystone::db::mysql::password:
+            if:
+              - admin_token_set
+              - {get_param: AdminToken}
+              - {get_param: KeystonePassword}
           keystone::db::mysql::user: keystone
           keystone::db::mysql::host: {get_param: [EndpointMap, MysqlInternal, host_nobrackets]}
           keystone::db::mysql::dbname: keystone
