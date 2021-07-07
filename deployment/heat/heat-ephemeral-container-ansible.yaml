@@ -42,13 +42,19 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
+  OvercloudStackRoleDataFileMap:
+    default: {}
+    description: |
+      Mapping of overcloud stack name, and the absolute path to the
+      roles data file used when deploying/updating the stack.
+      For example: {'overcloud': '/home/stack/roles_data.yaml'}
+    type: json
 
 outputs:
   role_data:
     description: Role data for the Heat Ephemeral
     value:
       service_name: heat_ephemeral
-      upgrade_tasks: []
       deploy_steps_tasks:
         - name: Tag Ephemeral Heat Containers for Overcloud Deploy
           when:
@@ -72,3 +78,47 @@ outputs:
               vars:
                 container_image: {get_param: ContainerHeatApiImage}
                 container_image_latest: "localhost/tripleo/openstack-heat-api:ephemeral"
+      upgrade_tasks:
+        - name: Convert to Ephemeral Heat
+          when:
+            - step|int == 1
+          block:
+            - name: Create /var/lib/tripleo-config/scripts dir
+              file:
+                path: /var/lib/tripleo-config/scripts
+                state: directory
+                recurse: true
+            - name: Copy undercloud-upgrade-ephemeral-heat.py to /var/lib/tripleo-config/scripts
+              copy:
+                dest: /var/lib/tripleo-config/scripts/undercloud-upgrade-ephemeral-heat.py
+                content: {get_file: ../../scripts/undercloud-upgrade-ephemeral-heat.py}
+                mode: 0755
+            - name: Check if heat engine is still running
+              shell: systemctl is-active tripleo_heat_engine.service || systemctl is-enabled tripleo_heat_engine.service
+              failed_when: false
+              become: true
+              register: heat_engine_enabled
+            - name: Store OvercloudStackRoleDataFileMap on file
+              vars:
+                role_data_file_map: {get_param: OvercloudStackRoleDataFileMap}
+              copy:
+                dest: /var/lib/tripleo-config/overcloud-stack-role-data-file-map.yaml
+                content: "{{ role_data_file_map | to_nice_yaml }}"
+            - name: Run undercloud-upgrade-ephemeral-heat.py
+              shell: /var/lib/tripleo-config/scripts/undercloud-upgrade-ephemeral-heat.py
+              register: upgrade_ephemeral_result
+              when:
+                - heat_engine_enabled.rc is defined
+                - heat_engine_enabled.rc == 0
+            - name: Tear down previous Heat containers
+              include_role:
+                name: tripleo_container_rm
+              vars:
+                tripleo_container_cli: "{{ container_cli }}"
+                tripleo_containers_to_rm:
+                  - heat_api
+                  - heat_api_cfn
+                  - heat_engine
+              when:
+                - upgrade_ephemeral_result.rc is defined
+                - upgrade_ephemeral_result.rc == 0
