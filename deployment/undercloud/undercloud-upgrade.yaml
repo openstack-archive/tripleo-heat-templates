@@ -74,6 +74,17 @@ outputs:
             - step|int == 0
             - ansible_facts['distribution_major_version'] is version('8', '>=')
             - dnf_module_list|length > 0
+        - name: migrate existing introspection data
+          shell: >
+            {{ container_cli }} exec -u root ironic_inspector ironic-inspector-migrate-data
+            --from swift --to database --config-file /etc/ironic-inspector/inspector.conf
+          become: true
+          register: ironic_inspector_migrate_data_result
+          when:
+            - step|int == 1
+          failed_when:
+            - ironic_inspector_migrate_data_result.rc is defined  # do not fail in dry run mode
+            - ironic_inspector_migrate_data_result.rc not in [0, 125] # ignore if container not running
         - name: Special treatment for OpenvSwitch
           tripleo_ovs_upgrade:
           when:
@@ -111,17 +122,6 @@ outputs:
           register: os_net_config_upgrade
           failed_when: os_net_config_upgrade.rc not in [0,2]
           changed_when: os_net_config_upgrade.rc == 2
-        - name: migrate existing introspection data
-          shell: >
-            {{ container_cli }} exec -u root ironic_inspector ironic-inspector-migrate-data
-            --from swift --to database --config-file /etc/ironic-inspector/inspector.conf
-          become: true
-          register: ironic_inspector_migrate_data_result
-          when:
-            - step|int == 3
-          failed_when:
-            - ironic_inspector_migrate_data_result.rc is defined  # do not fail in dry run mode
-            - ironic_inspector_migrate_data_result.rc not in [0, 125] # ignore if container not running
         # Keepalived was removed and the VIPs are now deployed by
         # os-net-config.
         # When Keepalived is stopped, it brings down the VIPs which is
