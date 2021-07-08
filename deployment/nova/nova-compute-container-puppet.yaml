@@ -492,10 +492,8 @@ parameters:
     description: >
       Set to "True" to activate the instance on the destination node before migration is complete,
       and to set an upper bound on the memory that needs to be transferred.
-    default: ''
-    type: string
-    constraints:
-      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+    default: false
+    type: boolean
     tags:
       - role_specific
   NovaLiveMigrationPermitAutoConverge:
@@ -504,10 +502,8 @@ parameters:
         instance's memory writes when the migration performance is slow and might not complete.
         Auto converge will only be used if this flag is set to True and post copy is not permitted
         or post copy is unavailable due to the version of libvirt and QEMU.
-    default: ''
-    type: string
-    constraints:
-      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+    default: false
+    type: boolean
     tags:
       - role_specific
   MultipathdEnable:
@@ -807,9 +803,73 @@ parameter_groups:
   parameters:
   - NovaVcpuPinSet
 
+conditions:
+  compute_startup_delay:
+    and:
+      - not: {equals: [{get_param: NovaComputeStartupDelay}, 0]}
+      - not: {get_param: EnableInstanceHA}
+  use_tls_for_live_migration:
+    and:
+      - {get_param: EnableInternalTLS}
+      - {get_param: UseTLSTransportForLiveMigration}
+  enable_live_migration_tunnelled:
+    and:
+      - or:
+          - and:
+            - {get_param: NovaNfsEnabled}
+            - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, '']
+          - equals: [{get_param: [RoleParameters, NovaNfsEnabled]}, true]
+          - equals: [{get_param: [RoleParameters, NovaEnableRbdBackend]}, true]
+          - and:
+            - equals: [{get_param: [RoleParameters, NovaEnableRbdBackend]}, '']
+            - {get_param: NovaEnableRbdBackend}
+      - not: use_tls_for_live_migration
+  libvirt_file_backed_memory_enabled:
+    not:
+      or:
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
+      -  equals: [{get_param: [RoleParameters, NovaLibvirtFileBackedMemory]}, '']
+      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
+      -  equals: [{get_param: [RoleParameters, NovaLibvirtFileBackedMemory]}, 0]
+  reserved_huge_pages_set:
+    not:
+      and:
+      - equals: [{get_param: [RoleParameters, NovaReservedHugePages]}, ""]
+      - equals: [{get_param: NovaReservedHugePages}, []]
+  live_migration_optimization_set:
+    and:
+      - not: {equals: [{get_param: [RoleParameters, TunedProfileName]}, 'realtime-virtual-host']}
+      - reserved_huge_pages_set
+  permit_post_copy_set:
+    or:
+      - not: {equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitPostCopy]}, '']}
+      - {get_param: NovaLiveMigrationPermitPostCopy}
+  permit_auto_converge_set:
+    or:
+      - not: {equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitAutoConverge]}, '']}
+      - {get_param: NovaLiveMigrationPermitAutoConverge}
+  ovs_dpdk_socket_memory_not_set:
+    and:
+    - equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]
+    - equals: [{get_param: OvsDpdkSocketMemory}, ""]
+  nova_libvirt_max_queues_set:
+    not:
+      or:
+      -  equals: [{get_param: NovaLibvirtMaxQueues}, 0]
+      -  equals: [{get_param: [RoleParameters, NovaLibvirtMaxQueues]}, 0]
+  glance_enable_rbd_download_set:
+    or:
+      - and:
+        - {get_param: NovaGlanceEnableRbdDownload}
+        - equals: [{get_param: [RoleParameters, NovaGlanceEnableRbdDownload]}, '']
+      - equals: [{get_param: [RoleParameters, NovaGlanceEnableRbdDownload]}, true]
+  nova_glance_rbd_download_multistore_id_set:
+    not:
+      and:
+      - equals: [{get_param: [RoleParameters, NovaGlanceRbdDownloadMultistoreID]}, '']
+      - equals: [{get_param: NovaGlanceRbdDownloadMultistoreID}, '']
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -998,75 +1058,6 @@ resources:
               NovaComputeImageCachePrecacheConcurrency: {get_param: NovaComputeImageCachePrecacheConcurrency}
               CustomProviderInventories: {get_param: CustomProviderInventories}
 
-conditions:
-  enable_instance_ha: {equals: [{get_param: EnableInstanceHA}, true]}
-  compute_startup_delay:
-    and:
-      - not: {equals: [{get_param: NovaComputeStartupDelay}, 0]}
-      - not: enable_instance_ha
-
-  use_tls_for_live_migration:
-    and:
-      - {get_param: EnableInternalTLS}
-      - {get_param: UseTLSTransportForLiveMigration}
-
-  libvirt_file_backed_memory_enabled:
-    not:
-      or:
-      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, '']
-      -  equals: [{get_param: [RoleParameters, NovaLibvirtFileBackedMemory]}, '']
-      -  equals: [{get_param: NovaLibvirtFileBackedMemory}, 0]
-      -  equals: [{get_param: [RoleParameters, NovaLibvirtFileBackedMemory]}, 0]
-
-  is_not_additional_cell: {equals: [{get_param: NovaAdditionalCell}, false]}
-
-  reserved_huge_pages_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaReservedHugePages]}, ""]
-      - equals: [{get_param: NovaReservedHugePages}, []]
-
-  live_migration_optimization_set:
-    and:
-      - not: {equals: [{get_param: [RoleParameters, TunedProfileName]}, 'realtime-virtual-host']}
-      - reserved_huge_pages_set
-
-  ovs_dpdk_socket_memory_not_set:
-    and:
-    - equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]
-    - equals: [{get_param: OvsDpdkSocketMemory}, ""]
-
-  permit_post_copy_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitPostCopy]}, '']
-      - equals: [{get_param: NovaLiveMigrationPermitPostCopy}, '']
-
-  permit_auto_converge_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitAutoConverge]}, '']
-      - equals: [{get_param: NovaLiveMigrationPermitAutoConverge}, '']
-
-  nova_libvirt_max_queues_set:
-    not:
-      or:
-      -  equals: [{get_param: NovaLibvirtMaxQueues}, 0]
-      -  equals: [{get_param: [RoleParameters, NovaLibvirtMaxQueues]}, 0]
-
-  glance_enable_rbd_download_set:
-    or:
-      - and:
-        - equals: [{get_param: NovaGlanceEnableRbdDownload}, true]
-        - equals: [{get_param: [RoleParameters, NovaGlanceEnableRbdDownload]}, '']
-      - equals: [{get_param: [RoleParameters, NovaGlanceEnableRbdDownload]}, true]
-
-  nova_glance_rbd_download_multistore_id_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaGlanceRbdDownloadMultistoreID]}, '']
-      - equals: [{get_param: NovaGlanceRbdDownloadMultistoreID}, '']
-
 outputs:
   role_data:
     description: Role data for the Nova Compute service.
@@ -1132,9 +1123,7 @@ outputs:
             nova::migration::libvirt::live_migration_permit_post_copy:
               if:
                 - permit_post_copy_set
-                - contains:
-                  - {get_attr: [RoleParametersValue, value, nova_permit_post_copy]}
-                  - ["TRUE", "true", "True"]
+                - {get_attr: [RoleParametersValue, value, nova_permit_post_copy]}
                 - if:
                   - live_migration_optimization_set
                   - true
@@ -1142,9 +1131,7 @@ outputs:
             nova::migration::libvirt::live_migration_permit_auto_converge:
               if:
                 - permit_auto_converge_set
-                - contains:
-                  - {get_attr: [RoleParametersValue, value, nova_permit_auto_converge]}
-                  - ["TRUE", "true", "True"]
+                - {get_attr: [RoleParametersValue, value, nova_permit_auto_converge]}
                 - if:
                   - live_migration_optimization_set
                   - true
@@ -1174,20 +1161,17 @@ outputs:
               - libvirt_file_backed_memory_enabled
               - '1.0'
               - {get_attr: [RoleParametersValue, value, 'nova::ram_allocation_ratio']}
-          -
-            if:
-            - nova_libvirt_max_queues_set
-            - nova::compute::libvirt::max_queues: {get_attr: [RoleParametersValue, value, nova_libvirt_max_queues]}
-            - {}
+            nova::compute::libvirt::max_queues:
+              if:
+                - nova_libvirt_max_queues_set
+                - {get_attr: [RoleParametersValue, value, nova_libvirt_max_queues]}
           - if:
             - glance_enable_rbd_download_set
-            -
-              nova::glance::enable_rbd_download: {get_attr: [RoleParametersValue, value, nova_glance_enable_rbd_download]}
+            - nova::glance::enable_rbd_download: {get_attr: [RoleParametersValue, value, nova_glance_enable_rbd_download]}
               nova::glance::rbd_user:
                 if:
                 - nova_glance_rbd_download_multistore_id_set
-                -
-                  yaql:
+                - yaql:
                     expression: let(k => $.data.key, d => $.data.default_ceph_client_user_name) -> $.data.multistore.get($k).get("CephClientUserName", $d)
                     data:
                       key: {get_attr: [RoleParametersValue, value, nova_glance_rbd_download_multistore_id]}
@@ -1197,8 +1181,7 @@ outputs:
               nova::glance::rbd_pool:
                 if:
                 - nova_glance_rbd_download_multistore_id_set
-                -
-                  yaql:
+                - yaql:
                     expression: let(k => $.data.key, d => $.data.default_glance_rbd_pool_name) -> $.data.multistore.get($k).get("GlanceRbdPoolName", $d)
                     data:
                       key: {get_attr: [RoleParametersValue, value, nova_glance_rbd_download_multistore_id]}
@@ -1209,18 +1192,15 @@ outputs:
                 list_join:
                 - ''
                 - - '/etc/ceph/'
-                  -
-                    if:
+                  - if:
                     - nova_glance_rbd_download_multistore_id_set
-                    -
-                      yaql:
+                    - yaql:
                         expression: let(k => $.data.key) -> list(coalesce($.data.multistore, {}).get($k)).select($.get("CephClusterName"))
                         data:
                           key: {get_attr: [RoleParametersValue, value, nova_glance_rbd_download_multistore_id]}
                           multistore: {get_param: GlanceMultistoreConfig}
                     - {get_param: CephClusterName}
                   - '.conf'
-            - {}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_nova_compute:
@@ -1248,9 +1228,8 @@ outputs:
                 - str_replace:
                     template: '/var/lib/nova/delay-nova-compute --delay DELAY --nova-binary'
                     params: { DELAY: {get_param: NovaComputeStartupDelay} }
-                - ''
               - if:
-                - enable_instance_ha
+                - {get_param: EnableInstanceHA}
                 - /var/lib/nova/instanceha/check-run-nova-compute
                 - /usr/bin/nova-compute
               - get_attr: [NovaLogging, cmd_extra_args]
@@ -1269,8 +1248,7 @@ outputs:
               preserve_properties: true
           permissions:
             list_concat:
-              -
-                - path: /var/log/nova
+              - - path: /var/log/nova
                   owner: nova:nova
                   recurse: true
                 - path:
@@ -1369,8 +1347,7 @@ outputs:
                     - {get_attr: [ContainersCommon, volumes]}
                     - {get_attr: [NovaLogging, volumes]}
                     - {get_attr: [RoleParametersValue, value, nova_compute_opt_volumes]}
-                    -
-                      - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+                    - - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
                       - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
                       - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
                       - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
@@ -1388,19 +1365,17 @@ outputs:
                       - /sys/bus/pci:/sys/bus/pci
                       - /boot:/boot:ro
                       - /var/lib/nova:/var/lib/nova:shared
-                    -
-                      if:
-                      - {equals: [{get_param: MultipathdEnable}, true]}
+                    - if:
+                      - {get_param: MultipathdEnable}
                       - - /etc/multipath:/etc/multipath:z
                         - /etc/multipath.conf:/etc/multipath.conf:ro
-                      - []
                 environment:
                   map_merge:
                     - {get_attr: [RoleParametersValue, value, nova_compute_opt_env_vars]}
                     - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                     - LIBGUESTFS_BACKEND: direct
             - if:
-                - is_not_additional_cell
+                - {get_param: NovaAdditionalCell}
                 - nova_wait_for_compute_service:
                     start_order: 4
                     image: *nova_compute_image
@@ -1422,7 +1397,6 @@ outputs:
                           expression: str($.data.debug)
                           data:
                             debug: {get_attr: [NovaBase, role_data, config_settings, 'nova::logging::debug']}
-                - {}
       host_prep_tasks:
         list_concat:
         - {get_attr: [NovaLogging, host_prep_tasks]}

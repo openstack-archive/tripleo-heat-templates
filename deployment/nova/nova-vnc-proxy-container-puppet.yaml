@@ -104,35 +104,29 @@ parameters:
     type: string
 
 conditions:
-
   use_tls_for_vnc:
     and:
-    - equals:
-      - {get_param: EnableInternalTLS}
-      - true
-    - equals:
-      - {get_param: UseTLSTransportForVnc}
-      - true
-
-  libvirt_vnc_specific_ca_unset:
-    equals:
+    - {get_param: EnableInternalTLS}
+    - {get_param: UseTLSTransportForVnc}
+  libvirt_vnc_specific_ca_set:
+    not:
+      equals:
       - {get_param: LibvirtVncCACert}
       - ''
-
-  proxy_ssl_ciphers_unset:
-    equals:
+  proxy_ssl_ciphers_set:
+    not:
+      equals:
       - {get_param: NovaVNCProxySSLCiphers}
       - ''
-
   allow_noauth:
     # Allow noauth VNC connections during P->Q upgrade. Remove in Rocky.
     equals: [{get_param: StackUpdateType}, 'UPGRADE']
-
-  key_size_novavnc_override_unset: {equals: [{get_param: NovaVNCCertificateKeySize}, '']}
-  key_size_libvirtvnc_override_unset: {equals: [{get_param: LibvirtVNCClientCertificateKeySize}, '']}
+  key_size_novavnc_override_set:
+    not: {equals: [{get_param: NovaVNCCertificateKeySize}, '']}
+  key_size_libvirtvnc_override_set:
+    not: {equals: [{get_param: LibvirtVNCClientCertificateKeySize}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -162,7 +156,6 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
-
 
 outputs:
   role_data:
@@ -194,11 +187,9 @@ outputs:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-          -
-            if:
+          - if:
               - use_tls_for_vnc
-              -
-                nova::vncproxy::allow_vencrypt: true
+              - nova::vncproxy::allow_vencrypt: true
                 nova::vncproxy::allow_noauth: {if: [allow_noauth, true, false]}
                 nova::vncproxy::vencrypt_key: /etc/pki/tls/private/libvirt-vnc-client-cert.key
                 nova::vncproxy::vencrypt_cert: /etc/pki/tls/certs/libvirt-vnc-client-cert.crt
@@ -206,13 +197,11 @@ outputs:
                 nova::ssl_only: true
                 nova::console_ssl_ciphers:
                   if:
-                    - proxy_ssl_ciphers_unset
-                    - null
+                    - proxy_ssl_ciphers_set
                     - get_param: NovaVNCProxySSLCiphers
                 nova::console_ssl_minimum_version: {get_param: NovaVNCProxySSLMinimumVersion}
                 nova::cert: /etc/pki/tls/certs/novnc-proxy.crt
                 nova::key: /etc/pki/tls/private/novnc-proxy.key
-              - {}
       service_config_settings:
         rabbitmq: {get_attr: [NovaBase, role_data, service_config_settings], rabbitmq}
         mysql:
@@ -271,39 +260,33 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NovaLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/nova_vnc_proxy.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/nova_vnc_proxy.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
-                -
-                  if:
+                - if:
                     - use_tls_for_vnc
-                    -
-                      - str_replace:
+                    - - str_replace:
                           template: "CACERT:/etc/pki/CA/certs/vnc.crt:ro"
                           params:
                             CACERT:
                               if:
-                                - libvirt_vnc_specific_ca_unset
-                                - get_param: InternalTLSVncProxyCAFile
+                                - libvirt_vnc_specific_ca_set
                                 - get_param: LibvirtVncCACert
+                                - get_param: InternalTLSVncProxyCAFile
                       - /etc/pki/tls/certs/libvirt-vnc-client-cert.crt:/etc/pki/tls/certs/libvirt-vnc-client-cert.crt:ro
                       - /etc/pki/tls/private/libvirt-vnc-client-cert.key:/etc/pki/tls/private/libvirt-vnc-client-cert.key:ro
                       - /etc/pki/tls/certs/novnc-proxy.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/novnc-proxy.crt:ro
                       - /etc/pki/tls/private/novnc-proxy.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/novnc-proxy.key:ro
-                    - null
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       metadata_settings:
         if:
           - use_tls_for_vnc
-          -
-            - service: libvirt-vnc
+          - - service: libvirt-vnc
               network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
               type: node
             - service: novnc-proxy
               network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
               type: node
-          - null
       deploy_steps_tasks:
         list_concat:
           - - name: validate nova-vnc-proxy container state
@@ -324,8 +307,7 @@ outputs:
                 - step|int == 5
           - if:
             - use_tls_for_vnc
-            -
-              - name: Certificate generation
+            - - name: Certificate generation
                 when: step|int == 1
                 block:
                   - include_role:
@@ -345,9 +327,9 @@ outputs:
                                 NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                           key_size:
                             if:
-                              - key_size_libvirtvnc_override_unset
-                              - {get_param: CertificateKeySize}
+                              - key_size_libvirtvnc_override_set
                               - {get_param: LibvirtVNCClientCertificateKeySize}
+                              - {get_param: CertificateKeySize}
                           ca: ipa
                         - name: novnc-proxy
                           dns:
@@ -377,11 +359,10 @@ outputs:
                             # No need to trigger a reload for novnc proxy since the cert is not cached
                           key_size:
                             if:
-                              - key_size_libvirtvnc_override_unset
-                              - {get_param: CertificateKeySize}
+                              - key_size_libvirtvnc_override_set
                               - {get_param: NovaVNCCertificateKeySize}
+                              - {get_param: CertificateKeySize}
                           ca: ipa
-            - []
       host_prep_tasks:
         list_concat:
           -  {get_attr: [NovaLogging, host_prep_tasks]}

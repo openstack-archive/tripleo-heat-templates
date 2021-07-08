@@ -243,19 +243,14 @@ parameter_groups:
   - MysqlIPv6
 
 conditions:
-
-  internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
-
   mysql_ipv6_use_ip_address:
     and:
     - {equals: [{get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, MysqlNetwork]}]}, 6]}
-    - {equals: [{get_param: EnableInternalTLS}, false]}
-
-  nova_workers_zero: {equals : [{get_param: NovaWorkers}, 0]}
-
+    - not: {get_param: EnableInternalTLS}
+  nova_workers_set:
+    not: {equals : [{get_param: NovaWorkers}, 0]}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -402,13 +397,10 @@ outputs:
             nova::cron::archive_deleted_rows::purge: {get_param: NovaCronArchiveDeleteRowsPurge}
             nova::cron::archive_deleted_rows::all_cells: {get_param: NovaCronArchiveDeleteAllCells}
             nova::cron::archive_deleted_rows::age: {get_param: NovaCronArchiveDeleteRowsAge}
-          -
-            if:
-            - nova_workers_zero
-            - {}
+          - if:
+            - nova_workers_set
             - nova::api::osapi_compute_workers: {get_param: NovaWorkers}
               nova::wsgi::apache_api::workers: {get_param: NovaWorkers}
-
       service_config_settings:
         rabbitmq: {get_attr: [NovaBase, role_data, service_config_settings], rabbitmq}
         mysql:
@@ -525,8 +517,7 @@ outputs:
                         - ':'
                         - '{password}'
                         - '@'
-                        -
-                          if:
+                        - if:
                             - mysql_ipv6_use_ip_address
                             - '[{hostname}]'
                             - '{hostname}'
@@ -611,17 +602,12 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NovaApiLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/nova_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
                 - if:
-                    - internal_tls_enabled
+                    - {get_param: EnableInternalTLS}
                     - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                    - []
-                - if:
-                    - internal_tls_enabled
-                    - - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-                    - []
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           nova_wait_for_api_service:
@@ -658,8 +644,7 @@ outputs:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NovaApiLogging, volumes]}
-                -
-                  - /var/lib/kolla/config_files/nova_api_cron.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/nova_api_cron.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
