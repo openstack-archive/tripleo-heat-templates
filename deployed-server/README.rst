@@ -50,7 +50,7 @@ controllers, and the net_config_static.j2 template could be used for computes
 by specifying:
 
 parameter_defaults:
-  ControlleNetworkConfigTemplate: 'templates/net_config_static_bridge.j2'
+  ControllerNetworkConfigTemplate: 'templates/net_config_static_bridge.j2'
   ComputeNetworkConfigTemplate: 'templates/net_config_static.j2'
 
 In a setup where the first nic on the servers is used for external management,
