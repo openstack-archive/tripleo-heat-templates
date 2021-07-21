@@ -236,6 +236,21 @@ parameters:
     description: |
       Use the advanced (eventlet safe) memcached client pool.
     default: true
+  NovaRestrictLiveMigration:
+    type: boolean
+    description: |
+      Restrict live migration by limit access to 'os_compute_api:os-migrate-server:migrate_live'
+      api policy to the NovaLiveMigrationRole role. This can be used to
+      disallow the default admin role use live migration.
+      Additional policies specified using NovaApiPolicies get merged with this
+      policy.
+    default: false
+  NovaRestrictLiveMigrationRole:
+    description: |
+      Name of the user role which gets set to limit live migration when
+      NovaRestrictLiveMigration is enabled.
+    default: 'live-migration'
+    type: string
 
 parameter_groups:
 - label: deprecated
@@ -374,7 +389,20 @@ outputs:
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
             nova::api::instance_name_template: {get_param: InstanceNameTemplate}
-            nova::policy::policies: {get_param: NovaApiPolicies}
+            nova::policy::purge_config: true
+            nova::policy::policies:
+              map_merge:
+              - {get_param: NovaApiPolicies}
+              - if:
+                - {get_param: NovaRestrictLiveMigration}
+                - limit_live_migration:
+                    key: 'os_compute_api:os-migrate-server:migrate_live'
+                    value:
+                      str_replace:
+                        template: 'role:LMROLENAME'
+                        params:
+                           LMROLENAME: {get_param: NovaRestrictLiveMigrationRole}
+                - {}
             nova::api::allow_resize_to_same_host: {get_param: NovaAllowResizeToSameHost}
             nova_enable_db_purge: {get_param: NovaEnableDBPurge}
             nova::cron::purge_shadow_tables::minute: {get_param: NovaCronPurgeShadowTablesMinute}
