@@ -333,11 +333,11 @@ def compare_parameters(old_impl_path, new_impl_path):
     new_impl_params = []
     for filename in glob.glob(old_impl_path + "/*.yaml"):
         with open(filename, 'r') as f:
-            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            tpl = yaml.safe_load(f.read())
             old_impl_params.extend(tpl["parameters"].keys())
     for filename in glob.glob(new_impl_path + "/*.yaml"):
         with open(filename, 'r') as f:
-            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            tpl = yaml.safe_load(f.read())
             new_impl_params.extend(tpl["parameters"].keys())
     return set(old_impl_params).difference(set(new_impl_params))
 
@@ -360,7 +360,7 @@ def validate_endpoint_map(base_map, env_map):
 
 def validate_role_name(filename):
     with open(filename, 'r') as f:
-        tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        tpl = yaml.safe_load(f.read())
 
     role_data = tpl[0]
     if role_data['name'] != os.path.basename(filename).split('.')[0]:
@@ -376,7 +376,7 @@ def validate_hci_compute_services_default(env_filename, env_tpl):
     roles_filename = os.path.join(os.path.dirname(env_filename),
                                   '../roles/Compute.yaml')
     with open(roles_filename, 'r') as f:
-        roles_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        roles_tpl = yaml.safe_load(f.read())
 
     for role in roles_tpl:
         if role['name'] == 'Compute':
@@ -392,7 +392,7 @@ def validate_hci_computehci_role(hci_role_filename, hci_role_tpl):
     compute_role_filename = os.path.join(os.path.dirname(hci_role_filename),
                                          './Compute.yaml')
     with open(compute_role_filename, 'r') as f:
-        compute_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        compute_role_tpl = yaml.safe_load(f.read())
 
     compute_role_services = compute_role_tpl[0]['ServicesDefault']
     for role in hci_role_tpl:
@@ -410,7 +410,7 @@ def validate_controller_dashboard(filename, tpl):
     control_role_filename = os.path.join(os.path.dirname(filename),
                                          './Controller.yaml')
     with open(control_role_filename, 'r') as f:
-        control_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        control_role_tpl = yaml.safe_load(f.read())
 
     control_role_services = control_role_tpl[0]['ServicesDefault']
     for role in tpl:
@@ -427,7 +427,7 @@ def validate_controller_storage_nfs(filename, tpl, exclude_service=()):
     control_role_filename = os.path.join(os.path.dirname(filename),
                                          './Controller.yaml')
     with open(control_role_filename, 'r') as f:
-        control_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        control_role_tpl = yaml.safe_load(f.read())
 
     control_role_services = control_role_tpl[0]['ServicesDefault']
     for role in tpl:
@@ -446,7 +446,7 @@ def validate_hci_role(hci_role_filename, hci_role_tpl):
         compute_role_filename = \
             os.path.join(os.path.dirname(hci_role_filename), './Compute.yaml')
         with open(compute_role_filename, 'r') as f:
-            compute_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            compute_role_tpl = yaml.safe_load(f.read())
 
         compute_role_services = compute_role_tpl[0]['ServicesDefault']
         for role in hci_role_tpl:
@@ -485,7 +485,7 @@ def validate_ceph_role(ceph_role_filename, ceph_role_tpl):
         ceph_storage_role_filename = \
             os.path.join(os.path.dirname(ceph_role_filename), './CephStorage.yaml')
         with open(ceph_storage_role_filename, 'r') as f:
-            ceph_storage_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            ceph_storage_role_tpl = yaml.safe_load(f.read())
 
         ceph_storage_role_services = ceph_storage_role_tpl[0]['ServicesDefault']
         for role in ceph_role_tpl:
@@ -516,7 +516,7 @@ def validate_controller_no_ceph_role(filename, tpl):
     control_role_filename = os.path.join(os.path.dirname(filename),
                                          './Controller.yaml')
     with open(control_role_filename, 'r') as f:
-        control_role_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        control_role_tpl = yaml.safe_load(f.read())
 
     control_role_services = control_role_tpl[0]['ServicesDefault']
     for role in tpl:
@@ -539,7 +539,7 @@ def validate_with_compute_role_services(role_filename, role_tpl, exclude_service
     cmpt_filename = os.path.join(os.path.dirname(role_filename),
                                  './Compute.yaml')
     with open(cmpt_filename, 'r') as f:
-        cmpt_tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+        cmpt_tpl = yaml.safe_load(f.read())
 
     cmpt_services = cmpt_tpl[0]['ServicesDefault']
     cmpt_services = [x for x in cmpt_services if (x not in exclude_service)]
@@ -678,7 +678,7 @@ def validate_docker_service_mysql_usage(filename, tpl):
                     os.path.exists(newfilename.replace('.yaml', '.j2.yaml')):
                     return  # Skip for now if it's templated
                 with open(newfilename, 'r') as newfile:
-                    newtmp = yaml.load(newfile.read(), Loader=yaml.SafeLoader)
+                    newtmp = yaml.safe_load(newfile.read())
                 read_all(newfilename, newtmp)
 
     read_all(filename, tpl)
@@ -1139,7 +1139,7 @@ def validate(filename, param_map):
     retval = 0
     try:
         with open(filename, 'r') as f:
-            tpl = yaml.load(f.read(), Loader=yaml.SafeLoader)
+            tpl = yaml.safe_load(f.read())
 
         is_heat_template = 'heat_template_version' in tpl
 
@@ -1333,11 +1333,11 @@ def validate_upgrade_tasks(upgrade_tasks):
 def validate_network_data_file(data_file_path):
     try:
         with open(data_file_path, 'r') as data_file:
-            data_file = yaml.load(data_file.read(), Loader=yaml.SafeLoader)
+            data_file = yaml.safe_load(data_file.read())
 
         base_file_path = os.path.dirname(data_file_path) + "/network_data.yaml"
         with open(base_file_path, 'r') as base_file:
-            base_file = yaml.load(base_file.read(), Loader=yaml.SafeLoader)
+            base_file = yaml.safe_load(base_file.read())
 
         retval = 0
         for n in base_file:
