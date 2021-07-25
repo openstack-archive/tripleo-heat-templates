@@ -78,6 +78,31 @@ parameters:
     default: 0
     description: Number of workers for Swift account service.
     type: string
+  SwiftReconCronMinute:
+    type: string
+    description: >
+        Cron to reflect statistics related to async pendings - Minute
+    default: '*/5'
+  SwiftReconCronHour:
+    type: string
+    description: >
+        Cron to reflect statistics related to async pendings - Hour
+    default: '*'
+  SwiftReconCronMonthday:
+    type: string
+    description: >
+        Cron to reflect statistics related to async pendings - Month Day
+    default: '*'
+  SwiftReconCronMonth:
+    type: string
+    description: >
+        Cron to reflect statistics related to async pendings - Month
+    default: '*'
+  SwiftReconCronWeekday:
+    type: string
+    description: >
+        Cron to reflect statistics related to async pendings - Week Day
+    default: '*'
   DeployIdentifier:
     default: ''
     type: string
@@ -197,6 +222,11 @@ outputs:
               if:
                 - object_workers_set
                 - {get_param: SwiftObjectWorkers}
+            swift::storage::cron::recon::minute: {get_param: SwiftReconCronMinute}
+            swift::storage::cron::recon::hour: {get_param: SwiftReconCronHour}
+            swift::storage::cron::recon::monthday: {get_param: SwiftReconCronMonthday}
+            swift::storage::cron::recon::month: {get_param: SwiftReconCronMonth}
+            swift::storage::cron::recon::weekday: {get_param: SwiftReconCronWeekday}
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -319,6 +349,17 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/swift_recon_cron.json:
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/cache/swift
+              owner: swift:swift
+              recurse: true
       docker_config:
         step_3:
           # The puppet config sets this up but we don't have a way to mount the named
@@ -583,6 +624,25 @@ outputs:
                       - /var/cache/swift:/var/cache/swift
                       - /var/log/containers/swift:/var/log/swift:z
                 environment: *kolla_env
+              swift_recon_cron:
+                image: *swift_object_image
+                net: host
+                user: root
+                privileged: false
+                restart: always
+                healthcheck:
+                  test: '/usr/share/openstack-tripleo-common/healthcheck/cron swift'
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/swift_recon_cron.json:/var/lib/kolla/config_files/config.json:ro
+                      - /var/lib/config-data/puppet-generated/swift:/var/lib/kolla/config_files/src:ro
+                      - /srv/node:/srv/node
+                      - /dev:/dev
+                      - /var/cache/swift:/var/cache/swift
+                      - /var/log/containers/swift:/var/log/swift:z
+                environment: *kolla_env
             - if:
               - {get_param: SwiftContainerSharderEnabled}
               - swift_container_sharder:
@@ -714,6 +774,7 @@ outputs:
             - swift_object_replicator
             - swift_object_server
             - swift_object_updater
+            - swift_recon_cron
       update_tasks:
         - name: Check swift containers log folder/symlink exists
           stat:
