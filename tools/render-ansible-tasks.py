@@ -58,7 +58,7 @@ def main():
     output = opts.output
     # We open the resource registry once
     resource_registry = "./overcloud-resource-registry-puppet.yaml"
-    resource_reg = yaml.load(open(os.path.join(resource_registry), 'r'))
+    resource_reg = yaml.safe_load(open(os.path.join(resource_registry), 'r'))
 
     if (opts.all):
         # This means we will parse all the services defined
@@ -73,7 +73,8 @@ def main():
             # The service definition will be the same resource registry
             role_resources = resource_reg
         else:
-            role_resources = yaml.load(open(os.path.join("./roles/", role + ".yaml"), 'r'))
+            role_resources = yaml.safe_load(
+                open(os.path.join("./roles/", role + ".yaml"), 'r'))
 
         for section_task in opts.ansible_tasks:
             if(opts.all):
@@ -102,7 +103,8 @@ def main():
                     if('::' in config_file):
                         print("This is a nested Heat resource")
                     else:
-                        data_source = yaml.load(open("./" + config_file, 'r'))
+                        data_source = yaml.safe_load(
+                            open("./" + config_file, 'r'))
                         expression = engine(
                           "$.outputs.role_data.value.get(" + section_task + ").flatten().distinct()"
                         )
@@ -121,7 +123,8 @@ def main():
                         if exc.errno != errno.EEXIST:
                             raise
                 save = open(tasks_output_file, 'w+')
-                yaml.dump(yaml.load(json.dumps(role_ansible_tasks)), save, default_flow_style=False)
+                yaml.dump(yaml.safe_load(json.dumps(role_ansible_tasks)),
+                          save, default_flow_style=False)
 
 
 if __name__ == '__main__':
