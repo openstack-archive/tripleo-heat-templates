@@ -362,12 +362,12 @@ parameters:
     type: boolean
   NovaLiveMigrationPermitPostCopy:
     description: >
-      Set to "True" to activate the instance on the destination node before migration is complete,
-      and to set an upper bound on the memory that needs to be transferred.
-    default: ''
-    type: string
-    constraints:
-      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+      If "True" activates the instance on the destination node before migration is complete,
+      and to set an upper bound on the memory that needs to be transferred. Post copy
+      gets enabled per default if the compute roles is not a realtime role or disabled
+      by this parameter.
+    default: true
+    type: boolean
     tags:
       - role_specific
   NovaLiveMigrationPermitAutoConverge:
@@ -376,10 +376,8 @@ parameters:
         instance's memory writes when the migration performance is slow and might not complete.
         Auto converge will only be used if this flag is set to True and post copy is not permitted
         or post copy is unavailable due to the version of libvirt and QEMU.
-    default: ''
-    type: string
-    constraints:
-      - allowed_values: [ '', 'true', 'True', 'TRUE', 'false', 'False', 'FALSE']
+    default: false
+    type: boolean
     tags:
       - role_specific
   MultipathdEnable:
@@ -760,27 +758,13 @@ conditions:
       - equals: [{get_param: [RoleParameters, NovaReservedHugePages]}, ""]
       - equals: [{get_param: NovaReservedHugePages}, []]
 
-  live_migration_optimization_set:
-    and:
-      - not: {equals: [{get_param: [RoleParameters, TunedProfileName]}, 'realtime-virtual-host']}
-      - reserved_huge_pages_set
+  is_realtime:
+    equals: [{get_param: [RoleParameters, TunedProfileName]}, 'realtime-virtual-host']
 
   ovs_dpdk_socket_memory_not_set:
     and:
     - equals: [{get_param: [RoleParameters, OvsDpdkSocketMemory]}, ""]
     - equals: [{get_param: OvsDpdkSocketMemory}, ""]
-
-  permit_post_copy_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitPostCopy]}, '']
-      - equals: [{get_param: NovaLiveMigrationPermitPostCopy}, '']
-
-  permit_auto_converge_set:
-    not:
-      and:
-      - equals: [{get_param: [RoleParameters, NovaLiveMigrationPermitAutoConverge]}, '']
-      - equals: [{get_param: NovaLiveMigrationPermitAutoConverge}, '']
 
   nova_libvirt_max_queues_set:
     not:
@@ -851,24 +835,14 @@ outputs:
             nova::compute::live_migration_wait_for_vif_plug: {get_param: NovaLiveMigrationWaitForVIFPlug}
             nova::migration::libvirt::live_migration_permit_post_copy:
               if:
-                - permit_post_copy_set
-                - contains:
-                  - {get_attr: [RoleParametersValue, value, nova_permit_post_copy]}
-                  - ["TRUE", "true", "True"]
-                - if:
-                  - live_migration_optimization_set
-                  - true
-                  - false
+                - is_realtime
+                - false
+                - {get_attr: [RoleParametersValue, value, nova_permit_post_copy]}
             nova::migration::libvirt::live_migration_permit_auto_converge:
               if:
-                - permit_auto_converge_set
-                - contains:
-                  - {get_attr: [RoleParametersValue, value, nova_permit_auto_converge]}
-                  - ["TRUE", "true", "True"]
-                - if:
-                  - live_migration_optimization_set
-                  - true
-                  - false
+                - is_realtime
+                - false
+                - {get_attr: [RoleParametersValue, value, nova_permit_auto_converge]}
             # TUNNELLED mode is not compatible with post_copy.
             nova::migration::libvirt::live_migration_tunnelled: false
             # NOTE: bind IP is found in hiera replacing the network name with the
