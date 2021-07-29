@@ -265,6 +265,13 @@ parameters:
     default: keystone
     constraints:
       - allowed_values: ['keystone', 'noauth']
+  IronicRpcTransport:
+    description: The remote procedure call transport between conductor and
+                 API processes, such as a messaging broker or JSON RPC.
+    default: 'oslo'
+    type: string
+    constraints:
+      - allowed_values: ['oslo', 'json-rpc']
 
 parameter_groups:
 - label: deprecated
@@ -296,6 +303,12 @@ conditions:
     equals: [{get_param: IronicAuthStrategy}, 'noauth']
   neutron_noauth:
     equals: [{get_param: NeutronAuthStrategy}, 'noauth']
+  rpc_transport_json_rpc:
+    {equals : [{get_param: IronicRpcTransport}, 'json-rpc']}
+  json_rpc_with_http_basic:
+    and:
+      - rpc_transport_json_rpc
+      - equals: [{get_param: IronicAuthStrategy}, 'http_basic']
 
 resources:
   RoleParametersValue:
@@ -365,6 +378,15 @@ outputs:
               ironic::conductor::power_state_change_timeout: 60
               ironic::drivers::ipmi::command_retry_timeout: 120
               ironic::drivers::ipmi::min_command_interval: 15
+          - if:
+            - rpc_transport_json_rpc
+            - ironic::json_rpc::auth_strategy: {get_param: IronicAuthStrategy}
+              ironic::api::authtoken::password: {get_param: IronicPassword}
+              ironic::api::authtoken::project_name: 'service'
+              ironic::api::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              ironic::api::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              ironic::api::authtoken::region_name: {get_param: KeystoneRegion}
+              ironic::api::authtoken::interface: 'internal'
           - ironic::conductor::cleaning_disk_erase: {get_param: IronicCleaningDiskErase}
             ironic::conductor::default_boot_option: {get_param: IronicDefaultBootOption}
             ironic::conductor::automated_clean: {get_param: IronicAutomatedClean}
@@ -607,6 +629,9 @@ outputs:
                     - /run:/run #shared?
                     - /var/lib/ironic:/var/lib/ironic:z
                     - /var/log/containers/ironic:/var/log/ironic:z
+                  - if:
+                      - json_rpc_with_http_basic
+                      - - /etc/ironic_conductor_passwd:/etc/ironic/htpasswd-json-rpc:z
               environment:
                 KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
@@ -630,6 +655,22 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/ironic, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/lib/ironic, 'setype': container_file_t, 'mode': 'g+s' }
+        - name: create password file for json_rpc
+          vars:
+            is_json_rpc_with_http_basic:
+              if:
+                - json_rpc_with_http_basic
+                - true
+                - false
+          copy:
+            dest: /etc/ironic_conductor_passwd
+            content:
+              str_replace:
+                template: |
+                  ironic:{{'$IRONIC_PASSWORD' | password_hash('bcrypt')}}
+                params:
+                  $IRONIC_PASSWORD: {get_param: IronicPassword}
+          when: is_json_rpc_with_http_basic | bool
         - name: stat /httpboot
           stat: path=/httpboot
           register: stat_httpboot
