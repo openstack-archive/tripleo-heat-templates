@@ -79,12 +79,25 @@ parameters:
     type: string
     description: The password for the keystone admin account, used for monitoring, querying neutron etc.
     hidden: True
+  IronicRpcTransport:
+    description: The remote procedure call transport between conductor and
+                 API processes, such as a messaging broker or JSON RPC.
+    default: 'oslo'
+    type: string
+    constraints:
+      - allowed_values: ['oslo', 'json-rpc']
 
 conditions:
   cors_allowed_origin_set:
     not: {equals : [{get_param: IronicCorsAllowedOrigin}, '']}
+  auth_strategy_non_default:
+    contains: [{get_param: IronicAuthStrategy}, ['noauth', 'http_basic']]
+  auth_strategy_noauth:
+    equals: [{get_param: IronicAuthStrategy}, 'noauth']
   auth_strategy_http_basic:
     equals: [{get_param: IronicAuthStrategy}, 'http_basic']
+  rpc_transport_json_rpc:
+    equals: [{get_param: IronicRpcTransport}, 'json-rpc']
 
 resources:
   ApacheServiceBase:
@@ -150,9 +163,9 @@ outputs:
             ironic::api::authtoken::user_domain_name: 'Default'
             ironic::api::authtoken::project_domain_name: 'Default'
             ironic::api::authtoken::username: 'ironic'
-            ironic::api::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
+            ironic::api::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
             ironic::api::authtoken::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-            ironic::api::authtoken::region_name: {get_param: KeystoneRegion }
+            ironic::api::authtoken::region_name: {get_param: KeystoneRegion}
             ironic::api::authtoken::interface: 'internal'
             ironic::api::authtoken::memcache_use_advanced_pool: {get_param: MemcacheUseAdvancedPool}
             # NOTE: bind IP is found in hiera replacing the network name with the
@@ -196,7 +209,18 @@ outputs:
             ironic::cors::allow_methods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH'
             ironic::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
             ironic::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
-          - apache::default_vhost: false
+            apache::default_vhost: false
+          - if:
+              - rpc_transport_json_rpc
+              - ironic::json_rpc::auth_type:
+                  if:
+                    - auth_strategy_non_default
+                    - if:
+                      - auth_strategy_noauth
+                      - 'none'
+                      - {get_param: IronicAuthStrategy}
+                ironic::json_rpc::password: {get_param: IronicPassword}
+                ironic::json_rpc::auth_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
       service_config_settings:
         mysql:
           ironic::db::mysql::password: {get_param: IronicPassword}
