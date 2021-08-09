@@ -1,0 +1,171 @@
+heat_template_version: wallaby
+
+description: >
+  Contains a static list of common things necessary for containers
+parameters:
+
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry.  This
+                 mapping overrides those in ServiceNetMapDefaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  CephClientUserName:
+    default: openstack
+    type: string
+  CephClusterName:
+    type: string
+    default: ceph
+    description: The Ceph cluster name.
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9]+"
+      description: >
+        The Ceph cluster name must be at least 1 character and contain only
+        letters and numbers.
+  CinderRbdMultiConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring multiple RBD backends. The
+      hash key is the backend name, and the value is a dictionary of parameter
+      values unique to that backend. The following parameters are required,
+      and must match the corresponding value defined in CephExternalMultiConfig.
+        CephClusterName (must match the CephExternalMultiConfig entry's 'cluster')
+        CephClusterFSID (must match the CephExternalMultiConfig entry's 'fsid')
+      The following parameters are optional, and override the corresponding
+      parameter's default value.
+        CephClientUserName
+        CinderRbdPoolName
+        CinderRbdExtraPools
+        CinderRbdAvailabilityZone
+        CinderRbdFlattenVolumeFromSnapshot
+  CephConfigPath:
+    type: string
+    default: "/var/lib/tripleo-config/ceph"
+    description: |
+      The path where the Ceph Cluster config files are stored on the host.
+  QemuMemoryBackingDir:
+    type: string
+    description: >
+      Directory used for memoryBacking source if configured as file.
+      NOTE: big files will be stored here
+    default: ''
+    tags:
+      - role_specific
+
+
+conditions:
+  memory_backing_dir_set:
+    not:
+      and:
+        - {equals: [{get_param: QemuMemoryBackingDir}, '']}
+        - {equals: [{get_param: [RoleParameters, QemuMemoryBackingDir]}, '']}
+
+resources:
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - nova::compute::libvirt::qemu::memory_backing_dir: QemuMemoryBackingDir
+            - values: {get_param: [RoleParameters]}
+          - values:
+              QemuMemoryBackingDir: {get_param: QemuMemoryBackingDir}
+
+outputs:
+  kolla_config_files:
+    description: Common kolla config_files.
+    value:
+      list_concat:
+        -
+          - source: "/var/lib/kolla/config_files/src/*"
+            dest: "/"
+            merge: true
+            preserve_properties: true
+          - source: "/var/lib/kolla/config_files/src-ceph/"
+            dest: "/etc/ceph/"
+            merge: true
+            preserve_properties: true
+
+  kolla_permissions:
+    description: Common kolla permissions.
+    value:
+      list_concat:
+        - - path:
+              str_replace:
+                template: /etc/ceph/CLUSTER.client.USER.keyring
+                params:
+                  CLUSTER: {get_param: CephClusterName}
+                  USER: {get_param: CephClientUserName}
+            owner: nova:nova
+            perm: '0600'
+        - repeat:
+            template:
+              path: /etc/ceph/<%keyring%>
+              owner: nova:nova
+              perm: '0600'
+            for_each:
+              <%keyring%>:
+                yaql:
+                  expression: let(u => $.data.default_user) -> $.data.multiconfig.values().select("{0}.client.{1}.keyring".format($.CephClusterName, $.get("CephClientUserName", $u)))
+                  data:
+                    default_user: {get_param: CephClientUserName}
+                    multiconfig: {get_param: CinderRbdMultiConfig}
+
+  volumes:
+    description: Common volumes for all moduler virt daemons.
+    value:
+      list_concat:
+        - - /lib/modules:/lib/modules:ro
+          - /dev:/dev
+          - /run:/run
+          - /sys/fs/cgroup:/sys/fs/cgroup
+          - /sys/fs/selinux:/sys/fs/selinux
+          - /etc/selinux/config:/etc/selinux/config:ro
+          - /etc/libvirt:/etc/libvirt:shared
+          - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+          - /run/libvirt:/run/libvirt:shared
+          - /var/lib/nova:/var/lib/nova:shared
+          - /var/lib/libvirt:/var/lib/libvirt:shared
+          - /var/cache/libvirt:/var/cache/libvirt:shared
+          - /var/lib/vhost_sockets:/var/lib/vhost_sockets
+          - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
+          - list_join:
+            - ':'
+            - - {get_param: CephConfigPath}
+            - - '/var/lib/kolla/config_files/src-ceph'
+            - - 'ro'
+        - if:
+          - {get_param: EnableInternalTLS}
+          - - /etc/pki/CA/cacert.pem:/etc/pki/CA/cacert.pem:ro
+            - /etc/pki/libvirt:/etc/pki/libvirt:ro
+            - /etc/pki/qemu:/etc/pki/qemu:ro
+        - if:
+            - memory_backing_dir_set
+            - - str_replace:
+                  template: "MEMORY_BACKING_DIR:MEMORY_BACKING_DIR"
+                  params:
+                    MEMORY_BACKING_DIR: {get_attr: [RoleParametersValue, value, 'nova::compute::libvirt::qemu::memory_backing_dir']}
+
