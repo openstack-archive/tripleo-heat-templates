@@ -14,7 +14,17 @@ echo "Initializing virsh secrets for: ${CEPH_INFO[@]}"
 
 for INFO in ${CEPH_INFO[@]}; do
     IFS=: read CLUSTER CLIENT <<< $INFO
+    if [ ! -f /etc/ceph/${CLUSTER}.conf ]; then
+        echo "Error: /etc/ceph/${CLUSTER}.conf was not found"
+        echo "Path to nova_libvirt_init_secret was ${CEPH_INFO}"
+        exit 1
+    fi
     FSID=$(awk '$1 == "fsid" {print $3}' /etc/ceph/${CLUSTER}.conf)
+    if [ -z "${FSID}" ]; then
+        echo "Error: /etc/ceph/${CLUSTER}.conf contained an empty fsid definition"
+        echo "Check your ceph configuration"
+        exit 1
+    fi
 
     echo "--------"
     echo "Initializing the virsh secret for '$CLUSTER' cluster ($FSID) '$CLIENT' client"
