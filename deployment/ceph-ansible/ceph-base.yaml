@@ -116,6 +116,35 @@ parameters:
        {"name": "vms", "target_size_ratio": "0.4", "rule_name": "replicated_rule"}]
     default: []
     type: json
+  GlanceMultistoreConfig:
+    type: json
+    default: {}
+    description: |
+      Dictionary of settings when configuring additional glance backends. The
+      hash key is the backend ID, and the value is a dictionary of parameter
+      values unique to that backend. Multiple rbd and cinder backends are allowed, but
+      file and swift backends are limited to one each. Example:
+        # Default glance store is rbd.
+        GlanceBackend: rbd
+        GlanceStoreDescription: 'Default rbd store'
+        # GlanceMultistoreConfig specifies a second rbd backend, plus a cinder
+        # backend.
+        GlanceMultistoreConfig:
+          rbd2_store:
+            GlanceBackend: rbd
+            GlanceStoreDescription: 'Second rbd store'
+            CephClusterName: ceph2
+            # Override CephClientUserName if this cluster uses a different
+            # client name.
+            CephClientUserName: client2
+          cinder1_store:
+            GlanceBackend: cinder
+            GlanceCinderVolumeType: 'volume-type-1'
+            GlanceStoreDescription: 'First cinder store'
+          cinder2_store:
+            GlanceBackend: cinder
+            GlanceCinderVolumeType: 'volume-type-2'
+            GlanceStoreDescription: 'Seconde cinder store'
   CinderRbdPoolName:
     default: volumes
     type: string
@@ -452,12 +481,13 @@ resources:
           glance_pool:
             name: {get_param: GlanceRbdPoolName}
             enabled:
-              if:
+              or:
+                - yaql:
+                    data: {get_param: GlanceMultistoreConfig}
+                    expression: $.data.values().where($ != null).GlanceBackend.contains("rbd")
                 - equals:
                     - {get_param: GlanceBackend}
                     - 'rbd'
-                - true
-                - false
           cinder_pool:
             name: {get_param: CinderRbdPoolName}
             enabled: {get_param: CinderEnableRbdBackend}
