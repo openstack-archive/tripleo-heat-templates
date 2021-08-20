@@ -13,6 +13,7 @@
 
 set -e
 [ "$DEBUG" = "false" ] || set -x
+rm -rf /etc/puppet
 mkdir -p /etc/puppet
 cp -dR /tmp/puppet-etc/* /etc/puppet
 rm -Rf /etc/puppet/ssl # not in use and causes permission errors
