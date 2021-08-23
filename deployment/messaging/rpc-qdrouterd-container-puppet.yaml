@@ -51,6 +51,35 @@ parameters:
         Messaging client subscriber parameter to specify
         an SSL connection to the messaging host.
     type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  QdrCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+  QdrSslCertDb:
+    default: '/etc/ipa/ca.crt'
+    description: Path to SSL certificate db for listener.
+    type: string
+  QdrSslCertFile:
+    default: '/etc/pki/tls/certs/qdrouterd.crt'
+    description: Path to SSL certificate file for listener.
+    type: string
+  QdrSslKeyFile:
+    default: '/etc/pki/tls/private/qdrouterd.key'
+    description: Path to SSL private key file for listener.
+    type: string
+
+conditions:
+  key_size_override_set:
+    not: {equals: [{get_param: QdrCertificateKeySize}, '']}
 
 resources:
   ContainersCommon:
@@ -89,6 +118,12 @@ outputs:
         tripleo::profile::base::qdr::qdr_listener_port: {get_param: RpcPort}
         tripleo::profile::base::qdr::qdr_username: {get_param: RpcUserName}
         tripleo::profile::base::qdr::qdr_password: {get_param: RpcPassword}
+        # tls support
+        tripleo::profile::base::qdr::listener_require_ssl: {get_param: EnableInternalTLS}
+        tripleo::profile::base::qdr::listener_ssl_cert_db: {get_param: QdrSslCertDb}
+        tripleo::profile::base::qdr::listener_ssl_cert_file: {get_param: QdrSslCertFile}
+        tripleo::profile::base::qdr::listener_ssl_key_file: {get_param: QdrSslKeyFile}
+
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -104,10 +139,22 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
           permissions:
             - path: /var/lib/qdrouterd
               owner: qdrouterd:qdrouterd
               recurse: true
+            - path: /etc/pki/tls/certs/qdrouterd.crt
+              owner: qdrouterd:qdrouterd
+              optional: true
+            - path: /etc/pki/tls/private/qdrouterd.key
+              owner: qdrouterd:qdrouterd
+              optional: true
+
       docker_config:
         step_1:
           qdrouterd_init_logs:
@@ -135,8 +182,58 @@ outputs:
                   - /var/lib/config-data/puppet-generated/qdrouterd:/var/lib/kolla/config_files/src:ro
                   - /var/lib/qdrouterd:/var/lib/qdrouterd:z
                   - /var/log/containers/qdrouterd:/var/log/qdrouterd:z
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  - - /etc/pki/tls/certs/qdrouterd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/qdrouterd.crt:ro
+                    - /etc/pki/tls/private/qdrouterd.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/qdrouterd.key:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      metadata_settings:
+        if:
+          - {get_param: EnableInternalTLS}
+          - - service: qdrouterd
+              network: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+              type: node
+      deploy_steps_tasks:
+        - name: Certificate generation
+          when:
+            - step|int == 1
+            - enable_internal_tls
+          block:
+            - include_role:
+                name: linux-system-roles.certificate
+              vars:
+                certificate_requests:
+                  - name: qdrouterd
+                    dns:
+                      str_replace:
+                        template: "{{fqdn_$NETWORK}}"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                    principal:
+                      str_replace:
+                        template: "qdrouterd/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, OsloMessagingRpcNetwork]}
+                    run_after: |
+                      container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep qdrouterd)
+                      service_crt="/etc/pki/tls/certs/qdrouterd.crt"
+                      service_key="/etc/pki/tls/private/qdrouterd.key
+                      # Copy the new cert from the mount-point to the real path
+                      {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                      # Copy the new key from the mount-point to the real path
+                      {{container_cli}} exec "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+                      # Set appropriate permissions
+                      {{container_cli}} exec "$container_name" chown qdrouterd:qdrouterd "$service_crt"
+                      {{container_cli}} exec "$container_name" chown qdrouterd:qdrouterd "$service_key"
+                      # Trigger a container restart to read the new certificate
+                      {{container_cli}} restart "$container_name"
+                    key_size:
+                      if:
+                        - key_size_override_set
+                        - {get_param: QdrCertificateKeySize}
+                        - {get_param: CertificateKeySize}
+                    ca: ipa
       host_prep_tasks:
       - name: create fcontext entry for qdrouterd data
         community.general.sefcontext:
@@ -152,4 +249,3 @@ outputs:
         with_items:
           - { 'path': /var/log/containers/qdrouterd, 'setype': container_file_t, 'mode': '0750' }
           - { 'path': /var/lib/qdrouterd, 'setype': container_file_t }
-      metadata_settings: {}
