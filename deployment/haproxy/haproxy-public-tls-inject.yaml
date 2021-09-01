@@ -175,16 +175,15 @@ outputs:
                 - name: copy certificate, chgrp, restart haproxy
                   shell: |
                     set -e
-                    container_id=$({{ container_cli }} ps --filter name=haproxy-bundle -q)
-                    if [[ "x$container_id" ! = "x" ]]; then
-                      tar -c {{ cert_path }} | {{ container_cli }} exec -i $container_id tar -C / -xv
+                    if {{ container_cli }} ps -f "id={{ item }}" --format "{{ '{{' }}.Names{{ '}}' }}" | grep -q "^haproxy-bundle"; then
+                      tar -c {{ cert_path }} | {{container_cli}} exec -i {{ item }} tar -C / -xv
                     else
                       {{ container_cli }} cp {{ cert_path }} {{ item }}:{{ cert_path }}
                     fi
-                    {{ container_cli }} exec --user root $container_id chgrp haproxy {{ cert_path }}
-                    {{ container_cli }} kill --signal=HUP $container_id
+                    {{ container_cli }} exec --user root {{ item }} chgrp haproxy {{ cert_path }}
+                    {{ container_cli }} kill --signal=HUP {{ item }}
                   register: container_kill_result
                   failed_when:
-                    - ("no such container" in container_kill_result.stderr)
-                    - ("container state improper" in container_kill_result.stderr)
+                    - ("no such container" not in container_kill_result.stderr)
+                    - ("container state improper" not in container_kill_result.stderr)
                   with_items: "{{ container_id.stdout.split('\n') }}"
