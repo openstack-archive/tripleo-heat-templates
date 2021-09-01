@@ -1,8 +1,4 @@
 heat_template_version: wallaby
-{%- set octavia_standalone=[] -%}
-{%- for role in roles if 'standalone' in role.tags -%}
-  {% if octavia_standalone.append('1') %}{% endif %}
-{%- endfor %}
 
 description: >
   Configuration of Octavia as-a-service resources in the overcloud.
@@ -79,14 +75,16 @@ parameters:
     description: SSH key name.
   OctaviaAmphoraSshKeyFile:
     type: string
-{% if not octavia_standalone %}
     default: ''
-{% endif %}
     description: Public key file path. User will be able to SSH into amphorae
       with the provided key. User may, in most cases, also elevate to root
       from user 'centos' (CentOS), 'ubuntu' (Ubuntu) or 'cloud-user' (RHEL)
       (depends on how amphora image was created). Logging in to amphorae
       provides a convenient way to e.g. debug load balancing services.
+  OctaviaAmphoraSshKeyDir:
+    type: string
+    default: '/etc/octavia/ssh'
+    description: Octavia generated SSH key directory.
   NovaEnableRbdBackend:
     default: false
     description: Whether to enable the Rbd backend for Nova ephemeral storage.
@@ -202,11 +200,6 @@ conditions:
     - get_param: NovaEnableRbdBackend
 
 resources:
-{% if not octavia_standalone %}
-  default_key_pair:
-    type: OS::Nova::KeyPair
-    external_id: default
-{% endif %}
   OctaviaVars:
     type: OS::Heat::Value
     properties:
@@ -221,9 +214,7 @@ resources:
           amp_hw_arch: { get_param: OctaviaAmphoraImageArchitecture }
           amp_ssh_key_name: { get_param: OctaviaAmphoraSshKeyName }
           amp_ssh_key_path: { get_param: OctaviaAmphoraSshKeyFile }
-{% if not octavia_standalone %}
-          amp_ssh_key_data: { get_attr: [default_key_pair, public_key] }
-{% endif %}
+          amp_ssh_key_dir: { get_param: OctaviaAmphoraSshKeyDir }
 {% raw %}
           amp_to_raw: {if: [octavia_raw_image_check, true, false]}
           auth_username: { get_param: OctaviaUserName }
