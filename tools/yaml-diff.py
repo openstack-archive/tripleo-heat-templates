@@ -14,6 +14,7 @@
 import argparse
 from collections import defaultdict
 import difflib
+import json
 from pprint import pformat
 import sys
 import yaml
@@ -31,6 +32,16 @@ def parse_args():
     p.add_argument('--common', '-c',
                    action='store_true',
                    help='Show common items when comparing sections')
+    p.add_argument('--out', '-o',
+                   action='store',
+                   choices=['pformat', 'json'],
+                   default='json',
+                   help='Output format, either using pformat or json')
+    p.add_argument('--width', '-w',
+                   action='store',
+                   default=80,
+                   type=int,
+                   help='When using pformat, this is the max width')
     p.add_argument('--section', '-s',
                    action='store',
                    nargs='*',
@@ -67,9 +78,15 @@ def diff_dict(dict_a, dict_b):
     Converts 2 dicts to strings with pformat and returns
     a unified diff formated string
     """
+    if output_format == "pformat":
+        str_a = pformat(dict_a, width=output_width)
+        str_b = pformat(dict_b, width=output_width)
+    else:
+        str_a = json.dumps(dict_a, indent=2)
+        str_b = json.dumps(dict_b, indent=2)
     return "\n".join([d for d in difflib.unified_diff(
-        pformat(dict_a, width=80).splitlines(),
-        pformat(dict_b, width=80).splitlines(),
+        str_a.splitlines(),
+        str_b.splitlines(),
         fromfile=FILE_A,
         tofile=FILE_B)])
 
@@ -80,6 +97,8 @@ path_args = args.path_args
 show_details = args.details
 show_common = args.common
 sections = args.section
+output_format = args.out
+output_width = args.width
 
 FILE_A = path_args[0]
 FILE_B = path_args[1]
