@@ -17,21 +17,12 @@ SIG=$1
 PID=$2
 NETNS=$(ip netns identify ${PID})
 
-{% if container_cli == 'podman' %}
 if [ "x${NETNS}" == "x" ]; then
   CLI="nsenter --all --preserve-credentials -t 1 podman"
   SIG=9
 else
   CLI="nsenter --net=/run/netns/${NETNS} --preserve-credentials -m -t 1 podman"
 fi
-{% elif container_cli == 'docker' %}
-{% if docker_additional_sockets and docker_additional_sockets|length > 0-%}
-export DOCKER_HOST=unix://{{ docker_additional_sockets[0] }}
-{% endif -%}
-CLI='docker'
-{% else %}
-CLI='echo noop'
-{% endif %}
 
 kill_container() {
   add_date "Stopping container $1 ($2)"
@@ -52,7 +43,7 @@ signal_container() {
 {% raw -%}
 if [ -f /proc/$PID/cgroup ]; then
   # Get container ID based on process cgroups
-  CT_ID=$(awk 'BEGIN {FS="[-.]"} /:pids:/{print $3}' /proc/$PID/cgroup)
+  CT_ID=$(awk 'BEGIN {FS="[-.]"} /0::|:pids:/{print $3; exit}' /proc/$PID/cgroup)
   CT_NAME=$($CLI inspect -f '{{.Name}}' $CT_ID)
 
   case $SIG in
