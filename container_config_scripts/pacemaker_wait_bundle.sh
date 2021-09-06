@@ -40,6 +40,10 @@ usage() {
     exit 1
 }
 
+pacemaker_supports_promoted() {
+    # The Promoted token is only matched in recent pacemaker versions
+    grep -wq "<value>Promoted</value>" /usr/share/pacemaker/resources-*.rng
+}
 
 #
 # Utility functions to detect stuck resources
@@ -69,7 +73,7 @@ bundle_running_globally() {
     local engine=$BUNDLE_CONTAINER_ENGINE
     # return the number of running bundles replica, i.e. the number of
     # docker/podman resource replicas currently running in the cluster
-    crm_mon --as-xml | xmllint --xpath "count(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource[@resource_agent='ocf::heartbeat:${engine}']/node)" -
+    crm_mon --as-xml | xmllint --xpath "count(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource[@resource_agent='${OCF}:heartbeat:${engine}']/node)" -
 }
 
 ocf_failures_globally() {
@@ -91,7 +95,7 @@ did_resource_failed_locally() {
 	# pacemaker_remote rather that on the real host, and the
 	# failcounts are thus associated to the pcmk remote. Replace
 	# the host's name with the pcmk remote's name.
-	remotehost=$(crm_mon --as-xml | xmllint --xpath "string(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource/node[@name='${HOST}']/../../resource[@resource_agent='ocf::pacemaker:remote']/@id)" -)
+        remotehost=$(crm_mon --as-xml | xmllint --xpath "string(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource/node[@name='${HOST}']/../../resource[@resource_agent='${OCF}:pacemaker:remote']/@id)" -)
 	if [ -n "${remotehost}" ]; then
 	    crm_failcount -q -G -r $NAME -N $remotehost | grep -q -w INFINITY
 	    return $?
@@ -118,7 +122,7 @@ did_resource_failed_globally() {
     if [ "${NAME}" != "${BUNDLE_NAME}" ]; then
 	# we check the state of an ocf resource only if the
 	# pcmkremotes are started
-	remotecount=$(crm_mon --as-xml | xmllint --xpath "count(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource[@resource_agent='ocf::pacemaker:remote']/node)" -)
+        remotecount=$(crm_mon --as-xml | xmllint --xpath "count(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource[@resource_agent='${OCF}:pacemaker:remote']/node)" -)
 	if [ "${remotecount}" = "0" ]; then
 	    # no pcmkremote is running, so check the bundle state
 	    # instead of checking the ocf resource
@@ -170,15 +174,24 @@ if [ -z "${ROLE_LOCAL}" ]; then
         exit 1
     fi
 else
-    if !(echo "${ROLE_LOCAL}" | grep -q -x -E "(Started|Slave|Master)"); then
-        echo 2>&1 "Error: argument ROLE_LOCAL must be either 'Started' 'Slave' or 'Master'"
+    if !(echo "${ROLE_LOCAL}" | grep -q -x -E "(Started|Slave|Master|Unpromoted|Promoted)"); then
+        echo 2>&1 "Error: argument ROLE_LOCAL must be either 'Started' 'Slave' 'Master' 'Unpromoted' or 'Promoted'"
         exit 1
     fi
 fi
 
-if [ -n "${ROLE_ANYWHERE}" ] && !(echo "${ROLE_ANYWHERE}" | grep -q -x -E "(Started|Slave|Master)"); then
-    echo 2>&1 "Error: argument ROLE_ANYWHERE must be either 'Started' 'Slave' or 'Master'"
+if [ -n "${ROLE_ANYWHERE}" ] && !(echo "${ROLE_ANYWHERE}" | grep -q -x -E "(Started|Slave|Master|Unpromoted|Promoted)"); then
+    echo 2>&1 "Error: argument ROLE_ANYWHERE must be either 'Started' 'Slave' 'Master' 'Unpromoted' or 'Promoted'"
     exit 1
+fi
+
+# Ensure compatibility with pacemaker 2.1
+if pacemaker_supports_promoted; then
+    ROLE_LOCAL=$(echo "$ROLE_LOCAL" | sed -e 's/Master/Promoted/' -e 's/Slave/Unpromoted/')
+    ROLE_ANYWHERE=$(echo "$ROLE_ANYWHERE" | sed -e 's/Master/Promoted/' -e 's/Slave/Unpromoted/')
+    OCF="ocf"
+else
+    OCF="ocf:"
 fi
 
 HOST=${5:-$(facter hostname)}
@@ -194,7 +207,7 @@ TIMEOUT=${6:-__PCMKTIMEOUT__}
 
 if [ "${BUNDLE_NAME}" != "${NAME}" ]; then
 # ocf resource
-local_resource_xpath="//bundle/replica/resource[@resource_agent='ocf::pacemaker:remote']/node[@name='${HOST}']/../../resource[@id='${NAME}']"
+local_resource_xpath="//bundle/replica/resource[@resource_agent='${OCF}:pacemaker:remote']/node[@name='${HOST}']/../../resource[@id='${NAME}']"
 any_resource_xpath="//bundle//resource[@id='${NAME}']"
 replicas_xpath="//bundle/primitive[@id='${BUNDLE_NAME}']/../*[boolean(@image) and boolean(@replicas)]"
 else
