@@ -21,6 +21,11 @@ error() {
     exit 1
 }
 
+pacemaker_supports_promoted() {
+    # The Promoted token is only matched in recent pacemaker versions
+    grep -wq "<value>Promoted</value>" /usr/share/pacemaker/resources-*.rng
+}
+
 ACTION=$1
 case $ACTION in
     --help) usage; exit 0;;
@@ -46,9 +51,17 @@ BUNDLE_NAME=$4
 WAIT_TARGET_LOCAL=$5
 WAIT_TARGET_ANYWHERE=${6:-_}
 
+if pacemaker_supports_promoted; then
+    WAIT_TARGET_LOCAL=$(echo "$5" | sed -e 's/Master/Promoted/' -e 's/Slave/Unpromoted/')
+    WAIT_TARGET_ANYWHERE=$(echo "${6:-_}" | sed -e 's/Master/Promoted/' -e 's/Slave/Unpromoted/')
+    promoted_role="Promoted"
+else
+    promoted_role="Master"
+fi
+
 # The lock TTL should accomodate for the resource start/promote timeout
 if [ "$RESOURCE_NAME" != "$BUNDLE_NAME" ]; then
-    if [ "$WAIT_TARGET_LOCAL" = "Master" ] || [ "$WAIT_TARGET_ANYWHERE" = "Master" ]; then
+    if [ "$WAIT_TARGET_LOCAL" = "$promoted_role" ] || [ "$WAIT_TARGET_ANYWHERE" = "$promoted_role" ]; then
         rsc_op="promote"
     else
         rsc_op="start"
