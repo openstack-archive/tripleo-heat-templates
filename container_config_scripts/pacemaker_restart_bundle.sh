@@ -12,7 +12,7 @@ BUNDLE_NAME=$3
 WAIT_TARGET_LOCAL=$4
 WAIT_TARGET_ANYWHERE=${5:-_}
 TRIPLEO_MINOR_UPDATE="${TRIPLEO_MINOR_UPDATE:-false}"
-
+TRIPLEO_HA_WRAPPER_RESOURCE_EXISTS="${TRIPLEO_HA_WRAPPER_RESOURCE_EXISTS:-false}"
 
 bundle_can_be_restarted() {
     local bundle=$1
@@ -24,11 +24,20 @@ bundle_can_be_restarted() {
     [ "$(crm_resource --meta -r $1 -g target-role 2>/dev/null)" != "Stopped" ]
 }
 
+log() {
+    local msg=$1
+    logger -t pcmkrestart "$1"
+}
 
+HOSTNAME=$(/bin/hostname -s)
 if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
-    if hiera -c /etc/puppet/hiera.yaml stack_action | grep -q -x CREATE; then
+    if [ x"${TRIPLEO_HA_WRAPPER_RESOURCE_EXISTS,,}" = x"false" ]; then
         # Do not restart during initial deployment, as the resource
         # has just been created.
+        SERVICE_NODEID=$(/bin/hiera -c /etc/puppet/hiera.yaml "${TRIPLEO_SERVICE}_short_bootstrap_node_name")
+        if [[ "${HOSTNAME,,}" == "${SERVICE_NODEID,,}" ]]; then
+            log "Initial deployment, skipping the restart of ${BUNDLE_NAME}"
+	fi
         exit 0
     else
         # During a stack update, this script is called in parallel on
@@ -36,26 +45,25 @@ if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
         # have been updated on all nodes. So we need to run pcs only
         # once (e.g. on the service's boostrap node).
         if bundle_can_be_restarted ${BUNDLE_NAME}; then
-            HOSTNAME=$(/bin/hostname -s)
             SERVICE_NODEID=$(/bin/hiera -c /etc/puppet/hiera.yaml "${TRIPLEO_SERVICE}_short_bootstrap_node_name")
             if [[ "${HOSTNAME,,}" == "${SERVICE_NODEID,,}" ]]; then
                 replicas_running=$(crm_resource -Q -r $BUNDLE_NAME --locate 2>&1 | wc -l)
                 if [ "$replicas_running" != "0" ]; then
-                    echo "$(date -u): Restarting ${BUNDLE_NAME} globally. Stopping:"
+                    log "Restarting ${BUNDLE_NAME} globally. Stopping:"
                     /sbin/pcs resource disable --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
-                    echo "$(date -u): Restarting ${BUNDLE_NAME} globally. Starting:"
+                    log "Restarting ${BUNDLE_NAME} globally. Starting:"
                     /sbin/pcs resource enable --wait=__PCMKTIMEOUT__ $BUNDLE_NAME
                 else
-                    echo "$(date -u): ${BUNDLE_NAME} is not running anywhere," \
+                    log "${BUNDLE_NAME} is not running anywhere," \
                          "cleaning up to restart it globally if necessary"
                     /sbin/pcs resource cleanup $BUNDLE_NAME
                 fi
             else
-                echo "$(date -u): Skipping global restart of ${BUNDLE_NAME} on ${HOSTNAME} it will be restarted by node ${SERVICE_NODEID}"
+                log "Skipping global restart of ${BUNDLE_NAME} on ${HOSTNAME} it will be restarted by node ${SERVICE_NODEID}"
             fi
 
         else
-            echo "$(date -u): No global restart needed for ${BUNDLE_NAME}."
+            log "No global restart needed for ${BUNDLE_NAME}."
         fi
     fi
 else
@@ -70,7 +78,7 @@ else
     if bundle_can_be_restarted ${BUNDLE_NAME}; then
 	# if the resource is running locally, restart it
 	if crm_resource -r $BUNDLE_NAME --locate 2>&1 | grep -w -q "${HOST}"; then
-            echo "$(date -u): Restarting ${BUNDLE_NAME} locally on '${HOST}'"
+            log "Restarting ${BUNDLE_NAME} locally on '${HOST}'"
             /sbin/pcs resource restart $BUNDLE_NAME "${HOST}"
 
 	else
@@ -80,7 +88,7 @@ else
 	    # By cleaning up resource, we ensure that a) it will try to
 	    # restart, or b) it won't do anything if the resource is
 	    # already running elsewhere.
-            echo "$(date -u): ${BUNDLE_NAME} is currently not running on '${HOST}'," \
+            log "${BUNDLE_NAME} is currently not running on '${HOST}'," \
                  "cleaning up its state to restart it if necessary"
             /sbin/pcs resource cleanup $BUNDLE_NAME node="${HOST}"
 	fi
@@ -91,6 +99,6 @@ else
             "$WAIT_TARGET_LOCAL" "$WAIT_TARGET_ANYWHERE" \
 	    "${HOST}" __PCMKTIMEOUT__
     else
-        echo "$(date -u): No restart needed for ${BUNDLE_NAME}."
+        log "No restart needed for ${BUNDLE_NAME}."
     fi
 fi
