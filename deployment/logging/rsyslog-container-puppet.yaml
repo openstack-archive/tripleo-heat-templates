@@ -62,6 +62,10 @@ parameters:
     type: string
     default: 'regionOne'
     description: Keystone region for endpoint
+  RsyslogAmqp1Setting:
+    default: {}
+    description: Configuration for rsyslog-omamqp1 plugin
+    type: json
 
 resources:
   ContainersCommon:
@@ -71,9 +75,17 @@ conditions:
   use_tls:
     not:
       and:
+        - equals: [{get_param: RsyslogElasticsearchSetting}, {}]
         - equals: [{get_param: RsyslogElasticsearchTlsCACert}, '']
         - equals: [{get_param: RsyslogElasticsearchTlsClientCert}, '']
         - equals: [{get_param: RsyslogElasticsearchTlsClientKey}, '']
+  use_elasticsearch:
+    not:
+      equals: [{get_param: RsyslogElasticsearchSetting}, {}]
+  use_amqp1:
+    not:
+      equals: [{get_param: RsyslogAmqp1Setting}, {}]
+
 outputs:
   role_data:
     description: Role data for the rsyslog role.
@@ -116,6 +128,7 @@ outputs:
             rsyslog::server::modules:
               imfile: {}
               omelasticsearch: {}
+              omamqp1: {}
             # output setting
             rsyslog::server::templates:
               rsyslog-node-index:
@@ -182,13 +195,23 @@ outputs:
                     outname: region
                     value: {get_param: KeystoneRegion}
                     format: jsonf
-            tripleo::profile::base::logging::rsyslog::elasticsearch:
-              map_merge:
-                - {get_param: RsyslogElasticsearchSetting}
-                - template: rsyslog-record
-                  searchIndex: rsyslog-node-index
-                  dynSearchIndex: "on"
-                  errorfile: '/var/log/rsyslog/omelasticsearch.log'
+          - if:
+            - use_elasticsearch
+            - tripleo::profile::base::logging::rsyslog::elasticsearch:
+                map_merge:
+                  - {get_param: RsyslogElasticsearchSetting}
+                  - template: rsyslog-record
+                    searchIndex: rsyslog-node-index
+                    dynSearchIndex: "on"
+                    errorfile: '/var/log/rsyslog/omelasticsearch.log'
+            - {}
+          - if:
+            - use_amqp1
+            - tripleo::profile::base::logging::rsyslog::amqp1:
+                map_merge:
+                  - {get_param: RsyslogAmqp1Setting}
+                  - template: rsyslog-record
+            - {}
           - if:
             - {get_param: RsyslogReopenOnTruncate}
             - tripleo::profile::base::logging::rsyslog::reopen_on_truncate: "on"
