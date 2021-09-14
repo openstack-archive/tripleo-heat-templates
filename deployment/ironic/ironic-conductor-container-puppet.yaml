@@ -264,7 +264,7 @@ parameters:
     description: Auth strategy to use with neutron.
     default: keystone
     constraints:
-      - allowed_values: ['keystone', 'noauth']
+      - allowed_values: ['keystone', 'noauth', 'http_basic']
   IronicRpcTransport:
     description: The remote procedure call transport between conductor and
                  API processes, such as a messaging broker or JSON RPC.
@@ -303,6 +303,8 @@ conditions:
     equals: [{get_param: IronicAuthStrategy}, 'noauth']
   neutron_noauth:
     equals: [{get_param: NeutronAuthStrategy}, 'noauth']
+  neutron_auth_non_default:
+    contains: [{get_param: NeutronAuthStrategy}, ['noauth', 'http_basic']]
   rpc_transport_json_rpc:
     {equals : [{get_param: IronicRpcTransport}, 'json-rpc']}
   json_rpc_with_http_basic:
@@ -521,9 +523,13 @@ outputs:
             ironic::pxe::http_root: /var/lib/ironic/httpboot
             ironic::conductor::http_root: /var/lib/ironic/httpboot
           - if:
-              - neutron_noauth
-              - ironic::neutron::endpoint_override: {get_param: [EndpointMap, NeutronInternal, uri_no_suffix]}
-                ironic::neutron::auth_type: 'none'
+              - neutron_auth_non_default
+              - ironic::neutron::auth_type:
+                  if:
+                    - neutron_noauth
+                    - 'none'
+                    - {get_param: NeutronAuthStrategy}
+                ironic::neutron::endpoint_override: {get_param: [EndpointMap, NeutronInternal, uri_no_suffix]}
           - if:
               - auth_strategy_non_default
               - ironic::service_catalog::auth_type:

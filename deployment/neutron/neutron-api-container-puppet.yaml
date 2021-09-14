@@ -194,14 +194,17 @@ parameters:
     description: Auth strategy to use with neutron.
     default: 'keystone'
     constraints:
-      - allowed_values: ['keystone', 'noauth']
+      - allowed_values: ['keystone', 'noauth', 'http_basic']
+  AdminPassword: #supplied by tripleo-undercloud-passwords.yaml
+    type: string
+    description: The password for the keystone admin account, used for monitoring, querying neutron etc.
+    hidden: True
   NeutronAgentDownTime:
     default: 600
     type: number
     description: |
       Seconds to regard the agent as down; should be at least twice
       NeutronGlobalReportInterval, to be sure the agent is down for good.
-
 
 parameter_groups:
 - label: deprecated
@@ -230,6 +233,8 @@ conditions:
       - {get_param: EnableInternalTLS}
   key_size_override_set:
     not: {equals: [{get_param: NeutronCertificateKeySize}, '']}
+  auth_strategy_http_basic:
+    equals: [{get_param: NeutronAuthStrategy}, 'http_basic']
 
 resources:
   TLSProxyBase:
@@ -403,6 +408,15 @@ outputs:
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_certificate: '/etc/pki/tls/certs/neutron_ovn.crt'
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_nb_ca_cert: {get_param: InternalTLSCAFile}
               tripleo::profile::base::neutron::plugins::ml2::ovn::ovn_sb_ca_cert: {get_param: InternalTLSCAFile}
+          - if:
+            - auth_strategy_http_basic
+            - neutron::config::api_paste_ini:
+                composite:neutronapi_v2_0/http_basic:
+                  value: 'cors http_proxy_to_wsgi request_id fake_project_id catch_errors osprofiler basic_auth extensions neutronapiapp_v2_0'
+                composite:neutronversions_composite/http_basic:
+                  value: 'cors http_proxy_to_wsgi neutronversions'
+                filter:basic_auth/paste.filter_factory:
+                  value: 'oslo_middleware.basic_auth:BasicAuthMiddleware.factory'
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_neutron_api:
@@ -415,6 +429,7 @@ outputs:
           neutron::db::mysql::allowed_hosts:
             - '%'
             - "%{hiera('mysql_bind_host')}"
+
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: neutron
@@ -517,6 +532,10 @@ outputs:
                       - ovn_and_tls
                       - - /etc/pki/tls/certs/neutron_ovn.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/neutron_ovn.crt:ro
                         - /etc/pki/tls/private/neutron_ovn.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/neutron_ovn.key:ro
+                    - if:
+                        - auth_strategy_http_basic
+                        - - /etc/neutron_passwd:/etc/htpasswd:z
+
                 environment:
                   map_merge:
                     - {get_param: NeutronApiOptEnvVars}
@@ -538,7 +557,27 @@ outputs:
                           - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-      host_prep_tasks: {get_attr: [NeutronLogging, host_prep_tasks]}
+      host_prep_tasks:
+        list_concat:
+          - {get_attr: [NeutronLogging, host_prep_tasks]}
+          - - name: create password file when auth_stragy is 'http_basic'
+              vars:
+                is_http_basic:
+                  if:
+                    - auth_strategy_http_basic
+                    - true
+                    - false
+              copy:
+                dest: /etc/neutron_passwd
+                content:
+                  str_replace:
+                    template: |
+                      admin:{{'$ADMIN_PASSWORD' | password_hash('bcrypt')}}
+                      neutron:{{'$NEUTRON_PASSWORD' | password_hash('bcrypt')}}
+                    params:
+                      $ADMIN_PASSWORD: {get_param: AdminPassword}
+                      $NEUTRON_PASSWORD: {get_param: NeutronPassword}
+              when: is_http_basic | bool
       metadata_settings:
         list_concat:
         - {get_attr: [TLSProxyBase, role_data, metadata_settings]}
