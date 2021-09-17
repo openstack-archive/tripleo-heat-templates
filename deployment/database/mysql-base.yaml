@@ -101,6 +101,34 @@ outputs:
       mysql_upgrade_db.sh:
         mode: "0755"
         content: { get_file: ../../container_config_scripts/mysql_upgrade_db.sh }
+  mysql_drop_unused_users:
+    description: Ansible block to clean up unusued Openstack DB users
+    value:
+      - name: Drop unused OpenStack DB users
+        when: step|int == 1
+        block:
+        - name: mysql container id
+          command: "podman ps -q --filter name={{ mysql_container_name }} --filter status=running"
+          register: mysql_container_id
+        - name: set mysql container id fact
+          set_fact:
+            mysql_container: "{{ mysql_container_id.stdout }}"
+        - name: Mysql script to drop unused DB users
+          when: ( mysql_container | length ) > 0
+          block:
+          - name: Get the list of all OpenStack DB users
+            shell: jq -r 'to_entries[] | select(.key|endswith("::db::mysql::user")) | .value' /etc/puppet/hieradata/service_configs.json
+            register: openstack_db_users
+          - name: List all DB users that match the DB users to be dropped
+            shell: for u in {{ openstack_db_users.stdout_lines | join(' ') }}; do podman exec -u root -it "{{ mysql_container }}" mysql -sNe "select concat('\`',user,'\`@\`',host,'\`') from mysql.user where user = '$u' and host != '%';"; done
+            register: mysql_db_users
+          - name: resulting DB users to be dropped
+            debug:
+              msg: "{{ mysql_db_users.stdout_lines }}"
+          - name: Drop all unneeded Openstack DB users
+            shell: podman exec -u root -it "{{ mysql_container }}" mysql -sNe 'drop user {{ item }};'
+            loop: "{{ mysql_db_users.stdout_lines }}"
+
   role_data:
     description: Service MySQL using composable services.
     value:
