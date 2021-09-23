@@ -213,20 +213,20 @@ def drop_db():
     subprocess.check_call([
         'sudo', 'podman', 'exec', '-u', 'root',
         'mysql', 'mysql', 'heat', '-e',
-        'drop database heat'])
+        'drop database if exists heat'])
     LOG.info("Dropping Heat users")
     subprocess.check_call([
         'sudo', 'podman', 'exec', '-u', 'root',
         'mysql', 'mysql', '-e',
-        'drop user \'heat\'@\'{}\''.format(_get_ctlplane_ip())])
+        'drop user if exists \'heat\'@\'{}\''.format(_get_ctlplane_ip())])
     subprocess.check_call([
         'sudo', 'podman', 'exec', '-u', 'root',
         'mysql', 'mysql', '-e',
-        'drop user \'heat\'@\'{}\''.format(_get_ctlplane_vip())])
+        'drop user if exists \'heat\'@\'{}\''.format(_get_ctlplane_vip())])
     subprocess.check_call([
         'sudo', 'podman', 'exec', '-u', 'root',
         'mysql', 'mysql', '-e',
-        'drop user \'heat\'@\'%\''])
+        'drop user if exists \'heat\'@\'%\''])
 
 
 def export_passwords(heat, stack, stack_dir):
