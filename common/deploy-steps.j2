@@ -339,28 +339,31 @@ resources:
           expression: switch($.data = {} => "no_bootstrap_server", $.data != {} => $.data.items().orderBy($[0]).first()[1])
           data: {get_param: [servers, {{primary_role_name}}]}
 
-  # BEGIN CONFIG STEPS, only on roles
-{%- for role in roles %}
   # Note, this should be the last step to execute configuration changes.
-  # Ensure that all {{role.name}}ExtraConfigPost steps are executed
+  # Ensure that all ExtraConfigPost steps are executed
   # after all the previous deployment steps.
-  {{role.name}}ExtraConfigPost:
-    condition: {{role.name}}NonZero
+  ExtraConfigPost:
     type: OS::TripleO::NodeExtraConfigPost
     properties:
-        servers: {get_param: [servers, {{role.name}}]}
-        EndpointMap: {get_param: EndpointMap}
+      servers:
+        map_merge:
+        {%- for role in roles %}
+          - if:
+              - {{role.name}}NonZero
+              - {get_param: [servers, {{role.name}}]}
+              - {}
+        {%- endfor %}
+      EndpointMap: {get_param: EndpointMap}
 
+  # BEGIN CONFIG STEPS, only on roles
+{%- for role in roles %}
   # The {{role.name}}PostConfig steps are in charge of
   # quiescing all services, i.e. in the Controller case,
   # we should run a full service reload.
   {{role.name}}PostConfig:
     condition: {{role.name}}NonZero
     type: OS::TripleO::Tasks::{{role.name}}PostConfig
-    depends_on:
-  {%- for dep in roles %}
-      - {{dep.name}}ExtraConfigPost
-  {%- endfor %}
+    depends_on: ExtraConfigPost
     properties:
       servers:  {get_param: servers}
       input_values:
