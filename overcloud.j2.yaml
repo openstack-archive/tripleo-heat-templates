@@ -145,11 +145,6 @@ parameters:
       Extra properties or metadata passed to Nova for the created nodes in
       the overcloud. It's accessible via the Nova metadata API.
     type: json
-  NetworkDeploymentActions:
-    type: comma_delimited_list
-    description: >
-      Heat action when to apply network configuration changes
-    default: ['CREATE']
 # Compute-specific params
 # FIXME(shardy) handle these deprecated names as they don't match compute.yaml
   HypervisorNeutronPhysicalBridge:
@@ -242,11 +237,14 @@ parameters:
                  resource_registry) which represent nested stacks
                  for each service that should get installed on the {{role.name}} role.
     type: comma_delimited_list
-  {{role.name}}NetworkDeploymentActions:
-    type: comma_delimited_list
+  {{role.name}}NetworkConfigUpdate:
+    type: boolean
     description: >
-      Heat action when to apply network configuration changes
-    default: []
+      When set to "True", existing networks will be updated on the overcloud.
+      This parameter replaces the functionality previously provided by
+      NetworkDeploymentActions. Defaults to "False" so that only new nodes will
+      have their networks configured. This is a role based parameter.
+    default: False
   {{role.name}}AnyErrorsFatal:
     default: yes
     type: string
@@ -455,13 +453,6 @@ conditions:
         - equals:
           - get_param: [EndpointMapOverride, MysqlCellInternal]
           - ''
-{%- for role in roles %}
-  {{role.name}}_network_deployment_actions_exists:
-    not:
-      equals:
-        - {get_param: {{role.name}}NetworkDeploymentActions}
-        - []
-{%- endfor %}
   set_default_nova_vnc_proxy_cell_public:
     or:
       - equals:
@@ -657,15 +648,6 @@ resources:
     properties:
       type: json
       value: {get_attr: [{{role.name}}ServiceChain, role_data]}
-
-  {{role.name}}NetworkDeploymentActionsValue:
-    type: OS::Heat::Value
-    properties:
-      value:
-        if:
-        - {{role.name}}_network_deployment_actions_exists
-        - {get_param: {{role.name}}NetworkDeploymentActions}
-        - {get_param: NetworkDeploymentActions}
 
   {{role.name}}ConfigData:
     type: OS::Heat::Value
@@ -1313,7 +1295,7 @@ outputs:
           max_fail_percentage: {get_param: {{role.name}}MaxFailPercentage}
           neutron_physical_bridge_name: {get_param: NeutronPhysicalBridge}
           neutron_public_interface_name: {get_param: NeutronPublicInterface}
-          network_deployment_actions: {get_attr: [{{role.name}}NetworkDeploymentActionsValue, value]}
+          network_config_update: {get_param: {{role.name}}NetworkConfigUpdate}
           tripleo_network_config_os_net_config_mappings: {get_param: NetConfigDataLookup}
           deployed_server_port_map: {get_param: DeployedServerPortMap}
           tripleo_network_config_override: {get_param: {{role.name}}NetConfigOverride}
