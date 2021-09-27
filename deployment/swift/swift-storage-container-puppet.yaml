@@ -723,35 +723,31 @@ outputs:
           with_items: "{{ swift_raw_disks }}"
           when: swift_raw_disks|length > 0
       deploy_steps_tasks:
-        - name: Configure rsyslog for swift-storage
+        - name: Configure rsyslog for swift
           when:
             - step|int == 1
-            - swift_logconfig is not defined
-            - swift_rsyslog_config is not defined
           block:
             - name: Check if rsyslog exists
-              systemd:
-                name: rsyslog
+              shell: systemctl is-active rsyslog
               register: swift_rsyslog_config
-            - block:
-                - name: Forward logging to swift.log file
-                  copy:
-                    content: |
-                      # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
-                      local2.*                 /var/log/containers/swift/swift.log
-                      &                        stop
-                    dest: /etc/rsyslog.d/openstack-swift.conf
-                  register: swift_logconfig
-                - name: Restart rsyslogd service after logging conf change
-                  service:
-                    name: rsyslog
-                    state: restarted
-                  when:
-                    - swift_logconfig is changed
+            - name: Forward logging to swift.log file
+              copy:
+                content: |
+                  # Fix for https://bugs.launchpad.net/tripleo/+bug/1776180
+                  local2.*                 /var/log/containers/swift/swift.log
+                  &                        stop
+                dest: /etc/rsyslog.d/openstack-swift.conf
+              register: swift_logconfig
               when:
                 - swift_rsyslog_config is defined
-                - swift_rsyslog_config.status is defined
-                - swift_rsyslog_config.status.ActiveState == 'active'
+                - swift_rsyslog_config.rc == 0
+            - name: Restart rsyslogd service after logging conf change
+              service:
+                name: rsyslog
+                state: restarted
+              when:
+                - swift_logconfig is defined
+                - swift_logconfig is changed
         - name: Run kolla_set_configs to copy ring files
           when: step|int == 5
           shell: "{{ container_cli }} exec -u root {{ item }} /usr/local/bin/kolla_set_configs"
