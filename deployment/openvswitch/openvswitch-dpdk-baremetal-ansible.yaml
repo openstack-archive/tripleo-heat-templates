@@ -162,6 +162,13 @@ parameters:
     default: false
     tags:
       - role_specific
+  DdpPackage:
+    default: "ddp"
+    description: >
+      DDP package type. Provides the option to deploy overcloud with the required DDP package type.
+    type: string
+    tags:
+      - role_specific
 
 conditions:
   is_realtime:
@@ -188,6 +195,7 @@ resources:
               pmd_improvement_threshold: OvsPmdImprovementThreshold
               pmd_rebal_interval: OvsPmdRebalInterval
               nova_postcopy: NovaLiveMigrationPermitPostCopy
+              ddp_package: DdpPackage
             - values: {get_param: [RoleParameters]}
           - values:
               OvsDpdkCoreList: {get_param: OvsDpdkCoreList}
@@ -204,6 +212,7 @@ resources:
               OvsPmdImprovementThreshold: {get_param: OvsPmdImprovementThreshold}
               OvsPmdRebalInterval: {get_param: OvsPmdRebalInterval}
               NovaLiveMigrationPermitPostCopy: {get_param: NovaLiveMigrationPermitPostCopy}
+              DdpPackage: {get_param: DdpPackage}
 
   BootParams:
     type: ./../kernel/kernel-boot-params-baremetal-ansible.yaml
@@ -220,6 +229,22 @@ outputs:
     value:
       service_name: openvswitch
       deploy_steps_tasks:
+        - - name: Ddp packages and select the package
+            vars:
+              ddp_package: {get_attr: [RoleParametersDpdk, value, ddp_package]}
+            block:
+              - name: Gets latest version of required Ddp package
+                shell: "ls --sort=version -r /lib/firmware/intel/ice/{{ ddp_package }}/ice[_-]?*.pkg"
+                register: ddp_package_files
+              - name: ddp package selection
+                vars:
+                  ddp_package_file: "{{ ddp_package_files.stdout.split('\n')[0] }}"
+                shell: |
+                  rm -f /lib/firmware/intel/ice/ddp/ice.pkg
+                  ln -s {{ ddp_package_file }} /lib/firmware/intel/ice/ddp/ice.pkg
+                  dracut -f
+                when: ddp_package_files is defined and ddp_package_file|string != ""
+            when: step|int == 0 and ddp_package|string != "ddp"
         - get_attr: [BootParams, role_data, deploy_steps_tasks]
         - - name: Run ovs-dpdk role
             when: step|int == 0
