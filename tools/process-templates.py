@@ -15,7 +15,6 @@ import argparse
 import jinja2
 import os
 import shutil
-import six
 import sys
 import yaml
 
@@ -33,7 +32,7 @@ def _shutil_copy_if_not_same(src, dst):
         try:
             shutil.copy(src, dst)
         except Exception as ex:
-            if 'are the same file' in six.text_type(ex):
+            if 'are the same file' in str(ex):
                 pass
             else:
                 raise
@@ -98,7 +97,7 @@ def _j2_render_to_file(j2_template, j2_data, outfile_name=None,
         r_template = template.render(**j2_data)
     except jinja2.exceptions.TemplateError as ex:
         error_msg = ("Error rendering template %s : %s"
-                     % (yaml_f, six.text_type(ex)))
+                     % (yaml_f, str(ex)))
         print(error_msg)
         raise Exception(error_msg)
     if not dry_run:

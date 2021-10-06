@@ -17,10 +17,10 @@
 # shell script to check if placement API is up after X attempts.
 # Default max is 60 iterations with 10s (default) timeout in between.
 
+from configparser import ConfigParser
 import logging
 import os
 import re
-import six
 import sys
 import time
 
@@ -29,18 +29,8 @@ from keystoneauth1 import session
 from keystoneclient.v3 import client
 import requests
 
-# In python3 SafeConfigParser was renamed to ConfigParser and the default
-# for duplicate options default to true. In case of nova it is valid to
-# have duplicate option lines, e.g. passthrough_whitelist which leads to
-# issues reading the nova.conf
-# https://bugs.launchpad.net/tripleo/+bug/1827775
-if six.PY3:
-    from six.moves.configparser import ConfigParser
-    config = ConfigParser(strict=False)
-else:
-    from six.moves.configparser import SafeConfigParser
-    config = SafeConfigParser()
 
+config = ConfigParser(strict=False)
 
 debug = os.getenv('__OS_DEBUG', 'false')
 

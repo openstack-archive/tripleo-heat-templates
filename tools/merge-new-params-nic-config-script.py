@@ -17,7 +17,6 @@ import datetime
 import os
 import re
 import shutil
-import six
 import subprocess
 import sys
 import yaml
@@ -167,9 +166,9 @@ class TemplateLoader(yaml.SafeLoader):
         return collections.OrderedDict(self.construct_pairs(node))
 
 
-TemplateDumper.add_representer(six.text_type,
+TemplateDumper.add_representer(str,
                                TemplateDumper.description_presenter)
-TemplateDumper.add_representer(six.binary_type,
+TemplateDumper.add_representer(bytes,
                                TemplateDumper.description_presenter)
 
 TemplateDumper.add_representer(collections.OrderedDict,
