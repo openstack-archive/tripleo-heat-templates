@@ -17,7 +17,6 @@ import tempfile
 from unittest import mock
 
 from oslotest import base
-import six
 import testscenarios
 
 from tripleo_heat_templates import environment_generator
@@ -727,8 +726,8 @@ resource_registry:
             cls.content_scenarios)
 
     def test_generator(self):
-        fake_input = io.StringIO(six.text_type(self.input_file))
-        fake_template = io.StringIO(six.text_type(self.template))
+        fake_input = io.StringIO(str(self.input_file))
+        fake_template = io.StringIO(str(self.template))
         _, fake_output_path = tempfile.mkstemp()
         fake_output = open(fake_output_path, 'w')
         with mock.patch('tripleo_heat_templates.environment_generator.open',
@@ -740,7 +739,7 @@ resource_registry:
             if self.nested_output:
                 _, fake_nested_output_path = tempfile.mkstemp()
                 fake_nested_output = open(fake_nested_output_path, 'w')
-                fake_template2 = io.StringIO(six.text_type(self.template))
+                fake_template2 = io.StringIO(str(self.template))
                 mock_se = [fake_input, fake_template, fake_output,
                            fake_template2, fake_nested_output]
             mock_open.side_effect = mock_se

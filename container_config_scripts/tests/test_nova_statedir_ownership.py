@@ -18,7 +18,6 @@ from unittest import mock
 import contextlib
 import os
 from os import stat as orig_stat
-import six
 import stat
 import sys
 
@@ -375,7 +374,7 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
 
         # Determine which paths should change uid/gid
         expected_changes = {}
-        for k, v in six.iteritems(testtree):
+        for k, v in testtree.items():
             if k == '/var/lib/nova/upgrade_marker':
                 # Ignore the marker, it should be deleted
                 continue
@@ -394,7 +393,7 @@ class NovaStatedirOwnershipManagerTestCase(base.BaseTestCase):
 
         with fake_testtree(testtree) as (_, _, _, _, fake_unlink, _, _):
             NovaStatedirOwnershipManager('/var/lib/nova').run()
-            for fn, expected in six.iteritems(expected_changes):
+            for fn, expected in expected_changes.items():
                 assert_ids(testtree, fn, expected[0], expected[1])
             fake_unlink.assert_called_with('/var/lib/nova/upgrade_marker')
 

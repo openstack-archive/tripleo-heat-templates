@@ -15,7 +15,6 @@ import argparse
 import glob
 import os
 import re
-import six
 import sys
 import traceback
 import yaml
@@ -24,7 +23,7 @@ from copy import copy
 
 
 def is_string(value):
-    return isinstance(value, six.string_types)
+    return isinstance(value, str)
 
 
 # Only permit the template alias versions.
