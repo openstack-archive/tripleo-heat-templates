@@ -635,17 +635,29 @@ resources:
       type: json
       value:
         yaql:
-          expression: let(physnets => switch(isList($.data.physnets) => $.data.physnets, true => [])) ->
-                      $physnets.zip($.data.macs).toDict($.first(), $.last())
+          # In cases where OS::TripleO::OVNMacAddressPort is set to OS::Heat::None (ie. standalone),
+          # the macs will be null resulting in a mapping like { "datacentre" : null}. This isn't
+          # particularly valid or useful and will cause the ovn_controller to crash.  This
+          # outer yaql expression filters out any of these sorts of mappings. There are probably
+          # alternative approaches that would also work like deleting entries from the 'macs'
+          # but I'm wary of breaking up the implied matched ordering between the bridge mappings
+          # and the ports in the event that nulls and real values might coexist in some weird
+          # case.
+          expression: let(macmap=>switch(isDict($.data.macmap) => $.data.macmap, true => {})) -> $macmap.deleteAll($macmap.keys().where($macmap[$] = null))
           data:
-            physnets:
+            macmap:
               yaql:
-                expression: $.data.select($.split(':').first())
-                data: {get_param: OVNBridgeMappings}
-            macs:
-              yaql:
-                expression: switch(isDict($.data) => $.data.values(), true => [])
-                data: {get_attr: [{{server_resource_name}}OVNChassisMacPorts, attributes, mac_address]}
+                expression: let(physnets => switch(isList($.data.physnets) => $.data.physnets, true => [])) ->
+                            $physnets.zip($.data.macs).toDict($.first(), $.last())
+                data:
+                  physnets:
+                    yaql:
+                      expression: $.data.select($.split(':').first())
+                      data: {get_param: OVNBridgeMappings}
+                  macs:
+                    yaql:
+                      expression: switch(isDict($.data) => $.data.values(), true => [])
+                      data: {get_attr: [{{server_resource_name}}OVNChassisMacPorts, attributes, mac_address]}
 
 outputs:
   ansible_host_vars_map:
