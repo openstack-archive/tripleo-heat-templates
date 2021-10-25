@@ -398,6 +398,14 @@ outputs:
           vars:
             ovn_controller_image: {get_param: ContainerOvnControllerImage}
             ovn_interaction_bridge: {get_param: OVNIntegrationBridge}
+            enable_internal_tls: {get_param: EnableInternalTLS}
+            internal_tls_ca: {get_param: InternalTLSCAFile}
+            ovn_cert_network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            ovn_cert_key_size:
+              if:
+                - key_size_override_unset
+                - {get_param: CertificateKeySize}
+                - {get_param: ContainerOvnCertificateKeySize}
           tags:
             - never
             - nova_hybrid_state
@@ -414,7 +422,33 @@ outputs:
             - name: Implement the hybrid state for ovn_controller
               when: hybrid_ovn_controller.rc != 0
               block:
-                - name: Update the ovn_controller paunch image in config
+                - name: Get certificate if needed
+                  when: enable_internal_tls|bool
+                  shell: |
+                    /usr/bin/getcert list -i ovn_controller || \
+                    /usr/bin/getcert request -I ovn_controller \
+                    -f /etc/pki/tls/certs/ovn_controller.crt \
+                    -c IPA \
+                    -N CN=$( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -K ovn_controller/$( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -D $( hiera -c /etc/puppet/hiera.yaml fqdn_{{ovn_cert_network}} ) \
+                    -g {{ovn_cert_key_size}} \
+                    -w -k /etc/pki/tls/private/ovn_controller.key
+                - name: Update the ovn_controller paunch image in config with TLS
+                  when: enable_internal_tls|bool
+                  shell: |
+                    set -o pipefail
+                    jq '.ovn_controller.image = "{{ ovn_controller_image }}" |
+                        .ovn_controller.volumes += [ "/var/lib/openvswitch/ovn:/run/ovn:shared,z",
+                                      "/var/log/containers/openvswitch:/var/log/ovn:z",
+                                      "/etc/pki/tls/private/ovn_controller.key:/etc/pki/tls/private/ovn_controller.key",
+                                      "/etc/pki/tls/certs/ovn_controller.crt:/etc/pki/tls/certs/ovn_controller.crt",
+                                      "{{ internal_tls_ca }}:{{ internal_tls_ca}}" ] |
+                        {"ovn_controller": .ovn_controller }' \
+                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
+                    /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json
+                - name: Update the ovn_controller paunch image in config without TLS
+                  when: not enable_internal_tls|bool
                   shell: |
                     set -o pipefail
                     jq '.ovn_controller.image = "{{ ovn_controller_image }}" |
@@ -422,6 +456,13 @@ outputs:
                         {"ovn_controller": .ovn_controller }' \
                     /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
                     /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json
+                - name: Modify /var/lib/kolla/config_files/ovn_controller.json for ssl
+                  when: enable_internal_tls|bool
+                  shell: |
+                    set -o pipefail
+                    jq '.command = "/usr/bin/ovn-controller --pidfile --log-file unix:/run/openvswitch/db.sock -p /etc/pki/tls/private/ovn_controller.key -c /etc/pki/tls/certs/ovn_controller.crt -C {{ internal_tls_ca }}"' \
+                    /var/lib/kolla/config_files/ovn_controller.json > /var/lib/kolla/config_files/ovn_controller.json_new &&\
+                    mv /var/lib/kolla/config_files/ovn_controller.json_new /var/lib/kolla/config_files/ovn_controller.json
                 - name: Make sure the Undercloud hostname is included in /etc/hosts
                   when:
                     - undercloud_hosts_entries is defined
@@ -459,7 +500,7 @@ outputs:
                   docker_container:
                     name: ovn_controller
                     state: absent
-                - name: Apply paunch config if insecure registries are empty
+                - name: Apply paunch config for ovn_controller
                   shell: |
                     paunch apply --file /var/lib/tripleo-config/docker-container-hybrid_ovn_controller.json --config-id hybrid_ovn_controller
             - name: Get ovn remote setting
