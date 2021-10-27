@@ -53,15 +53,23 @@ resources:
     type: OS::Heat::Value
     properties:
       value:
-        # NOTE(jaosorior) Get unique network names to create
-        # certificates for those. We skip the tenant network since
-        # we don't need a certificate for that, and the external
-        # network will be handled in another template.
-        - ctlplane
+        # NOTE(jaosorior|hjensas) Get unique network names to create
+        # certificates for those.
+        # * The 'ctlplane' network is always included.
+        # * The tenant network is skipped in jinja2 filter since it
+        #   does not have a VIP. We don't need a certificate for the
+        #   tenant nework.
+        # * The "external" (PublicNetwork) network will be handled in
+        #   another template, it is skipped by a yaql filter on the
+        #   PublicNetwork defined in ServiceNetMap.
+        yaql:
+          expression: let(public_network => $.data.public_network) -> $.data.networks.where($ != $public_network or $ = 'ctlplane')
+          data:
+            public_network: {get_param: [ServiceNetMap, PublicNetwork]}
+            networks:
+              - ctlplane
 {%- for network in networks if network.enabled|default(true) and network.vip|default(false) %}
-  {%- if network.name_lower != 'external' and network.name_lower != 'tenant' %}
-        - {{network.name_lower}}
-  {%- endif %}
+              - {{network.name_lower}}
 {%- endfor %}
 {% raw -%}
 outputs:
