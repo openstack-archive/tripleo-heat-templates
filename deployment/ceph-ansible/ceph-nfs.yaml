@@ -142,6 +142,45 @@ outputs:
                 copy:
                   dest: "{{playbook_dir}}/ceph-ansible/group_vars/nfss.yml"
                   content: "{{ceph_ansible_group_vars_nfss|to_nice_yaml}}"
+        - - name: Restart ceph-nfs daemon
+            become: true
+            when:
+              - ceph_ansible_playbooks_default is defined
+              - step|int == 3
+              - '"/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml" in ceph_ansible_playbooks_default'
+            tags:
+              - ceph
+            block:
+              - name: reload systemd daemon
+                systemd:
+                  daemon_reload: yes
+              # (fpantano) ceph-nfs@.service ExecStop doesn't work properly when the unit is ceph4
+              # but there's still a ceph3 container running
+              - name: look for any ceph3 ceph-nfs leftovers
+                command: "{{ container_cli }} ps -q -f 'name=ceph-?(.*)-nfs.*'"
+                delegate_to: '{{hostvars[groups[''overcloud''][0]][''ceph_nfs_short_bootstrap_node_name'']}}'
+                register: ceph_nfs_id
+                run_once: true
+              - name: stop ceph3 ceph-nfs containers
+                command: "{{ container_cli }} stop {{ ceph_nfs_id.stdout_lines[0] }}"
+                delegate_to: '{{hostvars[groups[''overcloud''][0]][''ceph_nfs_short_bootstrap_node_name'']}}'
+                when: ceph_nfs_id.stdout | length > 0
+                run_once: true
+              - name: restart the ceph-nfs daemon
+                command: "pcs resource restart ceph-nfs"
+                delegate_to: '{{hostvars[groups[''overcloud''][0]][''ceph_nfs_short_bootstrap_node_name'']}}'
+                run_once: true
+        - - name: Cleanup ceph-nfs daemon
+            become: true
+            command: "pcs resource cleanup ceph-nfs"
+            delegate_to: '{{hostvars[groups[''overcloud''][0]][''ceph_nfs_short_bootstrap_node_name'']}}'
+            run_once: true
+            when:
+              - ceph_ansible_playbooks_default is defined
+              - step|int == 5
+              - '"/usr/share/ceph-ansible/infrastructure-playbooks/rolling_update.yml" in ceph_ansible_playbooks_default'
+            tags:
+              - ceph
       external_update_tasks: {get_attr: [CephBase, role_data, external_update_tasks]}
       external_upgrade_tasks: {get_attr: [CephBase, role_data, external_upgrade_tasks]}
       config_settings:
