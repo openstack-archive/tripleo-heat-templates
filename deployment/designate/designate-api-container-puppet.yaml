@@ -7,9 +7,14 @@ parameters:
   ContainerDesignateApiImage:
     description: image
     type: string
-  ContainerDesignateConfigImage:
+  ContainerDesignateApiConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+  DesignateApiLoggingSource:
+    type: json
+    default:
+      tag: openstack.designate.api
+      file: /var/log/containers/designate/api.log
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -33,6 +38,9 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
   DesignateWorkers:
     default: 0
     description: Number of workers for Designate services.
@@ -108,19 +116,30 @@ outputs:
             designate::keystone::authtoken::interface: 'internal'
             designate::keystone::authtoken::memcache_use_advanced_pool: {get_param: MemcacheUseAdvancedPool}
             designate::api::api_base_uri: { get_param: [EndpointMap, DesignatePublic, uri_no_suffix] }
-            tripleo::profile::base::designate::api::listen_ip:
+            designate::api::service_name: 'httpd'
+            designate::logging::log_file: '/var/log/designate/designate-api.log'
+            designate::wsgi::apache::ssl: {get_param: EnableInternalTLS}
+            designate::wsgi::apache::bind_host:
               str_replace:
                 template:
                   "%{hiera('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
-            tripleo::profile::base::designate::api::listen_port: 9001
+            designate::wsgi::apache::servername:
+              str_replace:
+                template:
+                  "%{hiera('fqdn_$NETWORK')}"
+                params:
+                  $NETWORK: {get_param: [ServiceNetMap, DesignateApiNetwork]}
           -
             if:
             - designate_workers_zero
             - {}
-            - designate::api::workers: {get_param: DesignateWorkers}
+            - designate::wsgi::apache::workers: {get_param: DesignateWorkers}
       service_config_settings:
+        rsyslog:
+          tripleo_logging_sources_designate_api:
+            - {get_param: DesignateApiLoggingSource}
         neutron_api:
           neutron::designate::password: {get_param: NeutronPassword}
           neutron::designate::url: {get_param: [EndpointMap, DesignateInternal, uri]}
@@ -128,18 +147,26 @@ outputs:
           neutron::designate::project_name: 'service'
       # BEGIN DOCKER SETTINGS
       puppet_config:
-        config_volume: designate
+        config_volume: designate_api
         puppet_tags: designate_config,designate_api_paste_ini
         step_config: |
           include tripleo::profile::base::designate::api
-        config_image: {get_param: ContainerDesignateConfigImage}
+        config_image: {get_param: ContainerDesignateApiConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/designate_api.json:
-          command: /usr/bin/designate-api --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/api.log
+          command: /usr/sbin/httpd -DFOREGROUND
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
               merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.modules.d"
+              dest: "/etc/httpd/conf.modules.d"
+              merge: false
               preserve_properties: true
           permissions:
             - path: /var/log/designate
@@ -153,14 +180,22 @@ outputs:
             net: host
             stop_grace_period: 300
             privileged: false
+            user: root
             restart: always
+            healthecheck:
+              test: /openstack/healthcheck
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 -
                   - /var/lib/kolla/config_files/designate_api.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/designate:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/puppet-generated/designate_api:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
+                  - /var/log/containers/httpd/designate-api:/var/log/httpd:z
+                - if:
+                    - {get_param: EnableInternalTLS}
+                    - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
@@ -172,3 +207,4 @@ outputs:
             mode: "{{ item.mode }}"
           with_items:
             - { 'path': /var/log/containers/designate, 'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/log/containers/httpd/designate-api, 'setype': container_file_t, 'mode': '0750' }
