@@ -7,9 +7,13 @@ parameters:
   ContainerCeilometerNotificationImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerCeilometerConfigImage:
     description: The container image to use for the ceilometer config_volume
     type: string
+    tags:
+      - role_specific
   CeilometerAgentNotificationLoggingSource:
     type: json
     default:
@@ -102,6 +106,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerCeilometerNotificationImage: ContainerCeilometerNotificationImage
+              ContainerCeilometerConfigImage: ContainerCeilometerConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerCeilometerNotificationImage: {get_param: ContainerCeilometerNotificationImage}
+              ContainerCeilometerConfigImage: {get_param: ContainerCeilometerConfigImage}
+
 conditions:
   ceilometer_qdr_publish:
     or:
@@ -152,7 +170,7 @@ outputs:
         puppet_tags: ceilometer_config
         step_config: |
           include tripleo::profile::base::ceilometer::agent::notification
-        config_image: {get_param: ContainerCeilometerConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerCeilometerConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer_agent_notification.json:
           command: /usr/bin/ceilometer-agent-notification --logfile /var/log/ceilometer/agent-notification.log
@@ -167,7 +185,7 @@ outputs:
         step_3:
           ceilometer_init_log:
             start_order: 0
-            image: &ceilometer_agent_notification_image {get_param: ContainerCeilometerNotificationImage}
+            image: &ceilometer_agent_notification_image {get_attr: [RoleParametersValue, value, ContainerCeilometerNotificationImage]}
             net: none
             user: root
             command: ['/bin/bash', '-c', 'chown -R ceilometer:ceilometer /var/log/ceilometer']

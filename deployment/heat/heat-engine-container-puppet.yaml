@@ -7,9 +7,13 @@ parameters:
   ContainerHeatEngineImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerHeatConfigImage:
     description: The container image to use for the heat config_volume
     type: string
+    tags:
+      - role_specific
   HeatEngineLoggingSource:
     type: json
     default:
@@ -138,6 +142,20 @@ resources:
   HeatEngineLogging:
     type: OS::TripleO::Services::Logging::HeatEngine
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerHeatEngineImage: ContainerHeatEngineImage
+              ContainerHeatConfigImage: ContainerHeatConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerHeatEngineImage: {get_param: ContainerHeatEngineImage}
+              ContainerHeatConfigImage: {get_param: ContainerHeatConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Heat Engine role.
@@ -214,7 +232,7 @@ outputs:
             - "\n"
             - - include tripleo::profile::base::heat::engine
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerHeatConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerHeatConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/heat_engine.json:
           command:
@@ -241,7 +259,7 @@ outputs:
           get_attr: [HeatEngineLogging, docker_config, step_2]
         step_3:
           heat_engine_db_sync:
-            image: &heat_engine_image {get_param: ContainerHeatEngineImage}
+            image: &heat_engine_image {get_attr: [RoleParametersValue, value, ContainerHeatEngineImage]}
             net: host
             privileged: false
             detach: false
