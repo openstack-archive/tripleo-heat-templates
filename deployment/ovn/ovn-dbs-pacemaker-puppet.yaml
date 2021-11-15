@@ -7,9 +7,13 @@ parameters:
   ContainerOvnDbsImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerOvnDbsConfigImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -131,6 +135,20 @@ resources:
       OVNNorthboundServerPort: {get_param: OVNNorthboundServerPort}
       OVNSouthboundServerPort: {get_param: OVNSouthboundServerPort}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerOvnDbsImage: ContainerOvnDbsImage
+              ContainerOvnDbsConfigImage: ContainerOvnDbsConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerOvnDbsImage: {get_param: ContainerOvnDbsImage}
+              ContainerOvnDbsConfigImage: {get_param: ContainerOvnDbsConfigImage}
+
 outputs:
   role_data:
     description: Role data for the OVN Dbs HA role.
@@ -156,9 +174,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerOvnDbsImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerOvnDbsImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerOvnDbsImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerOvnDbsImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::ovn_dbs_bundle::nb_db_port: {get_param: OVNNorthboundServerPort}
             tripleo::profile::pacemaker::ovn_dbs_bundle::sb_db_port: {get_param: OVNSouthboundServerPort}
@@ -225,7 +243,7 @@ outputs:
           import_role:
             name: tripleo_container_tag
           vars:
-            container_image: {get_param: ContainerOvnDbsImage}
+            container_image: {get_attr: [RoleParametersValue, value, ContainerOvnDbsImage]}
             container_image_latest: *ovn_dbs_image_pcmklatest
         - name: OVNDbs HA Wrappers Step
           when: step|int == 3
@@ -295,7 +313,7 @@ outputs:
               when:
                 - old_ovn_dbs_image_id.stdout != new_ovn_dbs_image_id.stdout
           vars:
-            ovn_dbs_image: {get_param: ContainerOvnDbsImage}
+            ovn_dbs_image: {get_attr: [RoleParametersValue, value, ContainerOvnDbsImage]}
             ovn_dbs_image_latest: *ovn_dbs_image_pcmklatest
         # When ovn-dbs-bundle support was added, we didn't tag the ovn-dbs image
         # with pcmklatest. So, when update is run for the first time we need to
@@ -336,7 +354,7 @@ outputs:
               failed_when: false
             - name: ovn-dbs image facts
               set_fact:
-                ovn_dbs_image: {get_param: ContainerOvnDbsImage}
+                ovn_dbs_image: {get_attr: [RoleParametersValue, value, ContainerOvnDbsImage]}
                 ovn_dbs_image_latest: *ovn_dbs_image_pcmklatest
                 ovn_dbs_image_current: "{{ovn_dbs_image_current_res.stdout}}"
             - name: Temporarily tag the current ovn_dbs image id with the upgraded image name

@@ -7,10 +7,14 @@ parameters:
   ContainerHeatApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   # puppet needs the heat-wsgi-api binary from centos-binary-heat-api
   ContainerHeatApiConfigImage:
     description: The container image to use for the heat_api config_volume
     type: string
+    tags:
+      - role_specific
   HeatApiLoggingSource:
     type: json
     default:
@@ -107,6 +111,20 @@ resources:
   HeatApiLogging:
     type: OS::TripleO::Services::Logging::HeatApi
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerHeatApiImage: ContainerHeatApiImage
+              ContainerHeatApiConfigImage: ContainerHeatApiConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerHeatApiImage: {get_param: ContainerHeatApiImage}
+              ContainerHeatApiConfigImage: {get_param: ContainerHeatApiConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Heat API role.
@@ -187,7 +205,7 @@ outputs:
         puppet_tags: heat_config,file,concat,file_line,heat_api_paste_ini
         step_config: |
           include tripleo::profile::base::heat::api
-        config_image: {get_param: ContainerHeatApiConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerHeatApiConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/heat_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -224,7 +242,7 @@ outputs:
           get_attr: [HeatApiLogging, docker_config, step_2]
         step_4:
           heat_api:
-            image: {get_param: ContainerHeatApiImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerHeatApiImage]}
             net: host
             privileged: false
             restart: always
@@ -249,7 +267,7 @@ outputs:
                 - {get_param: HeatApiOptEnvVars}
                 - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           heat_api_cron:
-            image: {get_param: ContainerHeatApiImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerHeatApiImage]}
             net: host
             user: root
             privileged: false

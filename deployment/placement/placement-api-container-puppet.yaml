@@ -7,9 +7,13 @@ parameters:
   ContainerPlacementImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerPlacementConfigImage:
     description: The container image to use for the placement config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -122,6 +126,20 @@ resources:
   PlacementLogging:
     type: OS::TripleO::Services::Logging::PlacementApi
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerPlacementImage: ContainerPlacementImage
+              ContainerPlacementConfigImage: ContainerPlacementConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerPlacementImage: {get_param: ContainerPlacementImage}
+              ContainerPlacementConfigImage: {get_param: ContainerPlacementConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Placement API role.
@@ -225,7 +243,7 @@ outputs:
             - "\n"
             - - {get_attr: [MySQLClient, role_data, step_config]}
               - "include tripleo::profile::base::placement::api"
-        config_image: {get_param: ContainerPlacementConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerPlacementConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/placement_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -266,7 +284,7 @@ outputs:
         step_3:
           placement_api_db_sync:
             start_order: 1
-            image: &placement_api_image {get_param: ContainerPlacementImage}
+            image: &placement_api_image {get_attr: [RoleParametersValue, value, ContainerPlacementImage]}
             net: host
             detach: false
             user: root

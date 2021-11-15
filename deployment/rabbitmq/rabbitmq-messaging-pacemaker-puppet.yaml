@@ -7,9 +7,13 @@ parameters:
   ContainerRabbitmqImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerRabbitmqConfigImage:
     description: The container image to use for the rabbitmq config_volume
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -81,6 +85,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerRabbitmqImage: ContainerRabbitmqImage
+              ContainerRabbitmqConfigImage: ContainerRabbitmqConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerRabbitmqImage: {get_param: ContainerRabbitmqImage}
+              ContainerRabbitmqConfigImage: {get_param: ContainerRabbitmqConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Rabbitmq API role.
@@ -108,9 +126,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerRabbitmqImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerRabbitmqImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::rabbitmq_bundle::rabbitmq_docker_control_port: 3122
             tripleo::profile::pacemaker::rabbitmq_bundle::container_backend: {get_param: ContainerCli}
@@ -124,7 +142,7 @@ outputs:
             - "\n"
             - - "['Rabbitmq_policy', 'Rabbitmq_user'].each |String $val| { noop_resource($val) }"
               - "include tripleo::profile::pacemaker::rabbitmq_bundle"
-        config_image: {get_param: ContainerRabbitmqConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerRabbitmqConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/rabbitmq.json:
           command: /usr/sbin/pacemaker_remoted
@@ -168,7 +186,7 @@ outputs:
         step_1:
           rabbitmq_bootstrap:
             start_order: 0
-            image: {get_param: ContainerRabbitmqImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
             net: host
             privileged: false
             volumes:
@@ -200,7 +218,7 @@ outputs:
                 - if:
                   - {get_param: ConfigDebug}
                   - - '--debug'
-            image: {get_param: ContainerRabbitmqImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
@@ -242,7 +260,7 @@ outputs:
               import_role:
                 name: tripleo_container_tag
               vars:
-                container_image: {get_param: ContainerRabbitmqImage}
+                container_image: {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
                 container_image_latest: *rabbitmq_image_pcmklatest
             - name: RabbitMQ HA Wrappers Step
               when: step|int == 2
@@ -266,7 +284,7 @@ outputs:
           block: &rabbitmq_fetch_retag_container_tasks
             - name: Get container rabbitmq image
               set_fact:
-                rabbitmq_image: {get_param: ContainerRabbitmqImage}
+                rabbitmq_image: {get_attr: [RoleParametersValue, value, ContainerRabbitmqImage]}
                 rabbitmq_image_latest: *rabbitmq_image_pcmklatest
             - name: Pull latest rabbitmq images
               command: "{{container_cli}} pull {{rabbitmq_image}}"

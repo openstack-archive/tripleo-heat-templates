@@ -7,9 +7,13 @@ parameters:
   ContainerGnocchiApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerGnocchiConfigImage:
     description: The container image to use for the gnocchi config_volume
     type: string
+    tags:
+      - role_specific
   GnocchiApiLoggingSource:
     type: json
     default:
@@ -159,6 +163,20 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerGnocchiApiImage: ContainerGnocchiApiImage
+              ContainerGnocchiConfigImage: ContainerGnocchiConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerGnocchiApiImage: {get_param: ContainerGnocchiApiImage}
+              ContainerGnocchiConfigImage: {get_param: ContainerGnocchiConfigImage}
+
 outputs:
   role_data:
     description: Role data for the gnocchi API role.
@@ -255,7 +273,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::gnocchi::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerGnocchiConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerGnocchiConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/gnocchi_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -308,7 +326,7 @@ outputs:
         # db sync runs before permissions set by kolla_config
         step_2:
           gnocchi_init_log:
-            image: &gnocchi_api_image {get_param: ContainerGnocchiApiImage}
+            image: &gnocchi_api_image {get_attr: [RoleParametersValue, value, ContainerGnocchiApiImage]}
             net: none
             user: root
             volumes:

@@ -7,9 +7,13 @@ parameters:
   ContainerDesignateCentralImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -93,6 +97,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerDesignateCentralImage: ContainerDesignateCentralImage
+              ContainerDesignateConfigImage: ContainerDesignateConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerDesignateCentralImage: {get_param: ContainerDesignateCentralImage}
+              ContainerDesignateConfigImage: {get_param: ContainerDesignateConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Designate Central role.
@@ -149,7 +167,7 @@ outputs:
             - - {get_attr: [DesignateBase, role_data, step_config]}
               - "include tripleo::profile::base::designate::central"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerDesignateConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerDesignateConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/designate_central.json:
           command: /usr/bin/designate-central --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/central.log
@@ -179,7 +197,7 @@ outputs:
         # db sync runs before permissions set by kolla_config
         step_2:
           designate_init_logs:
-            image: &designate_central_image {get_param: ContainerDesignateCentralImage}
+            image: &designate_central_image {get_attr: [RoleParametersValue, value, ContainerDesignateCentralImage]}
             net: none
             privileged: false
             user: root

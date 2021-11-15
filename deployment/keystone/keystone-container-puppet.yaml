@@ -7,9 +7,13 @@ parameters:
   ContainerKeystoneImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerKeystoneConfigImage:
     description: The container image to use for the keystone config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -433,6 +437,20 @@ resources:
   KeystoneLogging:
     type: OS::TripleO::Services::Logging::Keystone
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerKeystoneImage: ContainerKeystoneImage
+              ContainerKeystoneConfigImage: ContainerKeystoneConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerKeystoneImage: {get_param: ContainerKeystoneImage}
+              ContainerKeystoneConfigImage: {get_param: ContainerKeystoneConfigImage}
+
 conditions:
   public_tls_enabled:
     and:
@@ -693,7 +711,7 @@ outputs:
               - |
                 include tripleo::profile::base::keystone
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: &keystone_config_image {get_param: ContainerKeystoneConfigImage}
+        config_image: &keystone_config_image {get_attr: [RoleParametersValue, value, ContainerKeystoneConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/keystone.json:
           command: /usr/sbin/httpd
@@ -729,7 +747,7 @@ outputs:
           get_attr: [KeystoneLogging, docker_config, step_2]
         step_3:
           keystone_db_sync:
-            image: &keystone_image {get_param: ContainerKeystoneImage}
+            image: &keystone_image {get_attr: [RoleParametersValue, value, ContainerKeystoneImage]}
             net: host
             user: root
             privileged: false

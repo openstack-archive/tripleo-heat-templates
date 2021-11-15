@@ -7,9 +7,13 @@ parameters:
   ContainerMysqlImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerMysqlConfigImage:
     description: The container image to use for the mysql config_volume
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -98,6 +102,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerMysqlImage: ContainerMysqlImage
+              ContainerMysqlConfigImage: ContainerMysqlConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerMysqlImage: {get_param: ContainerMysqlImage}
+              ContainerMysqlConfigImage: {get_param: ContainerMysqlConfigImage}
+
 conditions:
   docker_enabled: {equals: [{get_param: ContainerCli}, 'docker']}
 
@@ -148,9 +166,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerMysqlImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerMysqlImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::database::mysql_bundle::control_port: 3123
             tripleo::profile::pacemaker::database::mysql_bundle::container_backend: {get_param: ContainerCli}
@@ -174,7 +192,7 @@ outputs:
             - - "['Mysql_datadir', 'Mysql_user', 'Mysql_database', 'Mysql_grant', 'Mysql_plugin'].each |String $val| { noop_resource($val) }"
               - "exec {'wait-for-settle': command => '/bin/true' }"
               - "include tripleo::profile::pacemaker::database::mysql_bundle"
-        config_image: {get_param: ContainerMysqlConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerMysqlConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/mysql.json:
           command: /usr/sbin/pacemaker_remoted
@@ -210,7 +228,7 @@ outputs:
           mysql_data_ownership:
             start_order: 0
             detach: false
-            image: {get_param: ContainerMysqlImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
             net: host
             user: root
             # Kolla does only non-recursive chown
@@ -220,7 +238,7 @@ outputs:
           mysql_bootstrap:
             start_order: 1
             detach: false
-            image: {get_param: ContainerMysqlImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
             net: host
             user: root
             # Kolla bootstraps aren't idempotent, explicitly checking if bootstrap was done
@@ -270,7 +288,7 @@ outputs:
                 - if:
                   - {get_param: ConfigDebug}
                   - - '--debug'
-            image: {get_param: ContainerMysqlImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
@@ -304,7 +322,7 @@ outputs:
               import_role:
                 name: tripleo_container_tag
               vars:
-                container_image: {get_param: ContainerMysqlImage}
+                container_image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
                 container_image_latest: *mysql_image_pcmklatest
             - name: MySQL HA Wrappers Step
               when: step|int == 2
@@ -328,7 +346,7 @@ outputs:
           block: &mysql_fetch_retag_container_tasks
             - name: Get container galera image
               set_fact:
-                galera_image: {get_param: ContainerMysqlImage}
+                galera_image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
                 galera_image_latest: *mysql_image_pcmklatest
             - name: Pull latest galera images
               command: "{{container_cli}} pull {{galera_image}}"
