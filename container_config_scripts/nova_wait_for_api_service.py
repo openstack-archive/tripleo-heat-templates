@@ -16,6 +16,7 @@
 import argparse
 from configparser import ConfigParser
 import logging
+import logging.handlers
 import os
 import sys
 import time
@@ -37,8 +38,17 @@ if debug.lower() == 'true':
 else:
     loglevel = logging.INFO
 
-logging.basicConfig(stream=sys.stdout, level=loglevel)
 LOG = logging.getLogger('nova_wait_for_api_service')
+LOG_FORMAT = ('%(asctime)s.%(msecs)03d %(levelname)s '
+              '%(name)s %(message)s')
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+LOG.handlers.clear()
+LOG.setLevel(loglevel)
+LOG.propagate = True
+formatter = logging.Formatter(fmt=LOG_FORMAT, datefmt=DATE_FORMAT)
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
+LOG.addHandler(stream_handler)
 
 iterations = 60
 timeout = 10
