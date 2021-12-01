@@ -80,6 +80,9 @@ parameters:
     type: string
     description: Specifies the default CA cert to use if TLS is used for
                  services in the internal network.
+  OVNDBSUpgradeTransfer:
+    type: boolean
+    default: true
   OVNDBSPacemakerTimeout:
     description: timeout for monitor of ovn dbs resource in seconds
     type: number
@@ -385,6 +388,40 @@ outputs:
           vars:
             tripleo_ha_wrapper_minor_update: true
 
+      external_upgrade_tasks:
+        - vars:
+            ovn_upgrade_transfer: {get_param: OVNDBSUpgradeTransfer}
+          when:
+            - step|int == 2
+            - ovn_upgrade_transfer
+          tags:
+            - never
+            - system_upgrade_transfer_data
+          block:
+            - name: Check which ovndb was contacting master
+              become: true
+              delegate_to: "{{item}}"
+              with_items:
+                - "{{hostvars[groups['overcloud'][0]]['ovn_dbs_short_node_names'][1]}}"
+                - "{{hostvars[groups['overcloud'][0]]['ovn_dbs_short_node_names'][2]}}"
+              shell: |
+                grep $( hiera -c /etc/puppet/hiera.yaml ovn_dbs_vip ) /var/lib/openvswitch/ovn/ovnnb-active.conf
+              failed_when: false
+              register: ovnnb_active
+            - name: register transfer host
+              set_fact:
+                ovndbs_source_host: "{{item.item}}"
+              when: item.rc != 0
+              with_items: "{{ovnnb_active.results}}"
+            - name: Transfer ovn data
+              include_role:
+                name: tripleo-transfer
+              vars:
+                tripleo_transfer_src_dir: /var/lib/openvswitch/ovn
+                tripleo_transfer_src_host: "{{ovndbs_source_host}}"
+                tripleo_transfer_dest_dir: /var/lib/openvswitch/ovn
+                tripleo_transfer_dest_host: "{{hostvars[groups['overcloud'][0]]['ovn_dbs_short_bootstrap_node_name']}}"
+                tripleo_transfer_flag_file: /var/lib/tripleo/transfer-flags/var-lib-openvswitch
       upgrade_tasks:
         - name: Prepare switch of ovn-dbs image name
           when:
