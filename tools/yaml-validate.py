@@ -776,6 +776,8 @@ def validate_docker_service(filename, tpl):
                         print('ERROR: %s should not be in puppet_config section.'
                               % key)
                         return 1
+            if validate_ct_volumes(puppet_config.get('volumes')):
+                return 1
             for key in REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS:
                 if key not in puppet_config:
                     print('ERROR: %s is required in puppet_config for %s.'
@@ -813,6 +815,8 @@ def validate_docker_service(filename, tpl):
                         print('ERROR: bootstrap_host_exec needs to run '
                               'as the root user.')
                         return 1
+                    if validate_ct_volumes(container.get('volumes')):
+                        return 1
 
         if 'upgrade_tasks' in role_data and role_data['upgrade_tasks']:
             if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
@@ -827,6 +831,38 @@ def validate_docker_service(filename, tpl):
                       % (param, filename))
                 return 1
     return 0
+
+
+def validate_ct_volumes(volumes):
+    '''Ensure we don't have any trailing "/" in the volume'''
+    if not volumes:
+        return 0
+    if isinstance(volumes, list):
+        # Plain list without much complications
+        for vol in volumes:
+            if isinstance(vol, dict):
+                # Avoid 'if'
+                continue
+            vol_def = vol.split(':')
+            if vol_def[0][-1] == '/' or vol_def[1][-1] == '/':
+                print('ERROR: trailing "/" detected for {}'.format(vol))
+                return 1
+        return 0
+
+    ret = 0
+    if isinstance(volumes, dict):
+        # We probably face a list_concat thing. Clean and re-run!
+        # First avoid the get_attr.
+        if 'get_attr' in list(volumes.keys()):
+            return 0
+        if 'list_concat' in list(volumes.keys()):
+            for vol in volumes['list_concat']:
+                if isinstance(vol, dict):
+                    continue
+                ret += validate_ct_volumes(vol)
+            return ret
+    print('ERROR: unknown "volumes" type: {}'.format(volumes))
+    return 1
 
 
 def validate_docker_logging_template(filename, tpl):
