@@ -459,28 +459,7 @@ outputs:
           config_files: *nova_api_db_sync
           permissions: *nova_api_permissions
         /var/lib/kolla/config_files/nova_api_map_cell0.json:
-          command:
-            str_replace:
-              template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
-              params:
-                CELL0DB:
-                  list_join:
-                  - ''
-                  - - '{scheme}'
-                    - '://'
-                    - '{username}'
-                    - ':'
-                    - '{password}'
-                    - '@'
-                    -
-                      if:
-                        - mysql_ipv6_use_ip_address
-                        - '[{hostname}]'
-                        - '{hostname}'
-                    - '/'
-                    - 'nova_cell0'
-                    - '?'
-                    - '{query}'
+          command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_map_cell0.sh"
           config_files: *nova_api_db_sync
           permissions: *nova_api_permissions
         /var/lib/kolla/config_files/nova_api_ensure_default_cell.json:
@@ -553,6 +532,47 @@ outputs:
                         - '/'
                         - '?'
                         - '{query}'
+            nova_api_map_cell0.sh:
+              mode: "0700"
+              content:
+                str_replace:
+                  template: |
+                    #!/bin/bash
+                    CLIST=$(su nova -s /bin/bash -c "nova-manage cell_v2 list_cells")
+                    CELLID=$(printf "$CLIST" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "cell0" {print $4}')
+                    CELLDBC=$(printf "$CLIST" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "cell0" {print $8}')
+                    if [ "$CELLID" ]; then
+                      if [ ! "$CELLDBC" = "CELL0DB" ]; then
+                        # NOTE(bogdando): cached data must be updated w/ SIGHUP
+                        # for all the scheduler, conductor, API service workers.
+                        # For now that's achieved as the containers get recreated
+                        echo "(cellv2) Updating cell0 cell_v2 cell $CELLID"
+                        su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 update_cell --cell_uuid $CELLID --name=cell0 --database_connection='CELL0DB'"
+                      fi
+                    else
+                      echo "(cellv2) Creating cell0 cell_v2 cell"
+                      su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 map_cell0 --database_connection='CELL0DB'"
+                    fi
+                    # skip DB sync as the conductor container executes it later
+                  params:
+                    CELL0DB:
+                      list_join:
+                      - ''
+                      - - '{scheme}'
+                        - '://'
+                        - '{username}'
+                        - ':'
+                        - '{password}'
+                        - '@'
+                        -
+                          if:
+                            - mysql_ipv6_use_ip_address
+                            - '[{hostname}]'
+                            - '{hostname}'
+                        - '/'
+                        - 'nova_cell0'
+                        - '?'
+                        - '{query}'
       docker_config:
         step_2:
           get_attr: [NovaApiLogging, docker_config, step_2]
@@ -584,6 +604,7 @@ outputs:
                 - {get_attr: [NovaApiLogging, volumes]}
                 - - /var/lib/kolla/config_files/nova_api_map_cell0.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/container-config-scripts/nova_api_map_cell0.sh:/nova_api_map_cell0.sh:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
           nova_api_ensure_default_cell:
