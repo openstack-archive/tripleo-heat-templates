@@ -165,6 +165,19 @@ outputs:
             - step|int == 1
             - unbound_listen_ips|length == 0
           block:
+            - name: Get the subnet id for the proper network
+              openstack.cloud.subnets_info:
+                name:
+                  if:
+                    - public_net_is_ctlplane
+                    - ctlplane_subnet
+                    -
+                      str_replace:
+                        template:
+                          "$NETWORK_subnet"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, PublicNetwork] }
+              register: subnet_info
             - name: Create a neutron port for a new address
               os_port:
                 state: present
@@ -173,6 +186,10 @@ outputs:
                     - public_net_is_ctlplane
                     - 'ctlplane'
                     - { get_param: [ServiceNetMap, PublicNetwork] }
+                # NOTE(beagles): Seems to be required for some deployments to make sure
+                # port gets an IP address.
+                fixed_ips:
+                  - subnet_id: "{{ subnet_info.openstack_subnets[0].id }}"
                 no_security_groups: True
                 name: "unbound-designate-{{ item }}-integration-port"
               register: _unbound_designate_ports
