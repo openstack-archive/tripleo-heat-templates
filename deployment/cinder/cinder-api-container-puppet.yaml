@@ -54,6 +54,11 @@ parameters:
     default: tripleo
     description: The name of Cinder's default volume type.
     type: string
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9]+"
+      description: >
+        The default volume type must be at least 1 character and contain only
+        letters and numbers.
   CinderEnableDBPurge:
     default: true
     description: |
@@ -439,7 +444,7 @@ outputs:
             state: absent
           when:
             - step|int == 4
-        - name: Manage Cinder Volume Type
+        - name: Manage Cinder's default volume type
           become: true
           vars:
             default_volume_type: {get_param: CinderDefaultVolumeType}
@@ -451,6 +456,13 @@ outputs:
           shell: |
             if ! openstack volume type show "{{ default_volume_type }}"; then
                 openstack volume type create --public "{{ default_volume_type }}"
+            fi
+            eval $(openstack volume type show __DEFAULT__ -f shell -c id -c description)
+            if [ -n "$id" ]; then
+                tripleo_descr="For internal use, '{{ default_volume_type }}' is the default volume type"
+                if [ "$description" != "$tripleo_descr" ]; then
+                    openstack volume type set $id --description "$tripleo_descr"
+                fi
             fi
           args:
             executable: /bin/bash
