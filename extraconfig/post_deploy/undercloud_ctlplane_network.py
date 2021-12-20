@@ -180,16 +180,42 @@ def _neutron_segment_update(sdk, segment_id, name):
         raise
 
 
-def _ensure_neutron_router(sdk, name, subnet_id):
-    # If the router already exist, don't try to create it again.
-    if list(sdk.network.routers(name=name)):
-        return
-
+def _ensure_neutron_router(sdk, subnet):
     try:
-        router = sdk.network.create_router(name=name, admin_state_up='true')
-        sdk.network.add_interface_to_router(router.id, subnet_id=subnet_id)
+        router = sdk.network.find_router(name_or_id=subnet.name)
+        if router is None:
+            sdk.network.create_router(name=subnet.name,
+                                      admin_state_up='true')
     except Exception:
-        print('ERROR: Create router for subnet %s failed.' % name)
+        print('ERROR: Create router for subnet %s failed.' % subnet.name)
+        raise
+
+
+def _add_router_port(sdk, subnet):
+    try:
+        router = sdk.network.find_router(name_or_id=subnet.name)
+        sdk.network.add_interface_to_router(router.id, subnet_id=subnet.id)
+    except Exception:
+        print('ERROR: Add router port for subnet %s failed.' % subnet.name)
+        raise
+
+
+def _remove_router_port(sdk, subnet):
+    try:
+        router = sdk.network.find_router(name_or_id=subnet.name)
+        if router is None:
+            return
+
+        router_port = next(sdk.network.ports(
+            network_id=subnet.network_id,
+            device_owner='network:router_interface'))
+        sdk.network.remove_interface_from_router(router.id, subnet.id,
+                                                 router_port.id)
+    except StopIteration:
+        # There is no router port
+        pass
+    except Exception:
+        print('ERROR: Delete router %s failed.' % subnet.name)
         raise
 
 
@@ -229,11 +255,20 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
     """Create's and updates the ctlplane subnet on the segment that is local to
     the underclud.
     """
-
     s = CONF['subnets'][CONF['local_subnet']]
+    # If the subnet is IPv6 we need to start a router so that router
+    #  advertisements are sent out for stateless IP addressing to work.
+    # NOTE(hjensas): Don't do this for routed networks. The router will
+    #  use the address defined as gateway for the subnet, and in a
+    #  deployment with routed networks this will conflict with the router
+    #  in the infrastructure. The router in the infrastructure must be
+    #  configured to send router advertisements.
+    enable_ipv6_router = (CONF['enable_routed_networks'] is False
+                          and netaddr.IPNetwork(s['NetworkCidr']).version == 6)
     name = CONF['local_subnet']
     subnet = _get_subnet(sdk, s['NetworkCidr'], ctlplane_id)
     segment = _get_segment(sdk, CONF['physical_network'], ctlplane_id)
+
     if subnet:
         if CONF['enable_routed_networks'] and subnet.segment_id is None:
             # The subnet exists and does not have a segment association. Since
@@ -242,6 +277,12 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             # networks subnet by associating the network segment_id with the
             # subnet.
             _neutron_add_subnet_segment_association(sdk, subnet.id, segment.id)
+
+        # The router interface must be removed prior to updating the subnet
+        # in case the gateway_ip of the subnet changed.
+        if enable_ipv6_router:
+            _remove_router_port(sdk, subnet)
+
         _neutron_subnet_update(
             sdk, subnet.id, s['NetworkCidr'], s['NetworkGateway'],
             s['HostRoutes'], s.get('AllocationPools'), name,
@@ -251,20 +292,16 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
             segment_id = segment.id
         else:
             segment_id = None
+
         subnet = _neutron_subnet_create(
             sdk, ctlplane_id, s['NetworkCidr'], s['NetworkGateway'],
             s['HostRoutes'], s.get('AllocationPools'), name, segment_id,
             s['DnsNameServers'])
-        # If the subnet is IPv6 we need to start a router so that router
-        #  advertisments are sent out for stateless IP addressing to work.
-        # NOTE(hjensas): Don't do this for routed networks. The router will
-        #  use the address defined as gateway for the subnet, and in a
-        #  deployment with routed networks this will conflict with the router
-        #  in the infrastructure. The router in the infrastucture must be
-        #  configured to send router advertisements.
-        if not CONF['enable_routed_networks']:
-            if netaddr.IPNetwork(s['NetworkCidr']).version == 6:
-                _ensure_neutron_router(sdk, name, subnet.id)
+
+    if enable_ipv6_router:
+        _ensure_neutron_router(sdk, subnet)
+        _add_router_port(sdk, subnet)
+
     net_cidrs.append(s['NetworkCidr'])
 
     return net_cidrs
