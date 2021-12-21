@@ -51,6 +51,7 @@ def main():
         )
         new_item["vip"] = item.pop("vip", False)
         new_item["mtu"] = item.pop("mtu", 1500)
+        new_item["ipv6"] = item.pop("ipv6", False)
         new_item["subnets"] = item.pop("subnets", dict())
         new_item["subnets"]["{}_subnet".format(name_lower)] = item
         new_template_data.append(new_item)
