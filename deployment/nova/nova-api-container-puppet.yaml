@@ -59,17 +59,6 @@ parameters:
     default: 0
     description: Number of workers for Nova services.
     type: number
-  EnforceSecureRbac:
-    type: boolean
-    default: false
-    description: >-
-      Setting this option to True will configure each OpenStack service to
-      enforce Secure RBAC by setting `[oslo_policy] enforce_new_defaults` and
-      `[oslo_policy] enforce_scope` to True. This introduces a consistent set
-      of RBAC personas across OpenStack services that include support for
-      system and project scope, as well as keystone's default roles, admin,
-      member, and reader. Do not enable this functionality until all services in
-      your deployment actually support secure RBAC.
   KeystoneRegion:
     type: string
     default: 'regionOne'
@@ -95,12 +84,6 @@ parameters:
     default: 'public'
     description: Default pool for floating IP addresses
     type: string
-  NovaApiPolicies:
-    description: |
-      A hash of policies to configure for Nova API.
-      e.g. { nova-context_is_admin: { key: context_is_admin, value: 'role:admin' } }
-    default: {}
-    type: json
   NovaAllowResizeToSameHost:
     default: false
     description: Allow destination machine to match source for resize.
@@ -247,46 +230,6 @@ parameters:
     description: |
       Use the advanced (eventlet safe) memcached client pool.
     default: true
-  NovaRestrictLiveMigration:
-    type: boolean
-    description: |
-      Restrict live migration by limit access to 'os_compute_api:os-migrate-server:migrate_live'
-      api policy to the NovaLiveMigrationRole role. This can be used to
-      disallow the default admin role use live migration.
-      Additional policies specified using NovaApiPolicies get merged with this
-      policy.
-    default: false
-  NovaRestrictLiveMigrationRole:
-    description: |
-      Name of the user role which gets set to limit live migration when
-      NovaRestrictLiveMigration is enabled.
-    default: 'live-migration'
-    type: string
-  NovaShowHostStatus:
-    type: string
-    description: |
-      Allow overriding API policies to access the compute host status in the
-      requested Nova server details. The default value 'hidden' allows only admins to
-      access it. Setting it to 'all' ('unknown-only') without additional fine-grained
-      tuning of NovaApiHostStatusPolicy shows the full (limited) host_status
-      to the system/project readers.
-    default: 'hidden'
-    constraints:
-      - allowed_values: ['all', 'unknown-only', 'hidden']
-  NovaApiHostStatusPolicy:
-    description: |
-      A custom API policy for os_compute_api:servers:show:host_status and
-      os_compute_api:servers:show:host_status:unknown-only.
-      These rules, or roles, replace the admins-only policies based on the given
-      NovaShowHostStatus: 'unknown-only' shows the limited host status UNKNOWN
-      whenever a heartbeat was not received within the configured threshold, and
-      'all' also reveals UP, DOWN, or MAINTENANCE statuses in the Nova server
-      details. NovaShowHostStatus 'hidden' puts it back being visible only for admins.
-      Additional policies specified using NovaApiPolicies get merged with this
-      policy.
-    # TODO(bogdando): use rule:system_or_project_reader once tripleo enforces scopes
-    default: 'role:reader'
-    type: string
 
 parameter_groups:
 - label: deprecated
@@ -425,36 +368,6 @@ outputs:
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
             nova::api::instance_name_template: {get_param: InstanceNameTemplate}
-            nova::policy::purge_config: true
-            nova::policy::policies:
-              map_merge:
-              - {get_param: NovaApiPolicies}
-              - if:
-                - {get_param: NovaRestrictLiveMigration}
-                - limit_live_migration:
-                    key: 'os_compute_api:os-migrate-server:migrate_live'
-                    value:
-                      str_replace:
-                        template: 'role:LMROLENAME'
-                        params:
-                           LMROLENAME: {get_param: NovaRestrictLiveMigrationRole}
-                - {}
-              - if:
-                - equals:
-                  - {get_param: NovaShowHostStatus}
-                  - 'all'
-                - nova-host_status:
-                    key: 'os_compute_api:servers:show:host_status'
-                    value: {get_param: NovaApiHostStatusPolicy}
-                - {}
-              - if:
-                - equals:
-                  - {get_param: NovaShowHostStatus}
-                  - 'unknown-only'
-                - nova-host_status_unknown_only:
-                    key: 'os_compute_api:servers:show:host_status:unknown-only'
-                    value: {get_param: NovaApiHostStatusPolicy}
-                - {}
             nova::api::allow_resize_to_same_host: {get_param: NovaAllowResizeToSameHost}
             nova_enable_db_purge: {get_param: NovaEnableDBPurge}
             nova::cron::purge_shadow_tables::minute: {get_param: NovaCronPurgeShadowTablesMinute}
@@ -483,8 +396,6 @@ outputs:
             nova::cron::archive_deleted_rows::all_cells: {get_param: NovaCronArchiveDeleteAllCells}
             nova::cron::archive_deleted_rows::age: {get_param: NovaCronArchiveDeleteRowsAge}
             nova::cron::archive_deleted_rows::task_log: {get_param: NovaCronArchiveDeleteRowsTaskLog}
-            nova::policy::enforce_new_defaults: {get_param: EnforceSecureRbac}
-            nova::policy::enforce_scope: {get_param: EnforceSecureRbac}
           - if:
             - nova_workers_set
             - nova::api::osapi_compute_workers: {get_param: NovaWorkers}
