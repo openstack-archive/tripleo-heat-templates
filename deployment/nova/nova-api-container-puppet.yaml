@@ -262,6 +262,31 @@ parameters:
       NovaRestrictLiveMigration is enabled.
     default: 'live-migration'
     type: string
+  NovaShowHostStatus:
+    type: string
+    description: |
+      Allow overriding API policies to access the compute host status in the
+      requested Nova server details. The default value 'hidden' allows only admins to
+      access it. Setting it to 'all' ('unknown-only') without additional fine-grained
+      tuning of NovaApiHostStatusPolicy shows the full (limited) host_status
+      to the system/project readers.
+    default: 'hidden'
+    constraints:
+      - allowed_values: ['all', 'unknown-only', 'hidden']
+  NovaApiHostStatusPolicy:
+    description: |
+      A custom API policy for os_compute_api:servers:show:host_status and
+      os_compute_api:servers:show:host_status:unknown-only.
+      These rules, or roles, replace the admins-only policies based on the given
+      NovaShowHostStatus: 'unknown-only' shows the limited host status UNKNOWN
+      whenever a heartbeat was not received within the configured threshold, and
+      'all' also reveals UP, DOWN, or MAINTENANCE statuses in the Nova server
+      details. NovaShowHostStatus 'hidden' puts it back being visible only for admins.
+      Additional policies specified using NovaApiPolicies get merged with this
+      policy.
+    # TODO(bogdando): use rule:system_or_project_reader once tripleo enforces scopes
+    default: 'role:reader'
+    type: string
 
 parameter_groups:
 - label: deprecated
@@ -413,6 +438,22 @@ outputs:
                         template: 'role:LMROLENAME'
                         params:
                            LMROLENAME: {get_param: NovaRestrictLiveMigrationRole}
+                - {}
+              - if:
+                - equals:
+                  - {get_param: NovaShowHostStatus}
+                  - 'all'
+                - nova-host_status:
+                    key: 'os_compute_api:servers:show:host_status'
+                    value: {get_param: NovaApiHostStatusPolicy}
+                - {}
+              - if:
+                - equals:
+                  - {get_param: NovaShowHostStatus}
+                  - 'unknown-only'
+                - nova-host_status_unknown_only:
+                    key: 'os_compute_api:servers:show:host_status:unknown-only'
+                    value: {get_param: NovaApiHostStatusPolicy}
                 - {}
             nova::api::allow_resize_to_same_host: {get_param: NovaAllowResizeToSameHost}
             nova_enable_db_purge: {get_param: NovaEnableDBPurge}
