@@ -146,7 +146,13 @@ def user_passthrough_config():
             _PASSTHROUGH_WHITELIST_KEY
             )
         if not err:
-            return json.loads(out)
+            data = json.loads(out)
+            # Check the data type of first json decode
+            if isinstance(data, str):
+                # Decode once again to get the list
+                return (json.loads(data))
+            elif isinstance(data, list):
+                return data
     except processutils.ProcessExecutionError:
         raise
 
@@ -307,12 +313,20 @@ if __name__ == "__main__":
     system_configs = get_sriov_configs()
     user_configs = user_passthrough_config()
 
-    non_nic_part, nic_part = generate_combined_configuration(
-        user_configs, system_configs)
+    # Check if user config list is valid
+    if not isinstance(user_configs, list):
+        msg = "user_config specified is not a list {%s}" % user_configs
+        raise Exception(msg)
 
-    if len(nic_part) > 0:
-        pci_passthrough[_PASSTHROUGH_WHITELIST_KEY] = (non_nic_part +
+    if (len(user_configs) > 0):
+        non_nic_part, nic_part = generate_combined_configuration(
+                                             user_configs, system_configs)
+
+        if len(nic_part) > 0:
+            pci_passthrough[_PASSTHROUGH_WHITELIST_KEY] = (non_nic_part +
                                                        nic_part)
 
-        with open(pci_file_path, 'w') as pci_file:
-            json.dump(pci_passthrough, pci_file)
+            with open(pci_file_path, 'w') as pci_file:
+                json.dump(pci_passthrough, pci_file)
+    else:
+        print("Empty user_configs, nothing to do")
