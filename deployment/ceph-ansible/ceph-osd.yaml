@@ -42,6 +42,12 @@ parameters:
     type: boolean
     default: false
     description: Parameter used to trigger the dashboard deployment.
+  AllInOneUpgrade:
+    type: boolean
+    default: false
+    description: Parameter used for pausing all ceph osds during a
+                 special case of upgrade called AllInOne. This causes
+                 outage!
 
 conditions:
   dashboard_enabled: {equals: [{get_param: CephEnableDashboard}, true]}
@@ -100,17 +106,56 @@ outputs:
                     {%   endif %}
                     {{ container_client }}
             delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+            vars:
+              allinone_upgrade: {get_param: AllInOneUpgrade}
             tags:
               - never
               - system_upgrade
               - system_upgrade_prepare
             when:
               - step|int == 1
+              - not allinone_upgrade
+              - upgrade_leapp_enabled
+          - block:
+              - name: Check for docker cli
+                stat:
+                  path: "/var/run/docker.sock"
+                register: check_docker_cli
+                check_mode: false
+              - name: Set noout flag
+                run_once: true
+                shell: "{{ container_client }} exec -u root ceph-mon-${HOSTNAME%%.*} ceph osd set {{ item }}"
+                become: true
+                with_items:
+                  - noout
+                  - norecover
+                  - nobackfill
+                  - norebalance
+                  - nodown
+                  - pause
+                vars:
+                  container_client: |-
+                    {% set container_client = 'podman' %}
+                    {%   if check_docker_cli.stat.exists|bool %}
+                    {%     set container_client = 'docker' %}
+                    {%   endif %}
+                    {{ container_client }}
+            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+            vars:
+              allinone_upgrade: {get_param: AllInOneUpgrade}
+            tags:
+              - never
+              - system_upgrade_stop_services
+            when:
+              - step|int == 1
+              - allinone_upgrade|bool
               - upgrade_leapp_enabled
       post_upgrade_tasks:
         list_concat:
         - {get_attr: [CephBase, role_data, post_upgrade_tasks]}
         - - name: Unset noout flag
+            vars:
+              allinone_upgrade: {get_param: AllInOneUpgrade}
             shell: "{{ container_cli }} exec -u root ceph-mon-${HOSTNAME%%.*} ceph osd unset {{ item }}"
             with_items:
               - noout
@@ -118,7 +163,26 @@ outputs:
               - nobackfill
               - norebalance
               - nodeep-scrub
-            when: step|int == 2
+            when:
+              - step|int == 2
+              - not allinone_upgrade
+            become: true
+            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+        - - name: Unset noout flag
+            vars:
+              allinone_upgrade: {get_param: AllInOneUpgrade}
+            shell: "{{ container_cli }} exec -u root ceph-mon-${HOSTNAME%%.*} ceph osd unset {{ item }}"
+            run_once: true
+            with_items:
+              - noout
+              - norecover
+              - nobackfill
+              - norebalance
+              - nodown
+              - pause
+            when:
+              - step|int == 2
+              - allinone_upgrade|bool
             become: true
             delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
       service_config_settings:
