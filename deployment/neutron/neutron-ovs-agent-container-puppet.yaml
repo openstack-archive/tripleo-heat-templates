@@ -46,16 +46,6 @@ parameters:
     description: Mapping of service endpoint -> protocol. Typically set
                  via parameter_defaults in the resource registry.
     type: json
-  DeployIdentifier:
-    default: ''
-    type: string
-    description: >
-      Setting this to a unique value will re-run any deployment tasks which
-      perform configuration on a Heat stack-update.
-  DockerPuppetMountHostPuppet:
-    type: boolean
-    default: true
-    description: Whether containerized puppet executions use modules from the baremetal host. Defaults to true. Can be set to false to consume puppet modules from containers directly.
   PythonInterpreter:
     type: string
     description: The python interpreter to use for python and ansible actions
@@ -281,7 +271,7 @@ outputs:
               collectd::plugin::ovs_stats::socket: '/run/openvswitch/db.sock'
       puppet_config:
         config_volume: neutron
-        puppet_tags: neutron_config,neutron_agent_ovs,neutron_plugin_ml2
+        puppet_tags: neutron_config,neutron_agent_ovs,neutron_plugin_ml2,vs_config
         step_config: |
           include tripleo::profile::base::neutron::ovs
         config_image: {get_attr: [RoleParametersValue, value, ContainerNeutronConfigImage]}
@@ -328,39 +318,6 @@ outputs:
               params:
                 PYTHON: {get_param: PythonInterpreter}
       docker_config:
-        step_3:
-          neutron_ovs_bridge:
-            detach: false
-            image: {get_attr: [RoleParametersValue, value, ContainerNeutronConfigImage]}
-            net: host
-            pid: host
-            user: root
-            privileged: true
-            security_opt:
-              - label=disable
-            command:
-              - puppet
-              - apply
-              - --modulepath
-              - /etc/puppet/modules:/usr/share/openstack-puppet/modules
-              - --tags
-              - file,file_line,concat,augeas,neutron::plugins::ovs::bridge,vs_config
-              - -v
-              - -e
-              - include neutron::agents::ml2::ovs
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - - /var/lib/kolla/config_files/neutron_ovs_agent.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/neutron:/var/lib/kolla/config_files/src:ro
-                  - /lib/modules:/lib/modules:ro
-                  - /run/openvswitch:/run/openvswitch:shared,z
-                  - if:
-                      - {get_param: DockerPuppetMountHostPuppet}
-                      - /usr/share/openstack-puppet/modules/:/usr/share/openstack-puppet/modules/:ro
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_4:
           neutron_ovs_agent:
             start_order: 10
@@ -421,6 +378,15 @@ outputs:
                 when:
                   - ansible_facts.selinux is defined
                   - ansible_facts.selinux.status == "enabled"
+            - block:
+              - name: Create the ovs bridges
+                shell: |
+                  ovs-vsctl --may-exist add-br "{{ item.split(':')[1] }}"
+                with_items: {get_attr: [RoleParametersValue, value, 'neutron::agents::ml2::ovs::bridge_mappings']}
+              - name: Activate the ovs bridges
+                shell: |
+                  ip link set dev "{{ item.split(':')[1] }}" up
+                with_items: {get_attr: [RoleParametersValue, value, 'neutron::agents::ml2::ovs::bridge_mappings']}
       update_tasks:
         # puppetlabs-firewall manages security rules via Puppet but make the rules
         # consistent by default. Since Neutron also creates some rules, we don't
