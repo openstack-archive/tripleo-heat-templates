@@ -254,7 +254,7 @@ def export_passwords(heat, stack, stack_dir):
     os.chmod(passwords_path, 0o600)
 
 
-def export_networks(stack, stack_dir):
+def export_networks(stack, stack_dir, cloud):
     """Export networks from an existing stack and write network data file.
 
     :param stack: Stack name to query for networks
@@ -262,6 +262,8 @@ def export_networks(stack, stack_dir):
     :param stack_dir: Directory to save the generated network data file
         containing the stack network definitions.
     :type stack_dir: str
+    :param cloud: Cloud name used to send OpenStack commands
+    :type cloud: str
     :return: None
     :rtype: None
     """
@@ -271,11 +273,11 @@ def export_networks(stack, stack_dir):
              % (stack, network_data_path))
     subprocess.check_call(['openstack', 'overcloud', 'network', 'extract',
                            '--stack', stack, '--output', network_data_path,
-                           '--yes'])
+                           '--yes'], env={'OS_CLOUD': cloud})
     os.chmod(network_data_path, 0o600)
 
 
-def export_network_virtual_ips(stack, stack_dir):
+def export_network_virtual_ips(stack, stack_dir, cloud):
     """Export network virtual IPs from an existing stack and write network
     vip data file.
 
@@ -284,6 +286,8 @@ def export_network_virtual_ips(stack, stack_dir):
     :param stack_dir: Directory to save the generated data file
         containing the stack virtual IP definitions.
     :type stack_dir: str
+    :param cloud: Cloud name used to send OpenStack commands
+    :type cloud: str
     :return: None
     :rtype: None
     """
@@ -293,11 +297,11 @@ def export_network_virtual_ips(stack, stack_dir):
              % (stack, vip_data_path))
     subprocess.check_call(['openstack', 'overcloud', 'network', 'vip',
                            'extract', '--stack', stack, '--output',
-                           vip_data_path, '--yes'])
+                           vip_data_path, '--yes'], env={'OS_CLOUD': cloud})
     os.chmod(vip_data_path, 0o600)
 
 
-def export_provisioned_nodes(heat, stack, stack_dir):
+def export_provisioned_nodes(heat, stack, stack_dir, cloud):
     """Export provisioned nodes from an existing stack and write baremetal
     deployment definition file.
 
@@ -308,6 +312,8 @@ def export_provisioned_nodes(heat, stack, stack_dir):
     :param stack_dir: Directory to save the generated data file
         containing the stack baremetal deployment definitions.
     :type stack_dir: str
+    :param cloud: Cloud name used to send OpenStack commands
+    :type cloud: str
     :return: None
     :rtype: None
     """
@@ -321,7 +327,7 @@ def export_provisioned_nodes(heat, stack, stack_dir):
         subprocess.check_call(['openstack', 'overcloud', 'node', 'extract',
                                'provisioned', '--stack', stack, '--roles-file',
                                roles_data_file, '--output',
-                               bm_deployment_path, '--yes'])
+                               bm_deployment_path, '--yes'], env={'OS_CLOUD': cloud})
         os.chmod(bm_deployment_path, 0o600)
     finally:
         os.remove(temp_file_path)
@@ -370,9 +376,9 @@ def main():
 
     for stack in stacks:
         stack_dir = os.path.join(working_dir, stack)
-        export_networks(stack, stack_dir)
-        export_network_virtual_ips(stack, stack_dir)
-        export_provisioned_nodes(heat, stack, stack_dir)
+        export_networks(stack, stack_dir, args.cloud)
+        export_network_virtual_ips(stack, stack_dir, args.cloud)
+        export_provisioned_nodes(heat, stack, stack_dir, args.cloud)
 
     if database_exists():
         backup_dir = os.path.join(
