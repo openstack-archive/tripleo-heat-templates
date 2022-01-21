@@ -117,6 +117,11 @@ outputs:
               - not allinone_upgrade
               - upgrade_leapp_enabled
           - block:
+              - name: check ceph flag file existence
+                stat:
+                  path: "/var/lib/tripleo/ceph_paused"
+                register: tripleo_ceph_paused_stat
+                become: true
               - name: Check for docker cli
                 stat:
                   path: "/var/run/docker.sock"
@@ -140,6 +145,16 @@ outputs:
                     {%     set container_client = 'docker' %}
                     {%   endif %}
                     {{ container_client }}
+                when: not tripleo_ceph_paused_stat.stat.exists|bool
+                register: ceph_paused
+              - name: Create ceph flag file
+                become: true
+                file:
+                  path: "/var/lib/tripleo/ceph_paused"
+                  state: touch
+                when:
+                  - not tripleo_ceph_paused_stat.stat.exists|bool
+                  - ceph_paused is success
             delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
             vars:
               allinone_upgrade: {get_param: AllInOneUpgrade}
@@ -169,18 +184,24 @@ outputs:
               - not allinone_upgrade
             become: true
             delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
-        - - name: Unset noout flag
+          - name: Unpause ceph
             vars:
               allinone_upgrade: {get_param: AllInOneUpgrade}
-            shell: "{{ container_cli }} exec -u root ceph-mon-${HOSTNAME%%.*} ceph osd unset {{ item }}"
-            run_once: true
-            with_items:
-              - noout
-              - norecover
-              - nobackfill
-              - norebalance
-              - nodown
-              - pause
+            block:
+              - name: Unset noout flag
+                shell: "{{ container_cli }} exec -u root ceph-mon-${HOSTNAME%%.*} ceph osd unset {{ item }}"
+                run_once: true
+                with_items:
+                  - noout
+                  - norecover
+                  - nobackfill
+                  - norebalance
+                  - nodown
+                  - pause
+              - name: Cleanup /var/lib/tripleo/ceph_paused
+                file:
+                  path: "/var/lib/tripleo/ceph_paused"
+                  state: absent
             when:
               - step|int == 2
               - allinone_upgrade|bool
