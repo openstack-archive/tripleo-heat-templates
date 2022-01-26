@@ -40,7 +40,10 @@ parameters:
     description: The rndc key secret for communication with BIND.
     type: string
     hidden: true
-
+  DesignateBindQueryLogging:
+    description: Set to true to enable logging of queries on BIND.
+    type: boolean
+    default: false
 
 resources:
 
@@ -84,7 +87,7 @@ outputs:
         config_image: {get_param: ContainerDesignateConfigImage}
       kolla_config:
         /var/lib/kolla/config_files/designate_backend_bind9.json:
-          command: /usr/sbin/named -u named -c /etc/named.conf -f -g
+          command: /usr/sbin/named -u named -c /etc/named.conf -f
           config_files:
             - source: "/var/lib/kolla/config_files/src/*"
               dest: "/"
@@ -98,6 +101,10 @@ outputs:
             - path: /var/log/designate
               owner: designate:designate
               recurse: true
+            - path: /var/log/bind
+              owner: root:named
+              recurse: true
+              perm: '0775'
             - path: /var/named-persistent
               owner: root:named
               perm: '0770'
@@ -117,6 +124,7 @@ outputs:
             import_role:
                 name: designate_bind_config
             vars:
+                designate_bind_enable_query_logging: {get_param: DesignateBindQueryLogging}
                 rndc_allowed_addresses:
                     get_param:
                       - ServiceData
@@ -138,13 +146,17 @@ outputs:
                   - /var/lib/kolla/config_files/designate_backend_bind9.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/ansible-generated/designate:/var/lib/kolla/config_files/src:ro
                   - /var/log/containers/designate:/var/log/designate:z
+                  - /var/log/containers/designate-bind:/var/log/bind:z
                   - /var/lib/designate/named-persistent:/var/named-persistent:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
-        - name: create persistent named directory
+        - name: create persistent named directories
           file:
-            path: /var/lib/designate/named-persistent
+            path: "{{ item.path }}"
             state: directory
-            setype: container_file_t
-            mode: '0750'
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode }}"
+          with_items:
+            - { 'path': /var/lib/designate/named-persistent,  'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/log/containers/designate-bind, 'setype': container_file_t, 'mode': '0750' }
