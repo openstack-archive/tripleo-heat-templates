@@ -7,9 +7,13 @@ parameters:
   ContainerAodhListenerImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerAodhConfigImage:
     description: The container image to use for the aodh config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -54,6 +58,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerAodhListenerImage: ContainerAodhListenerImage
+              ContainerAodhConfigImage: ContainerAodhConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerAodhListenerImage: {get_param: ContainerAodhListenerImage}
+              ContainerAodhConfigImage: {get_param: ContainerAodhConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Aodh API role.
@@ -73,7 +91,7 @@ outputs:
               - "\n"
               - - "include tripleo::profile::base::aodh::listener"
                 - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerAodhConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerAodhConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/aodh_listener.json:
           command: /usr/bin/aodh-listener
@@ -89,7 +107,7 @@ outputs:
       docker_config:
         step_4:
           aodh_listener:
-            image: {get_param: ContainerAodhListenerImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerAodhListenerImage]}
             net: host
             privileged: false
             restart: always

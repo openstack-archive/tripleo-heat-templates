@@ -9,9 +9,13 @@ parameters:
   ContainerClustercheckImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerClustercheckConfigImage:
     description: The container image to use for the clustercheck config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -55,6 +59,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerClustercheckImage: ContainerClustercheckImage
+              ContainerClustercheckConfigImage: ContainerClustercheckConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerClustercheckImage: {get_param: ContainerClustercheckImage}
+              ContainerClustercheckConfigImage: {get_param: ContainerClustercheckConfigImage}
+
 conditions:
   socat_listener: {equals: [{get_param: ClustercheckListener}, 'socat']}
 
@@ -78,7 +96,7 @@ outputs:
         config_volume: clustercheck
         puppet_tags: file # set this even though file is the default
         step_config: "include tripleo::profile::pacemaker::clustercheck"
-        config_image: {get_param: ContainerClustercheckConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerClustercheckConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/clustercheck.json:
           command:
@@ -96,7 +114,7 @@ outputs:
         step_2:
           clustercheck:
             start_order: 1
-            image: {get_param: ContainerClustercheckImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerClustercheckImage]}
             restart: always
             net: host
             healthcheck:

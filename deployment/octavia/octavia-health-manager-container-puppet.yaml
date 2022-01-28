@@ -7,12 +7,18 @@ parameters:
   ContainerOctaviaHealthManagerImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerOctaviaConfigImage:
     description: The container image to use for the octavia config_volume
     type: string
+    tags:
+      - role_specific
   ContainerOctaviaRsyslogImage:
     description: The container image to use for the rsyslog-sidecar
     type: string
+    tags:
+      - role_specific
   OctaviaHealthManagerLoggingSource:
     type: json
     default:
@@ -77,6 +83,22 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerOctaviaHealthManagerImage: ContainerOctaviaHealthManagerImage
+              ContainerOctaviaConfigImage: ContainerOctaviaConfigImage
+              ContainerOctaviaRsyslogImage: ContainerOctaviaRsyslogImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerOctaviaHealthManagerImage: {get_param: ContainerOctaviaHealthManagerImage}
+              ContainerOctaviaConfigImage: {get_param: ContainerOctaviaConfigImage}
+              ContainerOctaviaRsyslogImage: {get_param: ContainerOctaviaConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Octavia health-manager role.
@@ -109,7 +131,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::octavia::health_manager"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerOctaviaConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerOctaviaConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/octavia_health_manager.json:
           command: /usr/bin/octavia-health-manager --config-file /etc/octavia/octavia.conf --config-file /etc/octavia/post-deploy.conf --log-file /var/log/octavia/health-manager.log --config-dir /etc/octavia/conf.d/octavia-health-manager
@@ -137,7 +159,7 @@ outputs:
         step_2:
           octavia_health_manager_init_dirs:
             start_order: 0
-            image: &octavia_health_manager_image {get_param: ContainerOctaviaHealthManagerImage}
+            image: &octavia_health_manager_image {get_attr: [RoleParametersValue, value, ContainerOctaviaHealthManagerImage]}
             user: root
             net: none
             volumes:
@@ -171,7 +193,7 @@ outputs:
                 - {get_param: OctaviaLogOffload}
                 - octavia_rsyslog:
                     start_order: 2
-                    image: {get_param: ContainerOctaviaRsyslogImage}
+                    image: {get_attr: [RoleParametersValue, value, ContainerOctaviaRsyslogImage]}
                     net: host
                     privileged: false
                     restart: always

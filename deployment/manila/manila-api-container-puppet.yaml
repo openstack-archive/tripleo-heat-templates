@@ -7,9 +7,13 @@ parameters:
   ContainerManilaApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerManilaConfigImage:
     description: The container image to use for the manila config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -134,6 +138,20 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerManilaApiImage: ContainerManilaApiImage
+              ContainerManilaConfigImage: ContainerManilaConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerManilaApiImage: {get_param: ContainerManilaApiImage}
+              ContainerManilaConfigImage: {get_param: ContainerManilaConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Manila API role.
@@ -234,7 +252,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::manila::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerManilaConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerManilaConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/manila_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -273,7 +291,7 @@ outputs:
       docker_config:
         step_2:
           manila_init_logs:
-            image: &manila_api_image {get_param: ContainerManilaApiImage}
+            image: &manila_api_image {get_attr: [RoleParametersValue, value, ContainerManilaApiImage]}
             net: none
             user: root
             volumes:

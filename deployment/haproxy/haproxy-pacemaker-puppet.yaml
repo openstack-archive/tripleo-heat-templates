@@ -7,9 +7,13 @@ parameters:
   ContainerHAProxyImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerHAProxyConfigImage:
     description: The container image to use for the haproxy config_volume
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -154,6 +158,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerHAProxyImage: ContainerHAProxyImage
+              ContainerHAProxyConfigImage: ContainerHAProxyConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerHAProxyImage: {get_param: ContainerHAProxyImage}
+              ContainerHAProxyConfigImage: {get_param: ContainerHAProxyConfigImage}
+
 outputs:
   role_data:
     description: Role data for the HAproxy role.
@@ -207,9 +225,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerHAProxyImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerHAProxyImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
       service_config_settings:
         rsyslog:
@@ -226,7 +244,7 @@ outputs:
               - "class tripleo::firewall(){}; define tripleo::firewall::rule( $port = undef, $dport = undef, $sport = undef, $proto = undef, $action = undef, $state = undef, $source = undef, $iniface = undef, $chain = undef, $destination = undef, $extras = undef){}"
               - "['pcmk_bundle', 'pcmk_resource', 'pcmk_property', 'pcmk_constraint', 'pcmk_resource_default'].each |String $val| { noop_resource($val) }"
               - 'include tripleo::profile::pacemaker::haproxy_bundle'
-        config_image: {get_param: ContainerHAProxyConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyConfigImage]}
         volumes: &deployed_cert_mount
           yaql:
             expression: $.data.select($+":"+$+":ro")
@@ -326,7 +344,7 @@ outputs:
               import_role:
                 name: tripleo_container_tag
               vars:
-                container_image: {get_param: ContainerHAProxyImage}
+                container_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
                 container_image_latest: *haproxy_image_pcmklatest
             - name: HAproxy HA Wrappers Step
               when: step|int == 2
@@ -399,7 +417,7 @@ outputs:
           block: &haproxy_fetch_retag_container_tasks
             - name: Get container haproxy image
               set_fact:
-                haproxy_image: {get_param: ContainerHAProxyImage}
+                haproxy_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
                 haproxy_image_latest: *haproxy_image_pcmklatest
             - name: Pull latest haproxy images
               command: "{{container_cli}} pull {{haproxy_image}}"

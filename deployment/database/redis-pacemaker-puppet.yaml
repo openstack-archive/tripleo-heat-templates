@@ -7,9 +7,13 @@ parameters:
   ContainerRedisImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerRedisConfigImage:
     description: The container image to use for the redis config_volume
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -100,6 +104,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerRedisImage: ContainerRedisImage
+              ContainerRedisConfigImage: ContainerRedisConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerRedisImage: {get_param: ContainerRedisImage}
+              ContainerRedisConfigImage: {get_param: ContainerRedisConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Redis API role.
@@ -126,9 +144,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerRedisImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerRedisImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerRedisImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerRedisImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::database::redis_bundle::redis_docker_control_port: 3124
             tripleo::profile::pacemaker::database::redis_bundle::container_backend: {get_param: ContainerCli}
@@ -180,7 +198,7 @@ outputs:
         puppet_tags: 'exec'
         step_config: |
           include tripleo::profile::pacemaker::database::redis_bundle
-        config_image: &redis_config_image {get_param: ContainerRedisConfigImage}
+        config_image: &redis_config_image {get_attr: [RoleParametersValue, value, ContainerRedisConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/redis.json:
           command: /usr/sbin/pacemaker_remoted
@@ -239,7 +257,7 @@ outputs:
             - {get_param: EnableInternalTLS}
             - redis_tls_proxy:
                 start_order: 0
-                image: {get_param: ContainerRedisImage}
+                image: {get_attr: [RoleParametersValue, value, ContainerRedisImage]}
                 net: host
                 user: root
                 restart: always
@@ -281,7 +299,7 @@ outputs:
               import_role:
                 name: tripleo_container_tag
               vars:
-                container_image: {get_param: ContainerRedisImage}
+                container_image: {get_attr: [RoleParametersValue, value, ContainerRedisImage]}
                 container_image_latest: *redis_image_pcmklatest
             - name: Redis HA Wrappers Step
               when: step|int == 2
@@ -311,7 +329,7 @@ outputs:
           block: &redis_fetch_retag_container_tasks
             - name: Get container redis image
               set_fact:
-                redis_image: {get_param: ContainerRedisImage}
+                redis_image: {get_attr: [RoleParametersValue, value, ContainerRedisImage]}
                 redis_image_latest: *redis_image_pcmklatest
             - name: Pull latest redis images
               command: "{{container_cli}} pull {{redis_image}}"

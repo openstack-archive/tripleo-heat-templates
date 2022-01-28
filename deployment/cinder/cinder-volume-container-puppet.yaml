@@ -7,9 +7,13 @@ parameters:
   ContainerCinderVolumeImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerCinderConfigImage:
     description: The container image to use for the cinder config_volume
     type: string
+    tags:
+      - role_specific
   DockerCinderVolumeUlimit:
     default: ['nofile=131072']
     description: ulimit for Cinder Volume Container
@@ -218,6 +222,20 @@ resources:
   CinderCommon:
     type: ./cinder-common-container-puppet.yaml
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerCinderVolumeImage: ContainerCinderVolumeImage
+              ContainerCinderConfigImage: ContainerCinderConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerCinderVolumeImage: {get_param: ContainerCinderVolumeImage}
+              ContainerCinderConfigImage: {get_param: ContainerCinderConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Cinder Volume role.
@@ -298,7 +316,7 @@ outputs:
             - - "include tripleo::profile::base::lvm"
               - "include tripleo::profile::base::cinder::volume"
               - get_attr: [MySQLClient, role_data, step_config]
-        config_image: {get_param: ContainerCinderConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerCinderConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/cinder_volume.json:
           command: /usr/bin/cinder-volume --config-file /etc/cinder/cinder.conf
@@ -308,7 +326,7 @@ outputs:
         step_3:
           cinder_volume_init_logs:
             start_order: 0
-            image: &cinder_volume_image {get_param: ContainerCinderVolumeImage}
+            image: &cinder_volume_image {get_attr: [RoleParametersValue, value, ContainerCinderVolumeImage]}
             net: none
             privileged: false
             user: root

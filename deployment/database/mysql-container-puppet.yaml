@@ -7,9 +7,13 @@ parameters:
   ContainerMysqlImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerMysqlConfigImage:
     description: The container image to use for the mysql config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -62,6 +66,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerMysqlImage: ContainerMysqlImage
+              ContainerMysqlConfigImage: ContainerMysqlConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerMysqlImage: {get_param: ContainerMysqlImage}
+              ContainerMysqlConfigImage: {get_param: ContainerMysqlConfigImage}
+
 outputs:
   role_data:
     description: Containerized service MySQL using composable services.
@@ -98,7 +116,7 @@ outputs:
             - "\n"
             - - "['Mysql_datadir', 'Mysql_user', 'Mysql_database', 'Mysql_grant', 'Mysql_plugin'].each |String $val| { noop_resource($val) }"
               - {get_attr: [MysqlBase, role_data, step_config]}
-        config_image: &mysql_config_image {get_param: ContainerMysqlConfigImage}
+        config_image: &mysql_config_image {get_attr: [RoleParametersValue, value, ContainerMysqlConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/mysql.json:
           command: /usr/libexec/mysqld --user=mysql
@@ -130,7 +148,7 @@ outputs:
         # Kolla_bootstrap runs before permissions set by kolla_config
         step_1:
           mysql_init_logs:
-            image: &mysql_image {get_param: ContainerMysqlImage}
+            image: &mysql_image {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
             net: none
             privileged: false
             user: root
@@ -281,7 +299,7 @@ outputs:
                 pre_upgrade_mysql_image: "{{ mysql_infos.containers.0.ImageName }}"
             - name: Set fact for Mysql container image after upgrade
               set_fact:
-                post_upgrade_mysql_image: {get_param: ContainerMysqlImage}
+                post_upgrade_mysql_image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
             - name: Redo log clean-up script
               set_fact:
                 # The purpose of this script is to start mysql so that it

@@ -7,9 +7,13 @@ parameters:
   ContainerManilaShareImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerManilaConfigImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -88,6 +92,20 @@ resources:
   ManilaCommon:
     type: ./manila-share-common.yaml
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerManilaShareImage: ContainerManilaShareImage
+              ContainerManilaConfigImage: ContainerManilaConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerManilaShareImage: {get_param: ContainerManilaShareImage}
+              ContainerManilaConfigImage: {get_param: ContainerManilaConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Manila Share role.
@@ -105,9 +123,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerManilaShareImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerManilaShareImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::manila::share_bundle::docker_volumes: {get_attr: [ManilaCommon, manila_share_volumes]}
             tripleo::profile::pacemaker::manila::share_bundle::docker_environment: {get_attr: [ManilaCommon, manila_share_environment]}
@@ -126,7 +144,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::pacemaker::manila::share_bundle"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerManilaConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerManilaConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/manila_share.json:
           command: /usr/bin/manila-share --config-file /etc/manila/manila.conf
@@ -148,7 +166,7 @@ outputs:
         step_3:
           manila_share_init_logs:
             start_order: 0
-            image: {get_param: ContainerManilaShareImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
             net: none
             privileged: false
             user: root
@@ -175,7 +193,7 @@ outputs:
           import_role:
             name: tripleo_container_tag
           vars:
-            container_image: {get_param: ContainerManilaShareImage}
+            container_image: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
             container_image_latest: *manila_share_image_pcmklatest
         - name: Manila-Share HA Wrappers Step
           when: step|int == 5
@@ -199,7 +217,7 @@ outputs:
           block: &manila_share_fetch_retag_container_tasks
             - name: Get container manila_share image
               set_fact:
-                manila_share_image: {get_param: ContainerManilaShareImage}
+                manila_share_image: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
                 manila_share_image_latest: *manila_share_image_pcmklatest
             - name: Pull latest manila_share images
               command: "{{container_cli}} pull {{manila_share_image}}"

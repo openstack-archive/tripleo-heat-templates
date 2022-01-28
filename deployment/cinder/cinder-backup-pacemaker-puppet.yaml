@@ -7,9 +7,13 @@ parameters:
   ContainerCinderBackupImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerCinderConfigImage:
     description: The container image to use for the cinder config_volume
     type: string
+    tags:
+      - role_specific
   ClusterCommonTag:
     default: false
     description: When set to false, a pacemaker service is configured
@@ -108,6 +112,20 @@ resources:
   CinderCommon:
     type: ./cinder-common-container-puppet.yaml
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerCinderBackupImage: ContainerCinderBackupImage
+              ContainerCinderConfigImage: ContainerCinderConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerCinderBackupImage: {get_param: ContainerCinderBackupImage}
+              ContainerCinderConfigImage: {get_param: ContainerCinderConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Cinder Backup role.
@@ -126,9 +144,9 @@ outputs:
                       if:
                         - {get_param: ClusterCommonTag}
                         - yaql:
-                            data: {get_param: ContainerCinderBackupImage}
+                            data: {get_attr: [RoleParametersValue, value, ContainerCinderBackupImage]}
                             expression: concat("cluster.common.tag/", $.data.rightSplit(separator => "/", maxSplits => 1)[1])
-                        - {get_param: ContainerCinderBackupImage}
+                        - {get_attr: [RoleParametersValue, value, ContainerCinderBackupImage]}
                     expression: concat($.data.rightSplit(separator => ":", maxSplits => 1)[0], ":pcmklatest")
             tripleo::profile::pacemaker::cinder::backup_bundle::docker_volumes: {get_attr: [CinderCommon, cinder_backup_volumes]}
             tripleo::profile::pacemaker::cinder::backup_bundle::docker_environment: {get_attr: [CinderCommon, cinder_backup_environment]}
@@ -147,7 +165,7 @@ outputs:
             - "\n"
             - - {get_attr: [CinderBackupBase, role_data, puppet_config, step_config]}
               - "include tripleo::profile::pacemaker::cinder::backup_bundle"
-        config_image: {get_param: ContainerCinderConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerCinderConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/cinder_backup.json:
           command: /usr/bin/cinder-backup --config-file /etc/cinder/cinder.conf
@@ -158,7 +176,7 @@ outputs:
         step_3:
           cinder_backup_init_logs:
             start_order: 0
-            image: {get_param: ContainerCinderBackupImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerCinderBackupImage]}
             net: none
             privileged: false
             user: root
@@ -172,7 +190,7 @@ outputs:
           import_role:
             name: tripleo_container_tag
           vars:
-            container_image: {get_param: ContainerCinderBackupImage}
+            container_image: {get_attr: [RoleParametersValue, value, ContainerCinderBackupImage]}
             container_image_latest: *cinder_backup_image_pcmklatest
         - name: Cinder Backup HA Wrappers Step
           when: step|int == 5
@@ -196,7 +214,7 @@ outputs:
           block: &cinder_backup_fetch_retag_container_tasks
             - name: Get container cinder_backup image
               set_fact:
-                cinder_backup_image: {get_param: ContainerCinderBackupImage}
+                cinder_backup_image: {get_attr: [RoleParametersValue, value, ContainerCinderBackupImage]}
                 cinder_backup_image_latest: *cinder_backup_image_pcmklatest
             - name: Pull latest cinder_backup images
               command: "{{container_cli}} pull {{cinder_backup_image}}"

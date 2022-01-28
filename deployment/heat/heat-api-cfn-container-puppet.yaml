@@ -7,10 +7,14 @@ parameters:
   ContainerHeatApiCfnImage:
     description: image
     type: string
+    tags:
+      - role_specific
   # puppet needs the heat-wsgi-api-cfn binary from centos-binary-heat-api-cfn
   ContainerHeatApiCfnConfigImage:
     description: The container image to use for the heat_api_cfn config_volume
     type: string
+    tags:
+      - role_specific
   HeatApiCfnLoggingSource:
     type: json
     default:
@@ -89,6 +93,20 @@ resources:
   HeatApiCfnLogging:
     type: OS::TripleO::Services::Logging::HeatApiCfn
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerHeatApiCfnImage: ContainerHeatApiCfnImage
+              ContainerHeatApiCfnConfigImage: ContainerHeatApiCfnConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerHeatApiCfnImage: {get_param: ContainerHeatApiCfnImage}
+              ContainerHeatApiCfnConfigImage: {get_param: ContainerHeatApiCfnConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Heat API CFN role.
@@ -157,7 +175,7 @@ outputs:
         puppet_tags: heat_config,file,concat,file_line
         step_config: |
           include tripleo::profile::base::heat::api_cfn
-        config_image: {get_param: ContainerHeatApiCfnConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerHeatApiCfnConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/heat_api_cfn.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -183,7 +201,7 @@ outputs:
           get_attr: [HeatApiCfnLogging, docker_config, step_2]
         step_4:
           heat_api_cfn:
-            image: {get_param: ContainerHeatApiCfnImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerHeatApiCfnImage]}
             net: host
             privileged: false
             restart: always

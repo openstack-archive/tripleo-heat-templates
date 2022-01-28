@@ -7,9 +7,13 @@ parameters:
   ContainerManilaSchedulerImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerManilaConfigImage:
     description: The container image to use for the manila config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -51,6 +55,20 @@ resources:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerManilaSchedulerImage: ContainerManilaSchedulerImage
+              ContainerManilaConfigImage: ContainerManilaConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerManilaSchedulerImage: {get_param: ContainerManilaSchedulerImage}
+              ContainerManilaConfigImage: {get_param: ContainerManilaConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Manila Scheduler role.
@@ -68,7 +86,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::manila::scheduler"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerManilaConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerManilaConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/manila_scheduler.json:
           command: /usr/bin/manila-scheduler --config-file /etc/manila/manila.conf
@@ -84,7 +102,7 @@ outputs:
       docker_config:
         step_4:
           manila_scheduler:
-            image: {get_param: ContainerManilaSchedulerImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerManilaSchedulerImage]}
             net: host
             restart: always
             healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}

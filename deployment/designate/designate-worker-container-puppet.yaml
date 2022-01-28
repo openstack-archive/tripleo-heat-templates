@@ -7,9 +7,13 @@ parameters:
   ContainerDesignateWorkerImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerDesignateConfigImage:
     description: The container image to use for the designate config_volume
     type: string
+    tags:
+      - role_specific
   DesignateWorkerLoggingSource:
     type: json
     default:
@@ -67,6 +71,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerDesignateWorkerImage: ContainerDesignateWorkerImage
+              ContainerDesignateConfigImage: ContainerDesignateConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerDesignateWorkerImage: {get_param: ContainerDesignateWorkerImage}
+              ContainerDesignateConfigImage: {get_param: ContainerDesignateConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Designate Worker role.
@@ -106,7 +124,7 @@ outputs:
             - - {get_attr: [DesignateBase, role_data, step_config]}
               - "include tripleo::profile::base::designate::worker"
               - "include tripleo::profile::base::designate::backend"
-        config_image: {get_param: ContainerDesignateConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerDesignateConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/designate_worker.json:
           command: /usr/bin/designate-worker --config-file=/etc/designate/designate.conf --log-file=/var/log/designate/worker.log
@@ -129,7 +147,7 @@ outputs:
       docker_config:
         step_4:
           designate_worker:
-            image: &designate_worker_image {get_param: ContainerDesignateWorkerImage}
+            image: &designate_worker_image {get_attr: [RoleParametersValue, value, ContainerDesignateWorkerImage]}
             net: host
             privileged: false
             stop_grace_period: 300

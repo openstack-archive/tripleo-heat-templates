@@ -7,9 +7,13 @@ parameters:
   ContainerNeutronDHCPImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerNeutronConfigImage:
     description: The container image to use for the neutron config_volume
     type: string
+    tags:
+      - role_specific
   DockerNeutronDHCPAgentUlimit:
     default: ['nofile=16384']
     description: ulimit for Neutron DHCP Agent Container
@@ -169,6 +173,20 @@ resources:
     properties:
       NeutronServiceName: dhcp-agent
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerNeutronDHCPImage: ContainerNeutronDHCPImage
+              ContainerNeutronConfigImage: ContainerNeutronConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerNeutronDHCPImage: {get_param: ContainerNeutronDHCPImage}
+              ContainerNeutronConfigImage: {get_param: ContainerNeutronConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Neutron DHCP role.
@@ -205,10 +223,10 @@ outputs:
           - get_attr: [NeutronLogging, config_settings]
           - tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_dnsmasq_wrapper: {get_param: NeutronEnableDnsmasqDockerWrapper}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_process_wrapper: '/var/lib/neutron/dnsmasq_wrapper'
-            tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_image: {get_param: ContainerNeutronDHCPImage}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::dnsmasq_image: {get_attr: [RoleParametersValue, value, ContainerNeutronDHCPImage]}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::enable_haproxy_wrapper: {get_param: NeutronEnableHaproxyDockerWrapper}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_process_wrapper: '/var/lib/neutron/dhcp_haproxy_wrapper'
-            tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_image: {get_param: ContainerNeutronDHCPImage}
+            tripleo::profile::base::neutron::dhcp_agent_wrappers::haproxy_image: {get_attr: [RoleParametersValue, value, ContainerNeutronDHCPImage]}
             tripleo::profile::base::neutron::dhcp_agent_wrappers::debug:
               if:
                 - {get_param: NeutronWrapperDebug}
@@ -251,7 +269,7 @@ outputs:
         puppet_tags: neutron_config,neutron_dhcp_agent_config
         step_config: |
           include tripleo::profile::base::neutron::dhcp
-        config_image: {get_param: ContainerNeutronConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerNeutronConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/neutron_dhcp.json:
           command:
@@ -296,7 +314,7 @@ outputs:
                   - '4'
                   - 'file'
                   - 'include ::tripleo::profile::base::neutron::dhcp_agent_wrappers'
-            image: {get_param: ContainerNeutronDHCPImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerNeutronDHCPImage]}
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
@@ -306,7 +324,7 @@ outputs:
         step_4:
           neutron_dhcp:
             start_order: 10
-            image: {get_param: ContainerNeutronDHCPImage}
+            image: {get_attr: [RoleParametersValue, value, ContainerNeutronDHCPImage]}
             net: host
             pid: host
             cgroupns: host

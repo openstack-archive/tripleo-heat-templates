@@ -7,18 +7,28 @@ parameters:
   ContainerSwiftProxyImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerSwiftAccountImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerSwiftContainerImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerSwiftObjectImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerSwiftConfigImage:
     description: The container image to use for the swift config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -162,6 +172,26 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerSwiftProxyImage: ContainerSwiftProxyImage
+              ContainerSwiftAccountImage: ContainerSwiftAccountImage
+              ContainerSwiftContainerImage: ContainerSwiftContainerImage
+              ContainerSwiftObjectImage: ContainerSwiftObjectImage
+              ContainerSwiftConfigImage: ContainerSwiftConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerSwiftProxyImage: {get_param: ContainerSwiftProxyImage}
+              ContainerSwiftAccountImage: {get_param: ContainerSwiftAccountImage}
+              ContainerSwiftContainerImage: {get_param: ContainerSwiftContainerImage}
+              ContainerSwiftObjectImage: {get_param: ContainerSwiftObjectImage}
+              ContainerSwiftConfigImage: {get_param: ContainerSwiftConfigImage}
+
 outputs:
   role_data:
     description: Role data for the swift storage services.
@@ -246,7 +276,7 @@ outputs:
               - "define xinetd::service($bind='',$port='',$server='',$server_args='') {}"
               - "noop_resource('service')"
               - "include tripleo::profile::base::swift::storage"
-        config_image: {get_param: ContainerSwiftConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerSwiftConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/swift_account_auditor.json:
           command: /usr/bin/swift-account-auditor /etc/swift/account-server.conf
@@ -374,7 +404,7 @@ outputs:
           # volume during the configuration stage.  We just need to create this
           # directory and make sure it's owned by swift.
           swift_setup_srv:
-            image: &swift_account_image {get_param: ContainerSwiftAccountImage}
+            image: &swift_account_image {get_attr: [RoleParametersValue, value, ContainerSwiftAccountImage]}
             net: none
             user: root
             command: ['chown', '-R', 'swift:', '/srv/node']
@@ -406,7 +436,7 @@ outputs:
                   environment: &kolla_env
                     KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 swift_container_auditor:
-                  image: &swift_container_image {get_param: ContainerSwiftContainerImage}
+                  image: &swift_container_image {get_attr: [RoleParametersValue, value, ContainerSwiftContainerImage]}
                   net: host
                   user: swift
                   restart: always
@@ -422,7 +452,7 @@ outputs:
                         - /var/log/containers/swift:/var/log/swift:z
                   environment: *kolla_env
                 swift_object_auditor:
-                  image: &swift_object_image {get_param: ContainerSwiftObjectImage}
+                  image: &swift_object_image {get_attr: [RoleParametersValue, value, ContainerSwiftObjectImage]}
                   net: host
                   user: swift
                   restart: always
@@ -564,7 +594,7 @@ outputs:
                       - /var/log/containers/swift:/var/log/swift:z
                 environment: *kolla_env
               swift_object_expirer:
-                image: &swift_proxy_image {get_param: ContainerSwiftProxyImage}
+                image: &swift_proxy_image {get_attr: [RoleParametersValue, value, ContainerSwiftProxyImage]}
                 net: host
                 user: swift
                 restart: always

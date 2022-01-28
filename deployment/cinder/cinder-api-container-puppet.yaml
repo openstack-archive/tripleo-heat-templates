@@ -7,9 +7,13 @@ parameters:
   ContainerCinderApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerCinderConfigImage:
     description: The container image to use for the cinder config_volume
     type: string
+    tags:
+      - role_specific
   CinderApiLoggingSource:
     type: json
     default:
@@ -128,6 +132,20 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerCinderApiImage: ContainerCinderApiImage
+              ContainerCinderConfigImage: ContainerCinderConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerCinderApiImage: {get_param: ContainerCinderApiImage}
+              ContainerCinderConfigImage: {get_param: ContainerCinderConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Cinder API role.
@@ -230,7 +248,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::cinder::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerCinderConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerCinderConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/cinder_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -278,7 +296,7 @@ outputs:
       docker_config:
         step_2:
           cinder_api_init_logs:
-            image: &cinder_api_image {get_param: ContainerCinderApiImage}
+            image: &cinder_api_image {get_attr: [RoleParametersValue, value, ContainerCinderApiImage]}
             net: none
             privileged: false
             user: root

@@ -7,9 +7,13 @@ parameters:
   ContainerCeilometerIpmiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerCeilometerConfigImage:
     description: The container image to use for the ceilometer config_volume
     type: string
+    tags:
+      - role_specific
   CeilometerAgentIpmiLoggingSource:
     type: json
     default:
@@ -68,6 +72,20 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerCeilometerIpmiImage: ContainerCeilometerIpmiImage
+              ContainerCeilometerConfigImage: ContainerCeilometerConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerCeilometerIpmiImage: {get_param: ContainerCeilometerIpmiImage}
+              ContainerCeilometerConfigImage: {get_param: ContainerCeilometerConfigImage}
+
 outputs:
   role_data:
     description: Role data for the Ceilometer Agent Ipmi role.
@@ -89,7 +107,7 @@ outputs:
         puppet_tags: ceilometer_config
         step_config: |
           include tripleo::profile::base::ceilometer::agent::polling
-        config_image: {get_param: ContainerCeilometerConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerCeilometerConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/ceilometer-agent-ipmi.json:
           command: /usr/bin/ceilometer-polling --polling-namespaces ipmi
@@ -102,7 +120,7 @@ outputs:
         step_3:
           ceilometer_init_log:
             start_order: 0
-            image: &ceilometer_agent_ipmi_image {get_param: ContainerCeilometerIpmiImage}
+            image: &ceilometer_agent_ipmi_image {get_attr: [RoleParametersValue, value, ContainerCeilometerIpmiImage]}
             net: none
             user: root
             command: ['/bin/bash', '-c', 'chown -R ceilometer:ceilometer /var/log/ceilometer']

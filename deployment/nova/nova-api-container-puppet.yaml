@@ -7,9 +7,13 @@ parameters:
   ContainerNovaApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerNovaConfigImage:
     description: The container image to use for the nova config_volume
     type: string
+    tags:
+      - role_specific
   NovaApiLoggingSource:
     type: json
     default:
@@ -296,6 +300,19 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerNovaApiImage: ContainerNovaApiImage
+              ContainerNovaConfigImage: ContainerNovaConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerNovaApiImage: {get_param: ContainerNovaApiImage}
+              ContainerNovaConfigImage: {get_param: ContainerNovaConfigImage}
 
 outputs:
   role_data:
@@ -426,7 +443,7 @@ outputs:
             - - "['Nova_cell_v2'].each |String $val| { noop_resource($val) }"
               - include tripleo::profile::base::nova::api
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerNovaConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerNovaConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/nova_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -552,7 +569,7 @@ outputs:
         step_3:
           nova_api_db_sync:
             start_order: 0 # Runs before nova-conductor dbsync
-            image: &nova_api_image {get_param: ContainerNovaApiImage}
+            image: &nova_api_image {get_attr: [RoleParametersValue, value, ContainerNovaApiImage]}
             net: host
             detach: false
             user: root

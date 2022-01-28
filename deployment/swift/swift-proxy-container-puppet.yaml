@@ -7,9 +7,13 @@ parameters:
   ContainerSwiftProxyImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerSwiftConfigImage:
     description: The container image to use for the swift config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -128,6 +132,20 @@ resources:
       ServiceNetMap: {get_param: ServiceNetMap}
       EndpointMap: {get_param: EndpointMap}
       EnableInternalTLS: {get_param: EnableInternalTLS}
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerSwiftProxyImage: ContainerSwiftProxyImage
+              ContainerSwiftConfigImage: ContainerSwiftConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerSwiftProxyImage: {get_param: ContainerSwiftProxyImage}
+              ContainerSwiftConfigImage: {get_param: ContainerSwiftConfigImage}
 
 outputs:
   role_data:
@@ -279,7 +297,7 @@ outputs:
         puppet_tags: swift_config,swift_proxy_config,swift_keymaster_config
         step_config: |
           include tripleo::profile::base::swift::proxy
-        config_image: {get_param: ContainerSwiftConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerSwiftConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/swift_proxy.json:
           command: /usr/bin/swift-proxy-server /etc/swift/proxy-server.conf
@@ -366,7 +384,7 @@ outputs:
                 - create_swift_secret:
                     # NOTE: Barbican should be started before creating secrets
                     start_order: 0
-                    image: &swift_proxy_image {get_param: ContainerSwiftProxyImage}
+                    image: &swift_proxy_image {get_attr: [RoleParametersValue, value, ContainerSwiftProxyImage]}
                     net: host
                     detach: false
                     volumes:

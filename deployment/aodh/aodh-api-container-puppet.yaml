@@ -7,9 +7,13 @@ parameters:
   ContainerAodhApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerAodhConfigImage:
     description: The container image to use for the aodh config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -133,6 +137,20 @@ resources:
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
 
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerAodhApiImage: ContainerAodhApiImage
+              ContainerAodhConfigImage: ContainerAodhConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerAodhApiImage: {get_param: ContainerAodhApiImage}
+              ContainerAodhConfigImage: {get_param: ContainerAodhConfigImage}
+
 outputs:
   role_data:
     description: Role data for the aodh API role.
@@ -214,7 +232,7 @@ outputs:
             - "\n"
             - - "include tripleo::profile::base::aodh::api"
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerAodhConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerAodhConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/aodh_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -254,7 +272,7 @@ outputs:
         # db sync runs before permissions set by kolla_config
         step_2:
           aodh_init_log:
-            image: &aodh_api_image {get_param: ContainerAodhApiImage}
+            image: &aodh_api_image {get_attr: [RoleParametersValue, value, ContainerAodhApiImage]}
             net: none
             user: root
             volumes:
