@@ -114,6 +114,12 @@ parameters:
                  to 120s.
     constraints:
       - allowed_pattern: "([1-9][0-9]*s)?"
+  AllInOneUpgrade:
+    type: boolean
+    default: false
+    description: Parameter used for pausing all ceph osds and skip transfer
+                 data check during a special case of upgrade called AllInOne.
+                 This causes workload outage!
 
 conditions:
   pcmk_tls_priorities_empty: {equals: [{get_param: PacemakerTLSPriorities}, '']}
@@ -193,6 +199,8 @@ outputs:
       upgrade_tasks:
         - name: upgrade step 0
           when: step|int == 0
+          vars:
+            allinone_upgrade: {get_param: AllInOneUpgrade}
           block:
             # If performing an upgrade which requires operating system upgrading
             # a transfer data step needs to be run. During this step, the whole
@@ -211,6 +219,11 @@ outputs:
             - name: Set fact cluster_recreate
               set_fact:
                 cluster_recreate: "{{ tripleo_transfer_flag_stat.stat.exists|bool }}"
+            - name: Override cluster_recreate in case of AllInOneUpgrade
+              set_fact:
+                cluster_recreate: true
+              when:
+                - allinone_upgrade|bool
             - name: Check pacemaker cluster running before upgrade
               tags: validation
               pacemaker_cluster: state=online check_and_fail=true
