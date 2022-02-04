@@ -572,6 +572,17 @@ outputs:
       docker_config: {}
       config_settings: {}
       external_deploy_tasks:
+        - name: ceph-ansible extra vars
+          when: step|int == 1
+          tags:
+            - ceph
+          set_fact:
+            ceph_ansible_extra_vars:
+              map_merge:
+              - {get_param: CephAnsibleExtraConfig}
+              - ireallymeanit: "yes"
+                fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
+                container_binary: {get_param: ContainerCli}
         - name: ceph_base_external_deploy_init
           when: step|int == 1
           tags:
@@ -644,12 +655,6 @@ outputs:
                     - dashboard_admin_password: {get_param: CephDashboardAdminPassword}
                       grafana_admin_password: {get_param: CephGrafanaAdminPassword}
                   - {get_attr: [CephBaseAnsibleVars, value, vars]}
-                ceph_ansible_extra_vars:
-                  map_merge:
-                  - {get_param: CephAnsibleExtraConfig}
-                  - ireallymeanit: "yes"
-                    fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
-                    container_binary: {get_param: ContainerCli}
                 uuid_content:
                   yaql:
                     expression: dict($.data.keys().select($.toLower()).zip($.data.values()))
@@ -666,6 +671,19 @@ outputs:
               include_role:
                 name: tripleo_ceph_uuid
                 tasks_from: prepare
+        - name: set ceph-ansible skip tags facts
+          when: step|int == 2
+          tags:
+            - ceph
+          set_fact:
+            ceph_ansible_skip_tags:
+              if:
+                - {get_param: CephAnsibleSkipClient}
+                - list_join:
+                    - ','
+                    - - get_param: CephAnsibleSkipTags
+                      - 'ceph_client'
+                - {get_param: CephAnsibleSkipTags}
         - name: ceph_base_external_deploy_task
           when: step|int == 2
           tags:
@@ -674,14 +692,6 @@ outputs:
           block:
             - name: set ceph-ansible facts
               set_fact:
-                ceph_ansible_skip_tags:
-                  if:
-                    - {get_param: CephAnsibleSkipClient}
-                    - list_join:
-                        - ','
-                        - - get_param: CephAnsibleSkipTags
-                          - 'ceph_client'
-                    - {get_param: CephAnsibleSkipTags}
                 ceph_ansible_playbook_verbosity: {get_param: CephAnsiblePlaybookVerbosity}
                 ceph_ansible_playbooks_param: {get_param: CephAnsiblePlaybook}
                 ceph_ansible_environment_variables:
@@ -730,6 +740,15 @@ outputs:
               tags:
                 - opendev-validation
                 - opendev-validation-ceph
+        - name: Cleanup ceph-ansible package
+          when:
+            - (step | int) == 3
+            - '"cephadm-adopt" in ceph_ansible_playbooks_default[0]'
+          package:
+            name: ceph-ansible
+            state: absent
+          tags:
+            - cephadm_adopt
       external_update_tasks:
         - when: step|int == 0
           tags: ceph
@@ -764,6 +783,19 @@ outputs:
                     - ','
                     - - get_param: CephAnsibleSkipTags
                       - 'ceph_nfs_adopt'
+            - name: Set ceph-ansible extra vars
+              set_fact:
+                ceph_ansible_extra_vars:
+                  map_merge:
+                  - {get_param: CephAnsibleExtraConfig}
+                  - ireallymeanit: "yes"
+                    fetch_directory: "{{playbook_dir}}/ceph-ansible/fetch_dir"
+                    container_binary: {get_param: ContainerCli}
+                    cephadm_ssh_user: "{{ cephadm_ssh_user | default('ceph-admin') }}"
+                    cephadm_mgmt_network:
+                      list_join:
+                        - ','
+                        - get_param: [ServiceData, net_cidr_map, ctlplane]
         - when: step|int == 0
           tags: ceph
           block:
