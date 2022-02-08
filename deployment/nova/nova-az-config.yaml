@@ -40,10 +40,17 @@ parameters:
   RootStackName:
     description: The name of the stack/plan.
     type: string
+  AuthCloudName:
+    description: Entry in clouds.yaml to use for authentication
+    type: string
+    default: ""
+
 
 conditions:
   availability_zone_set:
     not: {equals: [{get_param: NovaComputeAvailabilityZone}, ""]}
+  auth_cloud_name_set:
+    not: {equals: [{get_param: AuthCloudName}, ""]}
 
 outputs:
   role_data:
@@ -63,10 +70,13 @@ outputs:
           when: "step|int == 1"
       external_post_deploy_tasks:
         - name: "Nova: Manage aggregate and availability zone and add hosts to the zone"
+          become: true
           environment:
-            # Force openstackclient to not try and read a clouds.yaml as none
-            # exists for the tripleo-admin user.
-            OS_CLIENT_CONFIG_FILE: /dev/null
+            OS_CLOUD:
+              if:
+                - auth_cloud_name_set
+                - {get_param: AuthCloudName}
+                - {get_param: RootStackName}
           os_nova_host_aggregate:
             name: &availability_zone
               if:
@@ -75,10 +85,3 @@ outputs:
                 - {get_param: RootStackName}
             availability_zone: *availability_zone
             hosts: "{{ groups['nova_compute'] | default([]) | map('extract', hostvars, 'nova_host') | select('defined') | list }}"
-            auth:
-              username: admin
-              password: {get_param: AdminPassword}
-              project_name: admin
-              project_domain_name: Default
-              user_domain_name: Default
-              auth_url: { get_param: [EndpointMap, KeystoneV3Public, uri] }
