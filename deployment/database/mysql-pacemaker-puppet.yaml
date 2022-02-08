@@ -339,6 +339,18 @@ outputs:
                     tripleo_ha_wrapper_puppet_execute: '["Mysql_datadir", "Mysql_user", "Mysql_database", "Mysql_grant", "Mysql_plugin"].each |String $val| { noop_resource($val) }; include ::tripleo::profile::base::pacemaker; include ::tripleo::profile::pacemaker::database::mysql_bundle'
                     tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                     tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
+            - name: Sync MySQL credentials in the running container
+              when: step|int == 3
+              block:
+                - name: Retrieve the galera container
+                  shell: "{{ container_cli }} ps -q --filter name=galera-bundle"
+                  register: galera_bundle_id
+                  become: true
+                  failed_when: false
+                - name: Update credentials in the container
+                  shell: "{{ container_cli }} exec -u root -t '{{ galera_bundle_id.stdout_lines[0] }}' cp /var/lib/kolla/config_files/src/root/.my.cnf /root"
+                  become: true
+                  when: galera_bundle_id.rc == 0 and galera_bundle_id.stdout != ""
 
       update_tasks:
         - name: Mariadb fetch and retag container image for pacemaker
