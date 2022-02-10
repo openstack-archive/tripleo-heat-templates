@@ -422,142 +422,143 @@ outputs:
             tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
-        - name: Prepare switch of haproxy image name
-          when:
-            - step|int == 0
-          block:
-            - name: Get haproxy image id currently used by pacemaker
-              shell: "pcs resource config haproxy-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
-              register: haproxy_image_current_res
-              failed_when: false
-            - name: Image facts for haproxy
-              set_fact:
-                haproxy_image_latest: *haproxy_image_pcmklatest
-                haproxy_image_current: "{{haproxy_image_current_res.stdout}}"
-            - name: Temporarily tag the current haproxy image id with the upgraded image name
-              import_role:
-                name: tripleo-container-tag
-              vars:
-                container_image: "{{haproxy_image_current}}"
-                container_image_latest: "{{haproxy_image_latest}}"
-                pull_image: false
-              when:
-                - haproxy_image_current != ''
-                - haproxy_image_current != haproxy_image_latest
-            # During an OS Upgrade, the cluster may not exist so we use
-            # the shell module instead.
-            # TODO(odyssey4me):
-            # Fix the pacemaker_resource module to handle the exception
-            # for a non-existant cluster more gracefully.
-            - name: Check haproxy cluster resource status
-              shell: pcs resource config haproxy-bundle
-              failed_when: false
-              changed_when: false
-              register: haproxy_pcs_res_result
-            - name: Set upgrade haproxy facts
-              set_fact:
-                haproxy_pcs_res: "{{haproxy_pcs_res_result.rc == 0}}"
-                is_haproxy_bootstrap_node: "{{haproxy_short_bootstrap_node_name|lower == ansible_facts['hostname']|lower}}"
-
-        - name: Update haproxy pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_haproxy_bootstrap_node|bool
-            - haproxy_pcs_res|bool
-            - haproxy_image_current != haproxy_image_latest
-          block:
-            - name: Disable the haproxy cluster resource before container upgrade
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
-              block:
-                - name: Check haproxy stats socket configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
-                  failed_when: false
-                  register: haproxy_stats_exposed
-                - name: Check haproxy public certificate configuration in pacemaker
-                  command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
-                  failed_when: false
-                  register: haproxy_cert_mounted
-                - name: Add a bind mount for stats socket in the haproxy bundle
-                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
-                  # rc == 6 means the configuration doesn't exist in the CIB
-                  when: haproxy_stats_exposed.rc == 6
-                - name: Set HAProxy public cert volume mount fact
-                  set_fact:
-                    haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
-                    haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
-                - name: Add a bind mount for public certificate in the haproxy bundle
-                  command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
-                  when:
-                    - haproxy_cert_mounted.rc == 6
-                    - haproxy_public_tls_enabled|bool
-            - name: Update the haproxy bundle to use the new container image name
-              command: "pcs resource bundle update haproxy-bundle container image={{haproxy_image_latest}}"
-            - name: Enable the haproxy cluster resource
-              pacemaker_resource:
-                resource: haproxy-bundle
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Create hiera data to upgrade haproxy in a stepwise manner.
-          when:
-            - step|int == 1
-            - cluster_recreate|bool
-          block:
-            - name: set haproxy upgrade node facts in a single-node environment
-              set_fact:
-                haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names }}"
-                cacheable: no
-              when: groups['haproxy'] | length <= 1
-            - name: set haproxy upgrade node facts from the limit option
-              set_fact:
-                haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
-                cacheable: no
-              when:
-                - groups['haproxy'] | length > 1
-                - item.split('.')[0] in ansible_limit.split(':')
-              loop: "{{ haproxy_short_node_names }}"
-            - fail:
-                msg: >
-                  You can't upgrade haproxy without staged
-                  upgrade. You need to use the limit option in order
-                  to do so.
-              when: >-
-                haproxy_short_node_names_upgraded is not defined or
-                haproxy_short_node_names_upgraded | length == 0
-            - debug:
-                msg: "Prepare haproxy upgrade for {{ haproxy_short_node_names_upgraded }}"
-            - name: remove haproxy init container on upgrade-scaleup to force re-init
-              include_role:
-                name: tripleo-container-rm
-              vars:
-                tripleo_containers_to_rm:
-                  - haproxy_init_bundle
-              when:
-                - haproxy_short_node_names_upgraded | length > 1
-            - name: add the haproxy short name to hiera data for the upgrade.
-              include_role:
-                name: tripleo-upgrade-hiera
-                tasks_from: set.yml
-              vars:
-                tripleo_upgrade_key: haproxy_short_node_names_override
-                tripleo_upgrade_value: "{{haproxy_short_node_names_upgraded}}"
-            - name: remove the extra hiera data needed for the upgrade.
-              include_role:
-                name: tripleo-upgrade-hiera
-                tasks_from: remove.yml
-              vars:
-                tripleo_upgrade_key: haproxy_short_node_names_override
-              when: haproxy_short_node_names_upgraded | length == haproxy_short_node_names | length
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 3
-          block: *haproxy_fetch_retag_container_tasks
+        list_concat:
+        - {get_attr: [HAProxyBase, role_data, upgrade_tasks]}
+        - - name: Prepare switch of haproxy image name
+            when:
+              - step|int == 0
+            block:
+              - name: Get haproxy image id currently used by pacemaker
+                shell: "pcs resource config haproxy-bundle | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+                register: haproxy_image_current_res
+                failed_when: false
+              - name: Image facts for haproxy
+                set_fact:
+                  haproxy_image_latest: *haproxy_image_pcmklatest
+                  haproxy_image_current: "{{haproxy_image_current_res.stdout}}"
+              - name: Temporarily tag the current haproxy image id with the upgraded image name
+                import_role:
+                  name: tripleo-container-tag
+                vars:
+                  container_image: "{{haproxy_image_current}}"
+                  container_image_latest: "{{haproxy_image_latest}}"
+                  pull_image: false
+                when:
+                  - haproxy_image_current != ''
+                  - haproxy_image_current != haproxy_image_latest
+              # During an OS Upgrade, the cluster may not exist so we use
+              # the shell module instead.
+              # TODO(odyssey4me):
+              # Fix the pacemaker_resource module to handle the exception
+              # for a non-existant cluster more gracefully.
+              - name: Check haproxy cluster resource status
+                shell: pcs resource config haproxy-bundle
+                failed_when: false
+                changed_when: false
+                register: haproxy_pcs_res_result
+              - name: Set upgrade haproxy facts
+                set_fact:
+                  haproxy_pcs_res: "{{haproxy_pcs_res_result.rc == 0}}"
+                  is_haproxy_bootstrap_node: "{{haproxy_short_bootstrap_node_name|lower == ansible_facts['hostname']|lower}}"
+          - name: Update haproxy pcs resource bundle for new container image
+            when:
+              - step|int == 1
+              - is_haproxy_bootstrap_node|bool
+              - haproxy_pcs_res|bool
+              - haproxy_image_current != haproxy_image_latest
+            block:
+              - name: Disable the haproxy cluster resource before container upgrade
+                pacemaker_resource:
+                  resource: haproxy-bundle
+                  state: disable
+                  wait_for_resource: true
+                register: output
+                retries: 5
+                until: output.rc == 0
+              - name: Expose HAProxy stats socket on the host and mount TLS cert if needed
+                block:
+                  - name: Check haproxy stats socket configuration in pacemaker
+                    command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-var-lib']"
+                    failed_when: false
+                    register: haproxy_stats_exposed
+                  - name: Check haproxy public certificate configuration in pacemaker
+                    command: cibadmin --query --xpath "//storage-mapping[@id='haproxy-cert']"
+                    failed_when: false
+                    register: haproxy_cert_mounted
+                  - name: Add a bind mount for stats socket in the haproxy bundle
+                    command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-var-lib source-dir=/var/lib/haproxy target-dir=/var/lib/haproxy options=rw
+                    # rc == 6 means the configuration doesn't exist in the CIB
+                    when: haproxy_stats_exposed.rc == 6
+                  - name: Set HAProxy public cert volume mount fact
+                    set_fact:
+                      haproxy_public_cert_path: {get_param: DeployedSSLCertificatePath}
+                      haproxy_public_tls_enabled: {if: [public_tls_enabled, true, false]}
+                  - name: Add a bind mount for public certificate in the haproxy bundle
+                    command: pcs resource bundle update haproxy-bundle storage-map add id=haproxy-cert source-dir={{ haproxy_public_cert_path }} target-dir=/var/lib/kolla/config_files/src-tls/{{ haproxy_public_cert_path }} options=ro
+                    when:
+                      - haproxy_cert_mounted.rc == 6
+                      - haproxy_public_tls_enabled|bool
+              - name: Update the haproxy bundle to use the new container image name
+                command: "pcs resource bundle update haproxy-bundle container image={{haproxy_image_latest}}"
+              - name: Enable the haproxy cluster resource
+                pacemaker_resource:
+                  resource: haproxy-bundle
+                  state: enable
+                  wait_for_resource: true
+                register: output
+                retries: 5
+                until: output.rc == 0
+          - name: Create hiera data to upgrade haproxy in a stepwise manner.
+            when:
+              - step|int == 1
+              - cluster_recreate|bool
+            block:
+              - name: set haproxy upgrade node facts in a single-node environment
+                set_fact:
+                  haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names }}"
+                  cacheable: no
+                when: groups['haproxy'] | length <= 1
+              - name: set haproxy upgrade node facts from the limit option
+                set_fact:
+                  haproxy_short_node_names_upgraded: "{{ haproxy_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                  cacheable: no
+                when:
+                  - groups['haproxy'] | length > 1
+                  - item.split('.')[0] in ansible_limit.split(':')
+                loop: "{{ haproxy_short_node_names }}"
+              - fail:
+                  msg: >
+                    You can't upgrade haproxy without staged
+                    upgrade. You need to use the limit option in order
+                    to do so.
+                when: >-
+                  haproxy_short_node_names_upgraded is not defined or
+                  haproxy_short_node_names_upgraded | length == 0
+              - debug:
+                  msg: "Prepare haproxy upgrade for {{ haproxy_short_node_names_upgraded }}"
+              - name: remove haproxy init container on upgrade-scaleup to force re-init
+                include_role:
+                  name: tripleo-container-rm
+                vars:
+                  tripleo_containers_to_rm:
+                    - haproxy_init_bundle
+                when:
+                  - haproxy_short_node_names_upgraded | length > 1
+              - name: add the haproxy short name to hiera data for the upgrade.
+                include_role:
+                  name: tripleo-upgrade-hiera
+                  tasks_from: set.yml
+                vars:
+                  tripleo_upgrade_key: haproxy_short_node_names_override
+                  tripleo_upgrade_value: "{{haproxy_short_node_names_upgraded}}"
+              - name: remove the extra hiera data needed for the upgrade.
+                include_role:
+                  name: tripleo-upgrade-hiera
+                  tasks_from: remove.yml
+                vars:
+                  tripleo_upgrade_key: haproxy_short_node_names_override
+                when: haproxy_short_node_names_upgraded | length == haproxy_short_node_names | length
+          - name: Retag the pacemaker image if containerized
+            when:
+              - step|int == 3
+            block: *haproxy_fetch_retag_container_tasks
