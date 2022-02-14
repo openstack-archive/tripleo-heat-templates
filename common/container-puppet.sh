@@ -101,7 +101,9 @@ if [ -z "$NO_ARCHIVE" ]; then
     ro_files="/etc/puppet/ /etc/puppetlabs/ /opt/puppetlabs/ /etc/pki/ca-trust/extracted "
     ro_files+="/etc/pki/ca-trust/source/anchors /etc/pki/tls/certs/ca-bundle.crt "
     ro_files+="/etc/pki/tls/certs/ca-bundle.trust.crt /etc/pki/tls/cert.pem "
-    ro_files+="/etc/hosts /etc/localtime /etc/hostname"
+    ro_files+="/etc/hosts /etc/localtime /etc/hostname "
+    # /etc/openldap is bind mounted with "ro" option in keystone containers.
+    ro_files+="/etc/openldap"
     for ro in $ro_files; do
         if [ -e "$ro" ]; then
             exclude_files+=" --exclude=$ro"
