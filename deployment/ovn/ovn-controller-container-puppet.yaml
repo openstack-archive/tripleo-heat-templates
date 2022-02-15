@@ -134,6 +134,12 @@ parameters:
     default: ''
     description: Override the private key size used when creating the
                  certificate for this service
+  OVNControllerUpdateTimeout:
+    description: >
+      During update, how long we wait for the container to be updated,
+      in seconds.
+    type: number
+    default: 600
 
 conditions:
   force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
@@ -372,6 +378,54 @@ outputs:
           service:
             name: neutron-cleanup
             enabled: yes
+      external_update_tasks:
+        - name: OVN Container image used
+          debug:
+            msg: "ovn container will be using {{ image }}"
+          vars:
+            image: {get_param: ContainerOvnControllerConfigImage}
+          when: step|int == 1
+          tags: ovn
+        - name: Update ovn_controller.
+          when: step|int == 1
+          tags: ovn
+          become: true
+          loop: "{{ groups['ovn_controller'] }}"
+          delegate_to: "{{ item }}"
+          async: {get_param: OVNControllerUpdateTimeout}
+          poll: 0
+          register: ovn_controller_update
+          ignore_errors: true
+          paunch:
+            config: "/var/lib/tripleo-config/container-startup-config/step_4"
+            config_id:
+              - 'tripleo_step4'
+            action: apply
+            container_name: ovn_controller
+            managed_by: "tripleo-{{ hostvars[item]['tripleo_role_name'] }}"
+            container_cli: "{{ container_cli }}"
+            container_log_stdout_path: "{{ container_log_stdout_path }}"
+            healthcheck_disabled: "{{ container_healthcheck_disabled | bool }}"
+            debug: "{{ enable_debug | bool }}"
+            config_overrides:
+              image: {get_param: ContainerOvnControllerConfigImage}
+            log_file: /var/log/ovn_controller_paunch_update.log
+            cleanup: False
+        - name: Was the ovn_controller successful.
+          when:
+            - step|int == 1
+            - "'results' in ovn_controller_update"
+          tags: ovn
+          become: true
+          delegate_to: "{{ async_result_item.item }}"
+          async_status:
+            jid: "{{ async_result_item.ansible_job_id }}"
+          loop: "{{ovn_controller_update.results }}"
+          loop_control:
+            loop_var: "async_result_item"
+          register: async_poll_results
+          until: async_poll_results.finished
+          retries: {get_param: OVNControllerUpdateTimeout}
       upgrade_tasks:
         - name: Ensure correct label recursively on ovn directory
           when:
