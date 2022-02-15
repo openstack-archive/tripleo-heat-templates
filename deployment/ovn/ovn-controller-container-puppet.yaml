@@ -164,6 +164,12 @@ parameters:
     description: Entry in clouds.yaml to use for authentication
     type: string
     default: ""
+  OVNControllerUpdateTimeout:
+    description: >
+      During update, how long we wait for the container to be updated,
+      in seconds.
+    type: number
+    default: 600
 
 conditions:
   auth_cloud_name_set:
@@ -465,6 +471,50 @@ outputs:
                       $ROLE_NAME: {get_param: RoleName}
                 ovn_bridge_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_bridge_mappings]}
                 ovn_static_bridge_mac_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_static_bridge_mac_mappings]}
+      external_update_tasks:
+        - name: OVN Container image used
+          debug:
+            msg: "ovn container will be using {{ image }}"
+          vars:
+            image: {get_param: ContainerOvnControllerConfigImage}
+          when: step|int == 1
+          tags: ovn
+        - name: Update ovn_controller.
+          when: step|int == 1
+          tags: ovn
+          become: true
+          loop: "{{ groups['ovn_controller'] }}"
+          delegate_to: "{{ item }}"
+          async: {get_param: OVNControllerUpdateTimeout}
+          poll: 0
+          register: ovn_controller_update
+          ignore_errors: true
+          tripleo_container_manage:
+            config_dir: "/var/lib/tripleo-config/container-startup-config/step_4"
+            config_patterns: 'ovn_controller.json'
+            config_id:
+              - 'tripleo_step4'
+            container_cli: "{{ container_cli }}"
+            log_path: "{{ container_log_stdout_path }}"
+            debug: "{{ enable_debug | bool }}"
+            config_overrides:
+              ovn_controller:
+                image: {get_param: ContainerOvnControllerConfigImage}
+        - name: Was the ovn_controller successful.
+          when:
+            - step|int == 1
+            - "'results' in ovn_controller_update"
+          tags: ovn
+          become: true
+          delegate_to: "{{ async_result_item.item }}"
+          async_status:
+            jid: "{{ async_result_item.ansible_job_id }}"
+          loop: "{{ovn_controller_update.results }}"
+          loop_control:
+            loop_var: "async_result_item"
+          register: async_poll_results
+          until: async_poll_results.finished
+          retries: {get_param: OVNControllerUpdateTimeout}
       upgrade_tasks: []
       scale_tasks:
         - when:
