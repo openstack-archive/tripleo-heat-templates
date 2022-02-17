@@ -82,6 +82,13 @@ def parse_opts(argv):
     parser.add_argument('template',
                         metavar='TEMPLATE_FILE',
                         help='Existing NIC config template to convert.')
+    parser.add_argument('--standalone',
+                        default=False,
+                        action='store_true',
+                        help='This switch allows the script to operate in '
+                             'environments where the orchestration service '
+                             'is not available. Such as environemnts with '
+                             'ephemeral-heat')
 
     opts = parser.parse_args(argv[1:])
 
@@ -225,7 +232,8 @@ class ConvertToAnsibleJ2(object):
         if isinstance(param, str):
             if param in self.param_to_var_map:
                 return self.param_to_var_map[param]
-            elif param in self.stack_env.get('parameter_defaults', {}):
+            elif (self.stack_env and
+                  param in self.stack_env.get('parameter_defaults', {})):
                 stack_value = self.stack_env['parameter_defaults'][param]
                 print('INFO - Custom Parameter {} was hard-coded in the '
                       'converted template using the value from the Heat stack '
@@ -389,7 +397,7 @@ class ConvertToAnsibleJ2(object):
         net_config_res_props = net_config_res['properties']
 
         if net_config_res['type'] == 'OS::Heat::Value':
-            h_net_conf = net_config_res_props['value']
+            h_net_conf = net_config_res_props['value']['network_config']
         elif net_config_res['type'] == 'OS::Heat::SoftwareConfig':
             h_net_conf = net_config_res_props['config']['str_replace'][
                 'params']['$network_config']['network_config']
@@ -501,7 +509,10 @@ def main():
     j2_template = os.path.splitext(template)[0] + '.j2'
     validate_files(opts, template, networks_file, j2_template)
 
-    stack_env = get_stack_environment(opts.stack)
+    if not opts.standalone:
+        stack_env = get_stack_environment(opts.stack)
+    else:
+        stack_env = None
 
     converter = ConvertToAnsibleJ2(stack_env, networks_file)
 
