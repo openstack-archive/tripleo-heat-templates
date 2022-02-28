@@ -55,8 +55,8 @@ bundle_failures_locally() {
     local last=$(($replicas - 1))
     local replica_name
     for i in $(seq 0 $last); do
-	replica_name=${BUNDLE_NAME}-${engine}-${i}
-	crm_failcount -q -G -r $replica_name -N $HOST
+        replica_name=${BUNDLE_NAME}-${engine}-${i}
+        crm_failcount -q -G -r $replica_name -N $HOST
     done
 }
 
@@ -65,7 +65,7 @@ bundle_failures_globally() {
     local replicas=$BUNDLE_REPLICAS
     local last=$(($replicas - 1))
     for i in $(seq 0 $last); do
-	crm_failcount -q -G -r ${BUNDLE_NAME}-${engine}-${i}
+        crm_failcount -q -G -r ${BUNDLE_NAME}-${engine}-${i}
     done
 }
 
@@ -81,8 +81,8 @@ ocf_failures_globally() {
     local last=$(($replicas - 1))
     local bundle_node
     for i in $(seq 0 $last); do
-	bundle_node=${BUNDLE_NAME}-${i}
-	crm_failcount -q -G -r $NAME -N $bundle_node
+        bundle_node=${BUNDLE_NAME}-${i}
+        crm_failcount -q -G -r $NAME -N $bundle_node
     done
 }
 
@@ -91,18 +91,18 @@ did_resource_failed_locally() {
     local running
     local remotehost
     if [ "${NAME}" != "${BUNDLE_NAME}" ]; then
-	# if we're dealing with an ocf resource, it is running on a
-	# pacemaker_remote rather that on the real host, and the
-	# failcounts are thus associated to the pcmk remote. Replace
-	# the host's name with the pcmk remote's name.
+        # if we're dealing with an ocf resource, it is running on a
+        # pacemaker_remote rather that on the real host, and the
+        # failcounts are thus associated to the pcmk remote. Replace
+        # the host's name with the pcmk remote's name.
         remotehost=$(crm_mon --as-xml | xmllint --xpath "string(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource/node[@name='${HOST}']/../../resource[@resource_agent='${OCF}:pacemaker:remote']/@id)" -)
-	if [ -n "${remotehost}" ]; then
-	    crm_failcount -q -G -r $NAME -N $remotehost | grep -q -w INFINITY
-	    return $?
-	fi
-	# If no pcmk remote is currently running, the failcount from
-	# the ocf resource is useless, compute the failcount from the
-	# bundle case instead (computed below).
+        if [ -n "${remotehost}" ]; then
+            crm_failcount -q -G -r $NAME -N $remotehost | grep -q -w INFINITY
+            return $?
+        fi
+        # If no pcmk remote is currently running, the failcount from
+        # the ocf resource is useless, compute the failcount from the
+        # bundle case instead (computed below).
     fi
 
     # for bundles, pacemaker can run any bundle replica locally
@@ -120,25 +120,25 @@ did_resource_failed_globally() {
     local remotecount
     local failures
     if [ "${NAME}" != "${BUNDLE_NAME}" ]; then
-	# we check the state of an ocf resource only if the
-	# pcmkremotes are started
+        # we check the state of an ocf resource only if the
+        # pcmkremotes are started
         remotecount=$(crm_mon --as-xml | xmllint --xpath "count(//resources/bundle[@id='${BUNDLE_NAME}']/replica/resource[@resource_agent='${OCF}:pacemaker:remote']/node)" -)
-	if [ "${remotecount}" = "0" ]; then
-	    # no pcmkremote is running, so check the bundle state
-	    # instead of checking the ocf resource
-	    # bundle failed if all ${BUNDLE_REPLICAS} replicas failed
-	    failures=$(bundle_failures_globally | grep -c -w INFINITY)
-	    test $failures -eq $BUNDLE_REPLICAS
-	else
-	    # ocf resource failed if it failed to start on
-	    # all $BUNDLE_REPLICAS bundle nodes
-	    failures=$(ocf_failures_globally | grep -c -w INFINITY)
-	    test $failures -eq $BUNDLE_REPLICAS
-	fi
+        if [ "${remotecount}" = "0" ]; then
+            # no pcmkremote is running, so check the bundle state
+            # instead of checking the ocf resource
+            # bundle failed if all ${BUNDLE_REPLICAS} replicas failed
+            failures=$(bundle_failures_globally | grep -c -w INFINITY)
+            test $failures -eq $BUNDLE_REPLICAS
+        else
+            # ocf resource failed if it failed to start on
+            # all $BUNDLE_REPLICAS bundle nodes
+            failures=$(ocf_failures_globally | grep -c -w INFINITY)
+            test $failures -eq $BUNDLE_REPLICAS
+        fi
     else
-	# bundle failed if all ${BUNDLE_REPLICAS} replicas failed
-	failures=$(bundle_failures_globally | grep -c -w INFINITY)
-	test $failures -eq $BUNDLE_REPLICAS
+        # bundle failed if all ${BUNDLE_REPLICAS} replicas failed
+        failures=$(bundle_failures_globally | grep -c -w INFINITY)
+        test $failures -eq $BUNDLE_REPLICAS
     fi
 }
 
@@ -206,15 +206,15 @@ TIMEOUT=${6:-__PCMKTIMEOUT__}
 # So instead, we implement various searches with XPath directly.
 
 if [ "${BUNDLE_NAME}" != "${NAME}" ]; then
-# ocf resource
-local_resource_xpath="//bundle/replica/resource[@resource_agent='${OCF}:pacemaker:remote']/node[@name='${HOST}']/../../resource[@id='${NAME}']"
-any_resource_xpath="//bundle//resource[@id='${NAME}']"
-replicas_xpath="//bundle/primitive[@id='${BUNDLE_NAME}']/../*[boolean(@image) and boolean(@replicas)]"
+    # ocf resource
+    local_resource_xpath="//bundle/replica/resource[@resource_agent='${OCF}:pacemaker:remote']/node[@name='${HOST}']/../../resource[@id='${NAME}']"
+    any_resource_xpath="//bundle//resource[@id='${NAME}']"
+    replicas_xpath="//bundle/primitive[@id='${BUNDLE_NAME}']/../*[boolean(@image) and boolean(@replicas)]"
 else
-# bundle resource
-local_resource_xpath="//bundle[@id='${NAME}']/replica/resource/node[@name='${HOST}']/../../resource"
-any_resource_xpath="//bundle[@id='${NAME}']//resource"
-replicas_xpath="//bundle[@id='${BUNDLE_NAME}']/*[boolean(@image) and boolean(@replicas)]"
+    # bundle resource
+    local_resource_xpath="//bundle[@id='${NAME}']/replica/resource/node[@name='${HOST}']/../../resource"
+    any_resource_xpath="//bundle[@id='${NAME}']//resource"
+    replicas_xpath="//bundle[@id='${BUNDLE_NAME}']/*[boolean(@image) and boolean(@replicas)]"
 fi
 
 bundle_def_xpath="//bundle[@id='${BUNDLE_NAME}']/*[boolean(@image) and boolean(@replicas)]"
@@ -244,11 +244,11 @@ if [ -n "$ROLE_LOCAL" ]; then
         resource=$(crm_mon -r --as-xml | xmllint --xpath "${local_resource_xpath}" - 2>/dev/null)
         role=$(echo "${resource}" | sed -ne 's/.*\Wrole="\([^"]*\)".*/\1/p')
 
-	if [ "$(crm_resource --meta -r ${NAME} -g is-managed 2>/dev/null)" = "false" ]; then
+        if [ "$(crm_resource --meta -r ${NAME} -g is-managed 2>/dev/null)" = "false" ]; then
             log "${NAME} is unmanaged, will never reach target role. Bailing out"
             bailout=0
             continue
-	elif [ "$(crm_resource --meta -r ${NAME} -g target-role 2>/dev/null)" = "Stopped" ]; then
+        elif [ "$(crm_resource --meta -r ${NAME} -g target-role 2>/dev/null)" = "Stopped" ]; then
             log "${NAME} is disabled, will never reach target role. Bailing out"
             bailout=0
             continue
@@ -256,7 +256,7 @@ if [ -n "$ROLE_LOCAL" ]; then
             log "${NAME} is blocked, will never reach target role. Bailing out"
             bailout=0
             continue
-	elif did_resource_failed_locally; then
+        elif did_resource_failed_locally; then
             log "${NAME} is in failed state, will never reach target role. Bailing out"
             bailout=0
             continue
@@ -287,11 +287,11 @@ if [ $timeout -gt 0 ] && [ -n "$ROLE_ANYWHERE" ] && [ "$role" != "$ROLE_ANYWHERE
     bailout=1
     while [ $timeout -gt 0 ] && [ $bailout -ne 0 ] && [ $success -ne 0 ]; do
         resources=$(crm_mon -r --as-xml | xmllint --xpath "${any_resource_xpath}" - 2>/dev/null)
-	if [ "$(crm_resource --meta -r ${NAME} -g is-managed 2>/dev/null)" = "false" ]; then
+        if [ "$(crm_resource --meta -r ${NAME} -g is-managed 2>/dev/null)" = "false" ]; then
             log "${NAME} is unmanaged, will never reach target role. Bailing out"
             bailout=0
             continue
-	elif [ "$(crm_resource --meta -r ${NAME} -g target-role 2>/dev/null)" = "Stopped" ]; then
+        elif [ "$(crm_resource --meta -r ${NAME} -g target-role 2>/dev/null)" = "Stopped" ]; then
             log "${NAME} is disabled, will never reach target role. Bailing out"
             bailout=0
             continue
@@ -299,7 +299,7 @@ if [ $timeout -gt 0 ] && [ -n "$ROLE_ANYWHERE" ] && [ "$role" != "$ROLE_ANYWHERE
             log "${NAME} blocked, will never reach target role. Bailing out"
             bailout=0
             continue
-	elif did_resource_failed_globally; then
+        elif did_resource_failed_globally; then
             log "${NAME} is in failed state, will never reach target role. Bailing out"
             bailout=0
             continue
