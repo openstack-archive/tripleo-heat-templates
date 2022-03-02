@@ -928,6 +928,37 @@ resources:
     properties:
       CtlplaneNetworkCidrs: {get_attr: [ControlVirtualIP, network, tags]}
 
+  # NOTE(tkajinam): Backend services and haproxy might be running in different
+  #                 nodes, so we need to gather all frontend firewall rules
+  #                 across all roles and pass the combined data to firewall
+  #                 configuration task in the node where haproxy (or edge
+  #                 haproxy) is assigned to.
+  FirewallFrontendRules:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        frontend:
+          map_merge:
+{% for role in roles %}
+            - get_attr: [{{role.name}}ServiceChainRoleData, value, firewall_frontend_rules]
+{% endfor %}
+        ssl_frontend:
+          map_merge:
+{% for role in roles %}
+            - get_attr: [{{role.name}}ServiceChainRoleData, value, firewall_ssl_frontend_rules]
+{% endfor %}
+        edge_frontend:
+          map_merge:
+{% for role in roles %}
+            - get_attr: [{{role.name}}ServiceChainRoleData, value, firewall_edge_frontend_rules]
+{% endfor %}
+        edge_ssl_frontend:
+          map_merge:
+{% for role in roles %}
+            - get_attr: [{{role.name}}ServiceChainRoleData, value, firewall_edge_ssl_frontend_rules]
+{% endfor %}
+
 {%- for role in roles %}
   {{role.name}}GroupVars:
     type: OS::Heat::Value
@@ -1004,6 +1035,11 @@ resources:
         tripleo_network_config_with_ansible: {get_param: NetworkConfigWithAnsible}
         default_route_networks: {{role.default_route_networks|default(['ControlPlane'])}}
         networks_skip_config: {{ role.networks_skip_config|default([]) }}
+        tripleo_firewall_rules: {get_attr: [{{role.name}}ServiceChainRoleData, value, firewall_rules]}
+        tripleo_firewall_frontend_rules: {get_attr: [FirewallFrontendRules, value, frontend]}
+        tripleo_firewall_ssl_frontend_rules: {get_attr: [FirewallFrontendRules, value, ssl_frontend]}
+        tripleo_firewall_edge_frontend_rules: {get_attr: [FirewallFrontendRules, value, edge_frontend]}
+        tripleo_firewall_edge_ssl_frontend_rules: {get_attr: [FirewallFrontendRules, value, edge_ssl_frontend]}
         role_tags: {{role.tags}}
 
   {{role.name}}NetworkConfig:
