@@ -637,6 +637,17 @@ def validate_docker_service_mysql_usage(filename, tpl):
     return 0
 
 
+def validate_common_service(filename, tpl):
+    # NOTE(bogdando): it doesn't always detect volumes in Heat funcs, like:
+    #   <func>: [{<func>: [FooCommon, volumes]}, [<listed_volumes>]]
+    if 'outputs' not in tpl:
+        print('ERROR: missing outputs for filename: %s' % filename)
+        return 1
+    if validate_ct_volumes(tpl['outputs']):
+        return 1
+    return 0
+
+
 def validate_docker_service(filename, tpl):
     if 'outputs' in tpl and 'role_data' in tpl['outputs']:
         if 'value' not in tpl['outputs']['role_data']:
@@ -644,6 +655,10 @@ def validate_docker_service(filename, tpl):
                   % filename)
             return 1
         role_data = tpl['outputs']['role_data']['value']
+
+        if validate_ct_volumes(role_data):
+            return 1
+
         if list(role_data.keys()) == ['map_merge']:
             merged_role_data = {}
             for part in role_data['map_merge']:
@@ -703,8 +718,6 @@ def validate_docker_service(filename, tpl):
                         print('ERROR: %s should not be in puppet_config section.'
                               % key)
                         return 1
-            if validate_ct_volumes(puppet_config.get('volumes')):
-                return 1
             for key in REQUIRED_DOCKER_PUPPET_CONFIG_SECTIONS:
                 if key not in puppet_config:
                     print('ERROR: %s is required in puppet_config for %s.'
@@ -742,8 +755,6 @@ def validate_docker_service(filename, tpl):
                         print('ERROR: bootstrap_host_exec needs to run '
                               'as the root user.')
                         return 1
-                    if validate_ct_volumes(container.get('volumes')):
-                        return 1
 
         if 'upgrade_tasks' in role_data and role_data['upgrade_tasks']:
             if (validate_upgrade_tasks(role_data['upgrade_tasks']) or
@@ -760,36 +771,53 @@ def validate_docker_service(filename, tpl):
     return 0
 
 
-def validate_ct_volumes(volumes):
-    '''Ensure we don't have any trailing "/" in the volume'''
-    if not volumes:
-        return 0
-    if isinstance(volumes, list):
-        # Plain list without much complications
-        for vol in volumes:
-            if isinstance(vol, dict):
-                # Avoid 'if'
-                continue
-            vol_def = vol.split(':')
-            if vol_def[0][-1] == '/' or vol_def[1][-1] == '/':
-                print('ERROR: trailing "/" detected for {}'.format(vol))
-                return 1
-        return 0
-
-    ret = 0
-    if isinstance(volumes, dict):
-        # We probably face a list_concat thing. Clean and re-run!
-        # First avoid the get_attr.
-        if 'get_attr' in list(volumes.keys()):
+def validate_ct_volumes(data):
+    '''Ensure we don't have any trailing "/" in data for volumes'''
+    def check_volumes(volumes):
+        if not volumes:
             return 0
-        if 'list_concat' in list(volumes.keys()):
-            for vol in volumes['list_concat']:
+        result = 0
+        if isinstance(volumes, list):
+            for vol in volumes:
                 if isinstance(vol, dict):
+                    # Avoid 'if', 'get_*' etc
                     continue
-                ret += validate_ct_volumes(vol)
-            return ret
-    print('ERROR: unknown "volumes" type: {}'.format(volumes))
-    return 1
+                elif isinstance(vol, list):
+                    for item in vol:
+                        result += check_volumes(item)
+                elif isinstance(vol, str):
+                    vol_def = vol.split(':')
+                    try:
+                        if vol_def[0][-1] == '/' or vol_def[1][-1] == '/':
+                            print('ERROR: trailing "/" detected'
+                                  ' for {}'.format(vol))
+                            return 1
+                    except IndexError:
+                        # Not a volume definition, ignore it
+                        continue
+        elif isinstance(volumes, dict):
+            # Step into 'list_concat', 'map_*' etc.
+            for item in volumes.values():
+                result += check_volumes(item)
+        return result
+
+    if not data:
+        return 0
+    result = 0
+    for _, item in enumerate(data):
+        if isinstance(data[item], dict):
+            if 'volumes' not in data[item]:
+                result += validate_ct_volumes(data[item])
+            else:
+                result += check_volumes(data[item]['volumes'])
+        elif isinstance(item, list):
+            if 'volumes' not in item:
+                result += validate_ct_volumes(item)
+            else:
+                result += check_volumes(item.index('volumes'))
+        else:
+            continue
+    return result
 
 
 def validate_docker_logging_template(filename, tpl):
@@ -802,6 +830,8 @@ def validate_docker_logging_template(filename, tpl):
     if any(missing_entries):
         print('ERROR: The file %s is missing the following output(s):'
               ' %s' % (filename, ', '.join(missing_entries)))
+        return 1
+    if validate_ct_volumes(tpl['outputs']):
         return 1
     return 0
 
@@ -1144,9 +1174,11 @@ def validate(filename, param_map):
         if re.search(r'^\.\/deployment\/logging\/(files|stdout)\/', filename):
             retval |= validate_docker_logging_template(filename, tpl)
         elif VALIDATE_DOCKER_OVERRIDE.get(filename, False) or (
-                re.search(r'^\.\/deployment\/.+-container-puppet.yaml$', filename) and
+                re.search(r'^\.\/deployment\/.+-container(-puppet)*.yaml$', filename) and
                 VALIDATE_DOCKER_OVERRIDE.get(filename, True)):
             retval |= validate_docker_service(filename, tpl)
+        elif re.search(r'^\.\/deployment\/.+-common.*.yaml$', filename):
+            retval |= validate_common_service(filename, tpl)
 
         if filename.endswith('hyperconverged-ceph.yaml'):
             retval |= validate_hci_compute_services_default(filename, tpl)
