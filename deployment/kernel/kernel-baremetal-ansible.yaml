@@ -102,9 +102,26 @@ parameters:
     type: json
     tags:
       - role_specific
+  FsAioMaxNumber:
+    default: 0
+    description: >
+      The kernel allocates aio memory on demand, and this number limits the
+      number of parallel aio requests; the only drawback of a larger limit is
+      that a malicious guest could issue parallel requests to cause the kernel
+      to set aside memory.  Set this number at least as large as
+        128 * (number of virtual disks on the host)
+      Libvirt uses a default of 1M requests to allow 8k disks, with at most
+      64M of kernel memory if all disks hit an aio request at the same time.
+    type: number
+    tags:
+      - role_specific
 
 conditions:
   ipv6_disabled: {equals: [{get_param: KernelDisableIPv6}, 1]}
+  fs_aio_max_number_set:
+    and:
+      - not: {equals: [{get_param: [RoleParameters, FsAioMaxNumber]}, 0]}
+      - not: {equals: [{get_param: [RoleParameters, FsAioMaxNumber]}, '']}
 
 resources:
   # Merging role-specific parameters (RoleParameters) with the default parameters.
@@ -173,4 +190,9 @@ outputs:
                 value: {get_param: BridgeNfCallIp6Tables}
               fs.inotify.max_user_instances:
                 value: {get_param: InotifyIntancesMax}
+            - if:
+                - fs_aio_max_number_set
+                - fs.aio-max-nr:
+                    value: {get_param: [RoleParameters, FsAioMaxNumber]}
+                - {}
             - {get_attr: [RoleParametersValue, value, extra_sysctl_settings]}
