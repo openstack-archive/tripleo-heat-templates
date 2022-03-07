@@ -89,10 +89,30 @@ parameters:
     default: 0
     description: Number of workers for Octavia service.
     type: number
+  OctaviaDefaultListenerCiphers:
+    type: string
+    default: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256'
+  OctaviaDefaultPoolCiphers:
+    type: string
+    default: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256'
+  OctaviaTlsCiphersProhibitList:
+    type: string  # colon separated list
+    default: ''
+  OctaviaListenerTlsVersions:
+    type: comma_delimited_list
+    default: ['TLSv1.2', 'TLSv1.3']
+  OctaviaPoolTlsVersions:
+    type: comma_delimited_list
+    default: ['TLSv1.2', 'TLSv1.3']
+  OctaviaMinimumTlsVersion:
+    type: string
+    default: ''
 
 conditions:
   octavia_workers_set:
     not: {equals : [{get_param: OctaviaWorkers}, 0]}
+  octavia_min_tls_version:
+    not: {equals : [{get_param: OctaviaMinimumTlsVersion}, '']}
 
 resources:
   ContainersCommon:
@@ -188,6 +208,11 @@ outputs:
             octavia::api::service_name: 'httpd'
             octavia::api::enable_proxy_headers_parsing: true
             octavia::api::healthcheck_enabled: true
+            octavia::api::default_listener_ciphers: {get_param: OctaviaDefaultListenerCiphers}
+            octavia::api::default_pool_ciphers: {get_param: OctaviaDefaultPoolCiphers}
+            octavia::api::tls_cipher_prohibit_list: {get_param: OctaviaTlsCiphersProhibitList}
+            octavia::api::default_listener_tls_versions: {get_param: OctaviaListenerTlsVersions}
+            octavia::api::default_pool_tls_versions: {get_param: OctaviaPoolTlsVersions}
             octavia::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             # NOTE: bind IP is found in hiera replacing the network name with the local node IP
             # for the given network; replacement examples (eg. for internal_api):
@@ -228,6 +253,9 @@ outputs:
           - if:
               - octavia_workers_set
               - octavia::wsgi::apache::workers: {get_param: OctaviaWorkers}
+          - if:
+              - octavia_min_tls_version
+              - octavia::api::minimum_tls_version: {get_param: OctaviaMinimumTlsVersion}
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_octavia_api:
