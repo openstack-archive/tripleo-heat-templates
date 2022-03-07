@@ -347,21 +347,27 @@ outputs:
                             template: "memcached/{{fqdn_$NETWORK}}@{{idm_realm}}"
                             params:
                               $NETWORK: {get_param: [ServiceNetMap, MemcachedNetwork]}
-                        run_after: |
-                          container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep memcached)
-                          service_crt="/etc/pki/tls/certs/memcached.crt"
-                          service_key="/etc/pki/tls/private/memcached.key"
-                          # Copy the new cert from the mount-point to the real path
-                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
-                          # Copy the new key from the mount-point to the real path
-                          {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
-                          # Set appropriate permissions
-                          {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_crt"
-                          {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_key"
-                          # Send refresh_certs command to memcached to read the new certificate
-                          memcached_ip="$(hiera -c /etc/puppet/hiera.yaml memcached::listen_ip.0 127.0.0.1)"
-                          memcached_port="$(hiera -c /etc/puppet/hiera.yaml memcached::tcp_port 11211)"
-                          echo refresh_certs | openssl s_client -connect $memcached_ip:$memcached_port
+                        run_after:
+                          str_replace: |
+                            container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep memcached)
+                            service_crt="/etc/pki/tls/certs/memcached.crt"
+                            service_key="/etc/pki/tls/private/memcached.key"
+                            # Copy the new cert from the mount-point to the real path
+                            {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
+                            # Copy the new key from the mount-point to the real path
+                            {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_key" "$service_key"
+                            # Set appropriate permissions
+                            {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_crt"
+                            {{container_cli}} exec -u root "$container_name" chown memcached:memcached "$service_key"
+                            # Send refresh_certs command to memcached to read the new certificate
+                            echo refresh_certs | openssl s_client -connect $MEMCACHED_IP:$MEMCACHED_PORT
+                          params:
+                            $MEMCACHED_IP:
+                              - if:
+                                - is_ipv6
+                                - '::1'
+                                - '127.0.0.1'
+                            $MEMCACHED_PORT: {get_param: MemcachedPort}
                         key_size:
                           if:
                             - key_size_override_set
