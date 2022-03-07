@@ -64,6 +64,13 @@ parameters:
     default: "{{ playbook_dir }}/cephadm/ceph_client.yml"
     type: string
     description: The undercloud path where cephadm exports the Ceph Client configuration.
+  CephClusterFSID:
+    type: string
+    description: The Ceph cluster FSID. Must be a UUID.
+  CephExternalMonHost:
+    default: ''
+    type: string
+    description: List of externally managed Ceph Mon Host IPs. Only used for external Ceph deployments.
 
 resources:
   CephBase:
@@ -95,6 +102,25 @@ outputs:
           - name: Configure Ceph Clients
             when: step|int == 2
             block:
+              - name: Check if the input variable file exists
+                stat:
+                  path: "{{ tripleo_ceph_client_vars }}"
+                register: ceph_input_vars
+                vars:
+                  tripleo_ceph_client_vars: {get_param: CephClientConfigVars}
+              - name: Populate CephClientConfigVars from THT
+                copy:
+                  dest: "{{ tripleo_ceph_client_vars }}"
+                  content: |
+                    tripleo_ceph_client_fsid: "{{ tripleo_ceph_client_fsid }}"
+                    external_cluster_mon_ips: "{{ external_cluster_mon_ips }}"
+                when:
+                  - ceph_input_vars.stat.exists == False
+                  - external_cluster_mon_ips | length > 0
+                vars:
+                  tripleo_ceph_client_vars: {get_param: CephClientConfigVars}
+                  tripleo_ceph_client_fsid: {get_param: CephClusterFSID}
+                  external_cluster_mon_ips: {get_param: CephExternalMonHost}
               - name: configure ceph clients
                 include_role:
                   name: tripleo_ceph_client
