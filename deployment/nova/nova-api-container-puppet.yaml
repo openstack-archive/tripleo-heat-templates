@@ -471,33 +471,8 @@ outputs:
           command: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage api_db sync'"
           config_files: *nova_api_db_sync
           permissions: *nova_api_permissions
-        /var/lib/kolla/config_files/nova_api_map_cell0.json:
-          command:
-            str_replace:
-              template: "/usr/bin/bootstrap_host_exec nova_api su nova -s /bin/bash -c '/usr/bin/nova-manage cell_v2 map_cell0 --database_connection=\"CELL0DB\"'"
-              params:
-                CELL0DB:
-                  list_join:
-                  - ''
-                  - - '{scheme}'
-                    - '://'
-                    - '{username}'
-                    - ':'
-                    - '{password}'
-                    - '@'
-                    -
-                      if:
-                        - mysql_ipv6_use_ip_address
-                        - '[{hostname}]'
-                        - '{hostname}'
-                    - '/'
-                    - 'nova_cell0'
-                    - '?'
-                    - '{query}'
-          config_files: *nova_api_db_sync
-          permissions: *nova_api_permissions
-        /var/lib/kolla/config_files/nova_api_ensure_default_cell.json:
-          command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cell.sh"
+        /var/lib/kolla/config_files/nova_api_ensure_default_cells.json:
+          command: "/usr/bin/bootstrap_host_exec nova_api /nova_api_ensure_default_cells.sh"
           config_files: *nova_api_db_sync
           permissions: *nova_api_permissions
         /var/lib/kolla/config_files/nova_api_cron.json:
@@ -519,12 +494,22 @@ outputs:
           - nova_wait_for_api_service.py:
               mode: "0755"
               content: { get_file: ../../container_config_scripts/nova_wait_for_api_service.py }
-            nova_api_ensure_default_cell.sh:
+            nova_api_ensure_default_cells.sh:
               mode: "0700"
               content:
                 str_replace:
                   template: |
                     #!/bin/bash
+                    set -e
+                    CELL0_ID='00000000-0000-0000-0000-000000000000'
+                    CELL0_EXISTS=$(su nova -s /bin/bash -c "nova-manage cell_v2 list_cells" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$4 == "'$CELL0_ID'" {print $4}')
+                    if [ "$CELL0_EXISTS" ]; then
+                      echo "(cellv2) Updating cell_v2 cell0 database uri"
+                      su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 update_cell --cell_uuid $CELL0_ID --database_connection='CELL0DB' --transport-url='none:///'"
+                    else
+                      echo "(cellv2) Creating cell_v2 cell0"
+                      su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 map_cell0 --database_connection='CELL0DB'"
+                    fi
                     DEFID=$(su nova -s /bin/bash -c "nova-manage cell_v2 list_cells" | sed -e '1,3d' -e '$d' | awk -F ' *| *' '$2 == "default" {print $4}')
                     if [ "$DEFID" ]; then
                       echo "(cellv2) Updating default cell_v2 cell $DEFID"
@@ -534,6 +519,23 @@ outputs:
                       su nova -s /bin/bash -c "/usr/bin/nova-manage cell_v2 create_cell --name=default --database_connection='CELLDB' --transport-url='TRANSPORTURL'"
                     fi
                   params:
+                    CELL0DB:
+                      list_join:
+                      - ''
+                      - - '{scheme}'
+                        - '://'
+                        - '{username}'
+                        - ':'
+                        - '{password}'
+                        - '@'
+                        - if:
+                            - mysql_ipv6_use_ip_address
+                            - '[{hostname}]'
+                            - '{hostname}'
+                        - '/'
+                        - 'nova_cell0'
+                        - '?'
+                        - '{query}'
                     CELLDB:
                       list_join:
                       - ''
@@ -585,32 +587,18 @@ outputs:
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-          nova_api_map_cell0:
+          nova_api_ensure_default_cells:
             start_order: 1 # Runs before nova-conductor dbsync
             image: *nova_api_image
             net: host
             detach: false
-            user: root
             volumes:
               list_concat:
                 - {get_attr: [ContainersCommon, volumes]}
                 - {get_attr: [NovaApiLogging, volumes]}
-                - - /var/lib/kolla/config_files/nova_api_map_cell0.json:/var/lib/kolla/config_files/config.json:ro
+                - - /var/lib/kolla/config_files/nova_api_ensure_default_cells.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-          nova_api_ensure_default_cell:
-            start_order: 2 # Runs before nova-conductor dbsync
-            image: *nova_api_image
-            net: host
-            detach: false
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - {get_attr: [NovaApiLogging, volumes]}
-                - - /var/lib/kolla/config_files/nova_api_ensure_default_cell.json:/var/lib/kolla/config_files/config.json:ro
-                  - /var/lib/config-data/puppet-generated/nova:/var/lib/kolla/config_files/src:ro
-                  - /var/lib/container-config-scripts/nova_api_ensure_default_cell.sh:/nova_api_ensure_default_cell.sh:ro
+                  - /var/lib/container-config-scripts/nova_api_ensure_default_cells.sh:/nova_api_ensure_default_cells.sh:ro
             user: root
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
