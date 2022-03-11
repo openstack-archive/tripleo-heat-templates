@@ -37,7 +37,7 @@ if [ x"${TRIPLEO_MINOR_UPDATE,,}" != x"true" ]; then
         SERVICE_NODEID=$(/bin/hiera -c /etc/puppet/hiera.yaml "${TRIPLEO_SERVICE}_short_bootstrap_node_name")
         if [[ "${HOSTNAME,,}" == "${SERVICE_NODEID,,}" ]]; then
             log "Initial deployment, skipping the restart of ${BUNDLE_NAME}"
-	fi
+        fi
         exit 0
     else
         # During a stack update, this script is called in parallel on
@@ -76,28 +76,28 @@ else
     HOST=$(facter hostname)
 
     if bundle_can_be_restarted ${BUNDLE_NAME}; then
-	# if the resource is running locally, restart it
-	if crm_resource -r $BUNDLE_NAME --locate 2>&1 | grep -w -q "${HOST}"; then
+        # if the resource is running locally, restart it
+        if crm_resource -r $BUNDLE_NAME --locate 2>&1 | grep -w -q "${HOST}"; then
             log "Restarting ${BUNDLE_NAME} locally on '${HOST}'"
             /sbin/pcs resource restart $BUNDLE_NAME "${HOST}"
 
-	else
-	    # At this point, if no resource is running locally, it's
-	    # either because a) it has failed previously, or b) because
-	    # it's an A/P resource running elsewhere.
-	    # By cleaning up resource, we ensure that a) it will try to
-	    # restart, or b) it won't do anything if the resource is
-	    # already running elsewhere.
+        else
+            # At this point, if no resource is running locally, it's
+            # either because a) it has failed previously, or b) because
+            # it's an A/P resource running elsewhere.
+            # By cleaning up resource, we ensure that a) it will try to
+            # restart, or b) it won't do anything if the resource is
+            # already running elsewhere.
             log "${BUNDLE_NAME} is currently not running on '${HOST}'," \
                  "cleaning up its state to restart it if necessary"
             /sbin/pcs resource cleanup $BUNDLE_NAME node="${HOST}"
-	fi
+        fi
 
-	# Wait until the resource is in the expected target state
-	$RESTART_SCRIPTS_DIR/pacemaker_wait_bundle.sh \
+        # Wait until the resource is in the expected target state
+        $RESTART_SCRIPTS_DIR/pacemaker_wait_bundle.sh \
             $RESOURCE_NAME $BUNDLE_NAME \
             "$WAIT_TARGET_LOCAL" "$WAIT_TARGET_ANYWHERE" \
-	    "${HOST}" __PCMKTIMEOUT__
+            "${HOST}" __PCMKTIMEOUT__
     else
         log "No restart needed for ${BUNDLE_NAME}."
     fi
