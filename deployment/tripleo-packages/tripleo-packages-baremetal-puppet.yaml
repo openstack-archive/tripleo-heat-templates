@@ -324,9 +324,11 @@ outputs:
                 - name: Remove btrfs module in case fuse just loaded it
                   failed_when: false
                   command: rmmod btrfs
-                - name: Set workaround_1925078_fired
-                  set_fact:
-                    workaround_1925078_fired: True
+                - name: Create workaround_1925078_fired flag file
+                  become: true
+                  file:
+                    path: "/var/lib/tripleo/workaround_1925078_fired"
+                    state: touch
             - name: install leapp
               package:
                 name: leapp
@@ -441,10 +443,13 @@ outputs:
             - step|int == 4
             - upgrade_leapp_enabled
           block:
+            - name: check workaround_1925078_fired flag file existence
+              stat:
+                path: "/var/lib/tripleo/workaround_1925078_fired"
+              register: tripleo_workaround_1925078_fired_stat
+              become: true
             - name: Reset boot order if WA#1925078 fired and fix grubenv
-              when:
-                - workaround_1925078_fired is defined
-                - workaround_1925078_fired|bool
+              when: tripleo_workaround_1925078_fired_stat.stat.exists|bool
               block:
                 - name:
                   shell: |
@@ -509,6 +514,11 @@ outputs:
               until: _dnf_distro_sync is success
             - name: Remove leapp packages from DNF exclusion (BZ2008847)
               shell: dnf config-manager --save --setopt exclude=''
+            - name: Cleanup /var/lib/tripleo/workaround_1925078_fired
+              file:
+                path: "/var/lib/tripleo/workaround_1925078_fired"
+                state: absent
+              when: ansible_facts['distribution_major_version'] == '8'
             - name: Clean up Python 2 packages
               package:
                 name: python2-*
