@@ -37,10 +37,6 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
-  GnocchiPassword:
-    type: string
-    description: The password for the gnocchi service and db account.
-    hidden: true
   KeystoneRegion:
     type: string
     description: Keystone region for endpoint
@@ -67,8 +63,7 @@ parameters:
   CollectdConnectionType:
     default: 'amqp1'
     description: Define which write plugin should collectd use. Currently
-                 supported are 'amqp1', 'network' and 'gnocchi'.
-                 NOTE gnocchi is supported in puppet only.
+                 supported are 'amqp1' and 'network'.
     type: string
   CollectdDefaultPollingInterval:
     default: 120
@@ -146,97 +141,6 @@ parameters:
           - None
           - Sign
           - Encrypt
-  CollectdGnocchiAuthMode:
-    type: string
-    description: >
-      Type of authentication Gnocchi server is using. Supported values are
-      'basic' and 'keystone'.
-    default: 'keystone'
-  CollectdGnocchiProtocol:
-    type: string
-    description: API protocol Gnocchi server is using.
-    default: 'http'
-  CollectdGnocchiServer:
-    type: string
-    description: >
-      The name or address of a gnocchi endpoint to which we should
-      send metrics.
-    default: nil
-  CollectdGnocchiPort:
-    type: number
-    description: The port to which we will connect on the Gnocchi server.
-    default: 8041
-  CollectdGnocchiUser:
-    type: string
-    description: >
-      Username for authenticating to the remote Gnocchi server using simple
-      authentication.
-    default: nil
-  CollectdGnocchiKeystoneAuthUrl:
-    type: string
-    description: Keystone endpoint URL to authenticate to.
-    default: nil
-  CollectdGnocchiKeystoneUserName:
-    type: string
-    description: Username for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneUserId:
-    type: string
-    description: User ID for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystonePassword:
-    type: string
-    description: Password for authenticating to Keystone
-    default: nil
-    hidden: true
-  CollectdGnocchiKeystoneProjectId:
-    type: string
-    description: Project ID for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneProjectName:
-    type: string
-    description: Project name for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneUserDomainId:
-    type: string
-    description: User domain ID for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneUserDomainName:
-    type: string
-    description: User domain name for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneProjectDomainId:
-    type: string
-    description: Project domain ID for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneProjectDomainName:
-    type: string
-    description: Project domain name for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneRegionName:
-    type: string
-    description: Region name for authenticating to Keystone.
-    default: nil
-  CollectdGnocchiKeystoneInterface:
-    type: string
-    description: Type of Keystone endpoint to authenticate to.
-    default: nil
-  CollectdGnocchiKeystoneEndpoint:
-    type: string
-    description: >
-      Explicitly state Gnocchi server URL if you want to override
-      Keystone value
-    default: nil
-  CollectdGnocchiResourceType:
-    type: string
-    description: >
-      Default resource type created by the collectd-gnocchi plugin in Gnocchi
-      to store hosts.
-    default: 'collectd'
-  CollectdGnocchiBatchSize:
-    type: number
-    description: Minimum number of values Gnocchi should batch.
-    default: 10
   EnableSQLAlchemyCollectd:
     type: boolean
     description: >
@@ -422,14 +326,6 @@ conditions:
     not: {equals: [{get_param: CollectdAmqpSendQueueLimit}, -1]}
   collectd_connection:
     equals: [{get_param: CollectdConnectionType}, 'network']
-  gnocchi_connection:
-    equals: [{get_param: CollectdConnectionType}, 'gnocchi']
-  gnocchi_auth_basic:
-    equals: [{get_param: CollectdGnocchiAuthMode}, 'basic']
-  gnocchi_default_connection:
-    and:
-      - equals: [{get_param: CollectdGnocchiServer}, nil]
-      - equals: [{get_param: CollectdGnocchiKeystoneEndpoint}, nil]
   sensubility_needs_sudo:
     not:
       equals: [{get_param: CollectdSensubilityExecSudoRule}, '']
@@ -578,65 +474,6 @@ outputs:
                   get_param: CollectdSQLAlchemyBindHost
               tripleo::profile::base::metrics::collectd::sqlalchemy_collectd_log_messages:
                   get_param: CollectdSQLAlchemyLogMessages
-          - if: # Collectd connected directly to Gnocchi DB
-            - gnocchi_connection
-            - map_merge:
-              - tripleo::profile::base::metrics::collectd::gnocchi_auth_mode:
-                  get_param: CollectdGnocchiAuthMode
-                tripleo::profile::base::metrics::collectd::gnocchi_resource_type:
-                  get_param: CollectdGnocchiResourceType
-                tripleo::profile::base::metrics::collectd::gnocchi_batch_size:
-                  get_param: CollectdGnocchiBatchSize
-              - if:
-                - gnocchi_default_connection  # use overcloud gnocchi instance or user provided instance?
-                - tripleo::profile::base::metrics::collectd::gnocchi_keystone_endpoint:
-                    get_param: [EndpointMap, GnocchiInternal, uri]
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_auth_url:
-                    get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_name: 'gnocchi'
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_password:
-                    get_param: GnocchiPassword
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_name: 'service'
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_domain_name: 'Default'
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_domain_name: 'Default'
-                  tripleo::profile::base::metrics::collectd::gnocchi_keystone_region_name:
-                    get_param: KeystoneRegion
-                - if:
-                  - gnocchi_auth_basic # use basic auth or keystone auth?
-                  - tripleo::profile::base::metrics::collectd::gnocchi_protocol:
-                      get_param: CollectdGnocchiProtocol
-                    tripleo::profile::base::metrics::collectd::gnocchi_server:
-                      get_param: CollectdGnocchiServer
-                    tripleo::profile::base::metrics::collectd::gnocchi_port:
-                      get_param: CollectdGnocchiPort
-                    tripleo::profile::base::metrics::collectd::gnocchi_user:
-                      get_param: CollectdGnocchiUser
-                  - tripleo::profile::base::metrics::collectd::gnocchi_keystone_auth_url:
-                      get_param: CollectdGnocchiKeystoneAuthUrl
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_name:
-                      get_param: CollectdGnocchiKeystoneUserName
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_id:
-                      get_param: CollectdGnocchiKeystoneUserId
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_password:
-                      get_param: CollectdGnocchiKeystonePassword
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_id:
-                      get_param: CollectdGnocchiKeystoneProjectId
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_name:
-                      get_param: CollectdGnocchiKeystoneProjectName
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_domain_id:
-                      get_param: CollectdGnocchiKeystoneUserDomainId
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_user_domain_name:
-                      get_param: CollectdGnocchiKeystoneUserDomainName
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_domain_id:
-                      get_param: CollectdGnocchiKeystoneProjectDomainId
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_project_domain_name:
-                      get_param: CollectdGnocchiKeystoneProjectDomainName
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_region_name:
-                      get_param: CollectdGnocchiKeystoneRegionName
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_interface:
-                      get_param: CollectdGnocchiKeystoneInterface
-                    tripleo::profile::base::metrics::collectd::gnocchi_keystone_endpoint:
-                      get_param: CollectdGnocchiKeystoneEndpoint
           - if: # Collectd should run collectd-sensubility via collectd-exec
             - {get_param: CollectdEnableSensubility}
             - map_merge:
