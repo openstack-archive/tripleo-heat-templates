@@ -40,6 +40,14 @@ parameters:
     description: Initial cluster token for the etcd cluster during bootstrap.
     type: string
     hidden: true
+  EtcdInitialClusterState:
+    description: Initial cluster state ("new" or "existing"). The default value "new"
+                 needs to be overridden only when an overcloud node is replaced, at
+                 which time the value should be set to "existing".
+    type: string
+    default: 'new'
+    constraints:
+      - allowed_values: ['new', 'existing']
   MonitoringSubscriptionEtcd:
     default: 'overcloud-etcd'
     type: string
@@ -113,6 +121,7 @@ outputs:
           tripleo::profile::base::etcd::peer_port: '2380'
           etcd::debug: {get_param: Debug}
           etcd::initial_cluster_token: {get_param: EtcdInitialClusterToken}
+          etcd::initial_cluster_state: {get_param: EtcdInitialClusterState}
           etcd::manage_package: false
           etcd::manage_service: false
         -
@@ -184,6 +193,61 @@ outputs:
               owner: etcd:etcd
             - path: /etc/pki/tls/private/etcd.key
               owner: etcd:etcd
+      container_config_scripts:
+        etcd_update_members.sh:
+          mode: "0700"
+          content:
+            str_replace:
+              template: |
+                #!/bin/bash
+                echo "####################################"
+                echo "### $(date -u) ###"
+                source /etc/etcd/etcd.conf
+                export ETCDCTL_API=3
+                ETCDCTL="etcdctl TLS_OPTS --endpoints=${ETCD_LISTEN_CLIENT_URLS}"
+
+                # Ask etcd for the current list of members
+                eval $ETCDCTL member list | tr -d "," > /tmp/etcd-members
+
+                # etcdctl doesn't generate reliable error status, so use presence of the
+                # node's own name to determine whether this node is capable of managing
+                # etcd membership.
+                ETCD_NAME=$(hiera -c /etc/puppet/hiera.yaml etcd::etcd_name)
+                if ! grep -q $ETCD_NAME /tmp/etcd-members; then
+                  echo "This is a new node that is unable to manage etcd membership"
+                  exit 0
+                fi
+
+                # Remove old members. These are nodes in the current list of members
+                # that are *not* in the ETCD_INITIAL_CLUSTER.
+                while read id status name peers clients; do \
+                  if [[ "${ETCD_INITIAL_CLUSTER}" != *"${name}=${peers}"* ]]; then
+                    echo "Removing old member ${name} (ID ${id}) from the cluster"
+                    eval $ETCDCTL member remove ${id}
+                  fi
+                done < /tmp/etcd-members
+
+                # Add new members. These are nodes in the ETCD_INITIAL_CLUSTER that are
+                # not in the list of current members. ETCD_INITIAL_CLUSTER is a comma
+                # delimited list of "name=peers" tuples, so iterate over the list.
+                IFS=, ETCD_MEMBERS=(${ETCD_INITIAL_CLUSTER})
+                for member in ${ETCD_MEMBERS[@]}; do \
+                  # Split the tuple
+                  IFS='=' read name peers <<< $member
+                  if ! grep -q "${name} ${peers}" /tmp/etcd-members; then
+                    echo "Adding new member ${name} to the cluster"
+                    eval $ETCDCTL member add ${name} --peer-urls=${peers}
+                  fi
+                done
+              params:
+                TLS_OPTS:
+                  if:
+                    - internal_tls_enabled
+                    - str_replace:
+                        template: "--cacert=TLS_CA --cert=/etc/pki/tls/certs/etcd.crt --key=/etc/pki/tls/private/etcd.key"
+                        params:
+                          TLS_CA: {get_param: InternalTLSCAFile}
+                    - ""
       docker_config:
         step_2:
           etcd:
@@ -200,6 +264,7 @@ outputs:
                   - /var/lib/etcd:/var/lib/etcd
                   - /var/lib/kolla/config_files/etcd.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/etcd/:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/container-config-scripts/etcd_update_members.sh:/etcd_update_members.sh:ro
                 -
                   if:
                     - internal_tls_enabled
@@ -220,6 +285,18 @@ outputs:
           volumes:
             - /var/lib/config-data/etcd/etc/etcd/:/etc/etcd:ro
             - /var/lib/etcd:/var/lib/etcd:ro
+      deploy_steps_tasks:
+        - name: Manage etcd cluster membership
+          vars:
+            initial_cluster_state: {get_param: EtcdInitialClusterState}
+          shell: |
+            "{{ container_cli }}" exec -ti -u root etcd /etcd_update_members.sh 2>&1 | \
+              tee -a /var/log/containers/stdouts/etcd_update_members.log
+          become: true
+          failed_when: false
+          when:
+            - step|int == 3
+            - initial_cluster_state == "existing"
       host_prep_tasks:
           - name: create /var/lib/etcd
             file:
