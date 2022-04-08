@@ -81,15 +81,33 @@ parameters:
     description: |
       Use the advanced (eventlet safe) memcached client pool.
     default: true
+  OctaviaDefaultListenerCiphers:
+    type: string
+    default: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256'
+  OctaviaDefaultPoolCiphers:
+    type: string
+    default: 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256'
+  OctaviaTlsCiphersProhibitList:
+    type: string  # colon separated list
+    default: ''
+  OctaviaListenerTlsVersions:
+    type: comma_delimited_list
+    default: ['TLSv1.2', 'TLSv1.3']
+  OctaviaPoolTlsVersions:
+    type: comma_delimited_list
+    default: ['TLSv1.2', 'TLSv1.3']
+  OctaviaMinimumTlsVersion:
+    type: string
+    default: ''
 
 conditions:
-
   internal_tls_enabled: {equals: [{get_param: EnableInternalTLS}, true]}
   use_tls_proxy: {equals : [{get_param: EnableInternalTLS}, true]}
   enable_driver_agent: {equals: [{get_param: OctaviaEnableDriverAgent}, true]}
+  octavia_min_tls_version:
+    not: {equals : [{get_param: OctaviaMinimumTlsVersion}, '']}
 
 resources:
-
   ContainersCommon:
     type: ../containers-common.yaml
 
@@ -166,6 +184,11 @@ outputs:
             octavia::api::service_name: 'httpd'
             octavia::api::enable_proxy_headers_parsing: true
             octavia::api::healthcheck_enabled: true
+            octavia::api::default_listener_ciphers: {get_param: OctaviaDefaultListenerCiphers}
+            octavia::api::default_pool_ciphers: {get_param: OctaviaDefaultPoolCiphers}
+            octavia::api::tls_cipher_prohibit_list: {get_param: OctaviaTlsCiphersProhibitList}
+            octavia::api::default_listener_tls_versions: {get_param: OctaviaListenerTlsVersions}
+            octavia::api::default_pool_tls_versions: {get_param: OctaviaPoolTlsVersions}
             octavia::wsgi::apache::ssl: {get_param: EnableInternalTLS}
             # NOTE: bind IP is found in hiera replacing the network name with the local node IP
             # for the given network; replacement examples (eg. for internal_api):
@@ -203,6 +226,9 @@ outputs:
                       - enable_driver_agent
                       - {get_attr: [OctaviaProviderConfig, role_data, provider_driver_labels]}
                       - []
+          - if:
+              - octavia_min_tls_version
+              - octavia::api::minimum_tls_version: { get_param: OctaviaMinimumTlsVersion }
 
       service_config_settings:
         rsyslog:
