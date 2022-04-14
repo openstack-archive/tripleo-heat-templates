@@ -1047,11 +1047,11 @@ def validate_service_hiera_interpol(f, tpl):
 
             # For the remaining cases, verify if there is a template
             # (like str_replace) with the expected format, which is
-            # containing hiera(param_name) interpolation
+            # containing lookup(param_name) interpolation
             str_replace_pos = _getindex(path, 'str_replace')
             params_pos = _getindex(path, 'params')
             if str_replace_pos is None or params_pos is None:
-                print("ERROR: Missed hiera interpolation via str_replace "
+                print("ERROR: Missed lookup interpolation via str_replace "
                       "in %s, role_data: %s"
                       % (f, path))
                 failed = True
@@ -1061,11 +1061,11 @@ def validate_service_hiera_interpol(f, tpl):
             param_name = path[params_pos + 1]
             str_replace = _get(tpl['outputs']['role_data'],
                                path[:(str_replace_pos + 1)])
-            match_interp = re.search("%%\{hiera\(\S+%s\S+\)\}" %
+            match_interp = re.search("%%\{lookup\(\S+%s\S+\)\}" %
                                      re.escape(param_name),
                                      str_replace['template'])
             if str_replace['template'] is None or match_interp is None:
-                print("ERROR: Missed %%{hiera('... %s ...')} interpolation "
+                print("ERROR: Missed %%{lookup('... %s ...')} interpolation "
                       "in str_replace['template'] "
                       "in %s, role_data: %s" % (param_name, f, path))
                 failed = True
