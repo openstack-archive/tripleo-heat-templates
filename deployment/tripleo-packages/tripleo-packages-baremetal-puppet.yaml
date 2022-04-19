@@ -329,9 +329,12 @@ outputs:
                   file:
                     path: "/var/lib/tripleo/workaround_1925078_fired"
                     state: touch
-            - name: install leapp
+            - name: install leapp and jq
               package:
-                name: leapp
+                name:
+                  - jq
+                  - leapp
+                  - leapp-repository
                 state: latest
             - name: Retrieve files in /etc/leapp/files
               find:
@@ -403,13 +406,24 @@ outputs:
             - name: unmount and remove nfs nova entry
               mount: path=/var/lib/nova/instances state=absent
               ignore_errors: true
-            - name: Remove kernel drivers from Leapp removed_drivers.txt before running Leapp
+            - name: "Delete the kernel modules in Leapp database (removed_drivers.txt) that are no longer supported in RHEL 8 (rhbz#1962365 < leapp-upgrade-el7toel8-0.15)"
               vars:
                 modules_to_unload: { get_attr: [RoleParametersValue, value, 'upgrade_leapp_modules_to_unload']}
               lineinfile:
                 path: "/usr/share/leapp-repository/repositories/system_upgrade/el7toel8/actors/kernel/checkkerneldrivers/files/removed_drivers.txt"
                 regexp: "{{ item }}"
                 state: absent
+              loop: "{{ modules_to_unload }}"
+            - name: "Delete the kernel modules in Leapp database (device_driver_deprecation_data.json) that are no longer supported in RHEL 8 (rhbz#2064383 > leapp-upgrade-el7toel8-0.16.0)"
+              vars:
+                modules_to_unload: { get_attr: [RoleParametersValue, value, 'upgrade_leapp_modules_to_unload']}
+              shell: >
+                set -o pipefail &&
+                jq '. | del(.data[] | select(.driver_name == "{{ item }}"))'
+                /etc/leapp/files/device_driver_deprecation_data.json >
+                /etc/leapp/files/device_driver_deprecation_data.json_modified &&
+                mv /etc/leapp/files/device_driver_deprecation_data.json_modified
+                /etc/leapp/files/device_driver_deprecation_data.json
               loop: "{{ modules_to_unload }}"
             - name: Remove leapp actors to prevent them inhibiting the upgrade
               vars:
