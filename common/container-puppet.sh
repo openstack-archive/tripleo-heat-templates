@@ -24,7 +24,11 @@ if [ -n "$PUPPET_TAGS" ]; then
 fi
 
 if [ ! -z ${STEP_CONFIG+x} ]; then
-    echo -e "${STEP_CONFIG}" | tee /etc/config.pp
+    # package and service should NOT be managed inside containers
+    echo -e "noop_resource('package')" | tee /etc/config.pp
+    echo -e "noop_resource('service')" | tee -a /etc/config.pp
+
+    echo -e "${STEP_CONFIG}" | tee -a /etc/config.pp
 fi
 
 CHECK_MODE=""
