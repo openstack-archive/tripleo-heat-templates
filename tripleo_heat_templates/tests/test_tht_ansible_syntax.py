@@ -57,7 +57,8 @@ def test_tht_ansible_syntax(pytestconfig):
 
     run = ansible_runner.run(
         playbook=play_path,
-        extravars={'tht_root': tht_root}
+        extravars={'tht_root': tht_root},
+        verbosity=3
     )
 
     try:
