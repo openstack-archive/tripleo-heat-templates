@@ -128,9 +128,6 @@ are available for containerized services.
        foo: bar
    This will set the hiera key 'foo' on all roles where haproxy is included.
 
- * core_services: A dictionary of task-core service definitions that are
-   exported during the config-download process.
-
 Deployment steps
 ----------------
 Similar to baremetal containers are brought up in a stepwise manner.
