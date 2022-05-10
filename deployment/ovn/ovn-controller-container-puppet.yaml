@@ -164,6 +164,12 @@ parameters:
     description: Entry in clouds.yaml to use for authentication
     type: string
     default: ""
+  OVNControllerImageUpdateTimeout:
+    description: >
+      During update, how long we wait for the container image to be updated,
+      in seconds.
+    type: number
+    default: 600
   OVNControllerUpdateTimeout:
     description: >
       During update, how long we wait for the container to be updated,
@@ -488,6 +494,39 @@ outputs:
                 ovn_bridge_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_bridge_mappings]}
                 ovn_static_bridge_mac_mappings: {get_attr: [OVNBridgeMappingsValue, value, ovn_static_bridge_mac_mappings]}
       external_update_tasks:
+        - name: Force pull image in case image name doesn't change.
+          when: step|int == 1
+          tags:
+            - ovn
+            - ovn_image
+          become: true
+          loop: "{{ groups['ovn_controller'] | difference(groups['excluded_overcloud']) }}"
+          delegate_to: "{{ item }}"
+          async: {get_param: OVNControllerImageUpdateTimeout}
+          poll: 0
+          register: ovn_controller_image_update
+          containers.podman.podman_image:
+            name: {get_param: ContainerOvnControllerConfigImage}
+            validate_certs: false
+            force: true
+        - name: Was the ovn_controller image pull successful.
+          when:
+            - step|int == 1
+            - "'results' in ovn_controller_image_update"
+          tags:
+            - ovn
+            - ovn_image
+          become: true
+          delegate_to: "{{ async_result_item.item }}"
+          async_status:
+            jid: "{{ async_result_item.ansible_job_id }}"
+          loop: "{{ovn_controller_image_update.results }}"
+          loop_control:
+            loop_var: "async_result_item"
+          register: async_poll_results
+          until: async_poll_results.finished
+          retries: {get_param: OVNControllerImageUpdateTimeout}
+          delay: 1
         - name: OVN Container image used
           debug:
             msg: "ovn container will be using {{ image }}"
@@ -504,7 +543,6 @@ outputs:
           async: {get_param: OVNControllerUpdateTimeout}
           poll: 0
           register: ovn_controller_update
-          ignore_errors: true
           tripleo_container_manage:
             config_dir: "/var/lib/tripleo-config/container-startup-config/step_4"
             config_patterns: 'ovn_controller.json'
@@ -530,6 +568,7 @@ outputs:
           register: async_poll_results
           until: async_poll_results.finished
           retries: {get_param: OVNControllerUpdateTimeout}
+          delay: 1
       upgrade_tasks: []
       scale_tasks:
         - when:
