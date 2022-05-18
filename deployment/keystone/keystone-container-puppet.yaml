@@ -725,25 +725,6 @@ outputs:
               - horizon::keystone_multidomain_support: true
                 horizon::keystone_default_domain: 'Default'
             - horizon::policy::keystone_policies: {get_param: KeystonePolicies}
-      ansible_group_vars:
-        tripleo_keystone_image: &keystone_image {get_attr: [RoleParametersValue, value, ContainerKeystoneImage]}
-        tripleo_keystone_volumes:
-          - /etc/openldap:/etc/openldap:ro
-          - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
-          - /var/lib/config-data/puppet-generated/keystone:/var/lib/kolla/config_files/src:ro
-        tripleo_keystone_common_volumes: {get_attr: [ContainersCommon, volumes]}
-        tripleo_keystone_logging_volumes: {get_attr: [KeystoneLogging, volumes]}
-        tripleo_keystone_enable_internal_tls: {get_param: EnableInternalTLS}
-        tripleo_keystone_internal_tls_volumes:
-          - if:
-              - {get_param: EnableInternalTLS}
-              - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
-                - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
-        tripleo_keystone_environment:
-          KOLLA_BOOTSTRAP: true
-          KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-          TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
-        tripleo_keystone_logging_environment: {get_attr: [KeystoneLogging, environment]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: keystone
@@ -756,10 +737,110 @@ outputs:
                 include tripleo::profile::base::keystone
               - {get_attr: [MySQLClient, role_data, step_config]}
         config_image: &keystone_config_image {get_attr: [RoleParametersValue, value, ContainerKeystoneConfigImage]}
+      kolla_config:
+        /var/lib/kolla/config_files/keystone.json:
+          command: /usr/sbin/httpd
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/etc/keystone/fernet-keys"
+              dest: "/etc/keystone/fernet-keys"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.modules.d"
+              dest: "/etc/httpd/conf.modules.d"
+              merge: false
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+        /var/lib/kolla/config_files/keystone_cron.json:
+          # FIXME(dprince): this is unused ATM because Kolla hardcodes the
+          # args for the keystone container to -DFOREGROUND
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
       docker_config:
         # Kolla_bootstrap/db sync runs before permissions set by kolla_config
         step_2:
           get_attr: [KeystoneLogging, docker_config, step_2]
+        step_3:
+          keystone_db_sync:
+            image: &keystone_image {get_attr: [RoleParametersValue, value, ContainerKeystoneImage]}
+            net: host
+            user: root
+            privileged: false
+            detach: false
+            volumes: &keystone_volumes
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                - - /etc/openldap:/etc/openldap:ro
+                  - /var/lib/kolla/config_files/keystone.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone:/var/lib/kolla/config_files/src:ro
+                - if:
+                    - {get_param: EnableInternalTLS}
+                    - - /etc/pki/tls/certs/httpd:/etc/pki/tls/certs/httpd:ro
+                      - /etc/pki/tls/private/httpd:/etc/pki/tls/private/httpd:ro
+            environment:
+              map_merge:
+                - {get_attr: [KeystoneLogging, environment]}
+                - KOLLA_BOOTSTRAP: true
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                  TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
+            command: ['/usr/bin/bootstrap_host_exec', 'keystone', '/usr/local/bin/kolla_start']
+          keystone:
+            start_order: 2
+            image: *keystone_image
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes: *keystone_volumes
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+          keystone_bootstrap:
+            start_order: 3
+            action: exec
+            user: root
+            command:
+              [ 'keystone', '/usr/bin/bootstrap_host_exec', 'keystone' ,'keystone-manage', 'bootstrap' ]
+            environment:
+              KOLLA_BOOTSTRAP: true
+              OS_BOOTSTRAP_PASSWORD: {get_param: AdminPassword}
+              OS_BOOTSTRAP_USERNAME: 'admin'
+              OS_BOOTSTRAP_PROJECT_NAME: 'admin'
+              OS_BOOTSTRAP_ROLE_NAME: 'admin'
+              OS_BOOTSTRAP_SERVICE_NAME: 'keystone'
+              OS_BOOTSTRAP_ADMIN_URL: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
+              OS_BOOTSTRAP_PUBLIC_URL: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
+              OS_BOOTSTRAP_INTERNAL_URL: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
+              OS_BOOTSTRAP_REGION_ID: {get_param: KeystoneRegion}
+          keystone_cron:
+            start_order: 4
+            image: *keystone_image
+            user: root
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: '/usr/share/openstack-tripleo-common/healthcheck/cron keystone'
+            command: ['/bin/bash', '-c', '/usr/local/bin/kolla_set_configs && /usr/sbin/crond -n']
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - {get_attr: [KeystoneLogging, volumes]}
+                - - /var/lib/kolla/config_files/keystone_cron.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/puppet-generated/keystone:/var/lib/kolla/config_files/src:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
         step_4:
           # There are cases where we need to refresh keystone after the resource provisioning,
           # such as the case of using LDAP backends for domains. So we trigger a graceful
@@ -890,36 +971,34 @@ outputs:
                 - container_cli == 'podman'
                 - not container_healthcheck_disabled
                 - step|int == 4
-            - name: Keystone DB sync
-              include_role:
-                name: tripleo_keystone
-                tasks_from: keystone-db-sync.yaml
-              when:
-                - step|int == 3
-            - name: Keystone containers
-              import_role:
-                name: tripleo_keystone
-                tasks_from: keystone.yaml
-              when:
-                - step|int == 3
-            - name: Keystone bootstrap containers
-              import_role:
-                name: tripleo_keystone
-                tasks_from: keystone-bootstrap.yaml
-              when:
-                - step|int == 3
-              vars:
-                tripleo_keystone_admin_password: {get_param: AdminPassword}
-                tripleo_keystone_admin_url: {get_param: [EndpointMap, KeystoneAdmin, uri_no_suffix]}
-                tripleo_keystone_public_url: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix]}
-                tripleo_keystone_internal_url: {get_param: [EndpointMap, KeystoneInternal, uri_no_suffix]}
-                tripleo_keystone_region: {get_param: KeystoneRegion}
       host_prep_tasks:
         list_concat:
           - {get_attr: [KeystoneLogging, host_prep_tasks]}
-          - - include_role:
-                name: tripleo_keystone
-                tasks_from: keystone-install.yaml
+          - - name: Check if file certs_valid exist
+              stat:
+                path: "/etc/openldap/certs/certs_valid"
+              register: certs_valid_stat
+            - name: Check if file cert9.db exist
+              stat:
+                path: "/etc/openldap/certs/cert9.db"
+              register: cert9_stat
+              when: not certs_valid_stat.stat.exists
+            - name: Check if file key4.db exist
+              stat:
+                path: "/etc/openldap/certs/key4.db"
+              register: key4_stat
+              when: not certs_valid_stat.stat.exists
+            - fail:
+                msg: >
+                  Keys and/or certificates were found in /etc/openldap/certs
+                  but these conflicts with keystone python LDAP calls.  If
+                  you know those certificates are valid and not causing any
+                  conflicts, you can touch /etc/openldap/certs/certs_valid
+                  in order to skip this failure and retry or you can delete
+                  the files located in /etc/openldap/certs and retry.
+              when: >-
+                ( cert9_stat.stat.exists or key4_stat.stat.exists ) and
+                not certs_valid_stat.stat.exists
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       external_upgrade_tasks:
