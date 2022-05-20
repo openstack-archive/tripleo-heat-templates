@@ -60,14 +60,6 @@ resources:
   ContainersCommon:
     type: ../containers-common.yaml
 
-  SshdBase:
-    type: ../../deployment/sshd/sshd-baremetal-puppet.yaml
-    properties:
-      EndpointMap: {get_param: EndpointMap}
-      ServiceNetMap: {get_param: ServiceNetMap}
-      RoleName: {get_param: RoleName}
-      RoleParameters: {get_param: RoleParameters}
-
   RoleParametersValue:
     type: OS::Heat::Value
     properties:
@@ -116,33 +108,52 @@ outputs:
                     proto: 'tcp'
                     dport: {get_param: MigrationSshPort}
       config_settings:
-        map_merge:
-          - get_attr: [SshdBase, role_data, config_settings]
-          - tripleo::profile::base::nova::migration::target::ssh_authorized_keys:
-              - {get_param: [ MigrationSshKey, public_key ]}
-            tripleo::profile::base::nova::migration::target::ssh_localaddrs:
-              - "%{lookup('cold_migration_ssh_inbound_addr')}"
-              - "%{lookup('live_migration_ssh_inbound_addr')}"
-            live_migration_ssh_inbound_addr:
-              str_replace:
-                template:
-                  "%{lookup('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-            cold_migration_ssh_inbound_addr:
-              str_replace:
-                template:
-                  "%{lookup('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
-            tripleo::profile::base::sshd::port:
-              - 22
+        tripleo::profile::base::nova::migration::target::ssh_authorized_keys:
+          - {get_param: [ MigrationSshKey, public_key ]}
+        tripleo::profile::base::nova::migration::target::ssh_localaddrs:
+          - "%{lookup('cold_migration_ssh_inbound_addr')}"
+          - "%{lookup('live_migration_ssh_inbound_addr')}"
+        live_migration_ssh_inbound_addr:
+          str_replace:
+            template:
+              "%{lookup('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+        cold_migration_ssh_inbound_addr:
+          str_replace:
+            template:
+              "%{lookup('$NETWORK')}"
+            params:
+              $NETWORK: {get_param: [ServiceNetMap, NovaApiNetwork]}
+        tripleo::profile::base::sshd::port:
+          - 22
+        tripleo::profile::base::sshd::password_authentication: 'no'
+        tripleo::profile::base::sshd::options:
+          # NOTE(tkajinam): Thse values inherits the default sshd options
+          HostKey:
+            - '/etc/ssh/ssh_host_rsa_key'
+            - '/etc/ssh/ssh_host_ecdsa_key'
+            - '/etc/ssh/ssh_host_ed25519_key'
+          SyslogFacility: 'AUTHPRIV'
+          AuthorizedKeysFile: '.ssh/authorized_keys'
+          ChallengeResponseAuthentication: 'no'
+          GSSAPIAuthentication: 'no'
+          GSSAPICleanupCredentials: 'no'
+          UsePAM: 'yes'
+          UseDNS: 'no'
+          X11Forwarding: 'yes'
+          AcceptEnv:
+            - 'LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES'
+            - 'LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT'
+            - 'LC_IDENTIFICATION LC_ALL LANGUAGE'
+            - 'XMODIFIERS'
+          Subsystem: 'sftp  /usr/libexec/openssh/sftp-server'
       puppet_config:
         config_volume: nova_libvirt
         step_config:
           list_join:
             - "\n"
-            - - get_attr: [SshdBase, role_data, step_config]
+            - - include tripleo::profile::base::sshd
               - include tripleo::profile::base::nova::migration::target
         config_image: {get_attr: [RoleParametersValue, value, ContainerNovaLibvirtConfigImage]}
       kolla_config:
