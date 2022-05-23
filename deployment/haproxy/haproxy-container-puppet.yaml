@@ -228,7 +228,7 @@ outputs:
         config_volume: haproxy
         puppet_tags: haproxy_config
         step_config: |
-          class {'tripleo::profile::base::haproxy': manage_firewall => false}
+          include tripleo::profile::base::haproxy
         config_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyConfigImage]}
         volumes:
           list_concat:
@@ -344,27 +344,6 @@ outputs:
                         name: rsyslog
                         state: restarted
                       when: logconfig is changed
-            - name: Run puppet on the host to apply IPtables rules
-              no_log: true
-              when: step|int == 1
-              register: puppet_host_outputs
-              shell: |
-                puppet apply {{ (puppet_debug|bool) | ternary('--debug --verbose', '') }} --detailed-exitcodes --summarize --color=false \
-                    --modulepath '{{ puppet_modulepath }}' --tags '{{ puppet_tags }}' -e '{{ puppet_execute }}'
-              changed_when: puppet_host_outputs.rc == 2
-              failed_when: false
-              vars:
-                puppet_execute: include tripleo::profile::base::haproxy
-                puppet_tags: tripleo::firewall::rule
-                puppet_modulepath: /etc/puppet/modules:/opt/stack/puppet-modules:/usr/share/openstack-puppet/modules
-                puppet_debug: {get_param: ConfigDebug}
-            - name: "Debug output for task: Run puppet on the host to apply IPtables rules"
-              debug:
-                var: puppet_host_outputs.stdout_lines | default([]) | union(puppet_host_outputs.stderr_lines | default([]))
-              when:
-                - not (ansible_check_mode | bool)
-                - puppet_host_outputs.rc is defined
-              failed_when: puppet_host_outputs.rc not in [0, 2]
           - if:
             - public_tls_enabled
             - get_attr: [HAProxyPublicTLS, role_data, deploy_steps_tasks]
