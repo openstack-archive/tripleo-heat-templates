@@ -177,31 +177,31 @@ def _generate_environment(input_env, output_path, parent_env=None):
         # the environment itself, uncomment these entries and make them
         # top-level keys in the YAML.
         env_title = env.get('title', '')
-        env_file.write(u'# title: %s\n' % env_title)
+        env_file.write('# title: %s\n' % env_title)
         env_desc = env.get('description', '')
-        env_file.write(u'# description: |\n')
+        env_file.write('# description: |\n')
         for line in env_desc.splitlines():
             if line:
-                env_file.write(u'#   %s\n' % line)
+                env_file.write('#   %s\n' % line)
             else:
                 env_file.write('#\n')
         if parameter_defaults or static_defaults:
-            env_file.write(u'parameter_defaults:\n')
+            env_file.write('parameter_defaults:\n')
             write_params_entry(env_file, parameter_defaults[_PARAMETERS],
                                static_defaults[_PARAMETERS], 0)
             param_names.pop(_PARAMETERS, None)
             for name in param_names:
-                env_file.write(u'  %s:\n' % name)
+                env_file.write('  %s:\n' % name)
                 write_params_entry(env_file, parameter_defaults[name],
                                    static_defaults[name], 2)
         if env.get('resource_registry'):
-            env_file.write(u'resource_registry:\n')
+            env_file.write('resource_registry:\n')
         for res, value in sorted(env.get('resource_registry', {}).items()):
-            env_file.write(u'  %s: %s\n' % (res, value))
+            env_file.write('  %s: %s\n' % (res, value))
         if env.get('parameter_merge_strategies'):
-            env_file.write(u'parameter_merge_strategies:\n')
+            env_file.write('parameter_merge_strategies:\n')
         for res, value in sorted(env.get('parameter_merge_strategies', {}).items()):
-            env_file.write(u'  %s: %s\n' % (res, value))
+            env_file.write('  %s: %s\n' % (res, value))
         print('Wrote sample environment "%s"' % target_file)
 
     for e in env.get('children', []):
