@@ -1466,56 +1466,9 @@ outputs:
           - name: is Nova Resume Guests State On Host Boot enabled
             set_fact:
               resume_guests_state_on_host_boot_enabled: {get_attr: [RoleParametersValue, value, resume_guests_state_on_host_boot]}
-          - name: install libvirt-guests systemd unit file (docker)
+          - name: install tripleo_nova_libvirt_guests systemd unit file
             when:
               - resume_guests_state_on_host_boot_enabled|bool
-              - container_cli == 'docker'
-            block:
-              - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
-                copy:
-                  dest: /etc/systemd/system/libvirt-guests.service
-                  content: |
-                    [Unit]
-                    Description=Suspend/Resume Running libvirt Guests
-                    After=network.target
-                    After=time-sync.target
-                    After=virt-guest-shutdown.target
-                    After=docker.service
-                    After=tripleo-container-shutdown.service
-                    After=rhel-push-plugin.service
-                    Documentation=man:libvirtd(8)
-                    Documentation=https://libvirt.org
-
-                    [Service]
-                    EnvironmentFile=-/var/lib/config-data/puppet-generated/nova_libvirt/etc/sysconfig/libvirt-guests
-                    # Hack just call traditional service until we factor
-                    # out the code
-                    ExecStart=/bin/{{container_cli}} exec nova_libvirt /bin/sh -x /usr/libexec/libvirt-guests.sh start
-                    ExecStop=/bin/{{container_cli}} stop nova_compute
-                    ExecStop=/bin/{{container_cli}}  exec nova_libvirt /bin/sh -x /usr/libexec/libvirt-guests.sh stop
-                    Type=oneshot
-                    RemainAfterExit=yes
-                    StandardOutput=journal+console
-                    TimeoutStopSec=0
-
-                    [Install]
-                    WantedBy=multi-user.target
-              - name: Making sure virt-guest-shutdown.target is present
-                copy:
-                  dest: /etc/systemd/system/virt-guest-shutdown.target
-                  content: |
-                    [Unit]
-                    Description=Libvirt guests shutdown
-                    Documentation=https://libvirt.org
-              - name: libvirt-guests enable VM shutdown on compute reboot/shutdown
-                systemd:
-                  name: libvirt-guests
-                  enabled: true
-                  daemon_reload: true
-          - name: install tripleo_nova_libvirt_guests systemd unit file (podman)
-            when:
-              - resume_guests_state_on_host_boot_enabled|bool
-              - container_cli == 'podman'
             block:
               - name: libvirt-guests unit to stop nova_compute container before shutdown VMs
                 copy:
@@ -1619,7 +1572,6 @@ outputs:
             - opendev-validation
             - opendev-validation-nova
           when:
-            - container_cli == 'podman'
             - not container_healthcheck_disabled
             - step|int == 6 #FIXME: there is no step6
         - name: manage PMEM namespaces for vPMEM
@@ -1705,7 +1657,6 @@ outputs:
       scale_tasks:
         - when:
             - step|int == 1
-            - container_cli == 'podman'
           tags: down
           become: true
           environment:
