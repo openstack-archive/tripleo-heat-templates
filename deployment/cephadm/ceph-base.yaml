@@ -74,16 +74,24 @@ parameters:
     description: >
       Enable Ceph msgr2 secure mode to enable on-wire encryption between Ceph
       daemons and also between Ceph clients and daemons.
-  CephPoolDefaultPgNum:
-    description: default pg_num to use for the RBD pools
-    type: number
-    default: 16
   CephPools:
     description: >
-      It can be used to override settings for one of the predefined pools, or to create
-      additional ones. Example:
-      [{"name": "volumes", "pg_num": 64, "rule_name": "replicated_rule"},
-       {"name": "vms", "target_size_ratio": "0.4", "rule_name": "replicated_rule"}]
+      Used to override settings (mainly target_size_ratio or pg_num) in pools.
+      Pacific has pg_autoscale_mode enabled by default so set target_size_ratio
+      as a percentage of the expected data consumption. The example below sets
+      cinder volumes 40%, glance images 10%, nova vms 30% (20% of space free).
+      Not set by default but overrides are encouraged to avoid data rebalancing.
+      For example,
+      CephPools:
+        - name: volumes
+          target_size_ratio: 0.4
+          application: rbd
+        - name: images
+          target_size_ratio: 0.1
+          application: rbd
+        - name: vms
+          target_size_ratio: 0.3
+          application: rbd
     default: []
     type: json
   CinderRbdPoolName:
@@ -167,10 +175,6 @@ parameters:
     hidden: true
     constraints:
     - allowed_pattern: "^[a-zA-Z0-9+/]{38}==$"
-  CephPoolDefaultSize:
-    description: default minimum replication for RBD copies
-    type: number
-    default: 3
   ManilaCephFSDataPoolName:
     default: manila_data
     type: string
@@ -197,6 +201,16 @@ parameters:
   ContainerCephDaemonImage:
     description: image
     type: string
+  # start DEPRECATED options for compatibility with older versions
+  CephPoolDefaultPgNum:
+    description: default pg_num to use for the RBD pools
+    type: number
+    default: 16
+  CephPoolDefaultSize:
+    description: default minimum replication for RBD copies
+    type: number
+    default: 3
+  # end DEPRECATED options for compatibility with older versions
   ContainerImageRegistryCredentials:
     type: json
     hidden: true
@@ -354,7 +368,9 @@ parameters:
 parameter_groups:
 - label: deprecated
   description: Do not use deprecated params, they will be removed.
-  parameters: []
+  parameters:
+    - CephPoolDefaultPgNum
+    - CephPoolDefaultSize
 
 conditions:
   custom_registry_host:
@@ -414,10 +430,7 @@ resources:
     properties:
       type: json
       value:
-        vars:
-          osd_pool_default_size: {get_param: CephPoolDefaultSize}
-          osd_pool_default_pg_num: {get_param: CephPoolDefaultPgNum}
-          osd_pool_default_pgp_num: {get_param: CephPoolDefaultPgNum}
+        vars: {}
 
   CephAdmVars:
     type: OS::Heat::Value
@@ -522,12 +535,9 @@ outputs:
                         - true
                         - false
                   extra_pools: {get_param: CephPools}
-                  pg_num: {get_param: CephPoolDefaultPgNum}
                 manila_pools:
                   data: {get_param: ManilaCephFSDataPoolName}
                   metadata: {get_param: ManilaCephFSMetadataPoolName}
-                  data_pg_num: {get_param: CephPoolDefaultPgNum}
-                  metadata_pg_num: {get_param: CephPoolDefaultPgNum}
                 ceph_keys:
                   openstack_client:
                     name: {get_param: CephClientUserName}
