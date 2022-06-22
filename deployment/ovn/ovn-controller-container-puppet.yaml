@@ -140,6 +140,9 @@ parameters:
       in seconds.
     type: number
     default: 600
+  RootStackName:
+    description: The name of the stack/plan.
+    type: string
 
 conditions:
   force_config_drive:  {equals: [{get_param: OVNMetadataEnabled}, false]}
@@ -590,3 +593,47 @@ outputs:
             - name: Update OVNIntegrationBridge protocols to OpenFlow13,OpenFlow15
               shell: |
                 ovs-vsctl set bridge {{ ovn_interaction_bridge }} protocols="OpenFlow13,OpenFlow15"
+      scale_tasks:
+        - when:
+            - step|int == 1
+            - container_cli == 'podman'
+          tags: down
+          environment:
+            OS_CLOUD: {get_param: RootStackName}
+          block:
+            # Some tasks are running from the Undercloud which has
+            # the OpenStack clients installed.
+            - name: Get neutron agents ID
+              command: openstack network agent list --column ID --column Host --column Binary --format yaml
+              register: neutron_agents_result
+              delegate_to: "{{ groups['Undercloud'] | first }}"
+              check_mode: false
+              changed_when: false
+            - name: Filter only current host
+              set_fact:
+                neutron_agents: "{{ neutron_agents_result.stdout | from_yaml | selectattr('Host', 'match', ansible_facts['fqdn'] ~ '.*') | list }}"
+              delegate_to: "{{ groups['Undercloud'] | first }}"
+              check_mode: false
+            - name: Deleting OVN agents
+              block:
+                - name: Stop OVN containers
+                  loop:
+                    - tripleo_ovn_controller
+                    - tripleo_ovn_metadata_agent
+                  service:
+                    name: "{{ item }}"
+                    state: stopped
+                    enabled: false
+                  become: true
+                  register: stop_containers
+                  failed_when: "('msg' in stop_containers and
+                                 'Could not find the requested service' not in stop_containers.msg) or
+                                ('rc' in stop_containers and stop_containers.rc != 0)"
+                - name: Delete neutron agents
+                  loop: "{{ neutron_agents }}"
+                  loop_control:
+                    loop_var: agent
+                    label: "{{ agent.Host }}/{{ agent.Binary }}"
+                  command: openstack network agent delete {{ agent.ID }}
+                  delegate_to: "{{ groups['Undercloud'] | first }}"
+                  check_mode: false
