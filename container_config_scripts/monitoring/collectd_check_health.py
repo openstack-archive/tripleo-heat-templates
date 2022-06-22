@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright 2018 Red Hat Inc.
+# Copyright 2022 Red Hat Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -15,69 +15,72 @@
 # under the License.
 
 import json
-import re
+import shutil
+import subprocess
 import sys
 
 
-HCLOG = '/var/log/collectd/healthchecks.stdout'
-START_RE = re.compile(
-    r'(?P<timestamp>\w{3} \d{2} \d{2}\:\d{2}\:\d{2}) (?P<host>[\w\-\.\:]*) systemd\[.*\]: Started /usr/bin/podman healthcheck run (?P<container_id>\w*)')
-EXEC_RE = re.compile(
-    r'(?P<timestamp>\w{3} \d{2} \d{2}\:\d{2}\:\d{2}) (?P<host>[\w\-\.\:]*) podman\[(?P<pid>\d*)\]: (?P<trash>.*) container exec (?P<container_id>\w*) \(.*name=(?P<container_name>\w*).*\)')
-RESULT_RE = re.compile(
-    r'(?P<timestamp>\w{3} \d{2} \d{2}\:\d{2}\:\d{2}) (?P<host>[\w\-\.\:]*) podman\[(?P<pid>\d*)\]: (?P<result>(un)?healthy)')
+SOCKET = "unix:/run/podman/podman.sock"
+FORMAT = ("{service: .Name, container: .Id, status: .State.Running, "
+         "healthy: .State.Health.Status}")
+SKIP_LIST = ['_bootstrap', 'container-puppet-', '_db_sync',
+             '_ensure_', '_fix_', '_init_', '_map_', '_wait_',
+             'mysql_data_ownership', 'configure_cms_options']
 
 
-def process_healthcheck_output(path_to_log):
-    """Process saved output of health checks and returns list of unhealthy
-    containers.
-    """
-    data = {}
-    pid_map = {}
-    with open(path_to_log, "r+") as logfile:
-        for line in logfile:
-            match = START_RE.search(line)
-            if match:
-                item = data.setdefault(match.group('container_id'), {})
-                item['timestamp_start'] = match.group('timestamp')
-                item['host'] = match.group('host')
-                continue
-            match = EXEC_RE.search(line)
-            if match:
-                item = data.setdefault(match.group('container_id'), {})
-                item['container_name'] = match.group('container_name')
-                item['host'] = match.group('host')
-                item['pid'] = match.group('pid')
-                pid_map[match.group('pid')] = match.group('container_id')
-                continue
-            match = RESULT_RE.search(line)
-            if match:
-                if match.group('pid') not in pid_map:
-                    continue
-                item = data[pid_map[match.group('pid')]]
-                item['result'] = match.group('result')
-                item['timestamp_end'] = match.group('timestamp')
+def execute(cmd, workdir: str = None,
+            prev_proc: subprocess.Popen = None) -> subprocess.Popen:
+    if type(cmd[0]) is list:  # multiple piped commands
+        last = prev_proc
+        for c in cmd:
+            last = execute(c, workdir, last)
+        return last
+    else:  # single command
+        inpipe = prev_proc.stdout if prev_proc is not None else None
+        proc = subprocess.Popen(cmd, cwd=workdir, stdin=inpipe,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if prev_proc is not None:
+            prev_proc.stdout.close()
+            prev_proc.stderr.close()
+        return proc
 
-    # truncate the file
-    with open(HCLOG, "w") as logfile:
-        pass
 
-    rc, output = 0, []
-    for cid, item in data.items():
-        if 'result' not in item:
+def fetch_container_health(containers):
+    out = {}
+    for cont in set(containers.split('\n')) - set(SKIP_LIST):
+        if not cont:
             continue
-        if item['result'] != 'healthy' and rc != 2:
-            rc = 2 if item['result'] == 'unhealthy' else 1
-        output.append({
-            'container': cid,
-            'service': item['container_name'],
-            'status': item['result'],
-            'healthy': int(item['result'] == 'healthy'),
-        })
-    return rc, output
+        proc = execute([
+            [shutil.which('podman-remote'),
+                '--url', SOCKET, 'inspect', cont],
+            [shutil.which('jq'), '.[] | %s' % FORMAT]
+        ])
+        o, e = proc.communicate()
+        if proc.returncode != 0:
+            msg = "Failed to fetch status of %s: %s" % (cont, e.decode())
+            return proc.returncode, msg
+
+        item = json.loads(o.decode())
+        if len(item['healthy']) > 0:
+            item['status'] = item['healthy']
+        else:
+            item['status'] = 'running' if item['status'] else 'stopped'
+
+        item['healthy'] = int(item['healthy'] == 'healthy')
+        out[item['service']] = item
+    return 0, out
 
 
 if __name__ == "__main__":
-    rc, status = process_healthcheck_output(HCLOG)
+    proc = execute([shutil.which('podman-remote'), '--url', SOCKET,
+                    'ps', '--all', '--format', '{{.Names}}'])
+    o, e = proc.communicate()
+    if proc.returncode != 0:
+        print("Failed to list containers:\n%s\n%s" % (o.decode(), e.decode()))
+        sys.exit(1)
+
+    rc, status = fetch_container_health(o.decode())
+    if rc != 0:
+        print("Failed to inspect containers:\n%s" % status)
+        sys.exit(rc)
     print(json.dumps(status))
-    sys.exit(rc)
