@@ -193,9 +193,9 @@ the services. Following are the list of default parameters:
 
  * ServiceNetMap: Mapping of service_name -> network name. Default mappings
    for service to network names are defined in
-   ../network/service_net_map.j2.yaml, which may be overridden via
-   ServiceNetMap values added to a user environment file via
-   parameter_defaults.
+   ./overcloud-resource-registry-puppet.j2.yaml, which may be overridden via
+   ServiceNetMap values added to a user environment file via parameter_defaults.
+   Use parameter_merge_strategies to merge it with the defaults.
 
  * EndpointMap: Mapping of service endpoint -> protocol. Contains a mapping of
    endpoint data generated for all services, based on the data included in
