@@ -39,6 +39,9 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  EnableInternalTLS:
+    type: boolean
+    default: false
   OVNNorthboundServerPort:
     description: Port of the OVN Northbound DB server
     type: number
@@ -193,12 +196,24 @@ outputs:
             start_order: 1
             action: exec
             user: root
-            command: ['ovn_north_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; NB_DB_PORT=`hiera ovn::northbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-nbctl set-connection ptcp:$NB_DB_PORT:$DBS_LISTEN_IP']
+            command:
+              list_concat:
+                - ['ovn_north_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; NB_DB_PORT=`hiera ovn::northbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-nbctl set-connection']
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  - ['pssl:$NB_DB_PORT:$DBS_LISTEN_IP']
+                  - ['ptcp:$NB_DB_PORT:$DBS_LISTEN_IP']
           configure_ovn_south_db_server:
             start_order: 1
             action: exec
             user: root
-            command: ['ovn_south_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; SB_DB_PORT=`hiera ovn::southbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-sbctl set-connection ptcp:$SB_DB_PORT:$DBS_LISTEN_IP']
+            command:
+              list_concat:
+                - ['ovn_south_db_server', '/bin/bash', '-c', 'DBS_LISTEN_IP=`hiera ovn::northd::dbs_listen_ip -c /etc/puppet/hiera.yaml`; SB_DB_PORT=`hiera ovn::southbound::port -c /etc/puppet/hiera.yaml`; /usr/bin/bootstrap_host_exec ovn_dbs ovn-sbctl set-connection']
+                - if:
+                  - {get_param: EnableInternalTLS}
+                  - ['pssl:$SB_DB_PORT:$DBS_LISTEN_IP']
+                  - ['ptcp:$SB_DB_PORT:$DBS_LISTEN_IP']
           ovn_northd:
             start_order: 2
             image: {get_param: ContainerOvnNorthdImage}
