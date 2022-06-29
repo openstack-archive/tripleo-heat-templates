@@ -1344,7 +1344,6 @@ def validate_network_data_file(data_file_path):
     except Exception:
         print(traceback.format_exc())
         return 1
-    return 0
 
 
 def validate_nic_config_file(filename, tpl):
