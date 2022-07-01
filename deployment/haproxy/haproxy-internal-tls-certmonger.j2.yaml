@@ -62,14 +62,17 @@ resources:
         # * The "external" (PublicNetwork) network will be handled in
         #   another template, it is skipped by a yaql filter on the
         #   PublicNetwork defined in ServiceNetMap.
-        yaql:
-          expression: let(public_network => $.data.public_network) -> $.data.networks.where($ != $public_network or $ = 'ctlplane')
-          data:
-            public_network: {get_param: [ServiceNetMap, PublicNetwork]}
-            networks:
-              - ctlplane
-{%- for network in networks if network.enabled|default(true) and network.vip|default(false) %}
-              - {{network.name_lower}}
+{%- for role in roles %}
+        {{ role.name }}:
+            yaql:
+              expression: let(public_network => $.data.public_network) -> $.data.networks.where($ != $public_network or $ = 'ctlplane')
+              data:
+                public_network: {get_param: [ServiceNetMap, PublicNetwork]}
+                networks:
+                  - ctlplane
+{%- for network in networks if network.name in role.networks and network.enabled|default(true) and network.vip|default(false) %}
+                  - {{network.name_lower}}
+{%- endfor %}
 {%- endfor %}
 {% raw -%}
 outputs:
@@ -90,7 +93,7 @@ outputs:
                   - - {get_param: HAProxyInternalTLSCertsDirectory}
                     - '/overcloud-haproxy-NETWORK.pem'
             for_each:
-              NETWORK: {get_attr: [HAProxyNetworks, value]}
+              NETWORK: {get_attr: [HAProxyNetworks, value, { get_param: RoleName }]}
       metadata_settings:
         repeat:
           template:
@@ -101,7 +104,7 @@ outputs:
             network: $NETWORK
             type: node
           for_each:
-            $NETWORK: {get_attr: [HAProxyNetworks, value]}
+            $NETWORK: {get_attr: [HAProxyNetworks, value, { get_param: RoleName }]}
       deploy_steps_tasks:
         - name: Certificate generation
           when: step|int == 1
@@ -169,5 +172,5 @@ outputs:
                           - {get_param: CertificateKeySize}
                       ca: ipa
                     for_each:
-                      NETWORK: {get_attr: [HAProxyNetworks, value]}
+                      NETWORK: {get_attr: [HAProxyNetworks, value, { get_param: RoleName }]}
 {%- endraw %}
