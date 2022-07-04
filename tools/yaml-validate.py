@@ -179,6 +179,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
                        'description'],
     'NeutronBigswitchLLDPEnabled': ['default'],
     'NeutronWorkers': ['description'],
+    'NeutronEnableDVR': ['default'],
     'ServerMetadata': ['description'],
     'server': ['description'],
     'servers': ['description'],
