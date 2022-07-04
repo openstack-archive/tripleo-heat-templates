@@ -128,6 +128,18 @@ parameters:
     default: ''
     description: Override the private key size used when creating the
                  certificate for this service
+  OVNContainerCpusetCpus:
+    description: >
+      Limit the specific CPUs or cores a container can use.
+      It can be specified as a single core (ex. 0), as a comma-separated
+      list (ex. 0,1), as a range (ex. 0-3) or a combination if previous
+      methods (ex 0-3,7,11-15).  The selected cores should be isolated
+      from guests and hypervisor in order to obtain best possible
+      performance.
+    type: string
+    default: ''
+    tags:
+      - role_specific
   OVNStaticBridgeMacMappings:
     type: json
     default: {}
@@ -156,6 +168,10 @@ conditions:
   enable_vlan_transparency: {equals: [{get_param: EnableVLANTransparency}, true]}
   auth_cloud_name_set:
     not: {equals: [{get_param: AuthCloudName}, ""]}
+  ovn_cpu_set:
+    or:
+      - not: {equals: [{get_param: OVNContainerCpusetCpus}, '']}
+      - not: {equals: [{get_param: [RoleParameters, OVNContainerCpusetCpus]}, '' ]}
   key_size_override_set:
     not: {equals: [{get_param: ContainerOvnCertificateKeySize}, '']}
   az_ovn_unset: {equals: [{get_param: OVNAvailabilityZone}, []]}
@@ -185,11 +201,13 @@ resources:
                       - ",availability-zones="
                       - {get_param: OVNAvailabilityZone}
               vswitch::ovs::enable_hw_offload: OvsHwOffload
+              container_cpuset_cpus: OVNContainerCpusetCpus
             - values: {get_param: [RoleParameters]}
           - values:
               NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
               OVNCMSOptions: {get_param: OVNCMSOptions}
               OvsHwOffload: {get_param: OvsHwOffload}
+              OVNContainerCpusetCpus: {get_param: OVNContainerCpusetCpus}
 
   OVNBridgeMappingsValue:
     type: OS::Heat::Value
@@ -204,7 +222,6 @@ resources:
           - values:
               NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
               OVNStaticBridgeMacMappings: {get_param: OVNStaticBridgeMacMappings}
-
 
 outputs:
   role_data:
@@ -329,48 +346,51 @@ outputs:
             environment:
               TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
           ovn_controller:
-            start_order: 1
-            image: *ovn_controller_image
-            net: host
-            privileged: true
-            user: root
-            restart: always
-            depends_on:
-              - openvswitch.service
-            healthcheck:
-              test:
-                list_join:
-                  - ' '
-                  - - '/openstack/healthcheck'
-                    - yaql:
-                        expression: str($.data.port)
-                        data:
-                          port: {get_param: OVNSouthboundServerPort}
-            volumes:
-              list_concat:
-                -
-                  - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
-                  - /lib/modules:/lib/modules:ro
-                  # TODO(numans): This is temporary. Mount /run/openvswitch once
-                  # openvswitch systemd script is fixed to not delete /run/openvswitch
-                  # folder in the host when openvswitch service is stopped.
-                  - /run:/run
-                  - /var/lib/openvswitch/ovn:/run/ovn:shared,z
-                  - /var/log/containers/openvswitch:/var/log/openvswitch:z
-                  - /var/log/containers/openvswitch:/var/log/ovn:z
-                - if:
-                  - internal_tls_enabled
-                  -
-                    - list_join:
-                      - ':'
-                      - - {get_param: InternalTLSCAFile}
-                        - {get_param: InternalTLSCAFile}
-                        - 'ro'
-                    - /etc/pki/tls/certs/ovn_controller.crt:/etc/pki/tls/certs/ovn_controller.crt
-                    - /etc/pki/tls/private/ovn_controller.key:/etc/pki/tls/private/ovn_controller.key
-                  - null
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+            map_merge:
+              - start_order: 1
+                image: *ovn_controller_image
+                net: host
+                privileged: true
+                user: root
+                restart: always
+                depends_on:
+                  - openvswitch.service
+              - if:
+                - ovn_cpu_set
+                - cpuset_cpus: {get_attr: [RoleParametersValue, value, container_cpuset_cpus]}
+              - healthcheck:
+                  test:
+                    list_join:
+                      - ' '
+                      - - '/openstack/healthcheck'
+                        - yaql:
+                            expression: str($.data.port)
+                            data:
+                              port: {get_param: OVNSouthboundServerPort}
+                volumes:
+                  list_concat:
+                    - - /var/lib/kolla/config_files/ovn_controller.json:/var/lib/kolla/config_files/config.json:ro
+                      - /lib/modules:/lib/modules:ro
+                      # TODO(numans): This is temporary. Mount /run/openvswitch once
+                      # openvswitch systemd script is fixed to not delete /run/openvswitch
+                      # folder in the host when openvswitch service is stopped.
+                      - /run:/run
+                      - /var/lib/openvswitch/ovn:/run/ovn:shared,z
+                      - /var/log/containers/openvswitch:/var/log/openvswitch:z
+                      - /var/log/containers/openvswitch:/var/log/ovn:z
+                    - if:
+                      - internal_tls_enabled
+                      -
+                        - list_join:
+                          - ':'
+                          - - {get_param: InternalTLSCAFile}
+                            - {get_param: InternalTLSCAFile}
+                            - 'ro'
+                        - /etc/pki/tls/certs/ovn_controller.crt:/etc/pki/tls/certs/ovn_controller.crt
+                        - /etc/pki/tls/private/ovn_controller.key:/etc/pki/tls/private/ovn_controller.key
+                      - null
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
         - name: Certificate generation
           when:
