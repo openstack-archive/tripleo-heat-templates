@@ -88,6 +88,22 @@ parameters:
     description: CLI tool used to manage containers.
     constraints:
       - allowed_values: ['podman']
+  MysqlGaleraSSTMethod:
+    type: string
+    default: 'rsync'
+    description: Method used by galera to perform State Snapshot Transfers
+    constraints:
+      - allowed_values: ['rsync', 'mariabackup']
+  MysqlMariabackupUser:
+    type: string
+    default: 'mariabackup'
+    description: When MysqlGaleraSSTMethod is set to mariabackup, the name
+                 of the database user that executes the SST.
+  MysqlMariabackupPassword:
+    type: string
+    hidden: true
+    description: When MysqlGaleraSSTMethod is set to mariabackup, the password
+                 of the database user that executes the SST.
 
 resources:
   ContainersCommon:
@@ -183,6 +199,9 @@ outputs:
               if:
                 - {get_param: EnableInternalTLS}
                 - {get_param: InternalTLSCAFile}
+            tripleo::profile::pacemaker::database::mysql_bundle::sst_method: {get_param: MysqlGaleraSSTMethod}
+            tripleo::profile::pacemaker::database::mysql_bundle::mariabackup_user: {get_param: MysqlMariabackupUser}
+            tripleo::profile::pacemaker::database::mysql_bundle::mariabackup_password: {get_param: MysqlMariabackupPassword}
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: mysql
@@ -256,7 +275,11 @@ outputs:
                     - 'timeout ${DB_MAX_TIMEOUT} /bin/bash -c ''while pgrep -af /usr/bin/mysqld_safe | grep -q -v grep; do sleep 1; done'''
                     - 'mysqld_safe --skip-networking --wsrep-on=OFF &'
                     - 'timeout ${DB_MAX_TIMEOUT} /bin/bash -c ''until mysqladmin -uroot -p"${DB_ROOT_PASSWORD}" ping 2>/dev/null; do sleep 1; done'''
-                    - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "CREATE USER ''clustercheck''@''localhost'' IDENTIFIED BY ''${DB_CLUSTERCHECK_PASSWORD}'';"'
+                  - if:
+                    - {equals: [{get_param: MysqlGaleraSSTMethod}, 'mariabackup']}
+                    - - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "CREATE USER ''${DB_MARIABACKUP_USER}''@''localhost'' IDENTIFIED BY ''${DB_MARIABACKUP_PASSWORD}'';"'
+                      - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "GRANT RELOAD, PROCESS, LOCK TABLES, REPLICATION CLIENT ON *.* TO ''${DB_MARIABACKUP_USER}''@''localhost'';"'
+                  - - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "CREATE USER ''clustercheck''@''localhost'' IDENTIFIED BY ''${DB_CLUSTERCHECK_PASSWORD}'';"'
                     - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "GRANT PROCESS ON *.* TO ''clustercheck''@''localhost'' WITH GRANT OPTION;"'
                     - 'mysql -uroot -p"${DB_ROOT_PASSWORD}" -e "DELETE FROM mysql.user WHERE user = ''root'' AND host NOT IN (''%'',''localhost'');"'
                     - 'timeout ${DB_MAX_TIMEOUT} mysqladmin -uroot -p"${DB_ROOT_PASSWORD}" shutdown'
@@ -273,6 +296,8 @@ outputs:
               DB_MAX_TIMEOUT: 60
               DB_CLUSTERCHECK_PASSWORD: {get_param: MysqlClustercheckPassword}
               DB_ROOT_PASSWORD: {get_param: MysqlRootPassword}
+              DB_MARIABACKUP_USER: {get_param: MysqlMariabackupUser}
+              DB_MARIABACKUP_PASSWORD: {get_param: MysqlMariabackupPassword}
         step_2:
           mysql_wait_bundle:
             start_order: 0
