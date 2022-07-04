@@ -1,0 +1,65 @@
+# DeployedNetworkEnvironment parameter value generated from the networks data
+# file. Can be used instead of provisioning networks to deploy without Neutron.
+
+resource_registry:
+  OS::TripleO::Network: ../network/deployed_networks.yaml
+  OS::TripleO::DeployedServer::ControlPlanePort: ../deployed-server/deployed-neutron-port.yaml
+
+  # Role ports
+  {%- for role in roles %}
+  {%- for network in networks if network.enabled|default(true) and network.name in role.networks %}
+  OS::TripleO::{{ role.name }}::Ports::{{ network.name }}Port: ../network/ports/deployed_{{ network.name_lower }}.yaml
+  {%- endfor %}
+  {%- endfor %}
+
+  # VIP ports
+  OS::TripleO::Network::Ports::ControlPlaneVipPort: ../network/ports/deployed_vip_ctlplane.yaml
+  {%- for network in networks if network.enabled|default(true) and network.vip %}
+  OS::TripleO::Network::Ports::{{ network.name }}VipPort: ../network/ports/deployed_vip_{{ network.name_lower }}.yaml
+  {%- endfor %}
+
+parameter_defaults:
+
+  DeployedNetworkEnvironment:
+    net_attributes_map:
+      {%- for network in networks if network.enabled|default(true) %}
+      {%- set dns_domain = network.dns_domain|default(network.name_lower ~ '.localdomain.') %}
+      {{ network.name_lower }}:
+        network:
+          dns_domain: {{ dns_domain }}
+          mtu: {{ network.mtu }}
+          name: {{ network.name_lower }}
+          tags:
+          - tripleo_network_name={{ network.name }}
+          - tripleo_net_idx={{ loop.index - 1 }}
+          - tripleo_vip={{ network.vip }}
+        subnets:
+        {%- for subnet in network.subnets %}
+          {{ subnet }}:
+            cidr: {{ network.subnets[subnet].ip_subnet }}
+            dns_nameservers: []
+            gateway_ip: {{ network.subnets[subnet].gateway_ip }}
+            host_routes: []
+            ip_version: 4
+            name: {{ subnet }}
+            tags:
+              {%- if network.subnets[subnet].vlan %}
+              - tripleo_vlan_id={{ network.subnets[subnet].vlan }}
+              {%- else %}
+              []
+              {%- endif %}
+        {%- endfor %}
+      {%- endfor %}
+
+    net_cidr_map:
+      {%- for network in networks if network.enabled|default(true) %}
+      {%- for subnet in network.subnets %}
+      {{ network.name_lower }}:
+      - {{ network.subnets[subnet].ip_subnet }}
+      {%- endfor %}
+      {%- endfor %}
+
+    net_ip_version_map:
+      {%- for network in networks if network.enabled|default(true) %}
+      {{ network.name_lower }}: {{ "6" if network.ipv6 else "4" }}
+      {%- endfor %}
