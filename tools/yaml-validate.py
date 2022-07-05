@@ -187,7 +187,6 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'BondInterfaceOvsOptions': ['description',
                                 'default',
                                 'constraints'],
-    'KeyName': ['constraints'],
     'OVNSouthboundServerPort': ['description'],
     'ExternalInterfaceDefaultRoute': ['description', 'default'],
     'ManagementInterfaceDefaultRoute': ['description', 'default'],

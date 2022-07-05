@@ -5,36 +5,6 @@
 heat_template_version: wallaby
 description: 'OpenStack {{role.name}} node configured by Puppet'
 parameters:
-{%- set default_flavor_name = role.FlavorDefault|default('baremetal') %}
-{%- if role.deprecated_param_flavor is defined %}
-  {{role.deprecated_param_flavor}}:
-    description: DEPRECATED Use Overcloud{{role.name}}Flavor instead.
-    default: {{default_flavor_name}}
-    type: string
-{%- endif %}
-  Overcloud{{role.name}}Flavor:
-    description: Flavor for the {{role.name}} node.
-    default: {{default_flavor_name}}
-    type: string
-{%- set default_image_name = role.ImageDefault|default('overcloud-full') %}
-{%- if role.deprecated_param_image is defined %}
-  {{role.deprecated_param_image}}:
-    type: string
-    default: {{default_image_name}}
-    description: DEPRECATED Use {{role.name}}Image instead
-{%- endif %}
-  {{role.name}}Image:
-    type: string
-    default: {{default_image_name}}
-    description: The disk image file to use for the role.
-  ImageUpdatePolicy:
-    default: 'REBUILD_PRESERVE_EPHEMERAL'
-    description: What policy to use when reconstructing instances. REBUILD for rebuilds, REBUILD_PRESERVE_EPHEMERAL to preserve /mnt.
-    type: string
-  KeyName:
-    description: Name of an existing Nova key pair to enable SSH access to the instances
-    type: string
-    default: default
   ServiceNetMap:
     default: {}
     description: Mapping of service_name -> network name. Typically set
@@ -101,10 +71,6 @@ parameters:
       the overcloud. It's accessible via the Nova metadata API. This applies to
       all roles and is merged with a role-specific metadata parameter.
     type: json
-  {{role.name}}SchedulerHints:
-    type: json
-    description: Optional scheduler hints to pass to nova
-    default: {}
   NodeIndex:
     type: number
     default: 0
@@ -178,21 +144,6 @@ parameters:
     constraints:
       - allowed_values: [delete, retain]
 
-  UserData:
-    type: string
-
-{% if role.uses_deprecated_params|default(false) %}
-parameter_groups:
-- label: deprecated
-  description: Do not use deprecated params, they will be removed.
-  parameters:
-{%- for property in role %}
-{%- if property.startswith('deprecated_param_') and not role[property].endswith(('SchedulerHints', 'ExtraConfig')) %}
-  - {{role[property]}}
-{%- endif %}
-{%- endfor %}
-{%- endif %}
-
 conditions:
   server_blacklisted:
     equals:
@@ -203,20 +154,6 @@ conditions:
       equals:
         - {get_param: [DeploymentServerBlacklistDict, {get_param: Hostname}]}
         - 1
-{%- if role.deprecated_param_image is defined %}
-  deprecated_param_image_set:
-    not:
-      equals:
-        - {get_param: {{role.deprecated_param_image}}}
-        - {{default_image_name}}
-{%- endif %}
-{%- if role.deprecated_param_flavor is defined %}
-  deprecated_param_flavor_set:
-    not:
-      equals:
-        - {get_param: {{role.deprecated_param_flavor}}}
-        - {{default_flavor_name}}
-{%- endif %}
   ctlplane_fixed_ip_set:
     or:
       - not:
@@ -243,43 +180,6 @@ resources:
     type: OS::TripleO::{{role.name}}Server
     deletion_policy: {get_param: ServerDeletionPolicy}
     properties:
-      image:
-{%- if role.deprecated_param_image is defined %}
-        if:
-          - deprecated_param_image_set
-          - {get_param: {{role.deprecated_param_image}}}
-          - {get_param: {{role.name}}Image}
-{%- else %}
-        get_param: {{role.name}}Image
-{%- endif %}
-      image_update_policy: {get_param: ImageUpdatePolicy}
-      flavor:
-{%- if role.deprecated_param_flavor is defined %}
-        if:
-          - deprecated_param_flavor_set
-          - {get_param: {{role.deprecated_param_flavor}}}
-          - {get_param: Overcloud{{role.name}}Flavor}
-{%- else %}
-        get_param: Overcloud{{role.name}}Flavor
-{%- endif %}
-      key_name: {get_param: KeyName}
-      networks:
-        - if:
-          - ctlplane_fixed_ip_set
-          - network: ctlplane
-            subnet: {get_param: {{role.name}}ControlPlaneSubnet}
-            fixed_ip:
-              yaql:
-                expression: $.data.where(not isEmpty($)).first()
-                data:
-                  - get_param: [{{role.name}}IPs, 'ctlplane', {get_param: NodeIndex}]
-{%- if role.deprecated_param_ips %}
-                  - get_param: [{{role.deprecated_param_ips}}, 'ctlplane', {get_param: NodeIndex}]
-{%- endif %}
-          - network: ctlplane
-            subnet: {get_param: {{role.name}}ControlPlaneSubnet}
-      user_data_format: SOFTWARE_CONFIG
-      user_data: {get_param: UserData}
       name:
         yaql:
           expression: $.data.hostname_map.get($.data.hostname, $.data.hostname).toLower()
@@ -295,7 +195,6 @@ resources:
 {%- endif %}
           - {get_param: {{role.name}}ServerMetadata}
           - {get_param: ServiceMetadataSettings}
-      scheduler_hints: {get_param: {{role.name}}SchedulerHints}
 
   {%- for network in networks %}
   {%- if network.enabled|default(true) and network.name in role.networks|default([]) %}

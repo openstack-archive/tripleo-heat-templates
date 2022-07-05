@@ -288,17 +288,6 @@ parameters:
       append to the existing blacklist and 'update' would replace
       the blacklist.
 
-  {{role.name}}SchedulerHints:
-    type: json
-    description: Optional scheduler hints to pass to nova
-    default: {}
-{%- if role.deprecated_param_scheduler_hints is defined %}
-  {{role.deprecated_param_scheduler_hints}}:
-    type: json
-    description: DEPRECATED - use {{role.name}}SchedulerHints instead
-    default: {}
-{%- endif %}
-
   {{role.name}}Parameters:
     type: json
     description: Optional Role Specific parameters to be provided to service
@@ -422,24 +411,11 @@ parameters:
     default: 'regionOne'
     description: Keystone region for endpoint
 
-{% for role in roles %}
-{%- if role.deprecated_param_scheduler_hints is defined or role.deprecated_param_extraconfig is defined %}
-{%- if not parameter_groups_defined|default(false) %}
 parameter_groups:
 - label: deprecated
   description: Do not use deprecated params, they will be removed.
   parameters:
     - DnsServers
-{%- set parameter_groups_defined = true %}
-{%- endif %}
-{%- endif %}
-{%- if role.deprecated_param_scheduler_hints is defined %}
-    - {{role.deprecated_param_scheduler_hints}}
-{%- endif %}
-{%- if role.deprecated_param_extraconfig is defined %}
-    - {{role.deprecated_param_extraconfig}}
-{%- endif %}
-{%- endfor %}
 
 conditions:
   add_vips_to_etc_hosts: {equals : [{get_param: AddVipsToEtcHosts}, True]}
@@ -616,22 +592,6 @@ resources:
             - NovaMetadataCellInternal: {get_attr: [EndpointMap, endpoint_map, NovaMetadataInternal]}
             - {}
 
-  # Creates the "heat-admin" user if configured via the environment
-  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
-  NodeAdminUserData:
-    type: OS::TripleO::NodeAdminUserData
-
-  # Bootstraps an ntp configuration and includes a hardware clock sync to
-  # for containers.
-  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
-  NodeTimesyncUserData:
-    type: OS::TripleO::NodeTimesyncUserData
-
-  # For optional operator additional userdata
-  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
-  NodeUserData:
-    type: OS::TripleO::NodeUserData
-
   # Jinja loop for Role in roles_data.yaml
 {% for role in roles %}
   # Resources generated for {{role.name}} Role
@@ -781,25 +741,6 @@ resources:
           data:
             - {get_attr: [{{role.name}}, hostname_map]}
 
-  # Combine the NodeAdminUserData and NodeUserData mime archives
-  {{role.name}}UserData:
-    type: OS::Heat::MultipartMime
-    properties:
-      parts:
-      - config: {get_resource: NodeAdminUserData}
-        type: multipart
-      - config: {get_resource: NodeTimesyncUserData}
-        type: multipart
-      - config: {get_resource: NodeUserData}
-        type: multipart
-      - config: {get_resource: {{role.name}}RoleUserData}
-        type: multipart
-
-  # For optional operator role-specific userdata
-  # Should return a OS::Heat::MultipartMime reference via OS::stack_id
-  {{role.name}}RoleUserData:
-    type: OS::TripleO::{{role.name}}::NodeUserData
-
   {{role.name}}:
     type: OS::Heat::ResourceGroup
     depends_on: Networks
@@ -825,14 +766,6 @@ resources:
               params:
                 '%stackname%': {get_param: 'OS::stack_name'}
           NodeIndex: '%index%'
-          # Note, SchedulerHints must be defined here, not only in the
-          # nested template, as it can contain %index%
-          {{role.name}}SchedulerHints:
-            map_merge:
-  {%- if role.deprecated_param_scheduler_hints is defined %}
-              - {get_param: {{role.deprecated_param_scheduler_hints}}}
-  {%- endif %}
-              - {get_param: {{role.name}}SchedulerHints}
           ServiceNames: {get_attr: [{{role.name}}ServiceNames, value]}
           ServiceMetadataSettings: {get_attr: [{{role.name}}ServiceChainRoleData, value, service_metadata_settings]}
           OVNBridgeMappings: {get_attr: [{{role.name}}ServiceChainRoleData, value, config_settings, 'ovn::controller::ovn_bridge_mappings']}
@@ -841,7 +774,6 @@ resources:
             map_merge:
               - {{role.RoleParametersDefault|default({})}}
               - get_param: {{role.name}}Parameters
-          UserData: {get_resource: {{role.name}}UserData}
 {%- endfor %}
 
 {%- for role in roles %}
