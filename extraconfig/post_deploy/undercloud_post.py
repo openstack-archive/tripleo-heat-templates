@@ -12,7 +12,6 @@
 # under the License.
 
 import json
-import openstack
 import os
 from pathlib import Path
 import shutil
@@ -51,37 +50,8 @@ def _run_command(args, env=None, name=None):
         raise
 
 
-def _configure_nova(sdk):
-    """Disable nova quotas"""
-    sdk.set_compute_quotas('admin', cores='-1', instances='-1', ram='-1')
-
-    # Configure flavors.
-    sizings = {'ram': 4096, 'vcpus': 1, 'disk': 40}
-    extra_specs = {'resources:CUSTOM_BAREMETAL': 1,
-                   'resources:VCPU': 0,
-                   'resources:MEMORY_MB': 0,
-                   'resources:DISK_GB': 0}
-    profiles = ['control', 'compute', 'ceph-storage', 'block-storage',
-                'swift-storage', 'baremetal']
-    flavors = [flavor.name for flavor in sdk.list_flavors()]
-    for profile in profiles:
-        if profile not in flavors:
-            flavor = sdk.create_flavor(profile, **sizings)
-            if profile != 'baremetal':
-                extra_specs.update({'capabilities:profile': profile})
-            else:
-                extra_specs.pop('capabilities:profile', None)
-            sdk.set_flavor_specs(flavor.id, extra_specs)
-        else:
-            flavor = sdk.get_flavor(profile)
-            # In place to migrate flavors from rocky too stein
-            if flavor.extra_specs.get('capabilities:boot_option') == 'local':
-                sdk.unset_flavor_specs(flavor.id, ['capabilities:boot_option'])
-    print('INFO: Undercloud Post - Nova configuration completed successfully.')
-
-
 def create_update_clouds_yaml():
-    """Disable nova quotas"""
+    """create clouds.yaml"""
     clouds_yaml_dir = '/etc/openstack'
     clouds_yaml = os.path.join(clouds_yaml_dir, 'clouds.yaml')
     cloud_name = CONF.get('cloud_name', 'undercloud')
@@ -126,34 +96,7 @@ def create_update_clouds_yaml():
     os.chown(usr_clouds_yaml, stat_info.st_uid, stat_info.st_gid)
 
 
-def _create_default_keypair(sdk):
-    """Set up a default keypair."""
-    ssh_dir = os.path.join(CONF['home_dir'], '.ssh')
-    public_key_file = os.path.join(ssh_dir, 'id_rsa.pub')
-    if (not [True for kp in sdk.compute.keypairs() if kp.name == 'default'] and
-            os.path.isfile(public_key_file)):
-        with open(public_key_file, 'r') as pub_key_file:
-            sdk.compute.create_keypair(name='default',
-                                       public_key=pub_key_file.read())
-
-
 keystone_enabled = 'true' in _run_command(
     ['hiera', 'keystone_enabled']).lower()
 if not keystone_enabled:
     create_update_clouds_yaml()
-
-nova_api_enabled = 'true' in _run_command(
-    ['hiera', 'nova_api_enabled']).lower()
-
-if not nova_api_enabled:
-    print('WARNING: Undercloud Post - Nova API is disabled.')
-
-sdk = openstack.connect(CONF['cloud_name'])
-
-try:
-    if nova_api_enabled:
-        _configure_nova(sdk)
-        _create_default_keypair(sdk)
-except Exception:
-    print('ERROR: Undercloud Post - Failed.')
-    raise
