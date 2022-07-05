@@ -371,8 +371,7 @@ outputs:
           # we include ::nova::compute::libvirt::services in nova/libvirt profile
           - nova::compute::libvirt::manage_libvirt_services: false
             tripleo::profile::base::nova::virtlogd_wrapper::enable_wrapper: {get_param: NovaEnableVirtlogdContainerWrapper}
-            # don't think this is a good place as /var/lib/nova can also be shared storage
-            tripleo::profile::base::nova::virtlogd_wrapper::virtlogd_process_wrapper: '/var/lib/container-config-scripts/virtlogd_wrapper'
+            tripleo::profile::base::nova::virtlogd_wrapper::virtlogd_process_wrapper: '/var/lib/libvirt/scripts/virtlogd_wrapper'
             tripleo::profile::base::nova::virtlogd_wrapper::virtlogd_image: {get_attr: [RoleParametersValue, value, ContainerNovaLibvirtImage]}
             tripleo::profile::base::nova::virtlogd_wrapper::debug:
               if:
@@ -458,8 +457,11 @@ outputs:
         config_volume: nova_libvirt
         puppet_tags: libvirtd_config,virtlogd_config,nova_config,file,libvirt_tls_password
         step_config: |
-           include tripleo::profile::base::nova::libvirt
+          include tripleo::profile::base::nova::libvirt
+          include tripleo::profile::base::nova::virtlogd_wrapper
         config_image: {get_attr: [RoleParametersValue, value, ContainerNovaLibvirtConfigImage]}
+        volumes:
+          - /var/lib/libvirt/scripts:/var/lib/libvirt/scripts:shared,z
       kolla_config:
         /var/lib/kolla/config_files/nova_libvirt.json:
           command: /nova_libvirt_launcher.sh
@@ -528,29 +530,6 @@ outputs:
           mode: "0755"
           content: { get_file: ../../../container_config_scripts/nova_libvirt_init_secret.sh }
       docker_config:
-        step_2:
-          create_virtlogd_wrapper:
-            start_order: 1
-            detach: false
-            cgroupns: host
-            net: host
-            pid: host
-            user: root
-            command: # '/container_puppet_apply.sh "STEP" "TAGS" "CONFIG" "DEBUG"'
-              list_concat:
-                - - '/container_puppet_apply.sh'
-                  - '4'
-                  - 'file'
-                  - 'include ::tripleo::profile::base::nova::virtlogd_wrapper'
-            image: {get_attr: [RoleParametersValue, value, ContainerNovaLibvirtImage]}
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, container_puppet_apply_volumes]}
-                - - /var/lib/container-config-scripts:/var/lib/container-config-scripts:shared,z
-            environment:
-              # NOTE: this should force this container to re-run on each
-              # update (scale-out, etc.)
-              TRIPLEO_DEPLOY_IDENTIFIER: {get_param: DeployIdentifier}
         step_3:
           map_merge:
             - if:
@@ -584,7 +563,7 @@ outputs:
                           - /var/lib/nova:/var/lib/nova:shared
                         - if:
                             - {get_param: NovaEnableVirtlogdContainerWrapper}
-                            - - /var/lib/container-config-scripts/virtlogd_wrapper:/usr/local/bin/virtlogd_wrapper:ro
+                            - - /var/lib/libvirt/scripts/virtlogd_wrapper:/usr/local/bin/virtlogd_wrapper:ro
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 - nova_virtlogd: *virtlog_container_config
@@ -886,6 +865,7 @@ outputs:
                 - { 'path': /etc/libvirt/secrets, 'setype': container_file_t }
                 - { 'path': /etc/libvirt/qemu, 'setype': container_file_t }
                 - { 'path': /var/lib/libvirt, 'setype': container_file_t }
+                - { 'path': /var/lib/libvirt/scripts, 'setype': container_file_t }
                 - { 'path': /var/cache/libvirt }
                 - { 'path': /var/lib/nova, 'setype': container_file_t }
                 - { 'path': /run/libvirt, 'setype': virt_var_run_t }
