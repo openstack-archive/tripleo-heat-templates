@@ -44,6 +44,22 @@ parameters:
     description: Set to true to enable logging of queries on BIND.
     type: boolean
     default: false
+  DesignateBackendListenIPs:
+    default: []
+    description: A list of IPs to add to the externally accessible interface
+                 (e.g. interface on the external network or the VIP interface
+                 in standalone). If provided, the number of IPs must match the
+                 number of deployed Bind instances. If left empty,
+                 the deployment will create additonal IPs using the external
+                 network.
+    type: comma_delimited_list
+
+conditions:
+
+  public_net_is_ctlplane:
+    equals:
+      - {get_param: [ServiceData, net_vip_map, {get_param: [ServiceNetMap, DesignateBindNetwork]}]}
+      - {get_param: [ServiceData, net_vip_map, ctlplane]}
 
 resources:
 
@@ -112,24 +128,32 @@ outputs:
               owner: root:named
               perm: '0640'
       deploy_steps_tasks:
-          - name: generate rndc key configuration files
-            when: step|int == 4
-            import_role:
-                name: designate_rndc_config
-            vars:
-                designate_rndc_key: {get_param: DesignateRndcKey}
-                designate_rndc_key_file_path: /var/lib/config-data/ansible-generated/designate/etc/
-          - name: generate bind configuration
-            when: step|int == 4
-            import_role:
-                name: designate_bind_config
-            vars:
-                designate_bind_enable_query_logging: {get_param: DesignateBindQueryLogging}
-                rndc_allowed_addresses:
-                    get_param:
-                      - ServiceData
-                      - net_cidr_map
-                      - {get_param: [ServiceNetMap, DesignateApiNetwork]}
+        - name: Configure extra IP on the network interfaces
+          when:
+            - step|int == 1
+          include_role:
+            name: designate_bind_config
+            tasks_from: configure_interfaces
+          vars:
+              tripleo_designate_bind_network: {get_param: [ServiceNetMap, DesignateBindNetwork]}
+        - name: generate rndc key configuration files
+          when: step|int == 1
+          import_role:
+              name: designate_rndc_config
+          vars:
+              designate_rndc_key: {get_param: DesignateRndcKey}
+              designate_rndc_key_file_path: /var/lib/config-data/ansible-generated/designate/etc/
+        - name: generate bind configuration
+          when: step|int == 1
+          import_role:
+              name: designate_bind_config
+          vars:
+              designate_bind_enable_query_logging: {get_param: DesignateBindQueryLogging}
+              rndc_allowed_addresses:
+                  get_param:
+                    - ServiceData
+                    - net_cidr_map
+                    - {get_param: [ServiceNetMap, DesignateApiNetwork]}
       docker_config:
         step_4:
           designate_backend_bind9:
@@ -150,6 +174,7 @@ outputs:
                   - /var/lib/designate/named-persistent:/var/named-persistent:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+
       host_prep_tasks:
         - name: create persistent named directories
           file:
@@ -160,3 +185,51 @@ outputs:
           with_items:
             - { 'path': /var/lib/designate/named-persistent,  'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/designate-bind, 'setype': container_file_t, 'mode': '0750' }
+
+      external_deploy_tasks:
+        - name: Get list of provided listen ips
+          when:
+            - step|int == 1
+          set_fact:
+            dns_listen_ips: { get_param: DesignateBackendListenIPs }
+        - name: Distribute configured unbound listen IPs across nodes
+          when:
+            - step|int == 1
+            - dns_listen_ips|length > 0
+          block:
+            - name: Set the host ip fact
+              set_fact:
+                tripleo_dns_listen_interfaces: "[ '{{ item.0 }}' ]"
+              delegate_to: "{{ item.1 }}"
+              delegate_facts: true
+              with_together:
+                - "{{ dns_listen_ips }}"
+                - "{{ groups.designate_bind }}"
+
+        - name: Configure ports to allow bind to collocate with other services listening on DNS ports
+          when:
+            - step|int == 1
+            - dns_listen_ips|length == 0
+          block:
+            - name: Get the subnet id for the proper network
+              openstack.cloud.subnets_info:
+                name:
+                  if:
+                    - public_net_is_ctlplane
+                    - ctlplane-subnet
+                    -
+                      str_replace:
+                        template:
+                          "$NETWORK_subnet"
+                        params:
+                          $NETWORK: {get_param: [ServiceNetMap, DesignateBindNetwork]}
+              register: subnet_info
+
+            - name: Create the extra IPs
+              include_role:
+                name: designate_bind_config
+                tasks_from: create_collocated_ips
+              vars:
+                hosts_for_ports: "{{ groups.designate_bind }}"
+                network_name: {get_param: [ServiceNetMap, DesignateBindNetwork]}
+                subnet_id: "{{ subnet_info.openstack_subnets[0].id }}"
