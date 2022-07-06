@@ -253,7 +253,6 @@ DEPLOYMENT_RESOURCE_TYPES = [
     'OS::Heat::StructuredDeploymentGroup',
     'OS::Heat::SoftwareDeployment',
     'OS::Heat::StructuredDeployment',
-    'OS::TripleO::SoftwareDeployment'
 ]
 CONFIG_RESOURCE_TYPES = [
     'OS::Heat::SoftwareConfig',
