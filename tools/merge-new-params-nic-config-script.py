@@ -199,15 +199,12 @@ def process_templates_and_get_reference_parameters():
     if not child.returncode == 0:
         raise RuntimeError('Error processing templates: %s' % err)
 
-    # If deprecated_nic_config_names is set for role the deprecated name must
-    # be used when loading the reference file.
     with open(OPTS.roles_data) as roles_data_file:
         roles_data = yaml.safe_load(roles_data_file)
     try:
-        nic_config_name = next((x.get('deprecated_nic_config_name',
-                                      OPTS.role_name.lower() + '.yaml')
-                                for x in roles_data
-                                if x['name'] == OPTS.role_name))
+        nic_config_name = next((OPTS.role_name.lower() + '.yaml')
+                               for x in roles_data
+                               if x['name'] == OPTS.role_name)
     except StopIteration:
         raise RuntimeError(
             'The role: {role_name} is not defined in roles '
