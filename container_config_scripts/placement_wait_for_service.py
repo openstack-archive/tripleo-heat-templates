@@ -120,7 +120,6 @@ if __name__ == '__main__':
             if r.status_code == 200 and response_reg.match(r.text):
                 LOG.info('Placement service up! - %s', r.text)
                 sys.exit(0)
-                break
             else:
                 LOG.info('response - %r', r)
                 LOG.info('Placement service not up - %s, %s',
