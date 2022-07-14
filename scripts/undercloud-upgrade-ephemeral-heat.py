@@ -328,8 +328,8 @@ def export_provisioned_nodes(heat, stack, stack_dir, cloud):
                  % (stack, bm_deployment_path))
         subprocess.check_call(['openstack', 'overcloud', 'node', 'extract',
                                'provisioned', '--stack', stack, '--roles-file',
-                               roles_data_file, '--output',
-                               bm_deployment_path, '--yes'], env={'OS_CLOUD': cloud})
+                               roles_data_file, '--output', bm_deployment_path,
+                               '--working-dir', stack_dir, '--yes'], env={'OS_CLOUD': cloud})
         os.chmod(bm_deployment_path, 0o600)
     finally:
         os.remove(temp_file_path)
