@@ -93,6 +93,12 @@ REQUIRED_DOCKER_SECTIONS_OVERRIDES = {
     './deployment/glance/glance-api-edge-container-puppet.yaml': [
         'service_name',
     ],
+    # Does not manage container using docker_config
+    './deployment/iscsid/iscsid-container-puppet.yaml': [
+        'service_name',
+        'puppet_config',
+        'config_settings'
+    ],
 }
 # ansible tasks cannot be an empty dict or ansible is unhappy
 ANSIBLE_TASKS_SECTIONS = ['upgrade_tasks', 'pre_upgrade_rolling_tasks',

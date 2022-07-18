@@ -109,7 +109,16 @@ outputs:
           name: tripleo_lvmfilter
         when:
         - step|int == 1
-      ansible_group_vars: {get_attr: [RoleParametersValue, value]}
+      - name: Iscsid role
+        include_role:
+          name: tripleo_iscsid
+          tasks_from: iscsid.yaml
+        when:
+          - step|int == 3
+      ansible_group_vars:
+        map_merge:
+          - {get_attr: [RoleParametersValue, value]}
+          - tripleo_iscsid_image: {get_attr: [RoleParametersValue, value, ContainerIscsidImage]}
       # BEGIN DOCKER SETTINGS
       puppet_config:
         config_volume: iscsid
@@ -128,69 +137,9 @@ outputs:
           # sync with the host. See I89023603147e21d5c211041f70fc2c988d5f4de1
           # for details.
           - /etc/iscsi:/tmp/iscsi.host:z
-      kolla_config:
-        /var/lib/kolla/config_files/iscsid.json:
-          command: /usr/sbin/iscsid -f
-          config_files:
-            - source: "/var/lib/kolla/config_files/src-iscsid/"
-              dest: "/etc/iscsi/"
-              merge: true
-              preserve_properties: true
-      docker_config:
-        step_3:
-          iscsid:
-            start_order: 2
-            image: {get_attr: [RoleParametersValue, value, ContainerIscsidImage]}
-            net: host
-            privileged: true
-            restart: always
-            healthcheck:
-              test: /openstack/healthcheck
-            volumes:
-              list_concat:
-                - {get_attr: [ContainersCommon, volumes]}
-                - - /var/lib/kolla/config_files/iscsid.json:/var/lib/kolla/config_files/config.json:ro
-                  - /dev:/dev
-                  - /run:/run
-                  - /sys:/sys
-                  - /lib/modules:/lib/modules:ro
-                  - /var/lib/config-data/puppet-generated/iscsid/etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
-                  - /etc/target:/etc/target:z
-                  - /var/lib/iscsi:/var/lib/iscsi:z
-            environment:
-              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
-        - name: create fcontext entry for iscsi
-          community.general.sefcontext:
-            target: "{{ item.path }}(/.*)?"
-            setype: "{{ item.setype }}"
-            state: present
-          with_items:
-            - { 'path': /etc/iscsi, 'setype': container_file_t }
-            - { 'path': /etc/target, 'setype': container_file_t }
-            - { 'path': /var/lib/iscsi, 'setype': container_file_t }
-        - name: create persistent directories
-          file:
-            path: "{{ item.path }}"
-            state: directory
-            setype: "{{ item.setype }}"
-          with_items:
-            - { 'path': /etc/iscsi, 'setype': container_file_t }
-            - { 'path': /etc/target, 'setype': container_file_t }
-            - { 'path': /var/lib/iscsi, 'setype': container_file_t }
-        - name: stat /lib/systemd/system/iscsid.socket
-          stat: path=/lib/systemd/system/iscsid.socket
-          register: stat_iscsid_socket
-        - name: Stop and disable iscsid.socket service
-          service: name=iscsid.socket state=stopped enabled=no
-          when: stat_iscsid_socket.stat.exists
-        - name: Check if iscsi.service is enabled
-          command: systemctl is-enabled --quiet iscsi.service
-          failed_when: false
-          register: iscsi_service_enabled_result
-        - name: Stop iscsi.service
-          service: name=iscsi.service state=stopped enabled=no
-          when:
-            - iscsi_service_enabled_result is changed
-            - iscsi_service_enabled_result.rc == 0
+        - name: Iscsid install tasks
+          include_role:
+            name: tripleo_iscsid
+            tasks_from: iscsid_install.yaml
       upgrade_tasks: []
