@@ -152,7 +152,7 @@ def _neutron_add_subnet_segment_association(sdk, subnet_id, segment_id):
         subnet = sdk.network.update_subnet(subnet_id, segment_id=segment_id)
         print('INFO: Segment association added to Subnet  %s' % subnet)
     except Exception:
-        print('ERROR: Associationg segment with subnet %s failed.' % subnet_id)
+        print('ERROR: Associating segment with subnet %s failed.' % subnet_id)
         raise
 
 

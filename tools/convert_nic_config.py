@@ -26,7 +26,7 @@ def parse_opts(argv):
             description='Convert to new NIC config templates with '
                         'OS::Heat::Value resources.')
     parser.add_argument('-t', '--template', metavar='TEMPLATE_FILE',
-                        help=("Existing NIC config template to conver."),
+                        help=("Existing NIC config template to convert."),
                         required=True)
     parser.add_argument('--discard-comments', metavar='DISCARD_COMMENTS',
                         help="Discard comments from the template. (The "
@@ -168,7 +168,7 @@ def backup_template(template):
     extension = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     backup_filename = os.path.realpath(template) + '.' + extension
     if os.path.exists(backup_filename):
-        raise RuntimeError('Backupe file: %s already exists. Aborting!'
+        raise RuntimeError('Backup file: %s already exists. Aborting!'
                            % backup_filename)
     shutil.copyfile(template, backup_filename)
     print('The original template was saved as: %s' % backup_filename)

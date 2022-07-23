@@ -681,7 +681,7 @@ def validate_docker_service(filename, tpl):
                 # add an exception if both step_config is used in docker service
                 if (section_name == 'docker_config' and
                         role_data.get('step_config', '')):
-                    print('ERROR: %s appears to be a barematal-puppet service'
+                    print('ERROR: %s appears to be a baremetal-puppet service'
                         % (filename))
                     return 1
                 print('ERROR: %s is required in role_data for %s.'
