@@ -110,7 +110,7 @@ are available for containerized services.
  * container_puppet_tasks: This section provides data to drive the
    puppet containers tooling directly. The task is executed for the
    defined steps before the corresponding docker_config's step. Puppet
-   always sees the step number overrided as the step #6. It might be useful
+   always sees the step number overridden as the step #6. It might be useful
    for initialization of things.
    Note that the tasks are executed only once for the bootstrap node per a
    role in the cluster. Make sure the puppet manifest ensures the wanted
@@ -183,7 +183,7 @@ Each service may define its own input parameters and defaults.
 Operators will use the parameter_defaults section of any Heat
 environment to set per service parameters.
 
-Apart from sevice specific inputs, there are few default parameters for all
+Apart from service specific inputs, there are few default parameters for all
 the services. Following are the list of default parameters:
 
  * ServiceData: Mapping of service specific data. It is used to encapsulate
@@ -266,7 +266,7 @@ the services.
 
 When running an OS upgrade via the tags `system_upgrade_prepare` and
 `system_upgrade_run`, or the combined tag `system_upgrade`, the steps
-corellate to the following:
+correlate to the following:
 
    1) Any pre-service-stop actions. (`system_upgrade_prepare`)
 

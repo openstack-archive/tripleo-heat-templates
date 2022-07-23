@@ -94,7 +94,7 @@ Usage
 
   usage: openstack overcloud role list [-h] [--roles-path <roles directory>]
 
-  List availables roles
+  List available roles
 
   optional arguments:
     -h, --help            show this help message and exit

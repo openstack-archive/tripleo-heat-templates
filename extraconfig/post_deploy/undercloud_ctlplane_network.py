@@ -252,8 +252,8 @@ def _set_network_tags(sdk, network, tags):
 
 
 def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
-    """Create's and updates the ctlplane subnet on the segment that is local to
-    the underclud.
+    """Creates and updates the ctlplane subnet on the segment that is local to
+    the undercloud.
     """
     s = CONF['subnets'][CONF['local_subnet']]
     # If the subnet is IPv6 we need to start a router so that router
@@ -308,7 +308,7 @@ def _local_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
 
 
 def _remote_neutron_segments_and_subnets(sdk, ctlplane_id, net_cidrs):
-    """Create's and updates the ctlplane subnet(s) on segments that is
+    """Creates and updates the ctlplane subnet(s) on segments that is
     not local to the undercloud.
     """
 

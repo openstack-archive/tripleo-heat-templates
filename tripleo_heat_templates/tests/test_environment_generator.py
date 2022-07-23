@@ -608,8 +608,8 @@ parameter_defaults:
           'input_file': '''environments:
   -
     name: basic_role_static_param
-    title: Basic Role Static Prams Environment
-    description: Basic Role Static Prams description
+    title: Basic Role Static Params Environment
+    description: Basic Role Static Params description
     files:
       foo.yaml:
         parameters:
@@ -620,9 +620,9 @@ parameter_defaults:
       - FooParam
       - RoleParam
 ''',
-          'expected_output': '''# title: Basic Role Static Prams Environment
+          'expected_output': '''# title: Basic Role Static Params Environment
 # description: |
-#   Basic Role Static Prams description
+#   Basic Role Static Params description
 parameter_defaults:
   # ******************************************************
   # Static parameters - these are values that must be
@@ -655,9 +655,9 @@ parameter_defaults:
           'nested_output': '',
           'input_file': '''environments:
   -
-    name: multline_role_static_param
-    title: Multiline Role Static Prams Environment
-    description: Multiline Role Static Prams description
+    name: multiline_role_static_param
+    title: Multiline Role Static Params Environment
+    description: Multiline Role Static Params description
     files:
       foo.yaml:
         parameters:
@@ -668,9 +668,9 @@ parameter_defaults:
       - FooParam
       - RoleParam
 ''',
-          'expected_output': '''# title: Multiline Role Static Prams Environment
+          'expected_output': '''# title: Multiline Role Static Params Environment
 # description: |
-#   Multiline Role Static Prams description
+#   Multiline Role Static Params description
 parameter_defaults:
   # ******************************************************
   # Static parameters - these are values that must be

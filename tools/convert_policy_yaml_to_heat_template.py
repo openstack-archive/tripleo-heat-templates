@@ -19,7 +19,7 @@ import ruamel.yaml
 from ruamel.yaml import YAML
 
 # Not all policy variables across services in THT are consistent. This mapping
-# assoicates the service name to the right THT variable.
+# associates the service name to the right THT variable.
 _SERVICE_MAP = {
     'barbican': 'BarbicanPolicies',
     'cinder': 'CinderApiPolicies',
