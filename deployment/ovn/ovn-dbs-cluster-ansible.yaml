@@ -42,6 +42,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  OVNOvsdbProbeInterval:
+    description: Probe interval in ms for the OVSDB session
+    type: number
+    default: 60000
   OVNNorthboundServerPort:
     description: Port of the OVN Northbound DB server
     type: number
@@ -107,13 +111,23 @@ outputs:
     value:
       service_name: ovn_dbs
       firewall_rules:
-        '121 OVN DB server and cluster ports':
-          proto: 'tcp'
-          dport:
-            - {get_param: OVNNorthboundServerPort}
-            - {get_param: OVNSouthboundServerPort}
-            - {get_param: OVNNorthboundClusterPort}
-            - {get_param: OVNSouthboundClusterPort}
+        map_merge:
+          repeat:
+            for_each:
+              <%net_cidr%>:
+                get_param:
+                  - ServiceData
+                  - net_cidr_map
+                  - {get_param: [ServiceNetMap, OvnDbsNetwork]}
+            template:
+              '121 OVN DB server and cluster ports':
+                proto: 'tcp'
+                source: <%net_cidr%>
+                dport:
+                  - {get_param: OVNNorthboundServerPort}
+                  - {get_param: OVNSouthboundServerPort}
+                  - {get_param: OVNNorthboundClusterPort}
+                  - {get_param: OVNSouthboundClusterPort}
       kolla_config:
         /var/lib/kolla/config_files/ovn_cluster_north_db_server.json:
           command: bash -c $* -- eval source /etc/sysconfig/ovn_cluster; exec /usr/local/bin/start-nb-db-server ${OVN_NB_DB_OPTS}
@@ -308,18 +322,19 @@ outputs:
                 - ovn_cluster_northd
               loop_control:
                 loop_var: ovn_container
-            - name: Set connection # FIXME workaround until RHBZ #1952038 is fixed
+            - name: Set connection
               become: true
               shell: |
-                podman exec ovn_cluster_north_db_server bash -c "ovn-nbctl -p /etc/pki/tls/private/ovn_dbs.key -c /etc/pki/tls/certs/ovn_dbs.crt -C /etc/ipa/ca.crt set-connection pssl:{{ tripleo_ovn_cluster_nb_db_port }}"
-                podman exec ovn_cluster_south_db_server bash -c "ovn-sbctl -p /etc/pki/tls/private/ovn_dbs.key -c /etc/pki/tls/certs/ovn_dbs.crt -C /etc/ipa/ca.crt set-connection pssl:{{ tripleo_ovn_cluster_sb_db_port }}"
+                podman exec ovn_cluster_north_db_server bash -c "ovn-nbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_nb_db_port }}"
+                podman exec ovn_cluster_south_db_server bash -c "ovn-sbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_sb_db_port }}"
               when:
-                - enable_internal_tls | bool
                 - is_ovn_dbs_bootstrap_node | bool
               vars:
                 tripleo_ovn_cluster_network: {get_param: [ServiceNetMap, OvnDbsNetwork]}
                 tripleo_ovn_cluster_nb_db_port: {get_param: OVNNorthboundServerPort}
                 tripleo_ovn_cluster_sb_db_port: {get_param: OVNSouthboundServerPort}
+                tripleo_ovn_cluster_dbs_protocol: "{{ enable_internal_tls | ternary('ssl', 'tcp', 'tcp') }}"
+                tripleo_ovn_cluster_probe_interval: {get_param: OVNOvsdbProbeInterval}
         - name: Start OVN DBs and northd containers (non-bootstrap nodes)
           when:
             - step|int == 4
