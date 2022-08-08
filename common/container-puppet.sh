@@ -176,7 +176,7 @@ if [ -z "$NO_ARCHIVE" ]; then
     # needed because puppet puts timestamps as comments in cron and
     # parsedfile resources, hence triggering a change at every redeploy
     tar -c --mtime='1970-01-01' $EXCLUDE -f - ${conf_data_path} $additional_checksum_files | tar xO | \
-            sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > ${conf_data_path}.md5sum
+            sed '/^#.*HEADER.*/d; s/\#.HEADER.*//g' | md5sum | awk '{print $1}' > ${conf_data_path}.md5sum
     tar -c --mtime='1970-01-01' $EXCLUDE -f - ${puppet_generated_path} $additional_checksum_files --mtime='1970-01-01' | tar xO \
-            | sed '/^#.*HEADER.*/d' | md5sum | awk '{print $1}' > ${puppet_generated_path}.md5sum
+            | sed '/^#.*HEADER.*/d; s/\#.HEADER.*//g' | md5sum | awk '{print $1}' > ${puppet_generated_path}.md5sum
 fi
