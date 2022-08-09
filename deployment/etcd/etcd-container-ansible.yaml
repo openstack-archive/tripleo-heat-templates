@@ -1,0 +1,334 @@
+heat_template_version: wallaby
+
+description: >
+  Containerized etcd services
+
+parameters:
+  ContainerEtcdImage:
+    description: image
+    type: string
+    tags:
+      - role_specific
+  ContainerEtcdConfigImage:
+    description: The container image to use for the etcd config_volume
+    type: string
+    tags:
+      - role_specific
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry. Use
+                 parameter_merge_strategies to merge it with the defaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EtcdInitialClusterToken:
+    description: Initial cluster token for the etcd cluster during bootstrap.
+    type: string
+    hidden: true
+  EtcdInitialClusterState:
+    description: Initial cluster state ("new" or "existing"). The default value "new"
+                 needs to be overridden only when an overcloud node is replaced, at
+                 which time the value should be set to "existing".
+    type: string
+    default: 'new'
+    constraints:
+      - allowed_values: ['new', 'existing']
+  MonitoringSubscriptionEtcd:
+    default: 'overcloud-etcd'
+    type: string
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  InternalTLSCAFile:
+    default: '/etc/ipa/ca.crt'
+    type: string
+    description: Specifies the default CA cert to use if TLS is used for
+                 services in the internal network.
+  Debug:
+    default: false
+    description: Set to True to enable debugging on all services.
+    type: boolean
+  CertificateKeySize:
+    type: string
+    default: '2048'
+    description: Specifies the private key size used when creating the
+                 certificate.
+  EtcdCertificateKeySize:
+    type: string
+    default: ''
+    description: Override the private key size used when creating the
+                 certificate for this service
+
+conditions:
+  internal_tls_enabled: {get_param: EnableInternalTLS}
+  key_size_override_set:
+    not: {equals: [{get_param: EtcdCertificateKeySize}, '']}
+
+resources:
+  ContainersCommon:
+    type: ../containers-common.yaml
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerEtcdImage: ContainerEtcdImage
+              ContainerEtcdConfigImage: ContainerEtcdConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerEtcdImage: {get_param: ContainerEtcdImage}
+              ContainerEtcdConfigImage: {get_param: ContainerEtcdConfigImage}
+
+outputs:
+  role_data:
+    description: Role data for the etcd role.
+    value:
+      service_name: etcd
+      firewall_rules:
+        '141 etcd':
+          dport:
+            - 2379
+            - 2380
+      firewall_frontend_rules:
+        '100 ectd_haproxy_frontend':
+          dport:
+            - 2379
+      monitoring_subscription: {get_param: MonitoringSubscriptionEtcd}
+      ansible_group_vars:
+        map_merge:
+          - tripleo_etcd_client_port: '2379'
+            tripleo_etcd_peer_port: '2380'
+            tripleo_etcd_debug: {get_param: Debug}
+            tripleo_etcd_initial_cluster_token: {get_param: EtcdInitialClusterToken}
+            tripleo_etcd_initial_cluster_state: {get_param: EtcdInitialClusterState}
+            tripleo_etcd_proxy: 'off'
+          - if:
+            - internal_tls_enabled
+            - tripleo_etcd_certificate_specs_service_certificate: '/etc/pki/tls/certs/etcd.crt'
+              tripleo_etcd_certificate_specs_service_key: '/etc/pki/tls/private/etcd.key'
+              tripleo_etcd_trusted_ca_file: {get_param: InternalTLSCAFile}
+              tripleo_etcd_peer_trusted_ca_file: {get_param: InternalTLSCAFile}
+              tripleo_etcd_enable_internal_tls: true
+      # This data generated below is needed during backend_url creation in puppet-tripleo
+      config_settings:
+        map_merge:
+        - if:
+          - internal_tls_enabled
+          - tripleo::profile::base::etcd::certificate_specs:
+              service_certificate: '/etc/pki/tls/certs/etcd.crt'
+              service_key: '/etc/pki/tls/private/etcd.key'
+
+      # BEGIN DOCKER SETTINGS
+      kolla_config:
+        /var/lib/kolla/config_files/etcd.json:
+          command: /usr/bin/etcd --config-file /etc/etcd/etcd.yml
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+            - source: "/var/lib/kolla/config_files/src-tls/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+              optional: true
+          permissions:
+            - path: /var/lib/etcd
+              owner: etcd:etcd
+              recurse: true
+            - path: /etc/etcd/
+              owner: etcd:etcd
+              recurse: true
+            - path: /etc/pki/tls/certs/etcd.crt
+              owner: etcd:etcd
+            - path: /etc/pki/tls/private/etcd.key
+              owner: etcd:etcd
+      container_config_scripts:
+        etcd_update_members.sh:
+          mode: "0700"
+          content:
+            str_replace:
+              template: |
+                #!/bin/bash
+                echo "####################################"
+                echo "### $(date -u) ###"
+                source /etc/etcd/etcd.conf
+                export ETCDCTL_API=3
+                ETCDCTL="etcdctl TLS_OPTS --endpoints=${ETCD_LISTEN_CLIENT_URLS}"
+
+                # Ask etcd for the current list of members
+                eval $ETCDCTL member list | tr -d "," > /tmp/etcd-members
+
+                # etcdctl doesn't generate reliable error status, so use presence of the
+                # node's own name to determine whether this node is capable of managing
+                # etcd membership.
+                if ! grep -q $ETCD_NAME /tmp/etcd-members; then
+                  echo "This is a new node that is unable to manage etcd membership"
+                  exit 0
+                fi
+
+                # Remove old members. These are nodes in the current list of members
+                # that are *not* in the ETCD_INITIAL_CLUSTER.
+                while read id status name peers clients; do \
+                  if [[ "${ETCD_INITIAL_CLUSTER}" != *"${name}=${peers}"* ]]; then
+                    echo "Removing old member ${name} (ID ${id}) from the cluster"
+                    eval $ETCDCTL member remove ${id}
+                  fi
+                done < /tmp/etcd-members
+
+                # Add new members. These are nodes in the ETCD_INITIAL_CLUSTER that are
+                # not in the list of current members. ETCD_INITIAL_CLUSTER is a comma
+                # delimited list of "name=peers" tuples, so iterate over the list.
+                IFS=, ETCD_MEMBERS=(${ETCD_INITIAL_CLUSTER})
+                for member in ${ETCD_MEMBERS[@]}; do \
+                  # Split the tuple
+                  IFS='=' read name peers <<< $member
+                  if ! grep -q "${name} ${peers}" /tmp/etcd-members; then
+                    echo "Adding new member ${name} to the cluster"
+                    eval $ETCDCTL member add ${name} --peer-urls=${peers}
+                  fi
+                done
+              params:
+                TLS_OPTS:
+                  if:
+                    - internal_tls_enabled
+                    - str_replace:
+                        template: "--cacert=TLS_CA --cert=/etc/pki/tls/certs/etcd.crt --key=/etc/pki/tls/private/etcd.key"
+                        params:
+                          TLS_CA: {get_param: InternalTLSCAFile}
+                    - ""
+      docker_config:
+        step_2:
+          etcd:
+            image: {get_attr: [RoleParametersValue, value, ContainerEtcdImage]}
+            net: host
+            privileged: false
+            restart: always
+            healthcheck:
+              test: /openstack/healthcheck
+            volumes:
+              list_concat:
+                - {get_attr: [ContainersCommon, volumes]}
+                - - /var/lib/etcd:/var/lib/etcd
+                  - /var/lib/kolla/config_files/etcd.json:/var/lib/kolla/config_files/config.json:ro
+                  - /var/lib/config-data/ansible-generated/etcd:/var/lib/kolla/config_files/src
+                  - /var/lib/container-config-scripts/etcd_update_members.sh:/etcd_update_members.sh:ro
+                - if:
+                    - internal_tls_enabled
+                    - - /etc/pki/tls/certs/etcd.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/etcd.crt:ro
+                      - /etc/pki/tls/private/etcd.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/etcd.key:ro
+            environment:
+              KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+      deploy_steps_tasks:
+        - name: Generate etcd configuration
+          when: step|int == 1
+          import_role:
+            name: tripleo_etcd
+        - list_concat:
+          - - name: Manage etcd cluster membership
+              vars:
+                initial_cluster_state: {get_param: EtcdInitialClusterState}
+              shell: |
+                "{{ container_cli }}" exec -ti -u root etcd /etcd_update_members.sh 2>&1 | \
+                  tee -a /var/log/containers/stdouts/etcd_update_members.log
+              become: true
+              failed_when: false
+              when:
+                - step|int == 3
+                - initial_cluster_state == "existing"
+          - if:
+            - internal_tls_enabled
+            - - name: Certificate generation
+                when: step|int == 1
+                block:
+                  - include_role:
+                      name: linux-system-roles.certificate
+                    vars:
+                      certificate_requests:
+                        - name: etcd
+                          dns:
+                            - str_replace:
+                                template: "{{fqdn_$NETWORK}}"
+                                params:
+                                  $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                            - str_replace:
+                                template: "{{cloud_names.cloud_name_NETWORK}}"
+                                params:
+                                  NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                          # etcd3 expects to use IP addresses, so add a SAN IP to its cert
+                          ip:
+                            str_replace:
+                              template: "{{NETWORK_ip}}"
+                              params:
+                                NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                          principal:
+                            str_replace:
+                              template: "etcd/{{fqdn_$NETWORK}}@{{idm_realm}}"
+                              params:
+                                $NETWORK: {get_param: [ServiceNetMap, EtcdNetwork]}
+                          run_after: |
+                            # cinder uses etcd, so its containers also need to be refreshed
+                            container_names=$({{container_cli}} ps --format=\{\{.Names\}\} | grep -E 'cinder|etcd')
+                            service_crt="/etc/pki/tls/certs/etcd.crt"
+                            service_key="/etc/pki/tls/private/etcd.key"
+                            kolla_dir="/var/lib/kolla/config_files/src-tls"
+                            # For each container, check whether the cert file needs to be updated.
+                            # The check is necessary because the original THT design directly bind mounted
+                            # the files to their final location, and did not copy them in via $kolla_dir.
+                            # Regardless of whether the container is directly using the files, or a copy,
+                            # there's no need to trigger a reload because the cert is not cached.
+                            for container_name in ${container_names[*]}; do
+                                {{container_cli}} exec -u root "$container_name" bash -c "
+                            [[ -f ${kolla_dir}/${service_crt} ]] && cp ${kolla_dir}/${service_crt} $service_crt;
+                            [[ -f ${kolla_dir}/${service_key} ]] && cp ${kolla_dir}/${service_key} $service_key;
+                            true
+                            "
+                            done
+                          key_size:
+                            if:
+                              - key_size_override_set
+                              - {get_param: EtcdCertificateKeySize}
+                              - {get_param: CertificateKeySize}
+                          ca: ipa
+      host_prep_tasks:
+        - name: Prep host for etcd
+          import_role:
+            name: tripleo_etcd
+            tasks_from: host_prep
+      external_deploy_tasks:
+        if:
+          - internal_tls_enabled
+          - - name: check if ipa server has required permissions
+              when: step|int == 1
+              import_role:
+                name: tls_everywhere
+                tasks_from: ipa-server-check
+      upgrade_tasks: []
+      metadata_settings:
+        if:
+          - internal_tls_enabled
+          - - service: etcd
+              network: {get_param: [ServiceNetMap, EtcdNetwork]}
+              type: vip
+            - service: etcd
+              network: {get_param: [ServiceNetMap, EtcdNetwork]}
+              type: node
