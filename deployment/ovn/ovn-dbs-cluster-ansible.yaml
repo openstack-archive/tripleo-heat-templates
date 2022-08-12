@@ -83,6 +83,10 @@ parameters:
 
 conditions:
   key_size_override_unset: {equals: [{get_param: OvnDBSCertificateKeySize}, '']}
+  is_ipv6:
+    equals:
+      - {get_param: [ServiceData, net_ip_version_map, {get_param: [ServiceNetMap, OvnDbsNetwork]}]}
+      - 6
 
 resources:
 
@@ -325,8 +329,8 @@ outputs:
             - name: Set connection
               become: true
               shell: |
-                podman exec ovn_cluster_north_db_server bash -c "ovn-nbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_nb_db_port }}"
-                podman exec ovn_cluster_south_db_server bash -c "ovn-sbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_sb_db_port }}"
+                podman exec ovn_cluster_north_db_server bash -c "ovn-nbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_nb_db_port }}:{{ tripleo_ovn_cluster_dbs_addr }}"
+                podman exec ovn_cluster_south_db_server bash -c "ovn-sbctl --no-leader-only --inactivity-probe={{ tripleo_ovn_cluster_probe_interval }} set-connection p{{ tripleo_ovn_cluster_dbs_protocol }}:{{ tripleo_ovn_cluster_sb_db_port }}:{{ tripleo_ovn_cluster_dbs_addr }}"
               when:
                 - is_ovn_dbs_bootstrap_node | bool
               vars:
@@ -334,6 +338,11 @@ outputs:
                 tripleo_ovn_cluster_nb_db_port: {get_param: OVNNorthboundServerPort}
                 tripleo_ovn_cluster_sb_db_port: {get_param: OVNSouthboundServerPort}
                 tripleo_ovn_cluster_dbs_protocol: "{{ enable_internal_tls | ternary('ssl', 'tcp', 'tcp') }}"
+                tripleo_ovn_cluster_dbs_addr:
+                  if:
+                    - is_ipv6
+                    - "[::]"
+                    - "0.0.0.0"
                 tripleo_ovn_cluster_probe_interval: {get_param: OVNOvsdbProbeInterval}
         - name: Start OVN DBs and northd containers (non-bootstrap nodes)
           when:
