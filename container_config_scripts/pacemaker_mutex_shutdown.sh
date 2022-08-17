@@ -98,7 +98,7 @@ LOCK_OWNER=$(crm_node -n 2>/dev/null)
 rc=$?
 if [ $rc -ne 0 ]; then
     if [ $rc -eq 102 ]; then
-        log "Cluster is not running locally, no need to aquire the shutdown lock"
+        log "Cluster is not running locally, no need to acquire the shutdown lock"
         exit 0
     else
         error "Unexpected error while connecting to the cluster (rc: $rc), bailing out"

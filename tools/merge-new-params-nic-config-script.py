@@ -240,7 +240,7 @@ def backup_template():
     extension = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     backup_filename = os.path.realpath(OPTS.template) + '.' + extension
     if os.path.exists(backup_filename):
-        raise RuntimeError('Backupe file: %s already exists. Aborting!'
+        raise RuntimeError('Backup file: %s already exists. Aborting!'
                            % backup_filename)
     shutil.copyfile(OPTS.template, backup_filename)
     print('The original template was saved as: %s' % backup_filename)

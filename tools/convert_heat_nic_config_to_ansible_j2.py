@@ -271,7 +271,7 @@ class ConvertToAnsibleJ2(object):
         attr = old['get_attr']
         if not isinstance(attr, list):
             raise RuntimeError(
-                'Attributes for get_attr convertsion must of type list.')
+                'Attributes for get_attr conversion must of type list.')
 
         if 'MinViableMtu' in attr:
             return self.to_j2_var('min_viable_mtu')
@@ -378,7 +378,7 @@ class ConvertToAnsibleJ2(object):
                                    'MinViableMtu',
                                    'MinViableMtuBondApi',
                                    'MinViableMtuBondData'}):
-            msg = ('Only OsNetConfigImpl and MinViableMtu resoureces '
+            msg = ('Only OsNetConfigImpl and MinViableMtu resources '
                    'supported. Found resources: {}'.format(resources))
             raise RuntimeError(msg)
 
