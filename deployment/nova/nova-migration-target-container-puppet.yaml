@@ -185,20 +185,10 @@ outputs:
               owner: "root"
               perm: "0600"
       host_prep_tasks:
-        # Let's use loop here even for one item, maybe we'll need some more
-        # directories later.
-        - name: Create libvirt persistent data directories
-          file:
-            path: "{{ item.path }}"
-            state: directory
-            setype: "{{ item.setype }}"
-          loop:
-            - { 'path': /run/libvirt, 'setype': virt_var_run_t }
-        - name: ensure /run/libvirt is present upon reboot
-          copy:
-            dest: /etc/tmpfiles.d/run-libvirt.conf
-            content: |
-              d /run/libvirt 0755 root root - -
+        - name: nova migration target install task
+          include_role:
+            name: tripleo_nova_migration_target
+            tasks_from: install.yaml
       docker_config:
         step_4:
           nova_migration_target:
@@ -220,15 +210,10 @@ outputs:
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       deploy_steps_tasks:
-        - name: validate nova-migration-target container state
-          containers.podman.podman_container_info:
-            name: nova_migration_target
-          register: nova_migration_target_infos
-          failed_when:
-            - nova_migration_target_infos.containers.0.Healthcheck.Status is defined
-            - "'healthy' not in nova_migration_target_infos.containers.0.Healthcheck.Status"
-          retries: 10
-          delay: 30
+        - name: nova migration target configure tasks
+          include_role:
+            name: tripleo_nova_migration_target
+            tasks_from: configure.yaml
           tags:
             - opendev-validation
             - opendev-validation-nova
@@ -236,14 +221,14 @@ outputs:
             - not container_healthcheck_disabled
             - step|int == 5
       update_tasks:
-        - name: nova_migration_target_tmpfile_cleanup
+        - name: nova-migration-target update
           when: step|int == 1
-          block: &nova_migration_target_tmpfile_cleanup
-            - name: Remove old tmpfiles.d config
-              file:
-                path: /etc/tmpfiles.d/var-run-libvirt.conf
-                state: absent
+          include_role:
+            name: tripleo_nova_migration_target
+            tasks_from: update.yaml
       upgrade_tasks:
-        - name: nova_migration_target_tmpfile_cleanup
+        - name: nova-migration-target upgrade
           when: step|int == 1
-          block: *nova_migration_target_tmpfile_cleanup
+          include_role:
+            name: tripleo_nova_migration_target
+            tasks_from: upgrade.yaml
