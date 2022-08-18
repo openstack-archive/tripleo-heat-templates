@@ -415,6 +415,9 @@ def infile_processing(infiles):
             os.chmod(out_f.name, 0o600)
             json.dump(infile_data, out_f, indent=2)
 
+        # Remove the startup config as we've generated hashed config
+        os.remove(infile)
+
 
 if __name__ == '__main__':
     PUPPETS = (
