@@ -58,16 +58,19 @@ outputs:
     value:
       service_name: nova_az_config
       deploy_steps_tasks:
-        # Step0: Set the hieradata nova::host as a ansible fact so that we can
-        # use it later in the tasks in external_post_deploy_tasks
-        - name: Get nova::host value
-          shell: hiera -c /etc/puppet/hiera.yaml fqdn_canonical
-          register: nova_host_result
-          when: "step|int == 1"
-        - name: Set nova_host fact
-          set_fact:
-            nova_host: "{{ nova_host_result.stdout }}"
-          when: "step|int == 1"
+        # Step0: Get the [DEFAULT] host parameter from nova.conf and set it as
+        #        an ansible fact so that we can use it later in the tasks in
+        #        external_post_deploy_tasks
+        - name: Get the host parameter from nova.conf
+          when: step|int == 2
+          block:
+            - name: Read the parameter from nova.conf
+              shell:
+                crudini --get /var/lib/config-data/puppet-generated/nova_libvirt/etc/nova/nova.conf DEFAULT host
+              register: nova_host_output
+            - name: Set nova_host fact
+              set_fact:
+                nova_host: "{{ nova_host_output.stdout }}"
       external_post_deploy_tasks:
         - name: "Nova: Manage aggregate and availability zone and add hosts to the zone"
           become: true
