@@ -7,5 +7,5 @@ purpose or for development usage.
 They should not be used in production and we don't guarantee they work outside
 TripleO CI.
 
-For more informations about TripleO CI, please look:
+For more information about TripleO CI, please look:
 https://github.com/openstack-infra/tripleo-ci

@@ -76,7 +76,7 @@ def diff_dict(dict_a, dict_b):
     """Compares two dicts
 
     Converts 2 dicts to strings with pformat and returns
-    a unified diff formated string
+    a unified diff formatted string
     """
     if output_format == "pformat":
         str_a = pformat(dict_a, width=output_width)

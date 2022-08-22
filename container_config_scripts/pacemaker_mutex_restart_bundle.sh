@@ -59,7 +59,7 @@ else
     promoted_role="Master"
 fi
 
-# The lock TTL should accomodate for the resource start/promote timeout
+# The lock TTL should accommodate for the resource start/promote timeout
 if [ "$RESOURCE_NAME" != "$BUNDLE_NAME" ]; then
     if [ "$WAIT_TARGET_LOCAL" = "$promoted_role" ] || [ "$WAIT_TARGET_ANYWHERE" = "$promoted_role" ]; then
         rsc_op="promote"

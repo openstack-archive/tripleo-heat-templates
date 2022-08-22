@@ -16,7 +16,7 @@
 #  - the purpose of this script is to ensure that restarting the
 #    service replica locally won't disrupt the service availability
 #    for the end user. To reach that goal, the script waits until the
-#    service is restarted locally or globallu and reaches a given
+#    service is restarted locally or globally and reaches a given
 #    target state (i.e. Started, Slave or Master).
 # design note 2:
 #   - we don't want to track restart error: our only job is to ensure

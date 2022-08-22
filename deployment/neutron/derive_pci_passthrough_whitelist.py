@@ -259,7 +259,7 @@ def user_passthrough_config():
 def match_pf_details(user_config, pf_name, is_non_nic_pf: bool):
     """Decide the action for whitelist_pci_addr, based on user config
 
-    :param user_configs: THT param NovaPCIPassthrough
+    :param user_config: THT param NovaPCIPassthrough
     :param pf_name: Interface/device name (str)
     :param is_non_nic_pf: Indicates whether the PF is noc-partitioned or not
     :return: Return the actions to be done, based on match criteria
@@ -321,12 +321,12 @@ def match_pf_details(user_config, pf_name, is_non_nic_pf: bool):
 # +------------+-----------------------+---------------------------+-------------------+
 def get_passthrough_config(user_config, pf_name,
   allocated_pci, is_non_nic_pf: bool):
-    """Handle all variations of user specifid pci addr format
+    """Handle all variations of user specified pci addr format
 
     Arrive at the address fields of the whitelist.  Check the address fields of
     the pci.passthrough_whitelist configuration option, validating the address fields.
 
-    :param user_configs: THT param NovaPCIPassthrough
+    :param user_config: THT param NovaPCIPassthrough
     :param pf_name: Interface/device name (str)
     :param allocated_pci: List of VFs (for nic-partitioned PF), which are used by host
     :param is_non_nic_pf: Indicates whether the PF is non-partitioned or not
@@ -486,8 +486,8 @@ def generate_combined_configuration(user_configs, system_configs):
     as it is.
     :param user_configs: THT param NovaPCIPassthrough
     :param system_configs: Derived from sriov-mapping.yaml
-    :return user_config_copy: Any non-nic partinioned cfg will be returned in this list
-    :return derived_config: All nic partinioned cfg will be returned after derivation in this list
+    :return user_config_copy: Any non-nic partitioned cfg will be returned in this list
+    :return derived_config: All nic partitioned cfg will be returned after derivation in this list
     """
 
     user_config_copy = []

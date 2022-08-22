@@ -233,8 +233,8 @@ def export_passwords(heat, stack, stack_dir):
     """Export passwords from an existing stack and write them in Heat
     environment file format to the specified directory.
 
-    :param cloud: Heat client
-    :type cloud: heatclient.client.Client
+    :param heat: Heat client
+    :type heat: heatclient.client.Client
     :param stack: Stack name to query for passwords
     :type stack: str
     :param stack_dir: Directory to save the generated Heat environment

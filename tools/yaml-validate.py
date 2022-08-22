@@ -152,7 +152,7 @@ PARAMETER_DEFINITION_EXCLUSIONS = {
     'KeystoneErrorLoggingSource': ['default'],
     'KeystoneAdminAccessLoggingSource': ['default'],
     'KeystoneAdminErrorLoggingSource': ['default'],
-    'KeystoneMainAcccessLoggingSource': ['default'],
+    'KeystoneMainAccessLoggingSource': ['default'],
     'KeystoneMainErrorLoggingSource': ['default'],
     'LibvirtVncCACert': ['description'],
     'NeutronApiLoggingSource': ['default'],
@@ -1017,7 +1017,7 @@ def validate_service_hiera_interpol(f, tpl):
             # Omit apache remoteip proxy_ips
             if 'apache::mod::remoteip::proxy_ips' in path:
                 continue
-            # Omit Designate rndc_allowed_addressses
+            # Omit Designate rndc_allowed_addresses
             if ('rndc_allowed_addresses' in path):
                 continue
             # Omit Neutron ml2 overlay_ip_version

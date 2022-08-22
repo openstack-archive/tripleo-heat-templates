@@ -105,7 +105,7 @@ if [ $rc -ne 0 ]; then
     fi
 fi
 
-# We start with a very high TTL, that long enough to accomodate a cluster stop.
+# We start with a very high TTL, that long enough to accommodate a cluster stop.
 # As soon as the node will get offline, the other competing node will be entitled
 # to steal the lock, so they should never wait that long in practice.
 LOCK_TTL=600

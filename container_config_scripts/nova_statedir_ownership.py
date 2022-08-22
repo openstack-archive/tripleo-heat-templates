@@ -94,7 +94,7 @@ class PathManager(object):
                      gid)
 
     def chcon(self, context):
-        # If dir returns whether to recusively set context
+        # If dir returns whether to recursively set context
         try:
             try:
                 selinux.lsetfilecon(self.path, context)
