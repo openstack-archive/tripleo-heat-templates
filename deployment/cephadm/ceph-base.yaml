@@ -364,6 +364,12 @@ parameters:
     description: |
       Use the default container defined in cephadm instead of
       the one defined in container_image_prepare_defaults.yaml.
+  ExternalCeph:
+    default: false
+    type: boolean
+    description: |
+      If the Ceph cluster has been deployed outside of TripleO.
+      DeployedCeph and ExternalCeph are mutually exclusive.
 
 parameter_groups:
 - label: deprecated
@@ -570,7 +576,9 @@ outputs:
               include_role:
                 name: tripleo_run_cephadm
                 tasks_from: enable_ceph_admin_user.yml
-              when: (not deployed_ceph and
+              when:
+                - not external_ceph
+                - (not deployed_ceph and
                       (groups['ceph_mon'] | default([]) | length > 0 or
                        groups['ceph_nfs'] | default([]) | length > 0))
                     or
@@ -592,20 +600,28 @@ outputs:
                         groups['ceph_rbdmirror'] | default([]) | length > 0)))
               vars:
                 deployed_ceph: {get_param: DeployedCeph}
+                external_ceph: {get_param: ExternalCeph}
             - name: Deploy or configure the cephadm Ceph cluster
               include_role:
                 name: tripleo_run_cephadm
-              when: groups['ceph_mon'] | default([]) | length > 0 or
-                    groups['ceph_nfs'] | default([]) | length > 0
+              when:
+                - not external_ceph
+                - groups['ceph_mon'] | default([]) | length > 0 or
+                  groups['ceph_nfs'] | default([]) | length > 0
+              vars:
+                external_ceph: {get_param: ExternalCeph}
         - name: ceph_base_external_deploy_task
           when:
             - (step | int) == 3
             - {get_param: DisableCephadm}
+            - not external_ceph
           block:
             - name: Pause cephadm
               include_role:
                 name: tripleo_run_cephadm
                 tasks_from: disable_cephadm.yml
+          vars:
+            external_ceph: {get_param: ExternalCeph}
       post_upgrade_tasks:
         - name: Clean puppet-ceph package
           when:
