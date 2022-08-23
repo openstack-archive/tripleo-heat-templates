@@ -46,7 +46,7 @@ def execute(cmd, workdir: str = None,
 
 
 def fetch_container_health(containers):
-    out = {}
+    out = []
     for cont in set(containers.split('\n')) - set(SKIP_LIST):
         if not cont:
             continue
@@ -67,7 +67,7 @@ def fetch_container_health(containers):
             item['status'] = 'running' if item['status'] else 'stopped'
 
         item['healthy'] = int(item['healthy'] == 'healthy')
-        out[item['service']] = item
+        out.append(item)
     return 0, out
 
 
