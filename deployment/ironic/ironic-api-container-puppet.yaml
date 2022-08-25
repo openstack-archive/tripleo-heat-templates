@@ -111,7 +111,7 @@ conditions:
 
 resources:
   ApacheServiceBase:
-    type: ../../deployment/apache/apache-baremetal-puppet.yaml
+    type: ../../deployment/apache/apache-baremetal-ansible.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
@@ -119,6 +119,8 @@ resources:
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
       EnableInternalTLS: {get_param: EnableInternalTLS}
+      ApacheWSGI: true
+      ApacheServiceName: 'ironic_api'
 
   ContainersCommon:
     type: ../containers-common.yaml
@@ -181,14 +183,17 @@ outputs:
           region: {get_param: KeystoneRegion}
           service: 'baremetal'
       monitoring_subscription: {get_param: MonitoringSubscriptionIronicApi}
+      ansible_group_vars:
+        get_attr: [ApacheServiceBase, role_data, ansible_group_vars]
       config_settings:
         map_merge:
           - get_attr: [IronicBase, role_data, config_settings]
-          - get_attr: [ApacheServiceBase, role_data, config_settings]
           - ironic::cors::allowed_origin:
               if:
                 - cors_allowed_origin_set
                 - {get_param: IronicCorsAllowedOrigin}
+            tripleo::profile::base::ironic::api::configure_apache: false
+            ironic::api::manage_service: false
             ironic::api::authtoken::password: {get_param: IronicPassword}
             ironic::api::authtoken::project_name: 'service'
             ironic::api::authtoken::user_domain_name: 'Default'
@@ -219,33 +224,10 @@ outputs:
             ironic::api::sync_db: false
             ironic::healthcheck::enabled: true
             ironic::policy::policies: {get_param: IronicApiPolicies}
-            ironic::wsgi::apache::vhost_custom_fragment:
-              if:
-                - auth_strategy_http_basic
-                - 'WSGIPassAuthorization On'
-            ironic::wsgi::apache::access_log_format: 'forwarded'
-            ironic::wsgi::apache::bind_host:
-              str_replace:
-                template:
-                  "%{lookup('$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, IronicApiNetwork]}
-            ironic::wsgi::apache::servername:
-              str_replace:
-                template:
-                  "%{lookup('fqdn_$NETWORK')}"
-                params:
-                  $NETWORK: {get_param: [ServiceNetMap, IronicApiNetwork]}
-            ironic::wsgi::apache::ssl: {get_param: EnableInternalTLS}
-            ironic::wsgi::apache::workers:
-              if:
-                - ironic_workers_set
-                - {get_param: IronicWorkers}
             ironic::cors::max_age: 3600
             ironic::cors::allow_methods: 'GET,POST,PUT,DELETE,OPTIONS,PATCH'
             ironic::cors::allow_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma,X-Auth-Token'
             ironic::cors::expose_headers: 'Content-Type,Cache-Control,Content-Language,Expires,Last-Modified,Pragma'
-            apache::default_vhost: false
             # NOTE(tkajinam): the project_name parameter defaults to 'services' in puppet-ironic,
             # so override it here to always set the consistent project name.
             ironic::json_rpc::project_name: 'service'
@@ -280,12 +262,12 @@ outputs:
         /var/lib/kolla/config_files/ironic_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files: &ironic_api_config_files
-            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
-              dest: "/etc/httpd/conf.d"
+            - source: "/var/lib/kolla/config_files/ansible/etc/httpd/conf"
+              dest: "/etc/httpd/conf"
               merge: false
               preserve_properties: true
-            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.modules.d"
-              dest: "/etc/httpd/conf.modules.d"
+            - source: "/var/lib/kolla/config_files/ansible/etc/httpd/conf.d"
+              dest: "/etc/httpd/conf.d"
               merge: false
               preserve_properties: true
             - source: "/var/lib/kolla/config_files/src/*"
@@ -326,6 +308,7 @@ outputs:
                 -
                 - - /var/lib/kolla/config_files/ironic_api_db_sync.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic_api:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/ansible-generated/ironic_api:/var/lib/kolla/config_files/ansible:ro
                   - /var/log/containers/ironic:/var/log/ironic:z
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
@@ -344,6 +327,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 - - /var/lib/kolla/config_files/ironic_api.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic_api:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/ansible-generated/ironic_api:/var/lib/kolla/config_files/ansible:ro
                   - /var/log/containers/ironic:/var/log/ironic:z
                   - /var/log/containers/httpd/ironic-api:/var/log/httpd:z
                 - if:
@@ -383,8 +367,32 @@ outputs:
                   $ADMIN_PASSWORD: {get_param: AdminPassword}
                   $IRONIC_PASSWORD: {get_param: IronicPassword}
           when: is_http_basic | bool
+        - name: Configure vhost
+          vars:
+            map_merge:
+              - ironic_api_network: {get_param: [ServiceNetMap, IronicApiNetwork]}
+                tripleo_httpd_vhost_bind_host: "{{ lookup('vars', ironic_api_network ~ '_ip') }}"
+                tripleo_httpd_vhost_bind_port: {get_param: [EndpointMap, IronicInternal, port]}
+                tripleo_httpd_vhost_servername: "{{ lookup('vars', 'fqdn_' ~ ironic_api_network ) }}"
+              - if:
+                - auth_strategy_http_basic
+                - tripleo_httpd_vhost_custom_options:
+                    {WSGIPassAuthorization: 'On'}
+              - if:
+                - {get_param: EnableInternalTLS}
+                - tripleo_httpd_vhost_ssl: {get_param: EnableInternalTLS}
+                  tripleo_httpd_vhost_ssl_cert: "{{ tripleo_httpd_config_tls_certs[ironic_api_network]['service_certificate'] }}"
+                  tripleo_httpd_vhost_ssl_key: "{{ tripleo_httpd_config_tls_certs[ironic_api_network]['service_key'] }}"
+          include_role:
+            name: tripleo_ironic
+            tasks_from: api_httpd.yaml
       deploy_steps_tasks:
         get_attr: [ApacheServiceBase, role_data, deploy_steps_tasks]
+      upgrade_tasks:
+        - name: Clean old httpd tree
+          file:
+            path: /var/lib/config-data/puppet-generated/ironic_api/etc/httpd
+            state: absent
       external_upgrade_tasks:
         - when: step|int == 1
           block: &ironic_online_db_migration
