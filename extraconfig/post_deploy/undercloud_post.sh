@@ -44,7 +44,7 @@ if [ ! -f $HOMEDIR/.ssh/authorized_keys ]; then
 fi
 
 if [ ! -f $HOMEDIR/.ssh/id_rsa ]; then
-    ssh-keygen -b 1024 -N '' -f $HOMEDIR/.ssh/id_rsa
+    ssh-keygen -N '' -f $HOMEDIR/.ssh/id_rsa
 fi
 
 if ! grep "$(cat $HOMEDIR/.ssh/id_rsa.pub)" $HOMEDIR/.ssh/authorized_keys; then
