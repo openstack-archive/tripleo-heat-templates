@@ -196,6 +196,18 @@ parameters:
     default: true
     description: Flag to indicate if anti-affinity feature is turned on.
     type: boolean
+  OctaviaEnableJobboard:
+    default: false
+    description: Enable jobboard for the amphorav2 driver, it enables flow resumption for the amphora driver.
+    type: boolean
+  OctaviaJobboardExpirationTime:
+    default: 30
+    description: Expiry of claimed jobs in jobboard.
+    type: number
+  RedisPassword:
+    description: The password for the redis service account.
+    type: string
+    hidden: true
 
 conditions:
   octavia_ca_cert_unset: {equals: [{get_param: OctaviaCaCert}, '']}
@@ -302,6 +314,29 @@ outputs:
             - octavia_client_cert_unset
             - {}
             - octavia::certificates::client_cert_data: {get_param: OctaviaClientCert}
+          - if:
+            - {get_param: OctaviaEnableJobboard}
+            - octavia::task_flow::jobboard_enabled: {get_param: OctaviaEnableJobboard}
+              octavia::task_flow::jobboard_backend_hosts: "%{hiera('redis_vip')}"
+              octavia::task_flow::jobboard_backend_password: {get_param: RedisPassword}
+              octavia::task_flow::jobboard_expiration_time: {get_param: OctaviaJobboardExpirationTime}
+              octavia::task_flow::persistence_connection:
+                make_url:
+                  scheme: {get_param: [EndpointMap, MysqlInternal, protocol]}
+                  username: {get_param: OctaviaUserName}
+                  password: {get_param: OctaviaPassword}
+                  host: {get_param: [EndpointMap, MysqlInternal, host]}
+                  path: /octavia_persistence
+                  query:
+                    if:
+                      - enable_sqlalchemy_collectd
+                      - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
+                        plugin: collectd
+                        collectd_program_name: octavia
+                        collectd_host: localhost
+                      - read_default_file: /etc/my.cnf.d/tripleo.cnf
+                        read_default_group: tripleo
       update_tasks: &ensure_start_up_files
         - name: make sure that post-deploy.conf exists before restarting containers on update or upgrade
           when: step|int == 5
