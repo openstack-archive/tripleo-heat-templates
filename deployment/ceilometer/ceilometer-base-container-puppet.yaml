@@ -67,6 +67,24 @@ parameters:
     default: 60
     description: Ceilometer's RPC response timeout, in seconds.
     type: number
+  EnableCache:
+    description: Enable caching with memcached
+    type: boolean
+    default: true
+  MemcachedTLS:
+    default: false
+    description: Set to True to enable TLS on Memcached service.
+                 Because not all services support Memcached TLS, during the
+                 migration period, Memcached will listen on 2 ports - on the
+                 port set with MemcachedPort parameter (above) and on 11211,
+                 without TLS.
+    type: boolean
+
+conditions:
+  tls_cache_enabled:
+    and:
+      - {get_param: EnableCache}
+      - {get_param: MemcachedTLS}
 
 outputs:
   role_data:
@@ -94,6 +112,13 @@ outputs:
             ceilometer::telemetry_secret: {get_param: CeilometerMeteringSecret}
             ceilometer::host: "%{lookup('fqdn_canonical')}"
             ceilometer::rpc_response_timeout: {get_param: CeilometerRpcResponseTimeout}
+            ceilometer::cache::enabled: {get_param: EnableCache}
+            ceilometer::cache::tls_enabled: {get_param: MemcachedTLS}
+          - if:
+              - tls_cache_enabled
+              - ceilometer::cache::backend: 'dogpile.cache.pymemcache'
+                ceilometer::cache::enable_socket_keepalive: true
+              - ceilometer::cache::backend: 'dogpile.cache.memcached'
       service_config_settings:
         keystone:
           # Enable default notification queue
