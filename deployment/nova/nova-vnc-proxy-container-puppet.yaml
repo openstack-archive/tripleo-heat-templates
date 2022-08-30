@@ -120,10 +120,6 @@ conditions:
       equals:
       - {get_param: NovaVNCProxySSLCiphers}
       - ''
-  key_size_novavnc_override_set:
-    not: {equals: [{get_param: NovaVNCCertificateKeySize}, '']}
-  key_size_libvirtvnc_override_set:
-    not: {equals: [{get_param: LibvirtVNCClientCertificateKeySize}, '']}
 
 resources:
   ContainersCommon:
@@ -264,7 +260,13 @@ outputs:
               owner: root:root
               perm: '0644'
             - path: /etc/pki/tls/private/novnc-proxy.key
-              owner: root:nova
+              owner: root:qemu
+              perm: '0640'
+            - path: /etc/pki/tls/certs/libvirt-vnc-client-cert.crt
+              owner: root:root
+              perm: '0644'
+            - path: /etc/pki/tls/private/libvirt-vnc-client-cert.key
+              owner: root:qemu
               perm: '0640'
       docker_config:
         step_4:
@@ -291,8 +293,8 @@ outputs:
                                 - libvirt_vnc_specific_ca_set
                                 - get_param: LibvirtVncCACert
                                 - get_param: InternalTLSVncProxyCAFile
-                      - /etc/pki/tls/certs/libvirt-vnc-client-cert.crt:/etc/pki/tls/certs/libvirt-vnc-client-cert.crt:ro
-                      - /etc/pki/tls/private/libvirt-vnc-client-cert.key:/etc/pki/tls/private/libvirt-vnc-client-cert.key:ro
+                      - /etc/pki/tls/certs/libvirt-vnc-client-cert.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/libvirt-vnc-client-cert.crt:ro
+                      - /etc/pki/tls/private/libvirt-vnc-client-cert.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/libvirt-vnc-client-cert.key:ro
                       - /etc/pki/tls/certs/novnc-proxy.crt:/var/lib/kolla/config_files/src-tls/etc/pki/tls/certs/novnc-proxy.crt:ro
                       - /etc/pki/tls/private/novnc-proxy.key:/var/lib/kolla/config_files/src-tls/etc/pki/tls/private/novnc-proxy.key:ro
             environment:
@@ -327,43 +329,38 @@ outputs:
             - use_tls_for_vnc
             - - name: Certificate generation
                 when: step|int == 1
+                vars:
+                  cert_key_size: {get_param: CertificateKeySize}
+                  nova_vnc_key_size: {get_param: NovaVNCCertificateKeySize}
+                  libvirt_vnc_key_size: {get_param: LibvirtVNCClientCertificateKeySize}
+                  libvirt_network:
+                    str_replace:
+                      template: "{{ fqdn_NETWORK }}"
+                      params:
+                        NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 block:
-                  - include_role:
+                  - name: Execute system role for Nova/Libvirt VNC certs
+                    loop:
+                      - name: libvirt-vnc-client-cert
+                        key_size: "{{ libvirt_vnc_key_size | default(cert_key_size, true) }}"
+                        principal: "libvirt-vnc/{{ libvirt_network }}@{{ idm_realm }}"
+                      - name: novnc-proxy
+                        key_size: "{{ nova_vnc_key_size | default(cert_key_size, true) }}"
+                        principal: "novnc-proxy/{{ libvirt_network }}@{{ idm_realm }}"
+                    loop_control:
+                      loop_var: cert
+                    include_role:
                       name: linux-system-roles.certificate
                     vars:
                       certificate_requests:
-                        - name: libvirt-vnc-client-cert
-                          dns:
-                            str_replace:
-                              template: "{{fqdn_NETWORK}}"
-                              params:
-                                NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          principal:
-                            str_replace:
-                              template: "libvirt-vnc/{{fqdn_NETWORK}}@{{idm_realm}}"
-                              params:
-                                NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          key_size:
-                            if:
-                              - key_size_libvirtvnc_override_set
-                              - {get_param: LibvirtVNCClientCertificateKeySize}
-                              - {get_param: CertificateKeySize}
-                          ca: ipa
-                        - name: novnc-proxy
-                          dns:
-                            str_replace:
-                              template: "{{fqdn_$NETWORK}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
-                          principal:
-                            str_replace:
-                              template: "novnc-proxy/{{fqdn_$NETWORK}}@{{idm_realm}}"
-                              params:
-                                $NETWORK: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
+                        - name: "{{ cert.name }}"
+                          dns: "{{ libvirt_network }}"
+                          principal: "{{ cert.principal }}"
+                          key_size: "{{ cert.key_size }}"
                           run_after: |
                             container_name=$({{container_cli}} ps --format=\{\{.Names\}\} | grep nova_vnc_proxy)
-                            service_crt="/etc/pki/tls/certs/novnc-proxy.crt"
-                            service_key="/etc/pki/tls/private/novnc-proxy.key"
+                            service_crt="/etc/pki/tls/certs/{{ cert.name }}.crt"
+                            service_key="/etc/pki/tls/private/{{ cert.name }}.key"
                             # Copy the new cert from the mount-point to the real path
                             {{container_cli}} exec -u root "$container_name" cp "/var/lib/kolla/config_files/src-tls$service_crt" "$service_crt"
                             # Copy the new key from the mount-point to the real path
@@ -372,14 +369,9 @@ outputs:
                             # Set permissions
                             {{container_cli}} exec -u root "$container_name" chmod 0644 $service_crt
                             {{container_cli}} exec -u root "$container_name" chmod 0640 $service_key
-                            {{container_cli}} exec -u root "$container_name" chgrp nova $service_key
+                            {{container_cli}} exec -u root "$container_name" chgrp qemu $service_key
 
                             # No need to trigger a reload for novnc proxy since the cert is not cached
-                          key_size:
-                            if:
-                              - key_size_libvirtvnc_override_set
-                              - {get_param: NovaVNCCertificateKeySize}
-                              - {get_param: CertificateKeySize}
                           ca: ipa
       host_prep_tasks:
         list_concat:
