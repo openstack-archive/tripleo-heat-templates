@@ -51,7 +51,7 @@ def parse_opts(argv):
     parser.add_argument('-n', '--network-data', metavar='NETWORK_DATA',
                         help=("""relative path to the network_data.yaml """
                               """file."""),
-                        default='network_data.yaml')
+                        default='network-data-samples/default-network-isolation.yaml')
     parser.add_argument('--safe',
                         action='store_true',
                         help="""Enable safe mode (do not overwrite files).""",
