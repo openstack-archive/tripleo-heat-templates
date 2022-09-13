@@ -148,6 +148,12 @@ parameters:
     type: json
     tags:
       - role_specific
+  BaseTripleoPackages:
+    default: []
+    description: List of packages to install.
+    type: comma_delimited_list
+    tags:
+      - role_specific
 
 resources:
   RoleParametersValue:
@@ -165,6 +171,7 @@ resources:
               upgrade_leapp_modules_to_unload: LeappUnloadKernelDrivers
               upgrade_leapp_actors_to_remove: LeappActorsToRemove
               upgrade_init_command: UpgradeInitCommand
+              base_tripleo_packages: BaseTripleoPackages
             - values: {get_param: [RoleParameters]}
           - values:
               DnfStreams: {get_param: DnfStreams}
@@ -175,6 +182,7 @@ resources:
               LeappUnloadKernelDrivers: {get_param: LeappUnloadKernelDrivers}
               LeappActorsToRemove: {get_param: LeappActorsToRemove}
               UpgradeInitCommand: {get_param: UpgradeInitCommand}
+              BaseTripleoPackages: {get_param: BaseTripleoPackages}
 
 outputs:
   role_data:
@@ -547,10 +555,19 @@ outputs:
                   - os-net-config
                   - puppet-tripleo
                   - python3-heat-agent*
-                  - python3-openstackclient
                   - rsync
                 state: present
               when: ansible_facts['distribution_major_version'] is version('8', '==')
+            - name: Ensure TripleO prerequisite packages are installed and use role based heat variable to provide specific list of packages
+              vars:
+                base_tripleo_packages: {get_attr: [RoleParametersValue, value, 'base_tripleo_packages']}
+              package:
+                name:
+                  "{{ base_tripleo_packages }}"
+                state: present
+              when:
+                - ansible_facts['distribution_major_version'] is version('8', '==')
+                - base_tripleo_packages|length > 0
         - name: check if libvirt is installed
           command: /usr/bin/rpm -q libvirt-daemon
           failed_when: false
