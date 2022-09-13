@@ -86,7 +86,11 @@ def create_update_clouds_yaml():
     config['network_api_version'] = '2'
 
     data['clouds'][cloud_name] = config
-    with open(clouds_yaml, 'w') as fs:
+
+    fdesc = os.open(path=clouds_yaml,
+                    flags=(os.O_WRONLY | os.O_CREAT | os.O_TRUNC),
+                    mode=0o600)
+    with open(fdesc, 'w') as fs:
         fs.write(yaml.dump(data, default_flow_style=False))
 
     shutil.copyfile(clouds_yaml, usr_clouds_yaml)
