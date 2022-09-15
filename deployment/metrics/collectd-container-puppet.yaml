@@ -599,8 +599,8 @@ outputs:
                 net: none
                 user: root
                 volumes:
-                  - /run:/run:rw
-                command: ['setfacl', '-R', '-m', 'u:collectd:rwx', '/run/podman']
+                  - /var/lib/tripleo-podman/collectd:/tmp/run:rw,z
+                command: ['setfacl', '-R', '-m', 'u:collectd:rwx', '/tmp/run']
         step_3:
           collectd:
             image: {get_attr: [RoleParametersValue, value, ContainerCollectdImage]}
@@ -625,48 +625,14 @@ outputs:
                   - /var/log/containers/collectd:/var/log/collectd:rw,z
                   - /var/lib/container-config-scripts:/scripts:ro
                   - /run:/run:rw
+                  - /var/lib/tripleo-podman/collectd:/run/podman:z
                   - /sys/fs/cgroup:/sys/fs/cgroup:ro
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-      deploy_steps_tasks:
+      host_prep_tasks:
         - name: set enable_sensubility fact
           set_fact:
             enable_sensubility: {get_param: CollectdEnableSensubility}
-        - name: Configure rsyslog for container healthchecks
-          when:
-            - step|int == 1
-          block:
-            - name: Check if rsyslog exists
-              shell: systemctl list-unit-files --type=service | grep -q rsyslog
-              register: rsyslog_config
-              failed_when: rsyslog_config.rc == 2
-            - name: Configure if we can
-              when:
-                - rsyslog_config is changed
-                - rsyslog_config.rc == 0
-              block:
-                - name: Log healthchecks in dedicated file
-                  when:
-                    - enable_sensubility|bool
-                  register: logconfig_add
-                  copy:
-                    dest: /etc/rsyslog.d/openstack-healthcheck.conf
-                    content: |
-                      if ($programname startswith 'podman' and ($msg contains 'container exec' or $msg contains 'healthy')) or ($programname startswith 'systemd' and $msg contains 'podman healthcheck run') then -/var/log/containers/collectd/healthchecks.stdout
-                      & stop
-                - name: Remove healthcheck log
-                  when:
-                    - not enable_sensubility|bool
-                  register: logconfig_rm
-                  file:
-                    path: /etc/rsyslog.d/openstack-healthcheck.conf
-                    state: absent
-                - name: Reload rsyslogd if needed
-                  when: logconfig_add is changed or logconfig_rm is changed
-                  service:
-                    name: rsyslog
-                    state: restarted
-      host_prep_tasks:
         - name: create persistent directories
           file:
             path: "{{ item.path }}"
@@ -679,9 +645,21 @@ outputs:
           include_role:
             name: tripleo_provision_mcelog
           when: {get_param: CollectdEnableMcelog}
-        - name: enable podman socket
-          ansible.builtin.service:
-            name: podman.socket
-            state: started
-            enabled: true
-          when: {get_param: CollectdEnableSensubility}
+        - name: create podman socket for sensubility purposes
+          include_role:
+            name: tripleo_podman
+            tasks_from: tripleo_podman_service
+          vars:
+            tripleo_podman_socket_path: /var/lib/tripleo-podman/collectd/podman.sock
+          when:
+            - enable_sensubility|bool
+      update_tasks:
+        - name: remove rsyslog configuration for podman healthcheck log
+          include_role:
+            name: tripleo_podman
+            tasks_from: tripleo_podman_rsyslog_cleanup
+      upgrade_tasks:
+        - name: remove rsyslog configuration for podman healthcheck log
+          include_role:
+            name: tripleo_podman
+            tasks_from: tripleo_podman_rsyslog_cleanup
