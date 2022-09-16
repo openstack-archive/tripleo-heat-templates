@@ -15,6 +15,7 @@
 # under the License.
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,14 @@ SKIP_LIST = ['_bootstrap', 'container-puppet-', '_db_sync',
 
 def execute(cmd, workdir: str = None,
             prev_proc: subprocess.Popen = None) -> subprocess.Popen:
+    # Note(mmagr): When this script is executed by collectd-sensubility started
+    #              via collectd the script has non-root permission but inherits
+    #              environment from collectd with root permission. We need
+    #              to avoid sensubility access /root when using podman-remote.
+    #              See https://bugzilla.redhat.com/show_bug.cgi?id=2091076 for
+    #              more info.
+    proc_env = os.environ.copy()
+    proc_env["HOME"] = "/tmp"
     if type(cmd[0]) is list:  # multiple piped commands
         last = prev_proc
         for c in cmd:
@@ -37,7 +46,7 @@ def execute(cmd, workdir: str = None,
         return last
     else:  # single command
         inpipe = prev_proc.stdout if prev_proc is not None else None
-        proc = subprocess.Popen(cmd, cwd=workdir, stdin=inpipe,
+        proc = subprocess.Popen(cmd, cwd=workdir, env=proc_env, stdin=inpipe,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if prev_proc is not None:
             prev_proc.stdout.close()
