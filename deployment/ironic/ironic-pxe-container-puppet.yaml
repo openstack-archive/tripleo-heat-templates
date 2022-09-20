@@ -37,6 +37,10 @@ parameters:
     default: {}
     description: Parameters specific to the role
     type: json
+  IronicIPXEPort:
+    default: 8088
+    description: Port to use for serving images when iPXE is used.
+    type: number
 
 resources:
   ContainersCommon:
@@ -63,6 +67,7 @@ outputs:
       service_name: ironic_pxe
       config_settings:
         ironic::pxe::tftp_use_xinetd: false
+        ironic::pxe::manage_http_server: false
       service_config_settings: {}
       # BEGIN DOCKER SETTINGS
       puppet_config:
@@ -74,12 +79,12 @@ outputs:
         /var/lib/kolla/config_files/ironic_pxe_http.json:
           command: /usr/sbin/httpd -DFOREGROUND
           config_files:
-            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.d"
+            - source: "/var/lib/kolla/config_files/ansible/etc/httpd/conf.d"
               dest: "/etc/httpd/conf.d"
               merge: false
               preserve_properties: true
-            - source: "/var/lib/kolla/config_files/src/etc/httpd/conf.modules.d"
-              dest: "/etc/httpd/conf.modules.d"
+            - source: "/var/lib/kolla/config_files/ansible/etc/httpd/conf"
+              dest: "/etc/httpd/conf"
               merge: false
               preserve_properties: true
             - source: "/var/lib/kolla/config_files/src/*"
@@ -131,6 +136,10 @@ outputs:
             - name: Set fact ironic_pxe_tftp_enabled
               set_fact:
                 ironic_pxe_tftp_enabled: "{{ ironic_pxe_tftp_enabled_result.rc == 0 }}"
+            - name: Clean old httpd tree
+              file:
+                path: /var/lib/config-data/puppet-generated/ironic/etc/httpd
+                state: absent
         - name: Stop ironic_pxe_tftp service
           when:
             - step|int == 1
@@ -156,6 +165,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 - - /var/lib/kolla/config_files/ironic_pxe_tftp.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/ansible-generated/ironic:/var/lib/kolla/config_files/ansible:ro
                   - /var/lib/ironic:/var/lib/ironic:shared,z
                   - /var/log/containers/ironic:/var/log/ironic:z
                   - /var/log/containers/httpd/ironic-pxe:/var/log/httpd:z
@@ -174,6 +184,7 @@ outputs:
                 - {get_attr: [ContainersCommon, volumes]}
                 - - /var/lib/kolla/config_files/ironic_pxe_http.json:/var/lib/kolla/config_files/config.json:ro
                   - /var/lib/config-data/puppet-generated/ironic:/var/lib/kolla/config_files/src:ro
+                  - /var/lib/config-data/ansible-generated/ironic:/var/lib/kolla/config_files/ansible:ro
                   - /var/lib/ironic:/var/lib/ironic:shared,z
                   - /var/log/containers/ironic:/var/log/ironic:z
                   - /var/log/containers/httpd/ironic-pxe:/var/log/httpd:z
@@ -190,6 +201,14 @@ outputs:
             - { 'path': /var/lib/ironic, 'setype': container_file_t, 'mode': 'g+s' }
             - { 'path': /var/log/containers/ironic, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/httpd/ironic-pxe, 'setype': container_file_t, 'mode': '0750' }
+        - name: Create vhost for ipxe
+          vars:
+            ironic_ipxe_network: {get_param: [ServiceNetMap, IronicNetwork] }
+            tripleo_httpd_vhost_bind_host: "{{ lookup('vars', ironic_ipxe_network ~ '_ip') }}"
+            tripleo_httpd_vhost_bind_port: {get_param: IronicIPXEPort}
+          import_role:
+            name: tripleo_ironic
+            tasks_from: ipxe_httpd.yaml
       external_upgrade_tasks:
         - when:
             - step|int == 1
