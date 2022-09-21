@@ -164,6 +164,7 @@ Example
    * OS::TripleO::Services::CertmongerUser
    * OS::TripleO::Services::Collectd
    * OS::TripleO::Services::ComputeCeilometerAgent
+   * OS::TripleO::Services::CeilometerAgentIpmi
    * OS::TripleO::Services::ComputeNeutronCorePlugin
    * OS::TripleO::Services::ComputeNeutronL3Agent
    * OS::TripleO::Services::ComputeNeutronMetadataAgent
