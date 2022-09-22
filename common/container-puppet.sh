@@ -51,8 +51,6 @@ set +e
 if [ "$NET_HOST" == "false" ]; then
     export FACTER_hostname=$HOSTNAME
 fi
-# $::deployment_type in puppet-tripleo
-export FACTER_deployment_type=containers
 export FACTER_uuid=$(cat /sys/class/dmi/id/product_uuid | tr '[:upper:]' '[:lower:]')
 echo 'Running puppet'
 # FIXME(bogdando): stdout may be falling behind of the logged syslog messages
