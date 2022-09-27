@@ -687,12 +687,12 @@ outputs:
                 docker_puppet_process_count: DOCKER_PUPPET_PROCESS_COUNT
                 docker_puppet_mount_host_puppet: DOCKER_PUPPET_MOUNT_HOST_PUPPET
               tasks:
+{% raw %}
                 - name: Host prep steps
                   delegate_to: localhost
                   run_once: true
                   debug:
                     msg: Use --start-at-task 'Host prep steps' to resume from this task
-{% raw %}
                 - name: Deploy Artifacts
                   tripleo_push_artifacts:
                     artifact_urls: "{{ deploy_artifact_urls | default([]) }}"
@@ -700,16 +700,14 @@ outputs:
                   when:
                     - ((deploy_artifact_urls | default([]) | length) > 0) or
                       ((deploy_artifact_files | default([]) | length) > 0)
-{% endraw %}
-{%- for role in roles %}
-                - name: {{role.name}} Host prep tasks
-                  include_tasks: {{role.name}}/host_prep_tasks.yaml
-                  when:
-                    - tripleo_role_name == '{{role.name}}'
-{%- endfor %}
+                - include_tasks: "{{ _task_file_path }}"
+                  vars:
+                    _task_file_path: "{{ tripleo_role_name }}/host_prep_tasks.yaml"
+                  when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
               tags:
                 - overcloud
                 - host_prep_steps
+{% endraw %}
       deploy_steps_container_setup_tasks_playbook:
 {{ self.deploy_steps_str_replace_params() }}
           template: |
@@ -766,21 +764,20 @@ outputs:
                 docker_puppet_process_count: DOCKER_PUPPET_PROCESS_COUNT
                 docker_puppet_mount_host_puppet: DOCKER_PUPPET_MOUNT_HOST_PUPPET
               tasks:
+{% raw %}
                 - name: Pre Deployment Step Tasks
                   delegate_to: localhost
                   run_once: true
                   debug:
                     msg: Use --start-at-task 'Pre Deployment Step Tasks' to resume from this task
-{%- for role in roles %}
-                - name: {{role.name}} Pre Deployment Step Tasks block
-                  include_tasks: {{role.name}}/pre_deploy_step_tasks.yaml
-                  when:
-                    - tripleo_role_name == '{{role.name}}'
-                    - playbook_dir ~ '/{{role.name}}/pre_deploy_step_tasks.yaml' is exists
-{%- endfor %}
+                - include_tasks: "{{ _task_file_path }}"
+                  vars:
+                    _task_file_path: "{{ tripleo_role_name }}/pre_deploy_step_tasks.yaml"
+                  when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
               tags:
                 - overcloud
                 - pre_deploy_steps_tasks
+{% endraw %}
       deploy_steps_external_deployment_playbook:
 {{ self.deploy_steps_str_replace_params() }}
           template: |
@@ -862,12 +859,12 @@ outputs:
                         - ((deploy_identifier is defined and deploy_identifier != "" and deploy_identifier is not none) or
                           not container_startup_configs_json_stat.stat.exists)
 {% endif %}
-{%- for role in roles %}
-                - include_tasks: "{{role.name}}/deploy_steps_tasks_step{{step}}.yaml"
-                  when:
-                    - tripleo_role_name == '{{role.name}}'
-                    - playbook_dir ~ '/{{role.name}}/deploy_steps_tasks_step{{step}}.yaml' is exists
-{%- endfor %}
+{% raw %}
+                - include_tasks: "{{ _task_file_path }}"
+                  vars:
+                    _task_file_path: "{{ tripleo_role_name }}/deploy_steps_tasks_step{{ step }}.yaml"
+                  when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
+{% endraw %}
                 - name: Overcloud common deploy step tasks {{step}}
                   block:
                     - name: "Check if /var/lib/tripleo-config/container-startup-config/step_{{step}} already exists"
@@ -994,8 +991,12 @@ outputs:
                   vars:
                     step: "{{ step }}"
 {%- endfor %}
-                - import_tasks: "{{role.name}}/host_prep_tasks.yaml"
-                  when: tripleo_role_name == '{{role.name}}'
+{% raw %}
+                - include_tasks: "{{ _task_file_path }}"
+                  vars:
+                    _task_file_path: "{{ tripleo_role_name }}/host_prep_tasks.yaml"
+                  when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
+{% endraw %}
                 - import_tasks: deploy_steps_tasks_step_0.yaml
                   vars:
                     step: 0
@@ -1076,12 +1077,14 @@ outputs:
                 - step{{step}}
 {%- endfor %}
       pre_upgrade_rolling_steps_tasks: |
-{%- for role in roles %}
-            - include_tasks: {{role.name}}/pre_upgrade_rolling_tasks.yaml
-              when: tripleo_role_name == '{{role.name}}'
+{% raw %}
+            - include_tasks: "{{ _task_file_path }}"
+              vars:
+                _task_file_path: "{{ tripleo_role_name }}/pre_upgrade_rolling_tasks.yaml"
+              when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
               tags:
                 - always
-{%- endfor %}
+{% endraw %}
       pre_upgrade_rolling_steps_playbook:
 {{ self.deploy_steps_str_replace_params() }}
           template: |
@@ -1124,24 +1127,28 @@ outputs:
                 container_log_stdout_path: CONTAINER_LOG_STDOUT_PATH
                 container_healthcheck_disabled: CONTAINER_HEALTHCHECK_DISABLED
               tasks:
-{%- for role in roles %}
-                - include_tasks: {{role.name}}/upgrade_tasks_step{{step}}.yaml
-                  when: tripleo_role_name == '{{role.name}}'
+{% raw %}
+                - include_tasks: "{{ _task_file_path }}"
+                  vars:
+                    _task_file_path: "{{ tripleo_role_name }}/upgrade_tasks_step{{ step }}.yaml"
+                  when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
                   tags:
                     - always
-{%- endfor %}
+{% endraw %}
               tags:
                 - upgrade_steps
                 - upgrade_step{{step}}
 
 {%- endfor %}
       post_upgrade_steps_tasks: |
-{%- for role in roles %}
-            - include_tasks: {{role.name}}/post_upgrade_tasks.yaml
-              when: tripleo_role_name == '{{role.name}}'
+{% raw %}
+            - include_tasks: "{{ _task_file_path }}"
+              vars:
+                _task_file_path: "{{ tripleo_role_name }}/post_upgrade_tasks.yaml"
+              when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
               tags:
                 - always
-{%- endfor %}
+{% endraw %}
       post_upgrade_steps_playbook:
 {{ self.deploy_steps_str_replace_params() }}
           template: |
@@ -1296,9 +1303,11 @@ outputs:
               tags:
                 - scale
       post_update_steps_tasks: |
-{%- for role in roles %}
-            - include_tasks: {{role.name}}/post_update_tasks.yaml
-              when: tripleo_role_name == '{{role.name}}'
+{% raw %}
+            - include_tasks: "{{ _task_file_path }}"
+              vars:
+                _task_file_path: "{{ tripleo_role_name }}/post_update_tasks.yaml"
+              when: "'{{ playbook_dir }}/{{ _task_file_path }}' is exists"
               tags:
                 - always
-{%- endfor %}
+{% endraw %}
