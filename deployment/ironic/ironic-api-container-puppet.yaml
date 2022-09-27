@@ -7,9 +7,13 @@ parameters:
   ContainerIronicApiImage:
     description: image
     type: string
+    tags:
+      - role_specific
   ContainerIronicApiConfigImage:
     description: The container image to use for the ironic_api config_volume
     type: string
+    tags:
+      - role_specific
   EndpointMap:
     default: {}
     description: Mapping of service endpoint -> protocol. Typically set
@@ -99,6 +103,20 @@ resources:
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerIronicApiImage: ContainerIronicApiImage
+              ContainerIronicApiConfigImage: ContainerIronicApiConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerIronicApiImage: {get_param: ContainerIronicApiImage}
+              ContainerIronicApiConfigImage: {get_param: ContainerIronicApiConfigImage}
 
 outputs:
   role_data:
@@ -202,7 +220,7 @@ outputs:
             - "\n"
             - - include tripleo::profile::base::ironic::api
               - {get_attr: [MySQLClient, role_data, step_config]}
-        config_image: {get_param: ContainerIronicApiConfigImage}
+        config_image: {get_attr: [RoleParametersValue, value, ContainerIronicApiConfigImage]}
       kolla_config:
         /var/lib/kolla/config_files/ironic_api.json:
           command: /usr/sbin/httpd -DFOREGROUND
@@ -231,7 +249,7 @@ outputs:
         # db sync runs before permissions set by kolla_config
         step_2:
           ironic_init_logs:
-            image: &ironic_api_image {get_param: ContainerIronicApiImage}
+            image: &ironic_api_image {get_attr: [RoleParametersValue, value, ContainerIronicApiImage]}
             net: none
             privileged: false
             user: root
