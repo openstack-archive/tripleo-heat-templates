@@ -401,65 +401,20 @@ outputs:
                 name: tripleo_persist
                 tasks_from: cleanup.yml
       update_tasks:
-        - name: Enforce RHOSP rules regarding subscription.
-          include_role:
-            name: tripleo_redhat_enforce
-          vars:
-            skip_rhel_enforcement: {get_param: SkipRhelEnforcement}
-          when:
-            - step|int == 0
-            - ansible_facts['distribution'] == 'RedHat'
-            - not (skip_rhel_enforcement | bool)
-        - name: Ensure DNF modules have the right stream enabled
+        - include_role:
+            name: tripleo_packages
+            tasks_from: update_bootstrap.yml
+          when: step|int == 0
           vars:
             dnf_module_list: {get_attr: [RoleParametersValue, value, 'dnf_module_list']}
-          tripleo_dnf_stream:
-            name: "{{ item.module }}:{{ item.stream }}"
-            state: enabled
-          loop: "{{ dnf_module_list|list }}"
-          when:
-            - step|int == 0
-            - dnf_module_list|length > 0
-            - item.distribution_version is defined
-            - ansible_facts['distribution_major_version'] is version(item.distribution_version, '==')
-        - name: Check for existing yum.pid
-          stat:  path=/run/yum.pid
-          register: yum_pid_file
-          when: step|int == 0 or step|int == 3
-        - name: Exit if existing yum process
-          fail: msg="ERROR existing yum.pid detected - can't continue! Please ensure there is no other package update process for the duration of the minor update workflow. Exiting."
-          when: (step|int == 0 or step|int == 3) and yum_pid_file.stat.exists
-        - name: Special treatment for OpenvSwitch
-          tripleo_ovs_upgrade:
-          when:
-            - step|int == 2
-          register: ovs_upgrade
-        - name: Always ensure the openvswitch service is enabled and running after upgrades
-          service:
-            name: openvswitch
-            enabled: true
-            state: started
-          when:
-            - step|int == 2
-            - ovs_upgrade.changed|bool
-        # Exclude ansible until https://github.com/ansible/ansible/issues/56636
-        # is available
-        - name: Update all packages
-          when:
-            - step|int == 3
-            - not skip_package_update|bool
-          yum:
-            name: '*'
-            state: latest
-            exclude: ansible
+            skip_rhel_enforcement: {get_param: SkipRhelEnforcement}
+        - include_role:
+            name: tripleo_packages
+            tasks_from: update_ovs.yml
+          when: step|int == 2
+        - include_role:
+            name: tripleo_packages
+            tasks_from: update.yml
+          when: step|int == 3
           vars:
             skip_package_update: {get_param: SkipPackageUpdate}
-        # This is failsafe unless openvswitch package does something
-        # to the systemd service state.
-        - name: Ensure openvswitch is running after update
-          when: step|int == 3
-          service:
-            name: openvswitch
-            enabled: true
-            state: started
-          ignore_errors: true
