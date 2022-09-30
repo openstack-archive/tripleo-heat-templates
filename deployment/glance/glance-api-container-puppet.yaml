@@ -612,6 +612,17 @@ outputs:
               dest: "/"
               merge: true
               preserve_properties: true
+        /var/lib/kolla/config_files/glance_api_cron.json:
+          command: /usr/sbin/crond -n
+          config_files:
+            - source: "/var/lib/kolla/config_files/src/*"
+              dest: "/"
+              merge: true
+              preserve_properties: true
+          permissions:
+            - path: /var/log/glance
+              owner: glance:glance
+              recurse: true
       container_config_scripts:
         map_merge:
           - {get_attr: [ContainersCommon, container_config_scripts]}
@@ -714,6 +725,24 @@ outputs:
                     environment:
                       KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 - {}
+            - glance_api_cron:
+                start_order: 2
+                image: *glance_api_image
+                net: host
+                user: root
+                privileged: false
+                restart: always
+                healthcheck:
+                  test: '/usr/share/openstack-tripleo-common/healthcheck/cron glance'
+                volumes:
+                  list_concat:
+                    - {get_attr: [ContainersCommon, volumes]}
+                    - {get_attr: [GlanceLogging, volumes]}
+                    -
+                      - /var/lib/kolla/config_files/glance_api_cron.json:/var/lib/kolla/config_files/config.json
+                      - /var/lib/config-data/puppet-generated/glance_api:/var/lib/kolla/config_files/src:ro
+                environment:
+                  KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
         list_concat:
         - {get_attr: [GlanceLogging, host_prep_tasks]}
@@ -760,4 +789,5 @@ outputs:
               vars:
                 tripleo_containers_to_stop:
                   - glance_api
+                  - glance_api_cron
                 tripleo_delegate_to: "{{ groups['glance_api'] | default([]) }}"
