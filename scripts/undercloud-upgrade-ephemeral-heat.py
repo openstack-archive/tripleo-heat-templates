@@ -27,6 +27,8 @@ import yaml
 
 from heatclient.client import Client
 import keystoneauth1
+from mistralclient.api import base as mistralclient_exc
+from mistralclient.api import client as mistral_client
 import openstack
 from tripleo_common.utils import plan as plan_utils
 
@@ -354,8 +356,8 @@ def main():
     if not os.path.isdir(working_dir):
         os.makedirs(working_dir)
 
+    conn = openstack.connection.from_config(cloud=args.cloud)
     try:
-        conn = openstack.connection.from_config(cloud=args.cloud)
         heat = conn.orchestration
         _heatclient = Client('1', endpoint=conn.endpoint_for('orchestration'),
                              token=conn.auth_token)
@@ -389,6 +391,18 @@ def main():
         LOG.warning("No database found to backup.")
         db_tar_path = None
 
+    # Get and store ssh keys from mistral environment
+    env_ssh_keys = None
+    try:
+        _workflowclient = mistral_client.client(
+            mistral_url=conn.endpoint_for('workflow'),
+            session=conn.session)
+        env_ssh_keys = _workflowclient.environments.get('ssh_keys')
+    except (keystoneauth1.exceptions.catalog.EndpointNotFound,
+            mistralclient_exc.APIException):
+        LOG.warning("Can not get ssh_keys from mistral environment"
+                    "used for tripleo-admin user. This may cause "
+                    "issues after upgrade.")
     for stack in stacks:
         stack_dir = os.path.join(working_dir, stack)
         if db_tar_path:
@@ -396,6 +410,23 @@ def main():
             os.symlink(db_tar_path,
                 os.path.join(stack_dir, os.path.basename(db_tar_path)))
         export_passwords(_heatclient, stack, stack_dir)
+
+        # Write the keys to stack_dir
+        if env_ssh_keys:
+            private_key = env_ssh_keys.variables['private_key']
+            public_key = env_ssh_keys.variables['public_key']
+            ssh_key_file = os.path.join(stack_dir, 'ssh_private_key')
+            with os.fdopen(
+                os.open(ssh_key_file,
+                        flags=(os.O_WRONLY | os.O_CREAT | os.O_TRUNC),
+                        mode=0o600), 'w') as fp:
+                fp.write(private_key)
+
+            with os.fdopen(
+                os.open('{}.pub'.format(ssh_key_file),
+                        flags=(os.O_WRONLY | os.O_CREAT | os.O_TRUNC),
+                        mode=0o600), 'w') as fp:
+                fp.write(public_key)
 
     if database_exists():
         drop_db()
