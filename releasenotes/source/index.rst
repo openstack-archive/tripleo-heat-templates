@@ -9,6 +9,7 @@ Contents
    :maxdepth: 2
 
    unreleased
+   zed
    wallaby
    victoria
    ussuri
