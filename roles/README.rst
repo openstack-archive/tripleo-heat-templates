@@ -171,7 +171,6 @@ Example
    * OS::TripleO::Services::Kernel
    * OS::TripleO::Services::MySQLClient
    * OS::TripleO::Services::NeutronSriovAgent
-   * OS::TripleO::Services::NeutronVppAgent
    * OS::TripleO::Services::NovaCompute
    * OS::TripleO::Services::NovaLibvirt
    * OS::TripleO::Services::NovaMigrationTarget
@@ -183,7 +182,6 @@ Example
    * OS::TripleO::Services::Timezone
    * OS::TripleO::Services::TripleoFirewall
    * OS::TripleO::Services::TripleoPackages
-   * OS::TripleO::Services::Vpp
   name: 'Compute'
 
 Generate roles_data.yaml
