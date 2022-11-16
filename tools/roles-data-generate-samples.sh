@@ -24,3 +24,6 @@ $SCRIPT_DIR/roles-data-generate.py Controller Compute BlockStorage ObjectStorage
 
 echo "Generating ${OUTPUT_DIR}/roles_data_undercloud.yaml"
 $SCRIPT_DIR/roles-data-generate.py Undercloud > $OUTPUT_DIR/roles_data_undercloud.yaml
+
+echo "Generating ${OUTPUT_DIR}/roles_data_standalone.yaml"
+$SCRIPT_DIR/roles-data-generate.py Standalone > $OUTPUT_DIR/roles_data_standalone.yaml
