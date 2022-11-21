@@ -1212,8 +1212,6 @@ def validate(filename, param_map):
                 'OS::TripleO::Services::OVNController',
                 'OS::TripleO::Services::ComputeNeutronOvsAgent',
                 'OS::TripleO::Services::Tuned',
-                'OS::TripleO::Services::NeutronVppAgent',
-                'OS::TripleO::Services::Vpp',
                 'OS::TripleO::Services::NeutronLinuxbridgeAgent']
             retval |= validate_with_compute_role_services(filename, tpl, exclude)
 
