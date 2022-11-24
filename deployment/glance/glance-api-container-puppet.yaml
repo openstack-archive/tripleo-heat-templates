@@ -134,12 +134,6 @@ parameters:
     type: boolean
     tags:
       - role_specific
-  GlanceShowMultipleLocations:
-    default: false
-    description: |
-      Whether to show multiple image locations e.g for copy-on-write support on
-      RBD or Netapp backends. Potential security risk, see glance.conf for more information.
-    type: boolean
   # We default import plugins list to 'no_op' (instead of empty list) to discern from the scenario
   # in which the user purposely disabled all plugins setting it to an empty list. This is useful
   # to automatically enable image_conversion plugin only when value is left to the default.
@@ -380,6 +374,23 @@ parameters:
       Use the advanced (eventlet safe) memcached client pool.
     default: true
 
+  # DEPRECATED: the following options are deprecated and are currently maintained
+  # for backwards compatibility. They will be removed in future release.
+  GlanceShowMultipleLocations:
+    default: false
+    description: |
+      Whether to show multiple image locations e.g for copy-on-write support on
+      RBD or Netapp backends. Potential security risk, see glance.conf for more information.
+    type: boolean
+
+parameter_groups:
+- label: deprecated
+  description: |
+    The following parameters are deprecated and will be removed. They should not
+    be relied on for new deployments.
+  parameters:
+  - GlanceShowMultipleLocations
+
 conditions:
   cinder_backend_enabled:
     or:
@@ -503,7 +514,6 @@ outputs:
                     - read_default_file: /etc/my.cnf.d/tripleo.cnf
                       read_default_group: tripleo
 
-            glance::api::bind_port: {get_param: [EndpointMap, GlanceInternal, port]}
             glance::api::authtoken::www_authenticate_uri: {get_param: [EndpointMap, KeystonePublic, uri_no_suffix] }
             glance::api::authtoken::auth_url: { get_param: [EndpointMap, KeystoneInternal, uri_no_suffix] }
             glance::api::enable_v1_api: false
@@ -527,8 +537,6 @@ outputs:
               - {get_param: GlanceCacheEnabled}
               - 'keystone+cachemanagement'
               - 'keystone'
-            glance::api::show_image_direct_url: true
-            glance::api::show_multiple_locations: {if: [glance_multiple_locations, true, false]}
             glance::api::os_region_name: {get_param: KeystoneRegion}
             glance::api::image_member_quota: {get_param: GlanceImageMemberQuota}
             glance::api::enabled_import_methods: {get_param: GlanceEnabledImportMethods}
@@ -561,8 +569,11 @@ outputs:
                   "%{hiera('fqdn_$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, GlanceApiNetwork]}
-            tripleo::profile::base::glance::api::tls_proxy_port:
-              get_param: [EndpointMap, GlanceInternal, port]
+            # Use glance's native port (9292) for tls proxying. The value is
+            # hardcoded because the ports in the endpoint map are different (the
+            # public endpoint uses port 13292, and the internal and admin endpoints
+            # use port 9293).
+            tripleo::profile::base::glance::api::tls_proxy_port: 9292
             # Bind to localhost if internal TLS is enabled, since we put a TLs
             # proxy in front.
             glance::api::bind_host:
