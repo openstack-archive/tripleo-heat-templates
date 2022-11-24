@@ -46,3 +46,4 @@ source $SCRIPT_DIR/roles-data-generate-samples.sh
 set +e
 check_diff $THT_DIR/roles_data.yaml $TMPDIR/roles_data.yaml
 check_diff $THT_DIR/roles_data_undercloud.yaml $TMPDIR/roles_data_undercloud.yaml
+check_diff $THT_DIR/roles_data_standalone.yaml $TMPDIR/roles_data_standalone.yaml
