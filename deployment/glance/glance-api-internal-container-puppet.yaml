@@ -1,0 +1,183 @@
+heat_template_version: wallaby
+
+description: >
+  OpenStack Glance internal service configured with Puppet
+
+parameters:
+  ServiceData:
+    default: {}
+    description: Dictionary packing service data
+    type: json
+  ServiceNetMap:
+    default: {}
+    description: Mapping of service_name -> network name. Typically set
+                 via parameter_defaults in the resource registry. Use
+                 parameter_merge_strategies to merge it with the defaults.
+    type: json
+  RoleName:
+    default: ''
+    description: Role name on which the service is applied
+    type: string
+  RoleParameters:
+    default: {}
+    description: Parameters specific to the role
+    type: json
+  EndpointMap:
+    default: {}
+    description: Mapping of service endpoint -> protocol. Typically set
+                 via parameter_defaults in the resource registry.
+    type: json
+  GlanceApiInternalLoggingSource:
+    type: json
+    default:
+      tag: openstack.glance.api
+      file: /var/log/containers/glance/api_internal.log
+  EnableInternalTLS:
+    type: boolean
+    default: false
+  GlanceNetappNfsEnabled:
+    default: false
+    description: >
+      When using GlanceBackend 'file', Netapp mount NFS share for image storage.
+    type: boolean
+  ContainerGlanceApiImage:
+    description: image
+    type: string
+    tags:
+      - role_specific
+  ContainerGlanceApiInternalConfigImage:
+    description: The container image to use for the glance_api_internal config_volume
+    type: string
+    tags:
+      - role_specific
+resources:
+  GlanceApi:
+    type: ./glance-api-container-puppet.yaml
+    properties:
+      ServiceData: {get_param: ServiceData}
+      ServiceNetMap: {get_param: ServiceNetMap}
+      EndpointMap: {get_param: EndpointMap}
+      RoleName: {get_param: RoleName}
+      RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
+
+  MySQLClient:
+    type: ../database/mysql-client.yaml
+
+  GlanceLogging:
+    type: OS::TripleO::Services::Logging::GlanceApi
+
+  RoleParametersValue:
+    type: OS::Heat::Value
+    properties:
+      type: json
+      value:
+        map_replace:
+          - map_replace:
+            - ContainerGlanceApiImage: ContainerGlanceApiImage
+              ContainerGlanceApiInternalConfigImage: ContainerGlanceApiInternalConfigImage
+            - values: {get_param: [RoleParameters]}
+          - values:
+              ContainerGlanceApiImage: {get_param: ContainerGlanceApiImage}
+              ContainerGlanceApiInternalConfigImage: {get_param: ContainerGlanceApiInternalConfigImage}
+
+outputs:
+  role_data:
+    description: Role data for the internal Glance API.
+    value:
+      map_merge:
+        - get_attr: [GlanceApi, role_data]
+        - service_name: glance_api_internal
+          firewall_rules:
+            '112 glance_api_internal':
+              dport:
+                - {get_param: [EndpointMap, GlanceInternal, port]}
+          firewall_frontend_rules:
+            '100 glance_api_internal_haproxy_frontend':
+              dport:
+                - {get_param: [EndpointMap, GlanceInternal, port]}
+
+          # GlanceApi creates the keystone resources
+          keystone_resources: {}
+
+          config_settings: {get_attr: [GlanceApi, role_data, config_settings]}
+
+          service_config_settings:
+            map_merge:
+              - get_attr: [GlanceApi, role_data, service_config_settings]
+              - rsyslog:
+                  tripleo_logging_sources_glance_api_internal:
+                    - {get_param: GlanceApiInternalLoggingSource}
+
+          puppet_config:
+            config_volume: glance_api_internal
+            puppet_tags: glance_api_config,glance_api_paste_ini,glance_swift_config,glance_cache_config,glance_image_import_config
+            step_config:
+              list_join:
+                - "\n"
+                - -
+                    str_replace:
+                      template: |
+                        class { 'tripleo::profile::base::glance::api':
+                          bind_port => PORT,
+                          tls_proxy_port => PORT,
+                          log_file => '/var/log/glance/api_internal.log',
+                          show_image_direct_url => true,
+                          show_multiple_locations => true,
+                        }
+                      params:
+                        PORT: {get_param: [EndpointMap, GlanceInternal, port]}
+                  - if:
+                    - {get_param: GlanceNetappNfsEnabled}
+                    - include tripleo::profile::base::glance::netapp
+                  - {get_attr: [MySQLClient, role_data, step_config]}
+            config_image: {get_attr: [RoleParametersValue, value, ContainerGlanceApiInternalConfigImage]}
+
+          kolla_config:
+            # The kolla_config are essentially the same as the GlanceApi service.
+            # The only difference is the json file names.
+            /var/lib/kolla/config_files/glance_api_internal.json:
+              {get_attr: [GlanceApi, role_data, kolla_config, /var/lib/kolla/config_files/glance_api.json]}
+            /var/lib/kolla/config_files/glance_api_internal_tls_proxy.json:
+              {get_attr: [GlanceApi, role_data, kolla_config, /var/lib/kolla/config_files/glance_api_tls_proxy.json]}
+
+          docker_config:
+            step_2:
+              get_attr: [GlanceLogging, docker_config, step_2]
+            step_4:
+              # The internal services share the same GlanceApi docker configs,
+              # except we swap in the internal service's config_volume.
+              glance_api_internal:
+                map_merge:
+                  - get_attr: [GlanceApi, role_data, docker_config, step_4, glance_api]
+                  - volumes:
+                      yaql:
+                        expression: $.data.vols.select($.replace('puppet-generated/glance_api', 'puppet-generated/glance_api_internal'))
+                        data:
+                          vols: {get_attr: [GlanceApi, role_data, docker_config, step_4, glance_api, volumes]}
+              glance_api_internal_tls_proxy:
+                if:
+                  - {get_param: EnableInternalTLS}
+                  - map_merge:
+                      - get_attr: [GlanceApi, role_data, docker_config, step_4, glance_api_tls_proxy]
+                      - volumes:
+                          yaql:
+                            expression: $.data.vols.select($.replace('puppet-generated/glance_api', 'puppet-generated/glance_api_internal'))
+                            data:
+                              vols: {get_attr: [GlanceApi, role_data, docker_config, step_4, glance_api_tls_proxy, volumes]}
+
+          external_upgrade_tasks:
+            - when:
+                - step|int == 1
+              tags:
+                - never
+                - system_upgrade_transfer_data
+                - system_upgrade_stop_services
+              block:
+                - name: Stop glance api internal container
+                  import_role:
+                    name: tripleo_container_stop
+                  vars:
+                    tripleo_containers_to_stop:
+                      - glance_api_internal
+                    tripleo_delegate_to: "{{ groups['glance_api_internal'] | default([]) }}"
