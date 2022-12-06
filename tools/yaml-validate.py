@@ -785,30 +785,21 @@ def validate_ct_volumes(data):
     def check_volumes(volumes):
         if not volumes:
             return 0
-        result = 0
-        if isinstance(volumes, list):
-            for vol in volumes:
-                if isinstance(vol, dict):
-                    # Avoid 'if', 'get_*' etc
-                    continue
-                elif isinstance(vol, list):
-                    for item in vol:
-                        result += check_volumes(item)
-                elif isinstance(vol, str):
-                    vol_def = vol.split(':')
-                    try:
-                        if vol_def[0][-1] == '/' or vol_def[1][-1] == '/':
-                            print('ERROR: trailing "/" detected'
-                                  ' for {}'.format(vol))
-                            return 1
-                    except IndexError:
-                        # Not a volume definition, ignore it
-                        continue
+        elif isinstance(volumes, list):
+            return sum([check_volumes(item) for item in volumes])
         elif isinstance(volumes, dict):
-            # Step into 'list_concat', 'map_*' etc.
-            for item in volumes.values():
-                result += check_volumes(item)
-        return result
+            return sum([check_volumes(item) for item in volumes.values()])
+        elif isinstance(volumes, str):
+            vol_def = volumes.split(':')
+            try:
+                if vol_def[0][-1] == '/' or vol_def[1][-1] == '/':
+                    print('ERROR: trailing "/" detected'
+                          ' for {}'.format(volumes))
+                    return 1
+            except IndexError:
+                # Not a volume definition, ignore it
+                pass
+        return 0
 
     if not data:
         return 0
