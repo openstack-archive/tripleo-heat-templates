@@ -100,6 +100,8 @@ parameters:
     type: number
     constraints:
     - range: { min: 0, max: 600 }
+    tags:
+      - role_specific
   EnableInstanceHA:
     default: false
     description: Whether to enable an Instance Ha configuration or not.
@@ -859,8 +861,13 @@ conditions:
     not: {equals: [{get_param: AuthCloudName}, ""]}
   compute_startup_delay:
     and:
-      - not: {equals: [{get_param: NovaComputeStartupDelay}, 0]}
       - not: {get_param: EnableInstanceHA}
+      - not:
+          and:
+            - {equals: [{get_param: NovaComputeStartupDelay}, 0]}
+            - or:
+              - {equals: [{get_param: [RoleParameters, NovaComputeStartupDelay]}, 0]}
+              - {equals: [{get_param: [RoleParameters, NovaComputeStartupDelay]}, '']}
   libvirt_file_backed_memory_enabled:
     #not (P = 0 and (R = 0 or R = "))
     not:
@@ -981,6 +988,7 @@ resources:
               nova::compute::libvirt::cpu_models: NovaLibvirtCPUModels
               nova::compute::libvirt::cpu_model_extra_flags: NovaLibvirtCPUModelExtraFlags
               nova_compute_opt_volumes: NovaComputeOptVolumes
+              nova_compute_startup_delay: NovaComputeStartupDelay
               nova_compute_opt_env_vars: NovaComputeOptEnvVars
               nova::workarounds::never_download_image_if_on_rbd: NovaDisableImageDownloadToRbd
               nova::compute::image_type_exclude_list: NovaImageTypeExcludeList
@@ -1084,6 +1092,7 @@ resources:
               NovaLibvirtCPUModels: {get_param: NovaLibvirtCPUModels}
               NovaLibvirtCPUModelExtraFlags: {get_param: NovaLibvirtCPUModelExtraFlags}
               NovaComputeOptVolumes: {get_param: NovaComputeOptVolumes}
+              NovaComputeStartupDelay: {get_param: NovaComputeStartupDelay}
               NovaComputeOptEnvVars: {get_param: NovaComputeOptEnvVars}
               NovaDisableImageDownloadToRbd: {get_param: NovaDisableImageDownloadToRbd}
               NovaImageTypeExcludeList: {get_param: NovaImageTypeExcludeList}
@@ -1268,7 +1277,7 @@ outputs:
                 - compute_startup_delay
                 - str_replace:
                     template: '/var/lib/nova/delay-nova-compute --delay DELAY --nova-binary'
-                    params: { DELAY: {get_param: NovaComputeStartupDelay} }
+                    params: { DELAY: {get_attr: [RoleParametersValue, value, nova_compute_startup_delay]} }
               - if:
                 - {get_param: EnableInstanceHA}
                 - /var/lib/nova/instanceha/check-run-nova-compute
@@ -1573,7 +1582,7 @@ outputs:
               when: "'compute_instanceha' in service_names"
           - name: Do we prepend nova startup with a delay
             set_fact:
-              nova_compute_delay: {get_param: NovaComputeStartupDelay}
+              nova_compute_delay: {get_attr: [RoleParametersValue, value, nova_compute_startup_delay]}
           - name: install nova-compute delay wrapper script
             copy:
               content: {get_file: ../../scripts/delay-nova-compute}
