@@ -712,6 +712,14 @@ outputs:
         - name: set enable_sensubility fact
           set_fact:
             enable_sensubility: {get_param: CollectdEnableSensubility}
+        - name: Insert cron job in root crontab for containers health checks
+          when:
+            - enable_sensubility|bool
+          cron:
+            name: "Force run tripleo container health checks every 5 minutes"
+            minute: "*/5"
+            user: "root"
+            job: "systemctl list-timers --all | grep tripleo.*healthcheck | awk '{print $NF}' | xargs systemctl start"
         - name: Configure rsyslog for container healthchecks
           when:
             - step|int == 1
@@ -732,7 +740,7 @@ outputs:
                   copy:
                     dest: /etc/rsyslog.d/openstack-healthcheck.conf
                     content: |
-                      if ($programname startswith 'podman' and $msg contains 'container exec') or ($programname startswith 'systemd' and $msg contains 'healthcheck') or ($programname startswith 'healthcheck_') then -/var/log/containers/collectd/healthchecks.log
+                      if ($programname startswith 'podman' and $msg contains 'container') or ($programname startswith 'systemd' and ($msg contains 'healthcheck' or $msg contains 'container' or $msg contains 'tripleo_')) or ($programname startswith 'healthcheck_') then -/var/log/containers/collectd/healthchecks.log
                       & stop
                 - name: Remove healthcheck log
                   when:
