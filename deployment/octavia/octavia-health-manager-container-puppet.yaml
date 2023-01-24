@@ -132,7 +132,16 @@ outputs:
       service_config_settings:
         rsyslog:
           tripleo_logging_sources_octavia_health_manager:
-            - {get_param: OctaviaHealthManagerLoggingSource}
+            list_concat:
+              - - {get_param: OctaviaHealthManagerLoggingSource}
+              - if:
+                  - {get_param: OctaviaLogOffload}
+                  - - tag: openstack.octavia.amphora
+                      file: /var/log/containers/octavia-amphorae/octavia-amphora.log
+                      startmsg.regex: "^[a-zA-Z]{3} [ 1-9][0-9] [:0-9]{8}"
+                    - tag: openstack.octavia.tenant
+                      file: /var/log/containers/octavia-amphorae/octavia-tenant-traffic.log
+                      startmsg.regex: "^[a-zA-Z]{3} [ 1-9][0-9] [:0-9]{8}"
       # BEGIN DOCKER SETTINGS #
       puppet_config:
         config_volume: octavia
@@ -231,6 +240,19 @@ outputs:
           with_items:
             - { 'path': /var/log/containers/octavia, 'setype': container_file_t, 'mode': '0750' }
             - { 'path': /var/log/containers/octavia-amphorae, 'setype': container_file_t, 'mode': '0750' }
+        # The tripleo rsyslog service is started before the amphora log files
+        # are created, rsyslog detects that the files are missing and skips the
+        # configuration of the forwarder. To fix this behavior, ensure that
+        # the log files exist.
+        - name: create empty log files
+          file:
+            path: "{{ item.path }}"
+            state: touch
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode }}"
+          with_items:
+            - { 'path': /var/log/containers/octavia-amphorae/octavia-tenant-traffic.log, 'setype': container_file_t, 'mode': '0644' }
+            - { 'path': /var/log/containers/octavia-amphorae/octavia-amphora.log, 'setype': container_file_t, 'mode': '0644' }
       external_upgrade_tasks:
         - when:
             - step|int == 1
