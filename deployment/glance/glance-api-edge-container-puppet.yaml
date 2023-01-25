@@ -36,21 +36,17 @@ parameters:
       List of enabled Image Import Methods. Valid values in the list are
       'glance-direct', 'web-download', or 'copy-image'
     type: comma_delimited_list
-  EnableGlanceApiProxy:
-    default: true
-    description: Configure haproxy to forward glance-api requests to glance-api
-                 services running at the edge site.
-    type: boolean
 
 resources:
-  GlanceApiBase:
-    type: ./glance-api-container-puppet.yaml
+  GlanceApiInternal:
+    type: ./glance-api-internal-container-puppet.yaml
     properties:
       ServiceData: {get_param: ServiceData}
       ServiceNetMap: {get_param: ServiceNetMap}
       EndpointMap: {get_param: EndpointMap}
       RoleName: {get_param: RoleName}
       RoleParameters: {get_param: RoleParameters}
+      EnableInternalTLS: {get_param: EnableInternalTLS}
 
 outputs:
   glance_api_edge_uri:
@@ -60,39 +56,33 @@ outputs:
       - {get_param: EnableInternalTLS}
       - str_replace:
           template:
-            "https://%{hiera('fqdn_NETWORK')}:9292"
+            "https://%{hiera('fqdn_NETWORK')}:PORT"
           params:
             NETWORK: {get_param: [ServiceNetMap, GlanceApiEdgeNetwork]}
+            PORT: {get_param: [EndpointMap, GlanceInternal, port]}
       - str_replace:
           template:
-            "http://%{hiera('NETWORK_uri')}:9292"
+            "http://%{hiera('NETWORK_uri')}:PORT"
           params:
             NETWORK: {get_param: [ServiceNetMap, GlanceApiEdgeNetwork]}
+            PORT: {get_param: [EndpointMap, GlanceInternal, port]}
 
   role_data:
     description: Role data for the Glance API role for DCN/Edge.
     value:
       map_merge:
-        - get_attr: [GlanceApiBase, role_data]
+        - get_attr: [GlanceApiInternal, role_data]
         - service_name: glance_api_edge
-          firewall_edge_frontend_rules:
-            if:
-              - {get_param: EnableGlanceApiProxy}
-              - {get_attr: [GlanceApiBase, role_data, firewall_frontend_rules]}
-          firewall_edge_ssl_frontend_rules:
-            if:
-              - {get_param: EnableGlanceApiProxy}
-              - {get_attr: [GlanceApiBase, role_data, firewall_ssl_frontend_rules]}
           service_config_settings:
             map_merge:
-              - get_attr: [GlanceApiBase, role_data, service_config_settings]
+              - get_attr: [GlanceApiInternal, role_data, service_config_settings]
               - cinder_volume:
                   cinder::glance::glance_api_servers: *glance_api_edge_uri
                 nova_compute:
                   nova::glance::endpoint_override: *glance_api_edge_uri
           config_settings:
             map_merge:
-              - get_attr: [GlanceApiBase, role_data, config_settings]
+              - get_attr: [GlanceApiInternal, role_data, config_settings]
               - if:
                 - contains: ['glance-direct', {get_param: GlanceEnabledImportMethods}]
                 - glance::api::worker_self_reference_url: *glance_api_edge_uri
