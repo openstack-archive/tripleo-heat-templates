@@ -214,6 +214,9 @@ outputs:
             ovn::controller::ovn_encap_type: {get_param: OVNEncapType}
             ovn::controller::ovn_bridge: {get_param: OVNIntegrationBridge}
             ovn::controller::hostname: "%{hiera('fqdn_canonical')}"
+            # Important: If an ovn-controller parameter needs to
+            # change during update the external_update_tasks section
+            # needs to be updated as well.
             ovn::controller::ovn_remote_probe_interval: {get_param: OVNRemoteProbeInterval}
             ovn::controller::ovn_openflow_probe_interval: {get_param: OVNOpenflowProbeInterval}
             tripleo::ovn_controller::firewall_rules:
@@ -449,7 +452,7 @@ outputs:
             image: {get_param: ContainerOvnControllerConfigImage}
           when: step|int == 1
           tags: ovn
-        - name: Set ovn-ofctrl-wait-before-clear
+        - name: Update OVN OVS related parameters before update.
           when:
             - step|int == 1
           tags:
@@ -457,23 +460,27 @@ outputs:
           become: true
           vars:
             timeout: {get_param: OVNOfctrlWaitBeforeClear}
-          command: "ovs-vsctl set Open_vSwitch . external_ids:ovn-ofctrl-wait-before-clear={{ timeout }}"
+          # Place to add all new OVN parameters required during an update.
+          shell: |
+            set -e
+            ovs-vsctl set Open_vSwitch . external_ids:ovn-ofctrl-wait-before-clear={{ timeout }}
+            ovs-vsctl set Open_vSwitch . external_ids:ovn-monitor-all=true
           async: {get_param: OVNControllerUpdateTimeout}
           poll: 0
-          register: ovs_set_wait_before_clear
+          register: ovs_vsctl
           loop: "{{ groups['ovn_controller'] | difference(groups['excluded_overcloud']) }}"
           delegate_to: "{{ item }}"
-        - name: Was ovn-ofctrl-wait-before-clear successful
+        - name: Was the update of OVN OVS related parameter successful.
           when:
             - step|int == 1
-            - "'results' in ovs_set_wait_before_clear"
+            - "'results' in ovs_vsctl"
           become: true
           tags:
             - ovn
           delegate_to: "{{ async_result_item.item }}"
           async_status:
             jid: "{{ async_result_item.ansible_job_id }}"
-          loop: "{{ovs_set_wait_before_clear.results }}"
+          loop: "{{ovs_vsctl.results }}"
           loop_control:
             loop_var: "async_result_item"
           register: async_poll_results
