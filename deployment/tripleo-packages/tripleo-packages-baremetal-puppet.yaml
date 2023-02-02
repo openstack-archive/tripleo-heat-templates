@@ -266,129 +266,131 @@ outputs:
                   source /etc/os-release; [ "${VERSION_ID%.*}" -ge "8" ] && systemctl is-system-running | grep -qE "running|degraded" || exit 1
                 post_reboot_delay: "{{ upgrade_leapp_post_reboot_delay }}"
 
-        - name: Package and repo update tasks
-          when: step|int == 0
+        - name: Host packages setup
+          tags: setup_packages
           block:
-            - name: Run UpgradeInitCommand
-              shell:
-                list_join:
-                  - ''
-                  - - "#!/bin/bash\n\n"
-                    - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
-                    - {get_attr: [RoleParametersValue, value, 'upgrade_init_command']}
-            - name: Run UpgradeInitCommonCommand
-              shell:
-                list_join:
-                  - ''
-                  - - "#!/bin/bash\n\n"
-                    - {get_param: UpgradeInitCommonCommand}
-            - name: Ensure DNF modules have the right stream
-              vars:
-                dnf_module_list: {get_attr: [RoleParametersValue, value, 'dnf_module_list']}
-              dnf:
-                name: "@{{ item.module }}:{{ item.stream }}/{{ item.profile|default('common') }}"
-                state: present
-              loop: "{{ dnf_module_list|list }}"
+            - name: Package and repo update tasks
+              when: step|int == 0
+              block:
+                - name: Run UpgradeInitCommand
+                  shell:
+                    list_join:
+                      - ''
+                      - - "#!/bin/bash\n\n"
+                        - "if [[ -f /etc/resolv.conf.save ]] ; then rm /etc/resolv.conf.save; fi\n\n"
+                        - {get_attr: [RoleParametersValue, value, 'upgrade_init_command']}
+                - name: Run UpgradeInitCommonCommand
+                  shell:
+                    list_join:
+                      - ''
+                      - - "#!/bin/bash\n\n"
+                        - {get_param: UpgradeInitCommonCommand}
+                - name: Ensure DNF modules have the right stream
+                  vars:
+                    dnf_module_list: {get_attr: [RoleParametersValue, value, 'dnf_module_list']}
+                  dnf:
+                    name: "@{{ item.module }}:{{ item.stream }}/{{ item.profile|default('common') }}"
+                    state: present
+                  loop: "{{ dnf_module_list|list }}"
+                  when:
+                    - dnf_module_list|length > 0
+                    - item.distribution_version is defined
+                    - ansible_facts['distribution_major_version'] is version(item.distribution_version, '==')
+                - name: Ensure TripleO prerequisite packages are installed
+                  package:
+                    name:
+                      - jq
+                      - lvm2
+                      - openstack-selinux
+                      - os-net-config
+                      - puppet-tripleo
+                      - python3-heat-agent*
+                      - rsync
+                    state: present
+                  when: ansible_facts['distribution_major_version'] is version('8', '==')
+                - name: Ensure TripleO prerequisite packages are installed and use role based heat variable to provide specific list of packages
+                  vars:
+                    base_tripleo_packages: {get_attr: [RoleParametersValue, value, 'base_tripleo_packages']}
+                  package:
+                    name:
+                      "{{ base_tripleo_packages }}"
+                    state: present
+                  when:
+                    - ansible_facts['distribution_major_version'] is version('8', '==')
+                    - base_tripleo_packages|length > 0
+            - name: check if libvirt is installed
+              when: step|int == 0
+              command: /usr/bin/rpm -q libvirt-daemon
+              failed_when: false
+              register: libvirt_installed
+              check_mode: false
+            - name: make sure libvirt services are disabled and masked
+              service:
+                name: "{{ item }}"
+                state: stopped
+                enabled: false
+                masked: true
+                daemon_reload: true
+              loop:
+                - libvirtd.service
+                - virtlogd.socket
               when:
-                - dnf_module_list|length > 0
-                - item.distribution_version is defined
-                - ansible_facts['distribution_major_version'] is version(item.distribution_version, '==')
-            - name: Ensure TripleO prerequisite packages are installed
-              package:
-                name:
-                  - jq
-                  - lvm2
-                  - net-snmp
-                  - openstack-selinux
-                  - os-net-config
-                  - puppet-tripleo
-                  - python3-heat-agent*
-                  - rsync
-                state: present
-              when: ansible_facts['distribution_major_version'] is version('8', '==')
-            - name: Ensure TripleO prerequisite packages are installed and use role based heat variable to provide specific list of packages
-              vars:
-                base_tripleo_packages: {get_attr: [RoleParametersValue, value, 'base_tripleo_packages']}
-              package:
-                name:
-                  "{{ base_tripleo_packages }}"
-                state: present
+                - step|int == 0
+                - libvirt_installed.rc == 0
+            - name: Special treatment for OpenvSwitch
+              tripleo_ovs_upgrade:
               when:
-                - ansible_facts['distribution_major_version'] is version('8', '==')
-                - base_tripleo_packages|length > 0
-        - name: check if libvirt is installed
-          when: step|int == 0
-          command: /usr/bin/rpm -q libvirt-daemon
-          failed_when: false
-          register: libvirt_installed
-          check_mode: false
-        - name: make sure libvirt services are disabled and masked
-          service:
-            name: "{{ item }}"
-            state: stopped
-            enabled: false
-            masked: true
-            daemon_reload: true
-          loop:
-            - libvirtd.service
-            - virtlogd.socket
-          when:
-            - step|int == 0
-            - libvirt_installed.rc == 0
-        - name: Special treatment for OpenvSwitch
-          tripleo_ovs_upgrade:
-          when:
-            - step|int == 2
-          register: ovs_upgrade
-        - name: Always ensure the openvswitch service is enabled and running after upgrades
-          service:
-            name: openvswitch
-            enabled: yes
-            state: started
-          when:
-            - step|int == 2
-            - ovs_upgrade.changed|bool
-        - name: Install libibverbs (https://bugs.launchpad.net/tripleo/+bug/1817743)
-          when: step|int == 2
-          package:
-            name: libibverbs
-            state: installed
-        - name: Check for os-net-config upgrade
-          shell: "yum check-upgrade | awk '/os-net-config/{print}'"
-          register: os_net_config_need_upgrade
-          when: step|int == 3
-        - name: Check that os-net-config has configuration
-          when: step|int == 3
-          stat:
-            path: /etc/os-net-config/config.json
-            get_attributes: false
-            get_checksum: false
-            get_mime: false
-          register: stat_config_json
-        - block:
-            - name: Upgrade os-net-config
-              package: name=os-net-config state=latest
-            - name: take new os-net-config parameters into account now
-              command: os-net-config --no-activate -c /etc/os-net-config/config.json -v --detailed-exit-codes
-              register: os_net_config_upgrade
-              failed_when: os_net_config_upgrade.rc not in [0,2]
-              changed_when: os_net_config_upgrade.rc == 2
-          when:
-            - step|int == 3
-            - os_net_config_need_upgrade.stdout
-            - stat_config_json.stat.exists
-        # Exclude ansible until https://github.com/ansible/ansible/issues/56636
-        # is available
-        - name: Update all packages
-          when:
-            - step|int == 3
-            - not skip_package_update|bool
-          yum:
-            name: '*'
-            state: latest
-            exclude: ansible
-          vars:
-            skip_package_update: {get_param: SkipPackageUpdate}
+                - step|int == 2
+              register: ovs_upgrade
+            - name: Always ensure the openvswitch service is enabled and running after upgrades
+              service:
+                name: openvswitch
+                enabled: true
+                state: started
+              when:
+                - step|int == 2
+                - ovs_upgrade.changed|bool
+            - name: Install libibverbs (https://bugs.launchpad.net/tripleo/+bug/1817743)
+              when: step|int == 2
+              package:
+                name: libibverbs
+                state: installed
+            - name: Check for os-net-config upgrade
+              shell: "yum check-upgrade | awk '/os-net-config/{print}'"
+              register: os_net_config_need_upgrade
+              when: step|int == 3
+            - name: Check that os-net-config has configuration
+              when: step|int == 3
+              stat:
+                path: /etc/os-net-config/config.json
+                get_attributes: false
+                get_checksum: false
+                get_mime: false
+              register: stat_config_json
+            - block:
+                - name: Upgrade os-net-config
+                  package: name=os-net-config state=latest
+                - name: take new os-net-config parameters into account now
+                  command: os-net-config --no-activate -c /etc/os-net-config/config.json -v --detailed-exit-codes
+                  register: os_net_config_upgrade
+                  failed_when: os_net_config_upgrade.rc not in [0,2]
+                  changed_when: os_net_config_upgrade.rc == 2
+              when:
+                - step|int == 3
+                - os_net_config_need_upgrade.stdout
+                - stat_config_json.stat.exists
+            # Exclude ansible until https://github.com/ansible/ansible/issues/56636
+            # is available
+            - name: Update all packages
+              when:
+                - step|int == 3
+                - not skip_package_update|bool
+              yum:
+                name: '*'
+                state: latest
+                exclude: ansible
+              vars:
+                skip_package_update: {get_param: SkipPackageUpdate}
       external_upgrade_tasks:
         - name: Clean up upgrade artifacts
           when: step|int == 1
