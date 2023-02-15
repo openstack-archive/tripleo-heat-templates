@@ -377,7 +377,46 @@ outputs:
                     tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                     tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
 
+      external_update_tasks:
+        - when: step|int == 1
+          tags: ha_image_update
+          block:
+            - block: &mysql_container_image_facts
+              - name: Get galera image from pacemaker
+                become: true
+                register: xmllint_pcmk_galera_image
+                # retrieve info even when pacemaker is stopped
+                shell: 'xmllint --xpath "string(//bundle[@id=''galera-bundle'']/podman/@image)" /var/lib/pacemaker/cib/cib.xml'
+              - name: Get container galera image
+                set_fact:
+                  # container image to use for deployment
+                  galera_image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
+                  # pacemaker bundle image name to use for deployment
+                  galera_image_latest: *mysql_image_pcmklatest
+                  # image currently configured in pacemaker bundle
+                  pcmk_galera_image: '{{xmllint_pcmk_galera_image.stdout}}'
+              delegate_to: '{{ (groups["mysql"] | difference(groups["excluded_overcloud"]))[0] }}'
+            - name: MySQL temporary pacemaker container tag in case of image switch
+              become: true
+              import_role:
+                name: tripleo_ha_image_update
+              vars:
+                tripleo_ha_image_update_node_names: '{{ groups["mysql"] | difference(groups["excluded_overcloud"]) }}'
+                tripleo_ha_image_update_bundle: galera-bundle
+                tripleo_ha_image_update_new_image: '{{galera_image_latest}}'
+                tripleo_ha_image_update_old_image: '{{pcmk_galera_image}}'
+              when:
+                - (pcmk_galera_image != "")
+                - (pcmk_galera_image != galera_image_latest)
+
       update_tasks:
+        - block: *mysql_container_image_facts
+          when: step|int in [0,2]
+        - name: Check for update of galera container image name
+          when: step|int == 0
+          assert:
+            that: pcmk_galera_image == galera_image_latest
+            fail_msg: "galera image change detected, run overcloud external-update --tags ha_image_update first"
         - name: Tear-down non-HA mysql container
           when:
             - step|int == 1
@@ -412,31 +451,12 @@ outputs:
         - name: Mariadb fetch and retag container image for pacemaker
           when: step|int == 2
           block: &mysql_fetch_retag_container_tasks
-            - name: Get container galera image
-              set_fact:
-                galera_image: {get_attr: [RoleParametersValue, value, ContainerMysqlImage]}
-                galera_image_latest: *mysql_image_pcmklatest
-            - name: Pull latest galera images
-              command: "{{container_cli}} pull {{galera_image}}"
-              register: result
-              retries: 3
-              delay: 3
-              until: result.rc == 0
-            - name: Get previous galera image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{galera_image_latest}}"
-              register: old_galera_image_id
-              failed_when: false
-            - name: Get new galera image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{galera_image}}"
-              register: new_galera_image_id
             - name: Retag pcmklatest to latest galera image
               include_role:
                 name: tripleo_container_tag
               vars:
                 container_image: "{{galera_image}}"
                 container_image_latest: "{{galera_image_latest}}"
-              when:
-                - old_galera_image_id.stdout != new_galera_image_id.stdout
         - name: Ensure mariadb-server is not installed on the host
           when: step|int == 2
           yum:
@@ -641,7 +661,9 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-          block: *mysql_fetch_retag_container_tasks
+          block:
+            - block: *mysql_container_image_facts
+            - block: *mysql_fetch_retag_container_tasks
         - name: Check and upgrade Mysql database after major version upgrade
          # Note: during upgrade to Stein, a new pacemaker cluster is recreated,
          # controller nodes added sequentially to this new cluster, and the upgrade
