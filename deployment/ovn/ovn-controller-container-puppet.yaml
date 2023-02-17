@@ -134,7 +134,7 @@ parameters:
   OVNOfctrlWaitBeforeClear:
     description: >
       Sets the time ovn-controller will wait on startup before clearing all
-      openflow rules and installing the new ones.
+      openflow rules and installing the new ones, in ms.
     type: number
     default: 8000
   CertificateKeySize:
@@ -552,6 +552,37 @@ outputs:
             image: {get_param: ContainerOvnControllerConfigImage}
           when: step|int == 1
           tags: ovn
+        - name: Set ovn-ofctrl-wait-before-clear
+          when:
+            - step|int == 1
+          tags:
+            - ovn
+          become: true
+          vars:
+            timeout: {get_param: OVNOfctrlWaitBeforeClear}
+          command: "ovs-vsctl set Open_vSwitch . external_ids:ovn-ofctrl-wait-before-clear={{ timeout }}"
+          async: {get_param: OVNControllerUpdateTimeout}
+          poll: 0
+          register: ovs_set_wait_before_clear
+          loop: "{{ groups['ovn_controller'] | difference(groups['excluded_overcloud']) }}"
+          delegate_to: "{{ item }}"
+        - name: Was ovn-ofctrl-wait-before-clear successful
+          when:
+            - step|int == 1
+            - "'results' in ovs_set_wait_before_clear"
+          become: true
+          tags:
+            - ovn
+          delegate_to: "{{ async_result_item.item }}"
+          async_status:
+            jid: "{{ async_result_item.ansible_job_id }}"
+          loop: "{{ovs_set_wait_before_clear.results }}"
+          loop_control:
+            loop_var: "async_result_item"
+          register: async_poll_results
+          until: async_poll_results.finished
+          retries: {get_param: OVNControllerUpdateTimeout}
+          delay: 1
         - name: Update ovn_controller.
           when: step|int == 1
           tags: ovn
