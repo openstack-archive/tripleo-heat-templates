@@ -936,4 +936,23 @@ outputs:
                 network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 type: node
             - null
+      update_tasks:
+        block:
+        # To prevent minor update from 16.2.0 if nova_libvirt 16.2.0-55.1638436404 is present
+        # Resolves: rhbz#2119113
+          - name: Get nova_libvirt container information
+            become: true
+            register: nova_libvirt_container_version
+            podman_container_info:
+              name: nova_libvirt
+          - name: Set fact for nova_libvirt container image version
+            set_fact:
+              nova_libvirt_version: "{{ nova_libvirt_container_version['containers'][0]['Config']['Image'] | default('') }}"
+          - name: Fail if affected nova-libvirt version is detected
+            fail:
+              msg: "nova-libvirt container is used as version 16.2.0-55.1638436404 which does not satisfy constraints. Please follow https://access.redhat.com/solutions/6969430 before procedding with compute updates."
+            when: '"16.2.0-55.1638436404" in nova_libvirt_version'
+        when:
+          - container_cli == 'podman'
+          - step|int == 0
       upgrade_tasks: []
