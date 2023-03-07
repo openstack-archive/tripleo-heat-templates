@@ -476,19 +476,24 @@ outputs:
                   shell: |
                     NEXT_BOOT="$(efibootmgr -v | grep \\redhat | awk -F'[ t*]' '{print $2}')"
                     efibootmgr -n $NEXT_BOOT
-                # WA: some versions of grub2 fail to look for grubenv in /boot/grub2/grubenv
-                # In this case we copy the file instead of creating simlink making sure if
-                # this is the case than grubenv is still available for previous bootrecord.
-                - name: Stat /boot/grub2/grubenv
+                # replace /boot/grub2/grubenv with symlink to /boot/efi/EFI/redhat/grubenv
+                - name: Check if /boot/grub2/grubenv is symlink
                   stat:
-                    path: /boot/grub2/grubenv
-                  register: grubenv
-                - name: Copy /boot/grub2/grubenv to /boot/efi/EFI/redhat/grubenv
-                  when: grubenv.stat.islnk is defined and grubenv.stat.islnk == False
-                  copy:
-                    src: /boot/grub2/grubenv
-                    dest: /boot/efi/EFI/redhat/grubenv
-                    remote_src: true
+                      path: /boot/grub2/grubenv
+                  register: grub2_grubenv
+                - name: Check if /boot/efi/EFI/redhat/grubenv is symlink
+                  stat:
+                      path: /boot/efi/EFI/redhat/grubenv
+                  register: efi_grubenv
+                - name: Symlink /boot/grub2/grubenv to /boot/efi/EFI/redhat/grubenv
+                  when:
+                      - grub2_grubenv.stat.islnk is defined and grub2_grubenv.stat.islnk == False
+                      - efi_grubenv.stat.islnk is defined and efi_grubenv.stat.islnk == False
+                  file:
+                      src: /boot/efi/EFI/redhat/grubenv
+                      dest: /boot/grub2/grubenv
+                      state: link
+                      force: true
             - name: reboot to perform the upgrade
               reboot:
                 reboot_timeout: "{{upgrade_leapp_reboot_timeout}}"
@@ -710,3 +715,47 @@ outputs:
             enabled: yes
             state: started
           ignore_errors: true
+        # Fix UEFI systems that went through FFWD rhbz#2046456 and rhbz#1925078
+        - name: Check if system was booted via EFI
+          stat:
+            path: /sys/firmware/efi
+          when: step|int == 3
+          register: efi
+        - name: Check if red is in efibootmgr
+          register: efi_red
+          when: step|int == 3
+          failed_when: false
+          shell: |
+            efibootmgr | grep "red$"
+        - name: Check if red is in efibootmgr
+          register: efi_redhat
+          when: step|int == 3
+          failed_when: false
+          shell: |
+            efibootmgr | grep "Red Hat"
+        - name:
+          when:
+            - step|int == 3
+            - efi.stat.exists|bool
+            - efi_red.rc is defined
+            - efi_redhat.rc is defined
+            - efi_red.rc == 0
+            - efi_redhat.rc == 0
+          block:
+            - name: Check if /boot/grub2/grubenv is symlink
+              stat:
+                  path: /boot/grub2/grubenv
+              register: grub2_grubenv
+            - name: Check if /boot/efi/EFI/redhat/grubenv is symlink
+              stat:
+                  path: /boot/efi/EFI/redhat/grubenv
+              register: efi_grubenv
+            - name: Symlink /boot/grub2/grubenv to /boot/efi/EFI/redhat/grubenv
+              when:
+                  - grub2_grubenv.stat.islnk is defined and grub2_grubenv.stat.islnk == False
+                  - efi_grubenv.stat.islnk is defined and efi_grubenv.stat.islnk == False
+              file:
+                  src: /boot/efi/EFI/redhat/grubenv
+                  dest: /boot/grub2/grubenv
+                  state: link
+                  force: true
