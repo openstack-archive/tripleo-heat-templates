@@ -4,6 +4,10 @@ description: >
   Openstack Cinder NVMeOF backend
 
 parameters:
+  CinderEnableNVMeOFBackend:
+    default: false
+    description: Whether to enable or not the NVMeOF backend for Cinder
+    type: boolean
   CinderNVMeOFBackendName:
     type: string
     default: 'tripleo_nvmeof'
@@ -15,13 +19,16 @@ parameters:
     type: string
   CinderNVMeOFTargetPort:
     type: number
-    default: 4460
+    default: 4420
   CinderNVMeOFTargetHelper:
     type: string
     default: 'nvmet'
   CinderNVMeOFTargetProtocol:
-    type: string
     default: 'nvmet_rdma'
+    description: >
+      The target protocol, supported values are nvmet_rdma and nvmet_tcp.
+    constraints:
+      - allowed_values: ['nvmet_rdma', 'nvmet_tcp']
   CinderNVMeOFTargetPrefix:
     type: string
     default: 'nvme-subsystem'
@@ -60,9 +67,12 @@ outputs:
     description: Role data for the Cinder NVMeOF backend.
     value:
       service_name: cinder_backend_nvmeof
+      firewall_rules:
+        '120 LVM nvmet target':
+          dport: {get_param: CinderNVMeOFTargetPort}
       config_settings:
         map_merge:
-          - tripleo::profile::base::cinder::volume::cinder_enable_nvmeof_backend: true
+          - tripleo::profile::base::cinder::volume::cinder_enable_nvmeof_backend: {get_param: CinderEnableNVMeOFBackend}
             tripleo::profile::base::cinder::volume::nvmeof::volume_backend_name: {get_param: CinderNVMeOFBackendName}
             tripleo::profile::base::cinder::volume::nvmeof::target_port: {get_param: CinderNVMeOFTargetPort}
             tripleo::profile::base::cinder::volume::nvmeof::target_helper: {get_param: CinderNVMeOFTargetHelper}
@@ -76,6 +86,8 @@ outputs:
                   "%{lookup('$NETWORK')}"
                 params:
                   $NETWORK: {get_param: [ServiceNetMap, CinderIscsiNetwork]}
+            # This is also needed (in addition to tripleo::profile::base::cinder::volume::nvmeof::volume_backend_name)
+            cinder::backend::nvmeof::volume_backend_name: {get_param: CinderNVMeOFBackendName}
           - if:
             - not: {equals : [{get_param: CinderNVMeOFAvailabilityZone}, '']}
             - tripleo::profile::base::cinder::volume::nvmeof::backend_availability_zone: {get_param: CinderNVMeOFAvailabilityZone}
