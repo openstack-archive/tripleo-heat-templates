@@ -203,9 +203,6 @@ outputs:
               - '!all'
               - '!min'
               - 'distribution'
-          when: >-
-            ansible_facts['distribution'] is not defined or
-            ansible_facts['distribution_major_version'] is not defined
           tags:
            - always
 
@@ -316,6 +313,26 @@ outputs:
                 leapp answer --section remove_pam_pkcs11_module_check.confirm=True --add
                 # Required for TLS-Everywhere, switch from authconfig to authselect
                 leapp answer --section authselect_check.confirm=True --add
+            - name: WA for /boot/grub2/grubenv
+              when: upgrade_leapp_enabled
+              block:
+                - name: Check if /boot/grub2/grubenv is simlink
+                  stat:
+                      path: /boot/grub2/grubenv
+                  register: grub2_grubenv
+                - name: Check if /boot/efi/EFI/redhat/grubenv is simlink
+                  stat:
+                      path: /boot/efi/EFI/redhat/grubenv
+                  register: efi_grubenv
+                - name: Symlink /boot/grub2/grubenv to /boot/efi/EFI/redhat/grubenv
+                  when:
+                      - grub2_grubenv.stat.islnk is defined and grub2_grubenv.stat.islnk == False
+                      - efi_grubenv.stat.islnk is defined and efi_grubenv.stat.islnk == False
+                  file:
+                      src: /boot/efi/EFI/redhat/grubenv
+                      dest: /boot/grub2/grubenv
+                      state: link
+                      force: true
             - name: run leapp upgrade (download packages)
               shell: >
                 {% if upgrade_leapp_devel_skip|default(false) %}{{ upgrade_leapp_devel_skip }}{% endif %}
