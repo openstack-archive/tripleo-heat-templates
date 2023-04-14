@@ -152,6 +152,9 @@ resources:
   ContainersCommon:
     type: ../containers-common.yaml
 
+  CinderNVMeOF:
+    type: ./cinder-backend-nvmeof-puppet.yaml
+
 outputs:
   cinder_image_conversion_nfs_dir:
     description: The directory where cinder does its image conversion when the
@@ -163,24 +166,26 @@ outputs:
   cinder_common_host_prep_tasks:
     description: Common host prep tasks for cinder-volume and cinder-backup services
     value: &cinder_common_host_prep_tasks
-      - name: create fcontext entry for cinder data
-        community.general.sefcontext:
-          target: "/var/lib/cinder(/.*)?"
-          setype: container_file_t
-          state: present
-      - name: create persistent directories
-        file:
-          path: "{{ item.path }}"
-          state: directory
-          setype: "{{ item.setype }}"
-          mode: "{{ item.mode|default(omit) }}"
-        with_items:
-          - { 'path': /var/log/containers/cinder, 'setype': container_file_t, 'mode': '0750' }
-          - { 'path': /var/lib/cinder, 'setype': container_file_t }
-      - name: ensure ceph configurations exist
-        file:
-          path: {get_param: CephConfigPath}
-          state: directory
+      list_concat:
+      - - name: create fcontext entry for cinder data
+          community.general.sefcontext:
+            target: "/var/lib/cinder(/.*)?"
+            setype: container_file_t
+            state: present
+        - name: create persistent directories
+          file:
+            path: "{{ item.path }}"
+            state: directory
+            setype: "{{ item.setype }}"
+            mode: "{{ item.mode|default(omit) }}"
+          with_items:
+            - { 'path': /var/log/containers/cinder, 'setype': container_file_t, 'mode': '0750' }
+            - { 'path': /var/lib/cinder, 'setype': container_file_t }
+        - name: ensure ceph configurations exist
+          file:
+            path: {get_param: CephConfigPath}
+            state: directory
+      - {get_attr: [CinderNVMeOF, cinder_nvmeof_host_prep_tasks]}
 
   cinder_common_volumes:
     description: Common volumes for all cinder services
@@ -357,6 +362,7 @@ outputs:
     value:
       list_concat:
         - *cinder_common_volumes
+        - {get_attr: [CinderNVMeOF, cinder_nvmeof_volumes]}
         - {get_param: CinderVolumeOptVolumes}
         - - /var/lib/kolla/config_files/cinder_volume.json:/var/lib/kolla/config_files/config.json:ro
           - /var/lib/config-data/puppet-generated/iscsid/etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
@@ -403,6 +409,7 @@ outputs:
     value:
       list_concat:
         - *cinder_common_volumes
+        - {get_attr: [CinderNVMeOF, cinder_nvmeof_volumes]}
         - {get_param: CinderBackupOptVolumes}
         -
           - /var/lib/kolla/config_files/cinder_backup.json:/var/lib/kolla/config_files/config.json:ro
