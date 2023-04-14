@@ -95,21 +95,101 @@ outputs:
       service_name: ipaservice
       upgrade_tasks: []
       step_config: ''
+      ipa_registration_tasks:
+        - name: Get undercloud FQDN
+          delegate_to: "{{ groups['Undercloud'] | first }}"
+          set_fact:
+            undercloud_fqdn: "{{ ansible_facts['fqdn'] }}"
+        - include_role:
+            name: tripleo_ipa_registration
+            apply:
+              delegate_to: "{{ groups['Undercloud'] | first }}"
+              environment:
+                map_merge:
+                  - IPA_USER: "nova/{{ undercloud_fqdn }}"
+                    KRB5_CLIENT_KTNAME: {get_param: IdMNovaKeytab}
+                    KRB5CCNAME: {get_param: IdMNovaCredentialCache}
+                  - if:
+                    - idm_server_provided
+                    - IPA_HOST: {get_param: [IdMServer, 0]}
+          vars:
+            tripleo_ipa_enroll_base_server: {get_param: IdMEnrollBaseServer}
+            tripleo_ipa_delegate_server: "{{ inventory_hostname }}"
+            tripleo_ipa_base_server_fqdn:  "{{ fqdn_canonical }}"
+            tripleo_ipa_server_metadata: "{{ service_metadata_settings | to_json }}"
+          when: "'ipaservice' in group_names and 'excluded_overcloud' not in group_names"
+        - name: Enroll the node as an ipa client
+          vars:
+            ipaclient_install_packages: {get_param: IdMInstallClientPackages}
+            idm_enroll_base_server: {get_param: IdMEnrollBaseServer}
+          block:
+            - name: check if default.conf exists
+              stat:
+                path: /etc/ipa/default.conf
+              register: ipa_conf_exists
+            - name: install openssl-perl
+              become: true
+              package:
+                name: openssl-perl
+                state: present
+              when:
+                - ipaclient_install_packages|bool
+            - name: register as an ipa client
+              include_role:
+                name: ipaclient
+                apply:
+                  become: true
+              vars:
+                map_merge:
+                  - state: present
+                    ipaclient_otp: "{{ ipa_host_otp }}"
+                    ipaclient_mkhomedir: {get_param: MakeHomeDir}
+                    ipaclient_no_ntp: {get_param: IdMNoNtpSetup}
+                    ipaclient_force: yes
+                    ipaclient_hostname: "{{ fqdn_canonical }}"
+                    ansible_fqdn: "{{ ipaclient_hostname }}"
+                    ipaclients:
+                      - ipaclient_hostname
+                    #NOTE(xek): The following is a workaround till ipaclient is fixed to use ansible_facts
+                    # see: https://github.com/freeipa/ansible-freeipa/pull/517
+                    # TODO(alee) still needed?
+                    ansible_distribution: "{{ ansible_facts['distribution'] }}"
+                    ansible_distribution_major_version: "{{ ansible_facts['distribution_major_version'] }}"
+                    ansible_distribution_release: "{{ ansible_facts['distribution_release'] }}"
+                    ansible_distribution_version: "{{ ansible_facts['distribution_version'] }}"
+                    ansible_os_family: "{{ ansible_facts['os_family'] }}"
+                  - if:
+                    - idm_server_provided
+                    - ipaclient_servers: {get_param: IdMServer}
+                      ipaclient_domain: {get_param: IdMDomain}
+              when:
+                - idm_enroll_base_server|bool
+                - not ipa_conf_exists.stat.exists
+            - name: restart certmonger service
+              become: true
+              systemd:
+                state: restarted
+                daemon_reload: true
+                name: certmonger.service
+              when:
+                - idm_enroll_base_server|bool
+                - not ipa_conf_exists.stat.exists
+            - name: set discovered ipa realm
+              set_fact:
+                idm_realm:
+                  str_replace:
+                    template:
+                      "{{ lookup('ini', 'realm default=DEFAULT section=global file=/etc/ipa/default.conf')}}"
+                    params:
+                      DEFAULT:
+                        yaql:
+                          expression: $.data.toUpper()
+                          data: {get_param: IdMDomain}
+          when: "'ipaservice' in group_names and 'excluded_overcloud' not in group_names"
       external_deploy_tasks:
-        - name: add the ipa services for this node in step 1
+        - name: add the DNS entries into IPA in step 1
           when: step|int == 1
           block:
-            - name: Ensure ansible_fqdn is defined
-              set_fact:
-                ansible_fqdn: "{{ ansible_facts['fqdn'] }}"
-            - include_role:
-                name: tripleo_ipa_registration
-              vars:
-                tripleo_ipa_enroll_base_server: {get_param: IdMEnrollBaseServer}
-                tripleo_ipa_delegate_server: "{{ item }}"
-                tripleo_ipa_base_server_fqdn:  "{{ hostvars[item]['fqdn_canonical'] }}"
-                tripleo_ipa_server_metadata: "{{ hostvars[item]['service_metadata_settings'] | to_json }}"
-              loop: "{{ groups['ipaservice'] | difference(groups['excluded_overcloud']) }}"
             - include_role:
                 name: tripleo_ipa_dns
               vars:
@@ -124,87 +204,6 @@ outputs:
               - if:
                 - idm_server_provided
                 - IPA_HOST: {get_param: [IdMServer, 0]}
-        - name: enroll the node as an ipa client
-          #NOTE(xek): this is moved to external_deploy_tasks to make sure this happens before certificates are requested from certmonger
-          when: step|int == 1
-          vars:
-            ipaclient_install_packages: {get_param: IdMInstallClientPackages}
-            idm_enroll_base_server: {get_param: IdMEnrollBaseServer}
-          block:
-            - name: check if default.conf exists
-              delegate_to: "{{ item }}"
-              stat:
-                path: /etc/ipa/default.conf
-              register: ipa_conf_exists
-              loop: "{{ groups['ipaservice'] | difference(groups['excluded_overcloud']) }}"
-            - name: install openssl-perl
-              delegate_to: "{{ item }}"
-              become: true
-              package:
-                name: openssl-perl
-                state: present
-              loop: "{{ groups['ipaservice'] | difference(groups['excluded_overcloud']) }}"
-              when:
-                - ipaclient_install_packages|bool
-            - name: register as an ipa client
-              include_role:
-                name: ipaclient
-                apply:
-                  delegate_to: "{{ outer_item.0 }}"
-                  become: true
-              vars:
-                map_merge:
-                  - state: present
-                    ipaclient_otp: "{{ hostvars[outer_item.0]['ipa_host_otp'] }}"
-                    ipaclient_mkhomedir: {get_param: MakeHomeDir}
-                    ipaclient_no_ntp: {get_param: IdMNoNtpSetup}
-                    ipaclient_force: yes
-                    ipaclient_hostname: "{{ hostvars[outer_item.0]['fqdn_canonical'] }}"
-                    ansible_fqdn: "{{ ipaclient_hostname }}"
-                    ipaclients:
-                      - "{{ outer_item.0 }}"
-                    #NOTE(xek): The following is a workaround till ipaclient is fixed to use ansible_facts
-                    # see: https://github.com/freeipa/ansible-freeipa/pull/517
-                    ansible_distribution: "{{ ansible_facts['distribution'] }}"
-                    ansible_distribution_major_version: "{{ ansible_facts['distribution_major_version'] }}"
-                    ansible_distribution_release: "{{ ansible_facts['distribution_release'] }}"
-                    ansible_distribution_version: "{{ ansible_facts['distribution_version'] }}"
-                    ansible_os_family: "{{ ansible_facts['os_family'] }}"
-                  - if:
-                    - idm_server_provided
-                    - ipaclient_servers: {get_param: IdMServer}
-                      ipaclient_domain: {get_param: IdMDomain}
-              when:
-                - idm_enroll_base_server|bool
-                - not outer_item.1.stat.exists
-              loop: "{{ groups['ipaservice']|zip(ipa_conf_exists.results)|list | difference(groups['excluded_overcloud']) }}"
-              loop_control:
-                loop_var: outer_item
-            - name: restart certmonger service
-              delegate_to: "{{ item.0 }}"
-              become: true
-              systemd:
-                state: restarted
-                daemon_reload: true
-                name: certmonger.service
-              when:
-                - idm_enroll_base_server|bool
-                - not item.1.stat.exists
-              loop: "{{ groups['ipaservice']|zip(ipa_conf_exists.results)|list | difference(groups['excluded_overcloud']) }}"
-            - name: set discovered ipa realm
-              delegate_to: "{{ item }}"
-              delegate_facts: true
-              set_fact:
-                idm_realm:
-                  str_replace:
-                    template:
-                      "{{ lookup('ini', 'realm default=DEFAULT section=global file=/etc/ipa/default.conf')}}"
-                    params:
-                      DEFAULT:
-                        yaql:
-                          expression: $.data.toUpper()
-                          data: {get_param: IdMDomain}
-              loop: "{{ groups['ipaservice'] | difference(groups['excluded_overcloud']) }}"
       scale_tasks:
         - when: step|int == 1
           tags: down
