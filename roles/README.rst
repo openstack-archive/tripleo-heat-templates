@@ -163,6 +163,7 @@ Example
    * OS::TripleO::Services::CephExternal
    * OS::TripleO::Services::Collectd
    * OS::TripleO::Services::ComputeCeilometerAgent
+   * OS::TripleO::Services::CeilometerAgentIpmi
    * OS::TripleO::Services::ComputeNeutronCorePlugin
    * OS::TripleO::Services::ComputeNeutronL3Agent
    * OS::TripleO::Services::ComputeNeutronMetadataAgent
