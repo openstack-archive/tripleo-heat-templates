@@ -48,6 +48,13 @@ parameters:
     default: false
     description: Whether to enable or not the NVMeOF backend for Cinder
     type: boolean
+  CinderLVMConfigureVG:
+    default: true
+    description: >
+      Whether to configure the 'cinder-volumes' VG used by the LVM driver.
+      When disabled (set to False), the LVM driver will work as long as
+      the 'cinder-volumes' VG has been created through some other means.
+    type: boolean
   CinderLVMLoopDeviceSize:
     default: 10280
     description: The size of the loopback file used by the cinder LVM driver.
@@ -143,10 +150,12 @@ conditions:
         - {get_param: CinderImageConversionNfsShare}
         - ''
 
-  cinder_lvm_driver_enabled:
-    or:
-      - {get_param: CinderEnableIscsiBackend}
-      - {get_param: CinderEnableNVMeOFBackend}
+  cinder_configure_lvm:
+    and:
+      - {get_param: CinderLVMConfigureVG}
+      - or:
+        - {get_param: CinderEnableIscsiBackend}
+        - {get_param: CinderEnableNVMeOFBackend}
 
 resources:
   ContainersCommon:
@@ -279,7 +288,7 @@ outputs:
                   opts: "{{ image_conversion_nfs_options }}"
           - name: cinder_configure_lvm fact
             set_fact:
-              cinder_configure_lvm: {if: [cinder_lvm_driver_enabled, true, false]}
+              cinder_configure_lvm: {if: [cinder_configure_lvm, true, false]}
           - when: cinder_configure_lvm|bool
             block:
               - name: ensure LVM rpm dependencies are installed
