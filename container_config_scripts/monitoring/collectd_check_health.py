@@ -70,12 +70,12 @@ def fetch_container_health(containers):
             return proc.returncode, msg
 
         item = json.loads(o.decode())
-        if len(item['healthy']) > 0:
+        item['status'] = 'running' if item['status'] else 'stopped'
+        if len(item['healthy']) > 0 and item['status'] != 'stopped':
             item['status'] = item['healthy']
-        else:
-            item['status'] = 'running' if item['status'] else 'stopped'
 
-        item['healthy'] = int(item['healthy'] == 'healthy')
+        healthy = item['status'] in ('healthy', 'running')
+        item['healthy'] = int(healthy)
         out.append(item)
     return 0, out
 
