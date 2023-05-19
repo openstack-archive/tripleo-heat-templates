@@ -367,7 +367,47 @@ outputs:
           - if:
             - {get_param: EnableInternalTLS}
             - get_attr: [HAProxyInternalTLS, role_data, deploy_steps_tasks]
+
+      external_update_tasks:
+        - when: step|int == 1
+          tags: ha_image_update
+          block:
+            - block: &haproxy_container_image_facts
+              - name: Get haproxy image from pacemaker
+                become: true
+                register: xmllint_pcmk_haproxy_image
+                # retrieve info even when pacemaker is stopped
+                shell: 'xmllint --xpath "string(//bundle[@id=''haproxy-bundle'']/podman/@image)" /var/lib/pacemaker/cib/cib.xml'
+              - name: Get container haproxy image
+                set_fact:
+                  # container image to use for deployment
+                  haproxy_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
+                  # pacemaker bundle image name to use for deployment
+                  haproxy_image_latest: *haproxy_image_pcmklatest
+                  # image currently configured in pacemaker bundle
+                  pcmk_haproxy_image: '{{xmllint_pcmk_haproxy_image.stdout}}'
+              delegate_to: '{{ (groups["haproxy"] | difference(groups["excluded_overcloud"]))[0] }}'
+            - name: haproxy temporary pacemaker container tag in case of image switch
+              become: true
+              import_role:
+                name: tripleo_ha_image_update
+              vars:
+                tripleo_ha_image_update_node_names: '{{ groups["haproxy"] | difference(groups["excluded_overcloud"]) }}'
+                tripleo_ha_image_update_bundle: haproxy-bundle
+                tripleo_ha_image_update_new_image: '{{haproxy_image_latest}}'
+                tripleo_ha_image_update_old_image: '{{pcmk_haproxy_image}}'
+              when:
+                - (pcmk_haproxy_image != "")
+                - (pcmk_haproxy_image != haproxy_image_latest)
+
       update_tasks:
+        - block: *haproxy_container_image_facts
+          when: step|int in [0,2]
+        - name: Check for update of haproxy container image name
+          when: step|int == 0
+          assert:
+            that: pcmk_haproxy_image == haproxy_image_latest
+            fail_msg: "haproxy image change detected, run overcloud external-update --tags ha_image_update first"
         - name: Tear-down non-HA haproxy container
           when:
             - step|int == 1
@@ -425,31 +465,12 @@ outputs:
           when:
             - step|int == 2
           block: &haproxy_fetch_retag_container_tasks
-            - name: Get container haproxy image
-              set_fact:
-                haproxy_image: {get_attr: [RoleParametersValue, value, ContainerHAProxyImage]}
-                haproxy_image_latest: *haproxy_image_pcmklatest
-            - name: Pull latest haproxy images
-              command: "{{container_cli}} pull {{haproxy_image}}"
-              register: result
-              retries: 3
-              delay: 3
-              until: result.rc == 0
-            - name: Get previous haproxy image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{haproxy_image_latest}}"
-              register: old_haproxy_image_id
-              failed_when: false
-            - name: Get new haproxy image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{haproxy_image}}"
-              register: new_haproxy_image_id
             - name: Retag pcmklatest to latest haproxy image
               include_role:
                 name: tripleo_container_tag
               vars:
                 container_image: "{{haproxy_image}}"
                 container_image_latest: "{{haproxy_image_latest}}"
-              when:
-                - old_haproxy_image_id.stdout != new_haproxy_image_id.stdout
 
       post_update_tasks:
         - name: HAProxy bundle post update
@@ -601,4 +622,6 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-          block: *haproxy_fetch_retag_container_tasks
+          block:
+            - block: *haproxy_container_image_facts
+            - block: *haproxy_fetch_retag_container_tasks

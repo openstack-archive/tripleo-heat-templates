@@ -211,35 +211,55 @@ outputs:
                 tripleo_ha_wrapper_puppet_tags: 'pacemaker::resource::bundle,pacemaker::property,pacemaker::resource::ip,pacemaker::resource::ocf,pacemaker::constraint::order,pacemaker::constraint::colocation'
                 tripleo_ha_wrapper_puppet_debug: {get_param: ConfigDebug}
 
+      external_update_tasks:
+        - when: step|int == 1
+          tags: ha_image_update
+          block:
+            - block: &manila_share_container_image_facts
+              - name: Get manila_share image from pacemaker
+                become: true
+                register: xmllint_pcmk_manila_share_image
+                # retrieve info even when pacemaker is stopped
+                shell: 'xmllint --xpath "string(//bundle[@id=''openstack-manila-share'']/podman/@image)" /var/lib/pacemaker/cib/cib.xml'
+              - name: Get container manila_share image
+                set_fact:
+                  # container image to use for deployment
+                  manila_share_image: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
+                  # pacemaker bundle image name to use for deployment
+                  manila_share_image_latest: *manila_share_image_pcmklatest
+                  # image currently configured in pacemaker bundle
+                  pcmk_manila_share_image: '{{xmllint_pcmk_manila_share_image.stdout}}'
+              delegate_to: '{{ (groups["manila_share"] | difference(groups["excluded_overcloud"]))[0] }}'
+            - name: manila-share temporary pacemaker container tag in case of image switch
+              become: true
+              import_role:
+                name: tripleo_ha_image_update
+              vars:
+                tripleo_ha_image_update_node_names: '{{ groups["manila_share"] | difference(groups["excluded_overcloud"]) }}'
+                tripleo_ha_image_update_bundle: openstack-manila-share
+                tripleo_ha_image_update_new_image: '{{manila_share_image_latest}}'
+                tripleo_ha_image_update_old_image: '{{pcmk_manila_share_image}}'
+              when:
+                - (pcmk_manila_share_image != "")
+                - (pcmk_manila_share_image != manila_share_image_latest)
+
       update_tasks:
+        - block: *manila_share_container_image_facts
+          when: step|int in [0,2]
+        - name: Check for update of manila-share container image name
+          when: step|int == 0
+          assert:
+            that: pcmk_manila_share_image == manila_share_image_latest
+            fail_msg: "manila-share image change detected, run overcloud external-update --tags ha_image_update first"
         - name: manila_share fetch and retag container image for pacemaker
           when: step|int == 2
           block: &manila_share_fetch_retag_container_tasks
-            - name: Get container manila_share image
-              set_fact:
-                manila_share_image: {get_attr: [RoleParametersValue, value, ContainerManilaShareImage]}
-                manila_share_image_latest: *manila_share_image_pcmklatest
-            - name: Pull latest manila_share images
-              command: "{{container_cli}} pull {{manila_share_image}}"
-              register: result
-              retries: 3
-              delay: 3
-              until: result.rc == 0
-            - name: Get previous manila_share image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{manila_share_image_latest}}"
-              register: old_manila_share_image_id
-              failed_when: false
-            - name: Get new manila_share image id
-              shell: "{{container_cli}} inspect --format '{{'{{'}}.Id{{'}}'}}' {{manila_share_image}}"
-              register: new_manila_share_image_id
             - name: Retag pcmklatest to latest manila_share image
               include_role:
                 name: tripleo_container_tag
               vars:
                 container_image: "{{manila_share_image}}"
                 container_image_latest: "{{manila_share_image_latest}}"
-              when:
-                - old_manila_share_image_id.stdout != new_manila_share_image_id.stdout
 
       post_update_tasks:
         - name: Manila-share bundle post update
@@ -379,4 +399,6 @@ outputs:
         - name: Retag the pacemaker image if containerized
           when:
             - step|int == 3
-          block: *manila_share_fetch_retag_container_tasks
+          block:
+            - block: *manila_share_container_image_facts
+            - block: *manila_share_fetch_retag_container_tasks
