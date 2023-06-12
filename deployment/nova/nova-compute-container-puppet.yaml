@@ -684,8 +684,37 @@ resources:
               NovaLibvirtCPUMode: {get_param: NovaLibvirtCPUMode}
               NovaLibvirtCPUModels: {get_param: NovaLibvirtCPUModels}
               NovaLibvirtCPUModelExtraFlags: {get_param: NovaLibvirtCPUModelExtraFlags}
-              NovaComputeOptVolumes: {get_param: NovaComputeOptVolumes}
-              NovaComputeOptEnvVars: {get_param: NovaComputeOptEnvVars}
+              NovaComputeOptVolumes:
+                list_concat:
+                  - {get_attr: [ContainersCommon, volumes]}
+                  - {get_attr: [NovaLogging, volumes]}
+                  - {get_param: NovaComputeOptVolumes}
+                  -
+                    - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
+                    - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
+                    - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
+                    - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
+                    - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
+                    - /dev:/dev
+                    - /lib/modules:/lib/modules:ro
+                    - /run:/run
+                    - /var/lib/iscsi:/var/lib/iscsi:z
+                    - /var/lib/libvirt:/var/lib/libvirt:shared
+                    - /sys/class/net:/sys/class/net
+                    - /sys/bus/pci:/sys/bus/pci
+                    - /boot:/boot:ro
+                    - /var/lib/nova:/var/lib/nova:shared
+                  -
+                    if:
+                    - {equals: [{get_param: MultipathdEnable}, true]}
+                    - - /etc/multipath:/etc/multipath:z
+                      - /etc/multipath.conf:/etc/multipath.conf:ro
+                    - []
+              NovaComputeOptEnvVars:
+                map_merge:
+                  - {get_param: NovaComputeOptEnvVars}
+                  - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
+                  - LIBGUESTFS_BACKEND: direct
               NovaDisableImageDownloadToRbd: {get_param: NovaDisableImageDownloadToRbd}
               NovaLibvirtMaxQueues: {get_param: NovaLibvirtMaxQueues}
               NovaLiveMigrationPermitPostCopy: {get_param: NovaLiveMigrationPermitPostCopy}
@@ -936,37 +965,8 @@ outputs:
                       - - var-lib-nova-instances.mount
                       - []
                 healthcheck: {get_attr: [ContainersCommon, healthcheck_rpc_port]}
-                volumes:
-                  list_concat:
-                    - {get_attr: [ContainersCommon, volumes]}
-                    - {get_attr: [NovaLogging, volumes]}
-                    - {get_attr: [RoleParametersValue, value, nova_compute_opt_volumes]}
-                    -
-                      - /etc/ssh/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro
-                      - /var/lib/kolla/config_files/nova_compute.json:/var/lib/kolla/config_files/config.json:ro
-                      - /var/lib/config-data/puppet-generated/nova_libvirt:/var/lib/kolla/config_files/src:ro
-                      - /etc/iscsi:/var/lib/kolla/config_files/src-iscsid:ro
-                      - /etc/ceph:/var/lib/kolla/config_files/src-ceph:ro
-                      - /dev:/dev
-                      - /lib/modules:/lib/modules:ro
-                      - /run:/run
-                      - /var/lib/iscsi:/var/lib/iscsi:z
-                      - /var/lib/libvirt:/var/lib/libvirt:shared
-                      - /sys/class/net:/sys/class/net
-                      - /sys/bus/pci:/sys/bus/pci
-                      - /boot:/boot:ro
-                      - /var/lib/nova:/var/lib/nova:shared
-                    -
-                      if:
-                      - {equals: [{get_param: MultipathdEnable}, true]}
-                      - - /etc/multipath:/etc/multipath:z
-                        - /etc/multipath.conf:/etc/multipath.conf:ro
-                      - []
-                environment:
-                  map_merge:
-                    - {get_attr: [RoleParametersValue, value, nova_compute_opt_env_vars]}
-                    - KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
-                    - LIBGUESTFS_BACKEND: direct
+                volumes: {get_attr: [RoleParametersValue, value, nova_compute_opt_volumes]}
+                environment: {get_attr: [RoleParametersValue, value, nova_compute_opt_env_vars]}
             - if:
                 - is_not_additional_cell
                 - nova_wait_for_compute_service:
@@ -1258,6 +1258,8 @@ outputs:
         - name: Switch compute to hybrid state
           vars:
             nova_compute_image: {get_param: ContainerNovaComputeImage}
+            nova_compute_opt_volumes: {get_attr: [RoleParametersValue, value, nova_compute_opt_volumes]}
+            nova_compute_opt_env_vars: {get_attr: [RoleParametersValue, value, nova_compute_opt_env_vars]}
           tags:
             - never
             - nova_hybrid_state
@@ -1274,12 +1276,30 @@ outputs:
             - name: Implement the hybrid state (only if the compute is still Queens)
               when: hybrid_nova_compute.rc != 0
               block:
+                - name: Generated hybrid_nova_compute_script
+                  set_fact:
+                    hybrid_nova_compute_script: |
+                      {% set _environment = [] -%}
+                      {% set _volumes = [] -%}
+                      {% for k, v in  nova_compute_opt_env_vars.items() -%}
+                      {%   set _ = _environment.append(k + "=" + v) -%}
+                      {% endfor -%}
+                      {% for x in nova_compute_opt_volumes -%}
+                      {%   set _ = _volumes.append(x.split(':')[0] + ":" + x.split(':')[1]) -%}
+                      {% endfor -%}
+                      jq '.nova_compute.image = "{{ nova_compute_image }}"
+                      | .nova_compute.volumes = {{  _volumes | to_json | string }}
+                      | .nova_compute.environment = {{ _environment | to_json | string }}
+                      | {"nova_compute": .nova_compute }' \
+                      /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
+                      /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
+                - name: Save to a file
+                  copy:
+                    content: "{{ hybrid_nova_compute_script }}"
+                    dest: /var/tmp/hybrid_nova_compute.sh
+                    mode: 0777
                 - name: Update the nova_compute paunch image in config
-                  shell: |
-                    set -o pipefail
-                    jq '.nova_compute.image = "{{ nova_compute_image }}" | {"nova_compute": .nova_compute }' \
-                    /var/lib/tripleo-config/docker-container-startup-config-step_4.json >\
-                    /var/lib/tripleo-config/docker-container-hybrid_nova_compute.json
+                  shell: /var/tmp/hybrid_nova_compute.sh
                 # Nova compute will not work unless we ensure it will not connect against db and use messaging
                 - name: Remove database section from nova_compute config
                   ini_file:
