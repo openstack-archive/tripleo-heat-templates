@@ -353,4 +353,18 @@ outputs:
                 mode: '0755'
               when:
                 - octavia_post_deploy_stat.exists is defined and not octavia_post_deploy_stat.exists
-      upgrade_tasks: *ensure_start_up_files
+      upgrade_tasks:
+        - <<: *ensure_start_up_files
+        - name: pre-check to ensure redis is removed if the service is disabled
+          when:
+            - step|int == 0
+            - '"redis" not in enabled_services|list'
+            - '"pacemaker" in enabled_services|list'
+          become: true
+          shell: |
+            export CIB_file=/var/lib/pacemaker/cib/cib.xml
+            if crm_resource -r redis-bundle -q &>/dev/null; then
+              echo "Redis resource present in pacemaker but disabled by default in TripleO" >&2
+              echo "Delete the resource in pacemaker or enable the redis service before upgrading" >&2
+              exit 1
+            fi
