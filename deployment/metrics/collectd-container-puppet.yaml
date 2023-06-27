@@ -664,11 +664,38 @@ outputs:
             name: tripleo_provision_mcelog
           when: {get_param: CollectdEnableMcelog}
         - name: create podman socket for sensubility purposes
-          include_role:
-            name: tripleo_podman
-            tasks_from: tripleo_podman_service
-          vars:
-            tripleo_podman_socket_path: /var/lib/tripleo-podman/collectd/podman.sock
+          block:
+            - name: create podman socket and appropriate systemd service
+              include_role:
+                name: tripleo_podman
+                tasks_from: tripleo_podman_service
+              vars:
+                tripleo_podman_socket_path: /var/lib/tripleo-podman/collectd/podman.sock
+            - name: create systemd service for ensuring socket file ACL contains collectd
+              become: true
+              ansible.builtin.copy:
+                content: |
+                  [Unit]
+                  Description=ACL setting for /var/lib/tripleo-podman/collectd/podman.sock
+                  Requires=tripleo_collectd.service
+                  Before=tripleo_podman.service
+
+                  [Service]
+                  Type=oneshot
+                  ExecStart=/usr/bin/podman exec -it collectd setfacl -m m:rwx /run/podman/podman.sock
+                  ExecStart=/usr/bin/podman exec -it collectd setfacl -R -m u:collectd:rwx /run/podman
+                  ExecStart=/usr/bin/podman exec -it collectd setfacl -d -m u:collectd:rwx /run/podman
+                  Restart=on-failure
+                  RestartSec=5s
+
+                  [Install]
+                  WantedBy=multi-user.target
+                dest: "/etc/systemd/system/tripleo_podman_collectd_acl.service"
+                mode: 0644
+            - name: enable podman.sock ACL service
+              ansible.builtin.service:
+                name: tripleo_podman_collectd_acl.service
+                enabled: yes
           when:
             - enable_sensubility|bool
       update_tasks:
