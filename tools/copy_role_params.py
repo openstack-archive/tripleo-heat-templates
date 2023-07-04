@@ -68,85 +68,40 @@ def filter_out_f_2(pair, removeme=''):
     return False if key.endswith(removeme) else True
 
 
-def copy_role_parameters(env_files, rolename, new_role_env_file):
-    n_role_params_def = {}
-    n_role_res_registry = {}
-
-    for file in env_files:
-        if os.path.exists(file):
-            with open(file, 'r') as env_file:
-                contents = yaml.safe_load(env_file)
-                pd = contents.get('parameter_defaults', {})
-                if pd:
-                    for key, value in pd.items():
-                        if key.startswith(rolename):
-                            n_role_params_def[key] = value
-                rr = contents.get('resource_registry', {})
-                if rr:
-                    for key, value in rr.items():
-                        if key.startswith("OS::TripleO::{}:".format(rolename)):
-                            n_role_res_registry[key] = value
-    # We can have ComputeCount Compute1Count which
-    # means we have picked on multiple roles and as we
-    # cannot parse here for all role_specific tagged params
-    # we simply pick on Count: to figure out if we don't happen
-    # to have colision
-    role_count = []
-    filter_out = []
-    role_count = dict(filter(filter_count, n_role_params_def.items()))
-
-    if len(role_count) > 1:
-        for key in role_count:
-            if key != "{}Count".format(rolename):
-                filter_out.append(key[:-5])
-    for role in filter_out:
-        n_role_params_def = dict(filter(
-                                    lambda seq: filter_out_f(seq,
-                                                             rolename=role),
-                                    n_role_params_def.items()))
-    for word in ['Count',
-                 'HostnameFormat',
-                 'NetworkConfigTemplate',
-                 'ContainerImagePrepare',
-                 'UpgradeInitCommand']:
-        n_role_params_def = dict(filter(
-                                   lambda seq: filter_out_f_2(seq,
-                                                            removeme=word),
-                                    n_role_params_def.items()))
-    n_role_res_registry = dict(filter(
-                                    lambda seq: filter_out_reg(seq),
-                                    n_role_res_registry.items()))
-    with open(new_role_env_file, 'w') as new_file:
-        # I don't think we can blindly dump here, if one is empty we skip dumping
-        dump_var = {}
-        if (n_role_params_def != {}):
-            dump_var['parameter_defaults'] = n_role_params_def
-        if (n_role_res_registry != {}):
-            dump_var['resource_registry'] = n_role_res_registry
-        if (dump_var != {}):
-            yaml.dump(dump_var,
-                      new_file,
-                      default_flow_style=False)
+def special_merge(dict_1, dict_2):
+    dict_result = {**dict_1, **dict_2}
+    for key, value in dict_result.items():
+        if key in dict_1 and key in dict_2:
+            if (type(dict_1[key]) is list):
+                dict_result[key] = dict_1[key] + [value]
+            elif (type(dict_1[key]) is dict):
+                dict_result[key] = special_merge(dict_1[key], value)
+            else:
+                dict_result[key] = [value, dict_1[key]]
+    return dict_result
 
 
 def filter_role_parameters(env_files, rolename, new_role_env_file):
     n_role_params_def = {}
     n_role_res_registry = {}
-
+    pd = {}
+    rr = {}
     for file in env_files:
         if os.path.exists(file):
             with open(file, 'r') as env_file:
-                contents = yaml.safe_load(env_file)
-                pd = contents.get('parameter_defaults', {})
-                if pd:
-                    for key, value in pd.items():
-                        if key.startswith(rolename):
-                            n_role_params_def[key] = value
-                rr = contents.get('resource_registry', {})
-                if rr:
-                    for key, value in rr.items():
-                        if key.startswith("OS::TripleO::{}:".format(rolename)):
-                            n_role_res_registry[key] = value
+                data = yaml.safe_load(env_file)
+                par = data.get('parameter_defaults', {})
+                res = data.get('resource_registry', {})
+                rr = special_merge(rr, res)
+                pd = special_merge(pd, par)
+    if pd:
+        for key, value in pd.items():
+            if key.startswith(rolename):
+                n_role_params_def[key] = value
+    if rr:
+        for key, value in rr.items():
+            if key.startswith("OS::TripleO::{}:".format(rolename)):
+                n_role_res_registry[key] = value
     # We can have ComputeCount Compute1Count which
     # means we have picked on multiple roles and as we
     # cannot parse here for all role_specific tagged params
@@ -225,7 +180,6 @@ def parse_opts(argv):
 
 
 opts = parse_opts(sys.argv)
-
 parameters = filter_role_parameters(opts[0].e, opts[0].rolename_src, opts[0].output_file)
 parameters = rename_parameters(parameters, opts[0].rolename_src, opts[0].rolename_dst)
 write_parameters(parameters, opts[0].output_file)
