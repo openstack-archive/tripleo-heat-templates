@@ -158,6 +158,11 @@ def write_parameters(parameters, new_role_env_file):
             yaml.dump(dump_var,
                       new_file,
                       default_flow_style=False)
+        else:
+            dump_var['parameter_defaults'] = {}
+            yaml.dump(dump_var,
+                      new_file,
+                      default_flow_style=False)
 
 
 def parse_opts(argv):
