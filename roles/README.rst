@@ -78,6 +78,12 @@ Role Options
   check when it is not needed. Note that on non Red Hat environment
   this switch has no effect.
 
+* rhsm_enforce_multios: (string), optional, default to undefined, can be
+  set to "8.4" for instance. After a upgrade from 16.2 to 17.1 we can
+  be in a state where some compute roles are still on Red Hat 8.4. This
+  variable can be set to specify that value for those roles and
+  override the expected "9.2".
+
 Working with Roles
 ==================
 The tripleoclient provides a series of commands that can be used to view
