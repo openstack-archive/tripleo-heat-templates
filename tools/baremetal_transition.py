@@ -58,6 +58,8 @@ with open(opts.baremetal_deployment) as file:
             role_dst['count'] = 0
             role_dst['instances'] = []
             role_dst['name'] = opts.dst_role
+            hostname_format = "{}-%index%".format(role_dst['name'].lower())
+            role_dst['hostname_format'] = hostname_format
             baremetal.append(role_dst)
     for node2move in opts.nodes:
         for node in role_src['instances']:
