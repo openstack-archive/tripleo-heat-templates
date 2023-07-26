@@ -1274,9 +1274,6 @@ outputs:
                 - str_replace:
                     template: '/var/lib/nova/delay-nova-compute --delay DELAY --nova-binary'
                     params: { DELAY: {get_attr: [RoleParametersValue, value, nova_compute_startup_delay]} }
-              - if:
-                - {get_param: EnableInstanceHA}
-                - /var/lib/nova/instanceha/check-run-nova-compute
                 - /usr/bin/nova-compute
               - get_attr: [NovaLogging, cmd_extra_args]
           config_files:
@@ -1607,9 +1604,6 @@ outputs:
             file:
               path: {get_param: CephConfigPath}
               state: directory
-          - name: is Instance HA enabled
-            set_fact:
-              instance_ha_enabled: {get_param: EnableInstanceHA}
           - name: enable virt_sandbox_use_netlink for healthcheck
             seboolean:
               name: virt_sandbox_use_netlink
@@ -1618,24 +1612,6 @@ outputs:
             when:
               - ansible_facts.selinux is defined
               - ansible_facts.selinux.status == "enabled"
-          - name: install Instance HA recovery script
-            when: instance_ha_enabled|bool
-            block:
-            - name: prepare Instance HA script directory
-              file:
-                path: /var/lib/nova/instanceha
-                state: directory
-            - name: install Instance HA script that runs nova-compute
-              copy:
-                content: {get_file: ../../scripts/check-run-nova-compute}
-                dest: /var/lib/nova/instanceha/check-run-nova-compute
-                mode: 0755
-            - name: Get list of instance HA compute nodes
-              command: hiera -c /etc/puppet/hiera.yaml compute_instanceha_short_node_names
-              register: iha_nodes
-            - name: If instance HA is enabled on the node activate the evacuation completed check
-              file: path=/var/lib/nova/instanceha/enabled state=touch
-              when: iha_nodes.stdout|lower is search('"'+ansible_facts['hostname']|lower+'"')
           - name: Do we prepend nova startup with a delay
             set_fact:
               nova_compute_delay: {get_attr: [RoleParametersValue, value, nova_compute_startup_delay]}
