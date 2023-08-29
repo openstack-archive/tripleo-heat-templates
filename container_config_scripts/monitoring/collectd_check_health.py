@@ -20,10 +20,11 @@ import shutil
 import subprocess
 import sys
 
+from pkg_resources import packaging
+
 
 SOCKET = "unix:/run/podman/podman.sock"
-FORMAT = ("{service: .Name, container: .Id, status: .State.Running, "
-         "healthy: .State.Health.Status}")
+BASE_FORMAT = "{service: .Name, container: .Id, status: .State.Running, "
 SKIP_LIST = ['_bootstrap', 'container-puppet-', '_db_sync',
              '_ensure_', '_fix_', '_init_', '_map_', '_wait_',
              'mysql_data_ownership', 'configure_cms_options']
@@ -55,6 +56,19 @@ def execute(cmd, workdir: str = None,
 
 
 def fetch_container_health(containers):
+    proc = execute([shutil.which('podman-remote'),
+                    '--url', SOCKET, 'version',
+                    '--format', r'{{.Server.Version}}'])
+    o, e = proc.communicate()
+    try:
+        if packaging.version.parse(o.decode().strip()) >= packaging.version.parse("4.0.0"):
+            fmt = BASE_FORMAT + "healthy: .State.Health.Status}"
+        else:
+            fmt = BASE_FORMAT + "healthy: .State.Healthcheck.Status}"
+    except Exception:
+        # keep podman-4.0.0+ format in case of version decoding error
+        fmt = BASE_FORMAT + "healthy: .State.Health.Status}"
+
     out = []
     for cont in set(containers.split('\n')) - set(SKIP_LIST):
         if not cont:
@@ -62,7 +76,7 @@ def fetch_container_health(containers):
         proc = execute([
             [shutil.which('podman-remote'),
                 '--url', SOCKET, 'inspect', cont],
-            [shutil.which('jq'), '.[] | %s' % FORMAT]
+            [shutil.which('jq'), '.[] | %s' % fmt]
         ])
         o, e = proc.communicate()
         if proc.returncode != 0:
