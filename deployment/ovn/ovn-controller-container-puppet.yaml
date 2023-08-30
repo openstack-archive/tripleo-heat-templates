@@ -205,7 +205,10 @@ conditions:
       - not: {equals: [{get_param: [RoleParameters, OVNContainerCpusetCpus]}, '' ]}
   key_size_override_set:
     not: {equals: [{get_param: ContainerOvnCertificateKeySize}, '']}
-  az_ovn_unset: {equals: [{get_param: OVNAvailabilityZone}, []]}
+  az_ovn_unset:
+    and:
+      - {equals: [{get_param: OVNAvailabilityZone}, []]}
+      - {equals: [{get_param: [RoleParameters, OVNAvailabilityZone]}, '']}
 
 resources:
 
@@ -226,11 +229,7 @@ resources:
                 if:
                   - az_ovn_unset
                   - OVNCMSOptions
-                  - list_join:
-                    - ''
-                    - - OVNCMSOptions
-                      - ",availability-zones="
-                      - {get_param: OVNAvailabilityZone}
+                  - OVNCMSOptionsMerged
               ovn::controller::ovn_encap_tos: OVNEncapTos
               vswitch::ovs::enable_hw_offload: OvsHwOffload
               container_cpuset_cpus: OVNContainerCpusetCpus
@@ -240,6 +239,24 @@ resources:
           - values:
               NeutronBridgeMappings: {get_param: NeutronBridgeMappings}
               OVNCMSOptions: {get_param: OVNCMSOptions}
+              OVNCMSOptionsMerged:
+                  list_join:
+                    - ''
+                    - - str_replace:
+                          template: $OVNCMSOptions
+                          params:
+                            if:
+                              - not: {equals: [{get_param: [RoleParameters, OVNCMSOptions]}, '']}
+                              - $OVNCMSOptions: {get_param: [RoleParameters, OVNCMSOptions]}
+                              - $OVNCMSOptions: {get_param: OVNCMSOptions}
+                      - str_replace:
+                          template: ",availability-zones=$OVNAvailabilityZone"
+                          params:
+                            if:
+                              - not: {equals: [{get_param: [RoleParameters, OVNAvailabilityZone]}, '']}
+                              - $OVNAvailabilityZone: {get_param: [RoleParameters, OVNAvailabilityZone]}
+                              - $OVNAvailabilityZone:
+                                  list_join: [',', {get_param: OVNAvailabilityZone}]
               OVNEncapTos: {get_param: OVNEncapTos}
               OvsHwOffload: {get_param: OvsHwOffload}
               OVNContainerCpusetCpus: {get_param: OVNContainerCpusetCpus}
