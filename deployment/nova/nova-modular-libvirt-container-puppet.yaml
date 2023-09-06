@@ -605,8 +605,11 @@ outputs:
                   - label=type:spc_t
                   - label=filetype:container_share_t
                 restart: always
-                depends_on:
-                  - tripleo_nova_virtlogd.service
+                depends_on: &virtlog_depends_on
+                  - if:
+                      - {get_param: NovaEnableVirtlogdContainerWrapper}
+                      - tripleo_nova_virtlogd_wrapper.service
+                      - tripleo_nova_virtlogd.service
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 volumes:
@@ -630,8 +633,7 @@ outputs:
                  - label=type:spc_t
                  - label=filetype:container_share_t
                 restart: always
-                depends_on:
-                  - tripleo_nova_virtlogd.service
+                depends_on: *virtlog_depends_on
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 volumes:
@@ -655,8 +657,7 @@ outputs:
                   - label=type:spc_t
                   - label=filetype:container_share_t
                 restart: always
-                depends_on:
-                  - tripleo_nova_virtlogd.service
+                depends_on: *virtlog_depends_on
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 volumes:
@@ -680,8 +681,7 @@ outputs:
                   - label=type:spc_t
                   - label=filetype:container_share_t
                 restart: always
-                depends_on:
-                  - tripleo_nova_virtlogd.service
+                depends_on: *virtlog_depends_on
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 volumes:
@@ -706,8 +706,7 @@ outputs:
                   - label=type:spc_t
                   - label=filetype:container_share_t
                 restart: always
-                depends_on:
-                  - tripleo_nova_virtlogd.service
+                depends_on: *virtlog_depends_on
                 environment:
                   KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
                 volumes:
@@ -1025,13 +1024,34 @@ outputs:
                 network: {get_param: [ServiceNetMap, NovaLibvirtNetwork]}
                 type: node
       upgrade_tasks:
-        - name: nova_libvirt_container_tmpfile_cleanup
-          when: step|int == 1
-          block: &nova_libvirt_container_tmpfile_cleanup
-            - name: Remove old tmpfiles.d config
-              file:
-                path: /etc/tmpfiles.d/var-run-libvirt.conf
-                state: absent
+        list_concat:
+          - - name: nova_libvirt_container_tmpfile_cleanup
+              when: step|int == 1
+              block: &nova_libvirt_container_tmpfile_cleanup
+                - name: Remove old tmpfiles.d config
+                  file:
+                    path: /etc/tmpfiles.d/var-run-libvirt.conf
+                    state: absent
+          - if:
+            - {get_param: NovaEnableVirtlogdContainerWrapper}
+            - - name: Switch virtlogd image before system upgrade
+                when: step|int == 1
+                tags:
+                  - never
+                  - system_upgrade
+                block:
+                  - name: Get container virtlogd image
+                    set_fact:
+                      # container image to use for deployment
+                      virtlogd_image: {get_attr: [RoleParametersValue, value, ContainerNovaLibvirtImage]}
+                  - name: Get running image version
+                    shell: |
+                      podman ps --filter name=^nova_virtlogd$ --format "{% raw %}{{ .Image }}{% endraw %}"
+                    register: old_virtlogd_image
+                  - name: Switch running image to new image in wrapper script
+                    shell: |
+                      sed -i -e 's|{{ old_virtlogd_image.stdout }}|{{ virtlogd_image }}|' /var/lib/container-config-scripts/virtlogd_wrapper
+                    when: old_virtlogd_image.stdout != virtlogd_image
       update_tasks:
         - name: nova_libvirt_container_tmpfile_cleanup
           when: step|int == 1
