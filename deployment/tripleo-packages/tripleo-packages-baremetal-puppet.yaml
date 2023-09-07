@@ -320,12 +320,25 @@ outputs:
                     src: /tmp/workaround_1925078_redhat/
                     dest: /boot/efi/EFI/redhat/
                     remote_src: true
+                - name: Get lsblk for efi partition
+                  shell: |
+                    # in multipath case we see multiple records for same volume
+                    lsblk -P -o NAME,PKNAME,FSTYPE,MOUNTPOINT,UUID,PARTUUID | grep {{ efi_dev.stdout }} | sort -u
+                  register: lsblk_entry
+                - set_fact:
+                    "{{ item.split('=')[0] }}": "{{ item.split('=')[1].replace('\"','') }}"
+                  loop: "{{ lsblk_entry.stdout.split(' ') }}"
+                - name: Get parted output for device
+                  shell: |
+                    parted -m '/dev/{{ PKNAME }}' print | grep boot | cut -d: -f1
+                  register: parted_entry
                 - name: Create boot record
                   shell: |
-                    DEVICE_PATH="$(blkid -t TYPE=vfat | grep -i efi | cut -d ':' -f1)"
-                    DEVICE="$(lsblk -no pkname $DEVICE_PATH)"
-                    PARTITION="$(echo $DEVICE_PATH | awk '{print $NF}' FS=/$DEVICE)"
-                    efibootmgr -c -L 'Red Hat Enterprise Linux' -d $(echo $DEVICE_PATH | sed s/$PARTITION\$//) -p $PARTITION -l '\EFI\redhat\shimx64.efi'
+                    efibootmgr -c \
+                    -L 'Red Hat Enterprise Linux' \
+                    -d '/dev/{{ PKNAME }}' \
+                    -p '{{ parted_entry.stdout }}' \
+                    -l '\EFI\redhat\shimx64.efi'
                 - name: Create grub config file
                   command: grub2-mkconfig -o /boot/efi/EFI/redhat/grub.cfg
                 - name: Remove btrfs module in case fuse just loaded it
