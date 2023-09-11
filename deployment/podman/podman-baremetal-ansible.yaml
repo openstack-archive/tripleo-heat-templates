@@ -87,55 +87,55 @@ outputs:
       host_prep_tasks:
         - name: Install and configure Podman
           block: &install_and_configure_podman
-          - name: Set login facts
-            no_log: true
-            set_fact:
-              container_registry_insecure_registries:
-                if:
-                  - insecure_registry_is_empty
-                  - []
-                  - {get_param: DockerInsecureRegistryAddress}
-              container_registry_login: {get_param: ContainerImageRegistryLogin}
-              # default that is overwritten by the heat -> dict conversion
-              container_registry_logins: {}
-              container_registry_logins_json: {get_param: ContainerImageRegistryCredentials}
-              container_default_pids_limit: {get_param: ContainerDefaultPidsLimit}
-              container_events_logger_mechanism: {get_param: ContainerDefaultEventsLogger}
+            - name: Set login facts
+              no_log: true
+              set_fact:
+                container_registry_insecure_registries:
+                  if:
+                    - insecure_registry_is_empty
+                    - []
+                    - {get_param: DockerInsecureRegistryAddress}
+                container_registry_login: {get_param: ContainerImageRegistryLogin}
+                # default that is overwritten by the heat -> dict conversion
+                container_registry_logins: {}
+                container_registry_logins_json: {get_param: ContainerImageRegistryCredentials}
+                container_default_pids_limit: {get_param: ContainerDefaultPidsLimit}
+                container_events_logger_mechanism: {get_param: ContainerDefaultEventsLogger}
 
-          - name: Convert logins json to dict
-            no_log: true
-            set_fact:
-              container_registry_logins: "{{ container_registry_logins_json | from_json }}"
-            when:
-              - container_registry_logins_json is string
-              - container_registry_login | bool
-              - (container_registry_logins_json | length) > 0
+            - name: Convert logins json to dict
+              no_log: true
+              set_fact:
+                container_registry_logins: "{{ container_registry_logins_json | from_json }}"
+              when:
+                - container_registry_logins_json is string
+                - container_registry_login | bool
+                - (container_registry_logins_json | length) > 0
 
-          - name: Set registry logins
-            no_log: true
-            set_fact:
-              container_registry_logins: "{{ container_registry_logins_json }}"
-            when:
-              - container_registry_logins_json is mapping
-              - container_registry_login | bool
-              - (container_registry_logins_json | length) > 0
+            - name: Set registry logins
+              no_log: true
+              set_fact:
+                container_registry_logins: "{{ container_registry_logins_json }}"
+              when:
+                - container_registry_logins_json is mapping
+                - container_registry_login | bool
+                - (container_registry_logins_json | length) > 0
 
-          - name: Run podman install
-            include_role:
-              name: tripleo_podman
-              tasks_from: tripleo_podman_install.yml
-            vars:
-              tripleo_container_registry_insecure_registries: "{{ container_registry_insecure_registries }}"
-              tripleo_container_default_pids_limit: "{{ container_default_pids_limit }}"
-              tripleo_container_events_logger_mechanism: "{{ container_events_logger_mechanism }}"
+            - name: Run podman install
+              include_role:
+                name: tripleo_podman
+                tasks_from: tripleo_podman_install.yml
+              vars:
+                tripleo_container_registry_insecure_registries: "{{ container_registry_insecure_registries }}"
+                tripleo_container_default_pids_limit: "{{ container_default_pids_limit }}"
+                tripleo_container_events_logger_mechanism: "{{ container_events_logger_mechanism }}"
 
-          - name: Run podman login
-            include_role:
-              name: tripleo_podman
-              tasks_from: tripleo_podman_login.yml
-            vars:
-              tripleo_container_registry_logins: "{{ container_registry_logins }}"
-              tripleo_container_registry_login: "{{ container_registry_login | bool }}"
+            - name: Run podman login
+              include_role:
+                name: tripleo_podman
+                tasks_from: tripleo_podman_login.yml
+              vars:
+                tripleo_container_registry_logins: "{{ container_registry_logins }}"
+                tripleo_container_registry_login: "{{ container_registry_login | bool }}"
 
         - if:
           - systemd_drop_in_dependencies_enabled
@@ -180,7 +180,7 @@ outputs:
       service_config_settings: {}
 
       upgrade_tasks:
-        - name: Run podman install
+        - name: Configure Podman registry
           when:
             - step|int == 1
           block:
@@ -191,19 +191,10 @@ outputs:
                 dest: /etc/hosts
                 line: "{{ undercloud_hosts_entries | join('') }}"
                 state: present
-            - name: Set container_registry_insecure_registries fact.
-              set_fact:
-                container_registry_insecure_registries:
-                  if:
-                    - insecure_registry_is_empty
-                    - []
-                    - {get_param: DockerInsecureRegistryAddress}
-            - include_role:
-                name: tripleo_podman
-                tasks_from: tripleo_podman_install.yml
-              vars:
-                tripleo_container_registry_insecure_registries: "{{ container_registry_insecure_registries }}"
-
+        - name: Run podman install
+          when:
+            - step|int == 1
+          block: *install_and_configure_podman
         - name: system_upgrade_prepare step 2
           tags:
             - never
