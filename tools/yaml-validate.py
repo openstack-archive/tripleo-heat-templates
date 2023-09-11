@@ -1362,6 +1362,8 @@ def validate_upgrade_tasks(upgrade_tasks):
             return validate_upgrade_tasks(upgrade_tasks['list_concat'][1])
         elif upgrade_tasks.get('get_attr'):
             return 0
+        elif upgrade_tasks.get('if'):
+            return 0
 
     for task in upgrade_tasks:
         task_name = task.get("name", "")
