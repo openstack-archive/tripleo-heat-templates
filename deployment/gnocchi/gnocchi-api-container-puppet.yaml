@@ -178,6 +178,22 @@ resources:
               ContainerGnocchiConfigImage: {get_param: ContainerGnocchiConfigImage}
 
 outputs:
+  gnocchi_api_host_prep_and_system_upgrade_post_tasks:
+    description: Common host_prep and system_upgrade post tasks for gnocchi_api
+    value: &gnocchi_api_host_prep_and_system_upgrade_post_tasks
+      - name: Mount Gnocchi NFS on host
+        vars:
+          nfs_backend_enabled: {get_param: GnocchiNfsEnabled}
+          nfs_share: {get_param: GnocchiNfsShare}
+          nfs_options: {get_param: GnocchiNfsOptions}
+          file_base_path: {get_param: GnocchiFileBasePath}
+        mount:
+          name: "{{file_base_path}}"
+          state: mounted
+          src: "{{nfs_share}}"
+          fstype: nfs
+          opts: "{{nfs_options}}"
+        when: nfs_backend_enabled
   role_data:
     description: Role data for the gnocchi API role.
     value:
@@ -434,38 +450,56 @@ outputs:
             environment:
               KOLLA_CONFIG_STRATEGY: COPY_ALWAYS
       host_prep_tasks:
-        - name: create logs directory
-          file:
-            path: "{{ item.path }}"
-            state: directory
-            setype: "{{ item.setype }}"
-            mode: "{{ item.mode|default(omit) }}"
-          with_items:
-            - { 'path': /var/log/containers/gnocchi, 'setype': container_file_t, 'mode': '0750' }
-            - { 'path': /var/log/containers/httpd/gnocchi-api, 'setype': container_file_t, 'mode': '0750' }
-        - name: Mount Gnocchi NFS on host
-          vars:
-            nfs_backend_enabled: {get_param: GnocchiNfsEnabled}
-            nfs_share: {get_param: GnocchiNfsShare}
-            nfs_options: {get_param: GnocchiNfsOptions}
-            file_base_path: {get_param: GnocchiFileBasePath}
-          mount:
-            name: "{{file_base_path}}"
-            state: mounted
-            src: "{{nfs_share}}"
-            fstype: nfs
-            opts: "{{nfs_options}}"
-          when: nfs_backend_enabled
-        - name: ensure GnocchiFileBasePath exists
-          file:
-            path: {get_param: GnocchiFileBasePath}
-            state: directory
-            setype: container_file_t
-        - name: ensure ceph configurations exist
-          file:
-            path: {get_param: CephConfigPath}
-            state: directory
-      upgrade_tasks: []
+        list_concat:
+          - - name: create logs directory
+              file:
+                path: "{{ item.path }}"
+                state: directory
+                setype: "{{ item.setype }}"
+                mode: "{{ item.mode|default(omit) }}"
+              with_items:
+                - { 'path': /var/log/containers/gnocchi, 'setype': container_file_t, 'mode': '0750' }
+                - { 'path': /var/log/containers/httpd/gnocchi-api, 'setype': container_file_t, 'mode': '0750' }
+          - *gnocchi_api_host_prep_and_system_upgrade_post_tasks
+          - - name: ensure GnocchiFileBasePath exists
+              file:
+                path: {get_param: GnocchiFileBasePath}
+                state: directory
+                setype: container_file_t
+            - name: ensure ceph configurations exist
+              file:
+                path: {get_param: CephConfigPath}
+                state: directory
+      upgrade_tasks:
+        - name: gnocchi-api pre system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 3
+            - upgrade_leapp_enabled
+          block:
+            - name: Unmount Gnocchi NFS share
+              vars:
+                nfs_backend_enabled: {get_param: GnocchiNfsEnabled}
+                file_base_path: {get_param: GnocchiFileBasePath}
+              mount:
+                name: "{{file_base_path}}"
+                state: absent
+                fstype: nfs
+              when: nfs_backend_enabled
+        - name: gnocchi-api post system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 5
+            - upgrade_leapp_enabled
+          block: *gnocchi_api_host_prep_and_system_upgrade_post_tasks
       metadata_settings:
         get_attr: [ApacheServiceBase, role_data, metadata_settings]
       deploy_steps_tasks:

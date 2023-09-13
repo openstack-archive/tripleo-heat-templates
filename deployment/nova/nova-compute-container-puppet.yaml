@@ -1116,6 +1116,22 @@ resources:
               ContainerNovaLibvirtConfigImage: {get_param: ContainerNovaLibvirtConfigImage}
 
 outputs:
+  nova_compute_host_prep_and_system_upgrade_post_tasks:
+    description: Common host_prep and system_upgrade post tasks for nova_compute
+    value: &nova_compute_host_prep_and_system_upgrade_post_tasks
+      - name: Mount Nova NFS Share
+        vars:
+          nfs_backend_enable: {get_attr: [RoleParametersValue, value, nfs_backend_enable]}
+          nfs_share: {get_attr: [RoleParametersValue, value, nfs_share]}
+          nfs_options: {get_attr: [RoleParametersValue, value, nfs_options]}
+          nfs_vers: {get_attr: [RoleParametersValue, value, nfs_vers]}
+        mount:
+          name: /var/lib/nova/instances
+          state: mounted
+          fstype: nfs4
+          src: "{{nfs_share}}"
+          opts: "_netdev,bg,{{nfs_options}},nfsvers={{nfs_vers}}"
+        when: nfs_backend_enable|bool
   role_data:
     description: Role data for the Nova Compute service.
     value:
@@ -1468,20 +1484,8 @@ outputs:
                 d /run/nova 0777 root root - -
           - name: create tempfiles
             command: systemd-tmpfiles --create
-          - name: Mount Nova NFS Share
-            vars:
-              nfs_backend_enable: {get_attr: [RoleParametersValue, value, nfs_backend_enable]}
-              nfs_share: {get_attr: [RoleParametersValue, value, nfs_share]}
-              nfs_options: {get_attr: [RoleParametersValue, value, nfs_options]}
-              nfs_vers: {get_attr: [RoleParametersValue, value, nfs_vers]}
-            mount:
-              name: /var/lib/nova/instances
-              state: mounted
-              fstype: nfs4
-              src: "{{nfs_share}}"
-              opts: "_netdev,bg,{{nfs_options}},nfsvers={{nfs_vers}}"
-            when: nfs_backend_enable|bool
-          - name: is Nova Resume Guests State On Host Boot enabled
+        - *nova_compute_host_prep_and_system_upgrade_post_tasks
+        - - name: is Nova Resume Guests State On Host Boot enabled
             set_fact:
               resume_guests_state_on_host_boot_enabled: {get_attr: [RoleParametersValue, value, resume_guests_state_on_host_boot]}
           - name: install libvirt-guests systemd unit file (docker)
@@ -1733,6 +1737,34 @@ outputs:
             state: removed
           failed_when: false
           when: step|int == 2
+        - name: nova_compute pre system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 3
+            - upgrade_leapp_enabled
+          block:
+            - name: Unmount Nova NFS Share
+              vars:
+                nfs_backend_enable: {get_attr: [RoleParametersValue, value, nfs_backend_enable]}
+              mount:
+                name: /var/lib/nova/instances
+                state: absent
+                fstype: nfs4
+              when: nfs_backend_enable|bool
+        - name: nova_compute post system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 5
+            - upgrade_leapp_enabled
+          block: *nova_compute_host_prep_and_system_upgrade_post_tasks
       update_tasks:
         - name: Remove openstack-nova-compute and python-nova package during upgrade
           package:
