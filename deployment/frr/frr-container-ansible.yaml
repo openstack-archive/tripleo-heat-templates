@@ -170,6 +170,10 @@ parameters:
     default: ''
     description: Set source ip for ipv6 traffic (optional)
     type: string
+  FrrConvergeTimeout:
+    default: 10
+    description: Time needed for FRR to populate the routing table after a restart.
+    type: number
 
 resources:
   RoleParametersValue:
@@ -239,6 +243,7 @@ outputs:
             image: {get_attr: [RoleParametersValue, value, ContainerFrrImage]}
             net: host
             restart: always
+            post_stop_exec: '/usr/bin/sleep 10'
             healthcheck:
               test: /openstack/healthcheck
             cap_add:
@@ -317,5 +322,26 @@ outputs:
             tripleo_container_manage_config_patterns: "frr.json"
             tripleo_container_manage_systemd_order: true
             tripleo_container_manage_clean_orphans: false
-      update_tasks: []
+        - name: Wait to give FRR time to converge
+          wait_for:
+            timeout: {get_param: FrrConvergeTimeout}
+      update_tasks:
+        - name: Update FRR
+          when:
+            - step|int == 0
+          block:
+            - name: Update FRR container
+              include_role:
+                name: tripleo_container_manage
+              vars:
+                tripleo_container_manage_config: "/var/lib/tripleo-config/container-startup-config/step_0"
+                tripleo_container_manage_config_id: "frr"
+                tripleo_container_manage_config_patterns: "frr.json"
+                tripleo_container_manage_systemd_order: true
+                tripleo_container_manage_clean_orphans: false
+                # workaround frr restart issue rhbz#2193145
+                tripleo_container_manage_systemd_teardown: true
+            - name: Wait to give FRR time to converge
+              wait_for:
+                timeout: {get_param: FrrConvergeTimeout}
       upgrade_tasks: []
