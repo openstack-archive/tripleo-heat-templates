@@ -696,38 +696,20 @@ outputs:
           when:
             - step|int == 2
             - ovs_upgrade.changed|bool
-        # Exclude ansible until https://github.com/ansible/ansible/issues/56636
-        # is available
-        - name: Update all packages
-          when:
-            - step|int == 3
-            - not skip_package_update|bool
-          yum:
-            name: '*'
-            state: latest
-            exclude: ansible
-        # This is failsafe unless openvswitch package does something
-        # to the systemd service state.
-        - name: Ensure openvswitch is running after update
-          when: step|int == 3
-          service:
-            name: openvswitch
-            enabled: yes
-            state: started
-          ignore_errors: true
         # Fix UEFI systems that went through FFWD rhbz#2046456 and rhbz#1925078
+        # Fix also UEFI systems that went through minor update 16.1->16.2 rhbz#2233095
         - name: Check if system was booted via EFI
           stat:
             path: /sys/firmware/efi
           when: step|int == 3
           register: efi
-        - name: Check if red is in efibootmgr
-          register: efi_red
+        - name: Check if red or ironic1 is in efibootmgr
+          register: efi_red_ir
           when: step|int == 3
           failed_when: false
           shell: |
-            efibootmgr | grep "red$"
-        - name: Check if red is in efibootmgr
+            efibootmgr | grep -E 'red$|ironic1'
+        - name: Check if Red Hat is in efibootmgr
           register: efi_redhat
           when: step|int == 3
           failed_when: false
@@ -737,9 +719,9 @@ outputs:
           when:
             - step|int == 3
             - efi.stat.exists|bool
-            - efi_red.rc is defined
+            - efi_red_ir.rc is defined
             - efi_redhat.rc is defined
-            - efi_red.rc == 0
+            - efi_red_ir.rc == 0
             - efi_redhat.rc == 0
           block:
             - name: Check if /boot/grub2/grubenv is symlink
@@ -759,3 +741,23 @@ outputs:
                   dest: /boot/grub2/grubenv
                   state: link
                   force: true
+        # Exclude ansible until https://github.com/ansible/ansible/issues/56636
+        # is available
+        - name: Update all packages
+          when:
+            - step|int == 3
+            - not skip_package_update|bool
+          yum:
+            name: '*'
+            state: latest
+            exclude: ansible
+        # This is failsafe unless openvswitch package does something
+        # to the systemd service state.
+        - name: Ensure openvswitch is running after update
+          when: step|int == 3
+          service:
+            name: openvswitch
+            enabled: yes
+            state: started
+          ignore_errors: true
+
