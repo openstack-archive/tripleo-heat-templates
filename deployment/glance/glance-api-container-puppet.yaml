@@ -468,6 +468,37 @@ resources:
               ContainerGlanceApiConfigImage: {get_param: ContainerGlanceApiConfigImage}
 
 outputs:
+  glance_api_host_prep_and_system_upgrade_post_tasks:
+    description: Common host_prep and system_upgrade post tasks for glance_api
+    value: &glance_api_host_prep_and_system_upgrade_post_tasks
+      - name: Mount NFS on host
+        vars:
+          nfs_backend_enabled: {get_param: GlanceNfsEnabled}
+          glance_netapp_nfs_enabled: {get_param: GlanceNetappNfsEnabled}
+          glance_nfs_share: {get_param: GlanceNfsShare}
+          netapp_share_location: {get_param: NetappShareLocation}
+          nfs_share: "{{ glance_nfs_share if (glance_nfs_share) else netapp_share_location }}"
+          nfs_options: {get_param: GlanceNfsOptions}
+        mount:
+          name: /var/lib/glance/images
+          state: mounted
+          fstype: nfs
+          src: "{{nfs_share}}"
+          opts: "{{nfs_options}}"
+        when: nfs_backend_enabled or glance_netapp_nfs_enabled
+      - name: Mount Node Staging Location
+        vars:
+          glance_node_staging_uri: {get_param: GlanceNodeStagingUri}
+          glance_staging_nfs_share: {get_param: GlanceStagingNfsShare}
+          glance_nfs_options: {get_param: GlanceStagingNfsOptions}
+        # Gleaning mount point by stripping "file://" prefix from staging uri
+        mount:
+          name: "{{glance_node_staging_uri[7:]}}"
+          state: mounted
+          fstype: nfs
+          src: "{{glance_staging_nfs_share}}"
+          opts: "{{glance_nfs_options}}"
+        when: glance_staging_nfs_share != ''
   role_data:
     description: Role data for the Glance API role.
     value:
@@ -856,34 +887,8 @@ outputs:
       host_prep_tasks:
         list_concat:
         - {get_attr: [GlanceLogging, host_prep_tasks]}
-        - - name: Mount NFS on host
-            vars:
-              nfs_backend_enabled: {get_param: GlanceNfsEnabled}
-              glance_netapp_nfs_enabled: {get_param: GlanceNetappNfsEnabled}
-              glance_nfs_share: {get_param: GlanceNfsShare}
-              netapp_share_location: {get_param: NetappShareLocation}
-              nfs_share: "{{ glance_nfs_share if (glance_nfs_share) else netapp_share_location }}"
-              nfs_options: {get_param: GlanceNfsOptions}
-            mount:
-              name: /var/lib/glance/images
-              state: mounted
-              fstype: nfs
-              src: "{{nfs_share}}"
-              opts: "{{nfs_options}}"
-            when: nfs_backend_enabled or glance_netapp_nfs_enabled
-          - name: Mount Node Staging Location
-            vars:
-              glance_node_staging_uri: {get_param: GlanceNodeStagingUri}
-              glance_staging_nfs_share: {get_param: GlanceStagingNfsShare}
-              glance_nfs_options: {get_param: GlanceStagingNfsOptions}
-            # Gleaning mount point by stripping "file://" prefix from staging uri
-            mount:
-              name: "{{glance_node_staging_uri[7:]}}"
-              state: mounted
-              fstype: nfs
-              src: "{{glance_staging_nfs_share}}"
-              opts: "{{glance_nfs_options}}"
-            when: glance_staging_nfs_share != ''
+        - *glance_api_host_prep_and_system_upgrade_post_tasks
+        -
           - name: ensure ceph configurations exist
             file:
               path: {get_param: CephConfigPath}
@@ -894,6 +899,45 @@ outputs:
               state: directory
               setype: container_file_t
         - {get_attr: [CinderNVMeOF, cinder_nvmeof_host_prep_tasks]}
+      upgrade_tasks:
+        - name: glance-api pre system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 3
+            - upgrade_leapp_enabled
+          block:
+            - name: Unmount and remove NFS glance entry
+              vars:
+                nfs_backend_enabled: {get_param: GlanceNfsEnabled}
+                glance_netapp_nfs_enabled: {get_param: GlanceNetappNfsEnabled}
+              mount:
+                name: /var/lib/glance/images
+                fstype: nfs
+                state: absent
+              when: nfs_backend_enabled or glance_netapp_nfs_enabled
+            - name: Unmount and remove NFS glance-staging entry
+              vars:
+                glance_node_staging_uri: {get_param: GlanceNodeStagingUri}
+                glance_staging_nfs_share: {get_param: GlanceStagingNfsShare}
+              mount:
+                name: "{{glance_node_staging_uri[7:]}}"
+                fstype: nfs
+                state: absent
+              when: glance_staging_nfs_share != ''
+        - name: glance-api post system_upgrade tasks
+          tags:
+            - never
+            - system_upgrade
+            - system_upgrade_run
+            - system_upgrade_nfsmounts
+          when:
+            - step|int == 5
+            - upgrade_leapp_enabled
+          block: *glance_api_host_prep_and_system_upgrade_post_tasks
       metadata_settings:
         get_attr: [TLSProxyBase, role_data, metadata_settings]
       external_upgrade_tasks:

@@ -261,32 +261,38 @@ outputs:
                   data:
                     multiconfig: {get_param: CephExternalMultiConfig}
 
+  cinder_volume_host_prep_and_system_upgrade_post_tasks:
+    description: Common host_prep and system_upgrade post tasks for cinder-volume
+    value: &cinder_volume_host_prep_and_system_upgrade_post_tasks
+      - name: Support using an NFS share for cinder image conversion
+        vars:
+          image_conversion_nfs_enabled: {if: [cinder_nfs_conversion_dir_enabled, true, false]}
+        when:
+          - image_conversion_nfs_enabled|bool
+        block:
+          - name: Create cinder image conversion directory
+            file:
+              path: *cinder_image_conversion_nfs_dir
+              state: directory
+          - name: Mount cinder's image conversion NFS share
+            vars:
+              image_conversion_nfs_share: {get_param: CinderImageConversionNfsShare}
+              image_conversion_nfs_options: {get_param: CinderImageConversionNfsOptions}
+            mount:
+              path: *cinder_image_conversion_nfs_dir
+              state: mounted
+              fstype: nfs4
+              src: "{{ image_conversion_nfs_share }}"
+              opts: "{{ image_conversion_nfs_options }}"
+      # TODO: LVM doesn't work after Leapp
+
   cinder_volume_host_prep_tasks:
     description: Host prep tasks for the cinder-volume service (HA or non-HA)
     value:
       list_concat:
         - *cinder_common_host_prep_tasks
-        - - name: Support using an NFS share for cinder image conversion
-            vars:
-              image_conversion_nfs_enabled: {if: [cinder_nfs_conversion_dir_enabled, true, false]}
-            when:
-              - image_conversion_nfs_enabled|bool
-            block:
-              - name: Create cinder image conversion directory
-                file:
-                  path: *cinder_image_conversion_nfs_dir
-                  state: directory
-              - name: Mount cinder's image conversion NFS share
-                vars:
-                  image_conversion_nfs_share: {get_param: CinderImageConversionNfsShare}
-                  image_conversion_nfs_options: {get_param: CinderImageConversionNfsOptions}
-                mount:
-                  path: *cinder_image_conversion_nfs_dir
-                  state: mounted
-                  fstype: nfs4
-                  src: "{{ image_conversion_nfs_share }}"
-                  opts: "{{ image_conversion_nfs_options }}"
-          - name: cinder_configure_lvm fact
+        - *cinder_volume_host_prep_and_system_upgrade_post_tasks
+        - - name: cinder_configure_lvm fact
             set_fact:
               cinder_configure_lvm: {if: [cinder_configure_lvm, true, false]}
           - when: cinder_configure_lvm|bool
@@ -357,6 +363,40 @@ outputs:
                   name: cinder-lvm-losetup
                   enabled: yes
                   daemon_reload: yes
+
+  cinder_volume_upgrade_tasks:
+    description: Upgrade tasks for the cinder-volume service (HA or non-HA)
+    value:
+      - name: cinder-volume pre system_upgrade tasks
+        tags:
+          - never
+          - system_upgrade
+          - system_upgrade_run
+          - system_upgrade_nfsmounts
+        when:
+          - step|int == 3
+          - upgrade_leapp_enabled
+        block:
+          - name: Unmount cinder's image conversion NFS share
+            vars:
+              image_conversion_nfs_share: {get_param: CinderImageConversionNfsShare}
+              image_conversion_nfs_options: {get_param: CinderImageConversionNfsOptions}
+              image_conversion_nfs_enabled: {if: [cinder_nfs_conversion_dir_enabled, true, false]}
+            when: image_conversion_nfs_enabled|bool
+            mount:
+              path: *cinder_image_conversion_nfs_dir
+              state: absent
+              fstype: nfs4
+      - name: cinder-volume post system_upgrade tasks
+        tags:
+          - never
+          - system_upgrade
+          - system_upgrade_run
+          - system_upgrade_nfsmounts
+        when:
+          - step|int == 5
+          - upgrade_leapp_enabled
+        block: *cinder_volume_host_prep_and_system_upgrade_post_tasks
 
   cinder_volume_config_settings:
     description: Config settings for the cinder-volume container (HA or non-HA)
