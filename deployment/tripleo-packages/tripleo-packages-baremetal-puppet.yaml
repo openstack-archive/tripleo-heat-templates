@@ -431,6 +431,21 @@ outputs:
                   when:
                     - ansible_facts['distribution_major_version'] is version('8', '==')
                     - base_tripleo_packages|length > 0
+                # Due to bug #2240185 where
+                #   Quay does not send schema 1 images as signed
+                #   Podman in version 4 and higher fails to run if signatures is missing from schema 1 manifest
+                #   Tripleo was using priority in accept headers which registries didn't understand and responsed with schema 1
+                # We now get images on the disk that might not be updateable and we are in middle of upgrade where
+                # these images are "corrupt" from podman's point of view. We fix this by checking if the image is
+                # schema 1 and if yes if it has signatures element in manifest. If it does not we just put empty
+                # signatures which makes podman happy.
+                - name: WA for 2240185 - If the image is schema 1 and lacks signatures than add empty signatures
+                  shell: |
+                    for manifest_file in `find /var/lib/containers/storage/overlay-images/ -name 'manifest'`
+                    do
+                        cat <<< $( jq  'if .schemaVersion == 1 then if has("signatures") then . else .signatures=[] end else . end' $manifest_file ) > $manifest_file
+                    done
+                  when: ansible_facts['distribution_major_version'] is version('8', '==')
             - name: check if libvirt is installed
               when: step|int == 0
               command: /usr/bin/rpm -q libvirt-daemon
