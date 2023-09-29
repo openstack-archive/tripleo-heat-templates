@@ -267,143 +267,145 @@ outputs:
             tripleo_ha_wrapper_minor_update: true
 
       upgrade_tasks:
-        - name: Tear-down non-HA cinder_volume container
-          when:
-            - step|int == 0
-          block: *cinder_volume_teardown_nonha
-        - name: Prepare switch of cinder_volume image name
-          when:
-            - step|int == 0
-          block:
-            - name: Get cinder_volume image id currently used by pacemaker
-              shell: "pcs resource config openstack-cinder-volume | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
-              register: cinder_volume_image_current_res
-              failed_when: false
-            - name: cinder_volume image facts
-              set_fact:
-                cinder_volume_image_latest: *cinder_volume_image_pcmklatest
-                cinder_volume_image_current: "{{cinder_volume_image_current_res.stdout}}"
-            - name: Temporarily tag the current cinder_volume image id with the upgraded image name
-              import_role:
-                name: tripleo_container_tag
-              vars:
-                container_image: "{{cinder_volume_image_current}}"
-                container_image_latest: "{{cinder_volume_image_latest}}"
-                pull_image: false
-              when:
-                - cinder_volume_image_current != ''
-                - cinder_volume_image_current != cinder_volume_image_latest
-            # During an OS Upgrade, the cluster may not exist so we use
-            # the shell module instead.
-            # TODO(odyssey4me):
-            # Fix the pacemaker_resource module to handle the exception
-            # for a non-existant cluster more gracefully.
-            - name: Check openstack-cinder-volume cluster resource status
-              shell: pcs resource config openstack-cinder-volume
-              changed_when: false
-              failed_when: false
-              register: cinder_volume_pcs_res_result
-            - name: Set fact cinder_volume_pcs_res
-              set_fact:
-                cinder_volume_pcs_res: "{{cinder_volume_pcs_res_result.rc == 0}}"
-            - name: set is_cinder_volume_bootstrap_node fact
-              tags: common
-              set_fact: is_cinder_volume_bootstrap_node={{cinder_volume_short_bootstrap_node_name|lower == ansible_facts['hostname']|lower}}
-        - name: Update cinder_volume pcs resource bundle for new container image
-          when:
-            - step|int == 1
-            - is_cinder_volume_bootstrap_node
-            - cinder_volume_pcs_res|bool
-            - cinder_volume_image_current != cinder_volume_image_latest
-          block:
-            - name: Disable the cinder_volume cluster resource before container upgrade
-              pacemaker_resource:
-                resource: openstack-cinder-volume
-                state: disable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-            - name: pcs resource bundle update cinder_volume for new container image name
-              command: "pcs resource bundle update openstack-cinder-volume container image={{cinder_volume_image_latest}}"
-            - name: Enable the cinder_volume cluster resource
-              pacemaker_resource:
-                resource: openstack-cinder-volume
-                state: enable
-                wait_for_resource: true
-              register: output
-              retries: 5
-              until: output.rc == 0
-        - name: Create hiera data to upgrade cinder_volume in a stepwise manner.
-          when:
-            - step|int == 1
-            - cluster_recreate|bool
-          block:
-            - name: set cinder_volume upgrade node facts in a single-node environment
-              set_fact:
-                cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names }}"
-                cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names | default([]) }}"
-                cacheable: no
-              when: groups['cinder_volume'] | length <= 1
-            - name: set cinder_volume upgrade node facts from the limit option
-              set_fact:
-                cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
-                cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names_upgraded|default([]) + [item] }}"
-                cacheable: no
-              when:
-                - groups['cinder_volume'] | length > 1
-                - item.split('.')[0] in ansible_limit.split(':')
-              loop: "{{ cinder_volume_node_names | default([]) }}"
-            - fail:
-                msg: >
-                  You can't upgrade cinder_volume without
-                  staged upgrade.  You need to use the limit option in order
-                  to do so.
-              when: >-
-                cinder_volume_short_node_names_upgraded is not defined or
-                cinder_volume_short_node_names_upgraded | length == 0 or
-                cinder_volume_node_names_upgraded is not defined or
-                cinder_volume_node_names_upgraded | length == 0
-            - debug:
-                msg: "Prepare cinder_volume upgrade for {{ cinder_volume_short_node_names_upgraded }}"
-            - name: remove cinder_volume init container on upgrade-scaleup to force re-init
-              include_role:
-                name: tripleo_container_rm
-              vars:
-                tripleo_containers_to_rm:
-                  - cinder_volume_init_bundle
-              when:
-                - cinder_volume_short_node_names_upgraded | length > 1
-            - name: add the cinder_volume short name to hiera data for the upgrade.
-              include_role:
-                name: tripleo_upgrade_hiera
-                tasks_from: set.yml
-              vars:
-                tripleo_upgrade_key: cinder_volume_short_node_names_override
-                tripleo_upgrade_value: "{{ cinder_volume_short_node_names_upgraded }}"
-            - name: add the cinder_volume long name to hiera data for the upgrade
-              include_role:
-                name: tripleo_upgrade_hiera
-                tasks_from: set.yml
-              vars:
-                tripleo_upgrade_key: cinder_volume_node_names_override
-                tripleo_upgrade_value: "{{ cinder_volume_node_names_upgraded }}"
-            - name: remove the extra hiera data needed for the upgrade.
-              include_role:
-                name: tripleo_upgrade_hiera
-                tasks_from: remove.yml
-              vars:
-                tripleo_upgrade_key: "{{ item }}"
-              loop:
-                - cinder_volume_short_node_names_override
-                - cinder_volume_node_names_override
-              when: cinder_volume_short_node_names_upgraded | length == cinder_volume_node_names | length
-        - name: Retag the pacemaker image if containerized
-          when:
-            - step|int == 3
-          block:
-            - block: *cinder_volume_container_image_facts
-            - block: *cinder_volume_fetch_retag_container_tasks
+        list_concat:
+        - - name: Tear-down non-HA cinder_volume container
+            when:
+              - step|int == 0
+            block: *cinder_volume_teardown_nonha
+          - name: Prepare switch of cinder_volume image name
+            when:
+              - step|int == 0
+            block:
+              - name: Get cinder_volume image id currently used by pacemaker
+                shell: "pcs resource config openstack-cinder-volume | grep -Eo 'image=[^ ]+' | awk -F= '{print $2;}'"
+                register: cinder_volume_image_current_res
+                failed_when: false
+              - name: cinder_volume image facts
+                set_fact:
+                  cinder_volume_image_latest: *cinder_volume_image_pcmklatest
+                  cinder_volume_image_current: "{{cinder_volume_image_current_res.stdout}}"
+              - name: Temporarily tag the current cinder_volume image id with the upgraded image name
+                import_role:
+                  name: tripleo_container_tag
+                vars:
+                  container_image: "{{cinder_volume_image_current}}"
+                  container_image_latest: "{{cinder_volume_image_latest}}"
+                  pull_image: false
+                when:
+                  - cinder_volume_image_current != ''
+                  - cinder_volume_image_current != cinder_volume_image_latest
+              # During an OS Upgrade, the cluster may not exist so we use
+              # the shell module instead.
+              # TODO(odyssey4me):
+              # Fix the pacemaker_resource module to handle the exception
+              # for a non-existant cluster more gracefully.
+              - name: Check openstack-cinder-volume cluster resource status
+                shell: pcs resource config openstack-cinder-volume
+                changed_when: false
+                failed_when: false
+                register: cinder_volume_pcs_res_result
+              - name: Set fact cinder_volume_pcs_res
+                set_fact:
+                  cinder_volume_pcs_res: "{{cinder_volume_pcs_res_result.rc == 0}}"
+              - name: set is_cinder_volume_bootstrap_node fact
+                tags: common
+                set_fact: is_cinder_volume_bootstrap_node={{cinder_volume_short_bootstrap_node_name|lower == ansible_facts['hostname']|lower}}
+          - name: Update cinder_volume pcs resource bundle for new container image
+            when:
+              - step|int == 1
+              - is_cinder_volume_bootstrap_node
+              - cinder_volume_pcs_res|bool
+              - cinder_volume_image_current != cinder_volume_image_latest
+            block:
+              - name: Disable the cinder_volume cluster resource before container upgrade
+                pacemaker_resource:
+                  resource: openstack-cinder-volume
+                  state: disable
+                  wait_for_resource: true
+                register: output
+                retries: 5
+                until: output.rc == 0
+              - name: pcs resource bundle update cinder_volume for new container image name
+                command: "pcs resource bundle update openstack-cinder-volume container image={{cinder_volume_image_latest}}"
+              - name: Enable the cinder_volume cluster resource
+                pacemaker_resource:
+                  resource: openstack-cinder-volume
+                  state: enable
+                  wait_for_resource: true
+                register: output
+                retries: 5
+                until: output.rc == 0
+          - name: Create hiera data to upgrade cinder_volume in a stepwise manner.
+            when:
+              - step|int == 1
+              - cluster_recreate|bool
+            block:
+              - name: set cinder_volume upgrade node facts in a single-node environment
+                set_fact:
+                  cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names }}"
+                  cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names | default([]) }}"
+                  cacheable: no
+                when: groups['cinder_volume'] | length <= 1
+              - name: set cinder_volume upgrade node facts from the limit option
+                set_fact:
+                  cinder_volume_short_node_names_upgraded: "{{ cinder_volume_short_node_names_upgraded|default([]) + [item.split('.')[0]] }}"
+                  cinder_volume_node_names_upgraded: "{{ cinder_volume_node_names_upgraded|default([]) + [item] }}"
+                  cacheable: no
+                when:
+                  - groups['cinder_volume'] | length > 1
+                  - item.split('.')[0] in ansible_limit.split(':')
+                loop: "{{ cinder_volume_node_names | default([]) }}"
+              - fail:
+                  msg: >
+                    You can't upgrade cinder_volume without
+                    staged upgrade.  You need to use the limit option in order
+                    to do so.
+                when: >-
+                  cinder_volume_short_node_names_upgraded is not defined or
+                  cinder_volume_short_node_names_upgraded | length == 0 or
+                  cinder_volume_node_names_upgraded is not defined or
+                  cinder_volume_node_names_upgraded | length == 0
+              - debug:
+                  msg: "Prepare cinder_volume upgrade for {{ cinder_volume_short_node_names_upgraded }}"
+              - name: remove cinder_volume init container on upgrade-scaleup to force re-init
+                include_role:
+                  name: tripleo_container_rm
+                vars:
+                  tripleo_containers_to_rm:
+                    - cinder_volume_init_bundle
+                when:
+                  - cinder_volume_short_node_names_upgraded | length > 1
+              - name: add the cinder_volume short name to hiera data for the upgrade.
+                include_role:
+                  name: tripleo_upgrade_hiera
+                  tasks_from: set.yml
+                vars:
+                  tripleo_upgrade_key: cinder_volume_short_node_names_override
+                  tripleo_upgrade_value: "{{ cinder_volume_short_node_names_upgraded }}"
+              - name: add the cinder_volume long name to hiera data for the upgrade
+                include_role:
+                  name: tripleo_upgrade_hiera
+                  tasks_from: set.yml
+                vars:
+                  tripleo_upgrade_key: cinder_volume_node_names_override
+                  tripleo_upgrade_value: "{{ cinder_volume_node_names_upgraded }}"
+              - name: remove the extra hiera data needed for the upgrade.
+                include_role:
+                  name: tripleo_upgrade_hiera
+                  tasks_from: remove.yml
+                vars:
+                  tripleo_upgrade_key: "{{ item }}"
+                loop:
+                  - cinder_volume_short_node_names_override
+                  - cinder_volume_node_names_override
+                when: cinder_volume_short_node_names_upgraded | length == cinder_volume_node_names | length
+          - name: Retag the pacemaker image if containerized
+            when:
+              - step|int == 3
+            block:
+              - block: *cinder_volume_container_image_facts
+              - block: *cinder_volume_fetch_retag_container_tasks
+        - {get_attr: [CinderCommon, cinder_volume_upgrade_tasks]}
 
       post_upgrade_tasks:
         - name: Start cinder_volume service (pacemaker)
