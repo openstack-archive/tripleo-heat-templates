@@ -612,18 +612,25 @@ outputs:
             any_ovn_host: "{{groups['ovn_controller'] | difference(groups['excluded_overcloud']) | first }}"
           tags: ovn
           when: step|int == 1
-        - name: Infer if we're coming from 17.0
-          stat:
-            path: /var/lib/tripleo-config/container-startup-config/step_4/ovn_controller.json
+        - name: Find ovn_controller configs in container-startup-configs
+          find:
+            paths: /var/lib/tripleo-config/container-startup-config/
+            patterns: "*ovn_controller.json"
+            recurse: yes
           register: ovn_cont_17_0
           delegate_to: "{{ any_ovn_host }}"
           when: (step|int == 1) and (any_ovn_host is defined) and (any_ovn_host|length > 0)
           tags:
             - ovn
           become: true
+        - name: get directory path from the ovn_cont_17_0
+          set_fact:
+            ovn_config_path: "{{ ovn_cont_17_0.files.0.path | dirname }}"
+          when: step|int == 1
+          tags: ovn
         - name: Update ovn_controller.
           vars:
-            config_step: "{{ ((ovn_cont_17_0 is defined) and ovn_cont_17_0.stat.exists) | ternary('4', '3')}}"
+            config_step: "{{ ('step_4' in ovn_config_path) | ternary('4', '3')}}"
           when: step|int == 1
           tags: ovn
           become: true
@@ -633,15 +640,16 @@ outputs:
           poll: 0
           register: ovn_controller_update
           tripleo_container_manage:
-            config_dir: "/var/lib/tripleo-config/container-startup-config/step_{{ config_step }}"
-            config_patterns: 'ovn_controller.json'
+            config_dir: "{{ ovn_config_path }}"
+            config_patterns: '*ovn_controller.json'
             config_id:
               - 'tripleo_step{{config_step}}'
             log_base_path: "{{ container_log_stdout_path }}"
             debug: "{{ enable_debug | bool }}"
             config_overrides:
-              ovn_controller:
+              '.*ovn_controller':
                 image: {get_param: ContainerOvnControllerConfigImage}
+                name: "ovn_controller"
         - name: Was the ovn_controller successful.
           when:
             - step|int == 1
