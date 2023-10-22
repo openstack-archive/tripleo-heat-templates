@@ -213,6 +213,47 @@ outputs:
             name: python3-novaclient
             state: present
           when: {get_param: EnableInstanceHA}
+      scale_tasks:
+        - when:
+            - step|int == 1
+            - container_cli == 'podman'
+          tags: down
+          become: true
+          block:
+            - name: Getting Nova compute hostname
+              command: crm_node -n
+              register: nova_compute_hostname
+            - name: Check if pacemaker_short_bootstrap_node_name is a defined variable
+              when: pacemaker_short_bootstrap_node_name is not defined
+              fail:
+                msg: 'Cannot delegate pacemaker cleanup to the bootstrap node. Please delete the resources manually.'
+              ignore_errors: yes
+            - name: Clean up Pacemaker remote and STONITH resources for Compute node
+              when:
+                - nova_compute_hostname.stdout in compute_instanceha_short_node_names
+                - pacemaker_short_bootstrap_node_name is defined
+              block:
+                - name: List STONITH resource for the Compute node
+                  command: stonith_admin -l {{ nova_compute_hostname.stdout }}
+                  register: stonith_service_results
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
+                - name: Disable the STONITH resources for the Compute node
+                  command: pcs resource disable "{{ item }}"
+                  loop: "{{ stonith_service_results.stdout | regex_findall('^(stonith-fence(?!_compute-fence-nova).*)', multiline=True)}}"
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
+                - name: Delete the STONITH resources for the Compute node
+                  command: pcs resource delete "{{ item }}"
+                  loop: "{{ stonith_service_results.stdout | regex_findall('^(stonith-fence(?!_compute-fence-nova).*)', multiline=True)}}"
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
+                - name: Clear the stonith level hierarchy for the Compute node target
+                  command: pcs stonith level clear target {{ nova_compute_hostname.stdout }}
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
+                - name: Delete Compute node from cluster
+                  command: pcs cluster node remove-remote {{ nova_compute_hostname.stdout }}
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
+                - name: Remove compute node in pcmk_host_list parameter from stonith-fence_compute-fence-nova
+                  command: crm_resource --set-parameter=pcmk_host_list -r stonith-fence_compute-fence-nova -v "{{ pacemaker_remote_short_node_names | reject('search', nova_compute_hostname.stdout) | join(',') }}"
+                  delegate_to: "{{ pacemaker_short_bootstrap_node_name }}"
       upgrade_tasks:
         # Since Wallaby, Redis is not deployed by defaut anymore
         - name: Ensure redis is removed
