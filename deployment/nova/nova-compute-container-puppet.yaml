@@ -1485,7 +1485,47 @@ outputs:
           - name: create tempfiles
             command: systemd-tmpfiles --create
         - *nova_compute_host_prep_and_system_upgrade_post_tasks
-        - - name: is Nova Resume Guests State On Host Boot enabled
+        - - name: check systemd-container package installed or not
+            package:
+              name: systemd-container
+              state: present
+            check_mode: true
+            register: is_systemd_container_package
+          - name: get latest package from downloaded package versions
+            shell: ls -1t /var/tmp/systemd-container* | head -1
+            register: latest_systemd_container_package
+            when: is_systemd_container_package.changed
+          - name: Install systemd-container package on boot
+            copy:
+              dest: /etc/systemd/system/install-systemd-container.service
+              content: |
+                [Unit]
+                Description=Install systemd container package on system boot
+                Before=tripleo_nova_virtqemud.service
+
+                [Service]
+                Type=oneshot
+                ExecStart=/usr/bin/rpm -ivh {{ latest_systemd_container_package.stdout }}
+                ExecStartPost=rm -f /var/tmp/systemd-container*
+
+                [Install]
+                WantedBy=multi-user.target
+            when: is_systemd_container_package.changed
+          - name: enable install-systemd-container on compute boot
+            systemd:
+              name: install-systemd-container
+              state: stopped
+              enabled: true
+              daemon_reload: true
+            when: is_systemd_container_package.changed
+          - name: disable and mask install-systemd-container on compute boot
+            systemd:
+              name: install-systemd-container
+              enabled: false
+              masked: true
+              daemon_reload: true
+            when: not is_systemd_container_package.changed
+          - name: is Nova Resume Guests State On Host Boot enabled
             set_fact:
               resume_guests_state_on_host_boot_enabled: {get_attr: [RoleParametersValue, value, resume_guests_state_on_host_boot]}
           - name: install libvirt-guests systemd unit file (docker)
