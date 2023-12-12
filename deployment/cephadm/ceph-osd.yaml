@@ -37,6 +37,15 @@ parameters:
       devices: []
       osd_scenario: lvm
       osd_objectstore: bluestore
+  CephClusterName:
+    type: string
+    default: ceph
+    description: The Ceph cluster name.
+    constraints:
+    - allowed_pattern: "[a-zA-Z0-9]+"
+      description: >
+        The Ceph cluster name must be at least 1 character and contain only
+        letters and numbers.
   CephEnableDashboard:
     type: boolean
     default: false
@@ -107,7 +116,7 @@ outputs:
         list_concat:
         - {get_attr: [CephBase, role_data, upgrade_tasks]}
         - - name: Set noout flag
-            shell: "cephadm shell -- ceph osd set {{ item }}"
+            shell: "cephadm shell -c /etc/ceph/{{ tripleo_cephadm_cluster }}.conf -k /etc/ceph/{{ tripleo_cephadm_cluster }}.client.admin.keyring -- ceph osd set {{ item }}"
             become: true
             with_items:
               - noout
@@ -115,27 +124,31 @@ outputs:
               - nobackfill
               - norebalance
               - nodeep-scrub
-            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+            delegate_to: "{{ groups['ceph_mon'][0] }}"
             tags:
               - never
               - system_upgrade
               - system_upgrade_prepare
+            vars:
+              tripleo_cephadm_cluster: {get_param: CephClusterName}
             when:
               - step|int == 1
               - upgrade_leapp_enabled
         - - name: Unset noout flag
-            shell: "cephadm shell -- ceph osd unset {{ item }}"
+            shell: "cephadm shell -c /etc/ceph/{{ tripleo_cephadm_cluster }}.conf -k /etc/ceph/{{ tripleo_cephadm_cluster }}.client.admin.keyring -- ceph osd unset {{ item }}"
             with_items:
               - noout
               - norecover
               - nobackfill
               - norebalance
               - nodeep-scrub
-            delegate_to: "{{ ceph_mon_short_bootstrap_node_name }}"
+            delegate_to: "{{ groups['ceph_mon'][0] }}"
             tags:
               - never
               - system_upgrade
               - system_upgrade_prepare
+            vars:
+              tripleo_cephadm_cluster: {get_param: CephClusterName}
             when:
               - step|int == 5
               - upgrade_leapp_enabled
